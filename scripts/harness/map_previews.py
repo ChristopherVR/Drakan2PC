@@ -17,6 +17,7 @@ player's disc. Standard library only (the build's Python may not have Pillow).
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import struct
 import subprocess
@@ -188,8 +189,23 @@ def make_picture(shot: Path, dest: Path) -> tuple[bool, str]:
     return ok, why
 
 
-def capture(m: dict[str, str], a: argparse.Namespace, exe: Path) -> Path | None:
-    """One game run: the window shot of the map's preview point, or None."""
+LOAD_FAILED = re.compile(r"afterLevelLoad .*\bok=0\b")
+MODS_LOADED = "[mods] disc profile"
+
+
+def run_problem(text: str, needs_mods: bool, seconds: float) -> str:
+    """Why a run can never produce its picture, or ''. A level that fails to load leaves the game on its Loading screen
+    until the timeout; a mod map whose packs never loaded cannot be found. Both are certain after a few seconds, so the
+    run is stopped at once and is not retried (it would fail the same way)."""
+    if LOAD_FAILED.search(text):
+        return "the level did not load"
+    if needs_mods and seconds > 45 and MODS_LOADED not in text:
+        return "the mod packs were not loaded"
+    return ""
+
+
+def capture(m: dict[str, str], a: argparse.Namespace, exe: Path) -> tuple[Path | None, str]:
+    """One game run: (the window shot of the map's preview point or None, why it can never work or '')."""
     out = ROOT / "build" / "harness" / "map_previews" / m["id"]
     if out.exists():
         shutil.rmtree(out)
@@ -216,13 +232,22 @@ def capture(m: dict[str, str], a: argparse.Namespace, exe: Path) -> Path | None:
         extra["DRAKAN_MP_MAPS"] = str(a.maps_file.resolve())
     env = game_env(out, exe.parent, recipe, a.timeout, extra)
     env.pop("DRAKAN_GHOST", None)
+    # The packs are named explicitly, not through the junction the harness folder has to <src>/mods.
+    mods = (a.src / "mods").resolve()
+    if mods.is_dir():
+        env["DRAKAN_MODS"] = str(mods)
+    needs_mods = bool(m.get("pack"))
     log = out / "stdout_1.log"
     with log.open("wb") as f:
         p = subprocess.Popen([str(exe)], cwd=exe.parent, env=env, stdout=f, stderr=subprocess.STDOUT)
         t0 = time.monotonic()
+        problem = ""
         while p.poll() is None:
             time.sleep(1)
             text = log.read_bytes().decode("latin-1")
+            problem = run_problem(text, needs_mods, time.monotonic() - t0)
+            if problem:
+                break
             if shot.is_file() and time.monotonic() - t0 > 5:
                 time.sleep(2)  # the writer finishes the file
                 break
@@ -237,7 +262,7 @@ def capture(m: dict[str, str], a: argparse.Namespace, exe: Path) -> Path | None:
     for line in log.read_bytes().decode("latin-1").splitlines():
         if "preview shot" in line:
             print("   ", line.strip())
-    return shot if shot.is_file() else None
+    return (shot if shot.is_file() else None), problem
 
 
 def main() -> int:
@@ -270,17 +295,33 @@ def main() -> int:
         return 0
     exe = prepare_folder(a.src, a.exe, ROOT / "build" / "mapstudio")
     failed = []
-    for m in todo:
+    packs_missing = False  # the mod packs did not load once: the other pack maps would fail the same way
+    started = time.monotonic()
+    for number, m in enumerate(todo, 1):
         name = m.get("name", m["id"])
         dest = a.out / (safe_name(name) + ".png")
-        print(f"map picture: {name} ({m['level']})", flush=True)
+        print(
+            f"map picture {number}/{len(todo)}: {name} ({m['level']}), "
+            f"{int((time.monotonic() - started) // 60)} min so far; the game opens and closes by itself",
+            flush=True,
+        )
+        if packs_missing and m.get("pack"):
+            print("    skipped: the mod packs did not load in the earlier run", flush=True)
+            failed.append(name)
+            continue
         for attempt in (1, 2):
-            shot = capture(m, a, exe)
-            ok, why = make_picture(shot, dest) if shot else (False, "no window shot")
+            shot, problem = capture(m, a, exe)
+            ok, why = make_picture(shot, dest) if shot else (False, problem or "no window shot")
             print(f"    attempt {attempt}: {'written ' + str(dest) if ok else 'rejected'} ({why})", flush=True)
             if ok:
                 break
+            if problem:  # a certain failure: a second run would end the same way
+                packs_missing = packs_missing or problem == "the mod packs were not loaded"
+                break
         else:
+            failed.append(name)
+            continue
+        if not ok:
             failed.append(name)
     if failed:
         print("map pictures missing (the menu draws the sketch): " + ", ".join(failed))
