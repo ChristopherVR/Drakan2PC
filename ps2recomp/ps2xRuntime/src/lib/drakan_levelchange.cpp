@@ -745,6 +745,12 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
         g_fireKey = {};
         g_currentLevel = e.level;
         g_following = false;
+        {
+            // A load (title Load / Continue, quick load, a level change) can put the player on an exit and touch it
+            // before the first live tick re-takes the arrival spot: hold the exits from the level's start.
+            std::lock_guard<std::mutex> gl(g_guardMutex);
+            g_guard.levelStart(drakan_game::isCampaignPackLevel(e.level), 0.0f, 0.0f);
+        }
     }
 }
 
