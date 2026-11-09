@@ -166,9 +166,20 @@ function Write-BuildStep([string]$Text) {
     $script:stepTitle = "[$script:step/$stepCount] $Text"
     # Build-Drakan.ps1 reads this after a failure to decide whether a less parallel retry can help.
     $global:DrakanBuildStep = $Text
+    $script:stageNote = ''
     # The next "Rebuild Drakan" reads this to say where an interrupted build stopped (Build-Progress.ps1).
     Write-BuildState $WorkDir @{ step = $script:step; steps = $stepCount; title = $Text; status = 'running' }
     if ($Progress) { Write-Host "`n$script:stepTitle" -ForegroundColor Cyan }
+}
+# A named stage inside a long step ("Making the multiplayer map pictures"): printed on the console and logged, and shown on
+# the progress bar until the next stage starts, so a long step never shows only a clock.
+$script:stageNote = ''
+function Write-Stage([string]$Text) {
+    $script:stageNote = $Text
+    if ($Progress) {
+        Write-Host "  $Text" -ForegroundColor DarkGray
+        Add-Content -LiteralPath $outputLog -Value $Text
+    } else { Write-Host $Text }
 }
 # Developer details: on the console normally, only in the output log with -Progress.
 function Write-Detail([string]$Text) {
@@ -259,7 +270,8 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
                 # One short line (the console cuts a long one off): the step, the file count and the longest-running file.
                 Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $status -PercentComplete $percent
             } else {
-                Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $status -PercentComplete $percent
+                $note = if ($script:stageNote) { "$status | $($script:stageNote)" } else { $status }
+                Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $note -PercentComplete $percent
             }
         }
         $process.WaitForExit()
@@ -459,15 +471,16 @@ Write-BuildStep 'Setting up the play folder'
 if ($gameRegion -eq 'pal') {
     # Private derivatives of the supplied disc, never tracked / downloaded. Cached in the existing WorkDir; copied
     # through the normal deployment below, so the multiplayer menu has live original meshes on its first launch.
-    Write-Detail 'Extracting original character meshes and materials'
+    Write-Stage 'Extracting the original character meshes and materials'
     Invoke-Checked $Python @((Join-Path $RepoRoot 'analysis/scripts/character_previews.py'),'--iso',$IsoPath,
         '--out',(Join-Path $gameOutput 'previews/chars'))
+    Write-Stage 'Making the multiplayer character motions'
     Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/character_motion.py'),'--iso',$IsoPath,
         '--out',(Join-Path $gameOutput 'mods/drakan-character-motion.zip'))
 
 }
     # The Choose-your-game cover of The Ancients' Gates: the title screen artwork of the supplied disc.
-    Write-Detail 'Extracting the Drakan 2 cover picture'
+    Write-Stage 'Extracting the Drakan 2 cover picture'
     Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/title_cover.py'),'--iso',$IsoPath,
         '--out',(Join-Path $gameOutput 'previews/game-d2.png'),
         '--background-out',(Join-Path $gameOutput 'previews/background-d2.png'))
@@ -504,6 +517,7 @@ if (-not $NoDist) {
             Write-Detail "In use by a running game, set aside: $name -> $name.in-use-$n"
         }
     }
+    Write-Stage 'Copying the game into the play folder'
     foreach ($item in Get-ChildItem -LiteralPath $gameOutput -Force) {
         $name = $item.Name
         # Never let the build folder's test saves, default settings or launchers replace the preserved ones;
@@ -513,6 +527,7 @@ if (-not $NoDist) {
         Copy-Item -LiteralPath $item.FullName -Destination $DistDirectory -Recurse -Force
     }
     if ($ModDirectory) {
+        Write-Stage 'Installing the mod packs (Order of the Flame)'
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
             '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
     }
@@ -586,6 +601,7 @@ if (-not $NoDist) {
             # its existing location; do not duplicate a multi-gigabyte pack.
             $webTextureSource = $textureSource
         } elseif ($textureSource -ne $textureDest) {
+            Write-Stage 'Staging the HD texture pack'
             Invoke-Checked $Python @((Join-Path $PSScriptRoot 'stage_texture_pack.py'),$textureSource,$textureDest)
             Write-Detail "Staged shared HD texture pack from $textureSource"
         }
@@ -618,6 +634,7 @@ if ($webBuild) {
     Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'); error = $null }
     return
 }
+Write-Stage 'Writing the launch files'
 $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$RepoRoot,
     '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
 Invoke-Checked $Python $launchArgs
@@ -625,7 +642,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
     # The multiplayer menu's map pictures: one short game run per built-in arena without a picture yet, from the map's
     # authored camera point (previews/maps/ survives the play folder clean, so later builds skip this). A failure
     # only leaves the drawn sketch in the menu; it does not fail the build.
-    Write-Detail 'Making the multiplayer map pictures (a short game run per map without one)'
+    Write-Stage 'Making the multiplayer map pictures (a short game run per map; later builds skip the ones made)'
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/map_previews.py'),'--exe',$gameExe,
             '--src',$DistDirectory,'--out',(Join-Path $DistDirectory 'previews/maps'))
@@ -635,6 +652,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
     }
     # The enabled packs' own maps (Order of the Flame levels in mods/ootf-levels.zip) were pictured by the same run; put
     # the pictures into the packs so they travel with them. mod.toml is untouched, so a pack's `build` id (saves) stays.
+    Write-Stage 'Adding the map pictures to the mod packs'
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/pack_map_previews.py'),
             '--mods',(Join-Path $DistDirectory 'mods'),'--pictures',(Join-Path $DistDirectory 'previews/maps'))
@@ -647,7 +665,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and $SettingPictu
     # The real pictures of the PC Settings help panel: screenshots of this game with each setting applied, made from the
     # player's disc into previews/settings/ (kept across builds, so later builds only make what is missing). A failure
     # only leaves a setting without a picture; it does not fail the build.
-    Write-Detail 'Making the settings pictures (a short game run per picture that is missing)'
+    Write-Stage 'Making the settings pictures (a short game run per picture that is missing)'
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/setting_shots.py'),
             '--exe',(Join-Path $DistDirectory 'drakan.exe'),'--out',(Join-Path $DistDirectory 'previews/settings'))

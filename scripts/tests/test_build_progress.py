@@ -211,6 +211,34 @@ class ProgressLineTests(unittest.TestCase):
             self.assertLess(len(line), 80, "short enough for a narrow console")
 
 
+class StageNoteTests(unittest.TestCase):
+    """The last step runs many unrelated programs; its bar must say which one, not only the elapsed time."""
+
+    def test_every_long_stage_of_the_play_folder_step_is_named(self):
+        text = (ROOT / "scripts/buildtool/Build-LocalGame.ps1").read_text(encoding="utf-8")
+        self.assertIn("function Write-Stage", text)
+        start = text.index("Write-BuildStep 'Setting up the play folder'")
+        step = text[start:]
+        for stage in (
+            "Extracting the original character meshes",
+            "Making the multiplayer character motions",
+            "Extracting the Drakan 2 cover picture",
+            "Copying the game into the play folder",
+            "Installing the mod packs",
+            "Writing the launch files",
+            "Making the multiplayer map pictures",
+            "Adding the map pictures to the mod packs",
+            "Making the settings pictures",
+        ):
+            self.assertIn(f"Write-Stage '{stage}", step)
+        self.assertIn("$script:stageNote", text.split("function Invoke-Logged")[1], "the bar shows the stage")
+        self.assertIn(
+            "$script:stageNote = ''",
+            text.split("function Write-BuildStep")[1].split("}")[0],
+            "a step starts without one",
+        )
+
+
 @unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) not on PATH")
 class ReviewTests(unittest.TestCase):
     def review(self, work, runtime, exe):
