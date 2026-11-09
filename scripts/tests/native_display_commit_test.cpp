@@ -361,6 +361,13 @@ bool isSet(const char*, const char*, const char*) {
     return false;
 }
 } // namespace drakan_cfg
+// The pre-rendered intro movie is a host integration of the real bridge; this test never plays one.
+namespace drakan_intro_movie {
+bool renderModeActive() {
+    return false;
+}
+void onCompletedFrame(gsr::Renderer&, uint64_t) {}
+} // namespace drakan_intro_movie
 namespace gsr::texup {
 uint64_t hashContent(const uint32_t*, uint32_t, uint32_t) {
     return 0;
