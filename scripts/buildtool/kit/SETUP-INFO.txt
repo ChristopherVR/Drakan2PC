@@ -23,6 +23,9 @@ What happens:
      the Visual Studio Build Tools license:
      https://visualstudio.microsoft.com/license-terms/
   4. The game is built. This takes one to two hours, depending on your PC.
+     Near the end the build starts the finished game several times, each in a
+     small window that closes by itself, to take the multiplayer map and
+     settings pictures. This is normal: leave those windows alone.
      You can keep using the PC meanwhile; leave the window open.
   5. When it says "Done", start the game with the "Drakan - The Ancients' Gates"
      shortcut.

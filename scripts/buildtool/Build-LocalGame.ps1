@@ -174,12 +174,17 @@ function Write-BuildStep([string]$Text) {
 # A named stage inside a long step ("Making the multiplayer map pictures"): printed on the console and logged, and shown on
 # the progress bar until the next stage starts, so a long step never shows only a clock.
 $script:stageNote = ''
-function Write-Stage([string]$Text) {
+function Write-Stage([string]$Text, [string]$Detail = '') {
     $script:stageNote = $Text
     if ($Progress) {
         Write-Host "  $Text" -ForegroundColor DarkGray
         Add-Content -LiteralPath $outputLog -Value $Text
     } else { Write-Host $Text }
+    # An explanation for the console only (the bar shows just the stage name).
+    if ($Detail) {
+        Write-Host "    $Detail" -ForegroundColor Yellow
+        if ($Progress) { Add-Content -LiteralPath $outputLog -Value $Detail }
+    }
 }
 # Developer details: on the console normally, only in the output log with -Progress.
 function Write-Detail([string]$Text) {
@@ -642,7 +647,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
     # The multiplayer menu's map pictures: one short game run per built-in arena without a picture yet, from the map's
     # authored camera point (previews/maps/ survives the play folder clean, so later builds skip this). A failure
     # only leaves the drawn sketch in the menu; it does not fail the build.
-    Write-Stage 'Making the multiplayer map pictures (a short game run per map; later builds skip the ones made)'
+    Write-Stage 'Making the multiplayer map pictures (a short game run per map; later builds skip the ones made)' 'The game opens and closes by itself several times to take these pictures; this is normal, so leave it alone.'
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/map_previews.py'),'--exe',$gameExe,
             '--src',$DistDirectory,'--out',(Join-Path $DistDirectory 'previews/maps'))
@@ -665,7 +670,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and $SettingPictu
     # The real pictures of the PC Settings help panel: screenshots of this game with each setting applied, made from the
     # player's disc into previews/settings/ (kept across builds, so later builds only make what is missing). A failure
     # only leaves a setting without a picture; it does not fail the build.
-    Write-Stage 'Making the settings pictures (a short game run per picture that is missing)'
+    Write-Stage 'Making the settings pictures (a short game run per picture that is missing)' 'The game opens and closes by itself several times to take these pictures; this is normal, so leave it alone.'
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/setting_shots.py'),
             '--exe',(Join-Path $DistDirectory 'drakan.exe'),'--out',(Join-Path $DistDirectory 'previews/settings'))

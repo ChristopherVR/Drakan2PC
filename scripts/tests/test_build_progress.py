@@ -231,6 +231,9 @@ class StageNoteTests(unittest.TestCase):
             "Making the settings pictures",
         ):
             self.assertIn(f"Write-Stage '{stage}", step)
+        for stage in ("Making the multiplayer map pictures", "Making the settings pictures"):
+            line = next(ln for ln in step.splitlines() if f"Write-Stage '{stage}" in ln)
+            self.assertIn("opens and closes by itself", line, "users are told the game starts several times")
         self.assertIn("$script:stageNote", text.split("function Invoke-Logged")[1], "the bar shows the stage")
         self.assertIn(
             "$script:stageNote = ''",
