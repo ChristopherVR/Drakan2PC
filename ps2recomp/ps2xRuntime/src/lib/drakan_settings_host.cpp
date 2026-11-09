@@ -2277,7 +2277,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr && !debugNoPages;
         cfg.showMultiplayer = drakan_netplay::wanted();
-        cfg.showSwitchCampaigns = true; // shown only while more than one game is installed
+        cfg.showSwitchCampaigns = true;     // shown only while more than one game is installed
         cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
         return cfg;
     };
@@ -2412,7 +2412,8 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
                 titleModsAction(a); // host only: no native press
             else {
                 if (a.kind == gameui::TitleActionKind::SelectGame)
-                    previewTitleBackdrop(a.value); // this thread closes the chooser now; the EE applies the choice later
+                    previewTitleBackdrop(
+                        a.value); // this thread closes the chooser now; the EE applies the choice later
                 sh.titleActions.push(a);
             }
         }
@@ -2494,7 +2495,10 @@ void switchButtonDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     if ((hover && click) || key || pad) {
         sh.switchRequest.store(true);
         std::fprintf(stderr, "[menu-screens] Switch Campaigns pressed (%s) at (%.0f, %.0f) of %.0fx%.0f\n",
-                     hover && click ? "click" : key ? "G" : "pad", mp.x, mp.y, f.w, f.h);
+                     hover && click ? "click"
+                     : key          ? "G"
+                                    : "pad",
+                     mp.x, mp.y, f.w, f.h);
     }
     { // Test aid: DRAKAN_DEBUG_SWITCH_CLICK=<seconds> presses the button once when the log clock passes it.
         static const double at = [] {
@@ -3005,8 +3009,9 @@ std::string titlePictureOf(const drakan_game::GameInfo& g) {
 }
 
 // The overlay thread closes the classic chooser in the frame of the choice, but the EE applies the choice
-// (drakan_game::select) a frame or two later. Until then the native title would draw the disc art, so the choice binds its picture first and
-// syncTitleBackdrop follows the chosen index until the game index catches up (or a second passes: a refused choice).
+// (drakan_game::select) a frame or two later. Until then the native title would draw the disc art, so the choice binds
+// its picture first and syncTitleBackdrop follows the chosen index until the game index catches up (or a second passes:
+// a refused choice).
 std::mutex g_backdropM;
 int g_backdropPending = -1;
 std::chrono::steady_clock::time_point g_backdropPendingUntil;
@@ -3142,7 +3147,8 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             dsettings::SettingsOverlay::ScreenLayer tl;
             tl.active = []() {
                 return drakan_tab::shared().active.load() || g_tabUi.fade > 0.0f || pauseShown() || titleShown() ||
-                       switchButtonShown() || slotsShown() || drakan_menu_screens::shared().quickOperation.load() != 0 || mpHudActive();
+                       switchButtonShown() || slotsShown() ||
+                       drakan_menu_screens::shared().quickOperation.load() != 0 || mpHudActive();
             };
             tl.wantsInput = []() {
                 const auto& ms = drakan_menu_screens::shared();

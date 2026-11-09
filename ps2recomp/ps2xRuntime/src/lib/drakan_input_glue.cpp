@@ -726,8 +726,9 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         // cut scene level (Level 6 Transition to Desert) plays out untouched instead of being skipped by the taps.
         if (g_autoPressStopAfterLoad && g_lastScreen == 29 && scr != 29)
             g_autoPressMs = 0;
-        // A campaign start (Order of the Flame, DRAKAN_GAME=d1) has no loading screen 29: the title (8) goes through the
-        // new-game screens to the world (-1). Stop at the first world after the title so its opening scene plays out.
+        // A campaign start (Order of the Flame, DRAKAN_GAME=d1) has no loading screen 29: the title (8) goes through
+        // the new-game screens to the world (-1). Stop at the first world after the title so its opening scene plays
+        // out.
         if (scr == 8)
             g_autoPressSawTitle = true;
         if (g_autoPressStopAfterLoad && g_autoPressSawTitle && scr == -1)

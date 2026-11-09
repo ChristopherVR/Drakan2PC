@@ -64,8 +64,8 @@ void InputModule::bowAimFrame() {
         --bowShotFrames_;
     if (bowChannelFrames_ > 0)
         --bowChannelFrames_;
-    const bool ready = bowHoldAim() && bowReady_.load() && frame_.captured && !layerIsMenu_ &&
-                       !menuActive_.load() && !hostOwned() && bowLmbIsSquare();
+    const bool ready = bowHoldAim() && bowReady_.load() && frame_.captured && !layerIsMenu_ && !menuActive_.load() &&
+                       !hostOwned() && bowLmbIsSquare();
     if (!ready) {
         bowAiming_.store(false); // a sight, weapon change or menu cancels the aim without a shot
         return;
@@ -100,8 +100,9 @@ void InputModule::updateBowAim(IGuest& g) {
                        (g.read32(player + 0xe90) == kBowMode || g.read32(player + 0xe90) == kCrossbowMode) &&
                        g.read32(0x4fb730) && !g.read32(0x4fbafc);
     bowReady_.store(ready);
-    bowDrawFrame(g, player, ready && bowAiming_.load() && cfg_.bowDrawPose && bowShotFrames_ <= 0 &&
-                                (g.read32(player + 0x94) & 0x80u) == 0);
+    bowDrawFrame(g, player,
+                 ready && bowAiming_.load() && cfg_.bowDrawPose && bowShotFrames_ <= 0 &&
+                     (g.read32(player + 0x94) & 0x80u) == 0);
     const bool sightOpen = bowSightCrosshair(g); // the OotF "targeted first-person view" shows the crosshair
     if (sightOpen != bowSightOpen_.exchange(sightOpen) && std::getenv("DRAKAN_BOW_LOG"))
         std::fprintf(stderr, "[bow] sight crosshair %s\n", sightOpen ? "shown" : "hidden");
@@ -337,7 +338,8 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
     return mask & ~0x10u;
 }
 
-// The torso channel of the archer clip: the native attack start reads it as player property 0x52 (reader at actor+0x54).
+// The torso channel of the archer clip: the native attack start reads it as player property 0x52 (reader at
+// actor+0x54).
 uint32_t InputModule::bowTorsoChannel(IGuest& g, uint32_t player) {
     const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
     const auto actor = player ? g.read32(player + 0x80) : 0;
@@ -409,7 +411,7 @@ void InputModule::bowDrawFrame(IGuest& g, uint32_t player, bool want) {
     };
     if (!bowDrawActive_ && bowDrawRelease_ > 0) {
         if ((g.read32(player + 0x94) & 0x80u) != 0 || want) {
-            bowDrawRelease_ = 0; // the native attack owns the torso now
+            bowDrawRelease_ = 0;             // the native attack owns the torso now
         } else if (--bowDrawRelease_ == 0) { // the tap was refused (reload, state): let the clip run out, muted
             each([&](uint32_t r) {
                 if (g.readF(r + 0x54) == 0.0f)
@@ -428,7 +430,9 @@ void InputModule::bowDrawFrame(IGuest& g, uint32_t player, bool want) {
         if (!torso)
             return;
         GuestCall play(0x32cf30u);
-        play.argf(0.15f).argf(kBowDrawHold).argf(0.01f); // start at the held frame, past the launch event, almost stopped
+        play.argf(0.15f)
+            .argf(kBowDrawHold)
+            .argf(0.01f); // start at the held frame, past the launch event, almost stopped
         play.arg(player).arg(bowArcherClip_).arg(torso).arg(0).arg(0);
         // Starting any clip through the setter also stops the model's root motion (the running / strafing travel);
         // give the flags back as they were so the legs keep moving (the same callbacks Controller C uses).

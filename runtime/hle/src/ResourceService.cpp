@@ -57,8 +57,8 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
         if (e && r.length != 0xFFFFFFFFu && (u64)r.offset + r.length > e->size)
             e = nullptr; // the target cannot serve this request (a shorter track): the original entry does
         if (!e) {
-            logf("resource: %s: redirect %04x/%u -> %u not found (+%u len %u), serving the original", f.node.key.c_str(),
-                 r.type, r.id, id, (unsigned)r.offset, (unsigned)r.length);
+            logf("resource: %s: redirect %04x/%u -> %u not found (+%u len %u), serving the original",
+                 f.node.key.c_str(), r.type, r.id, id, (unsigned)r.offset, (unsigned)r.length);
             id = r.id;
         }
     }

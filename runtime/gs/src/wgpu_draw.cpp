@@ -281,14 +281,16 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
     // Endpoint bounds belong to each sprite, not an entire GS batch. Keep
     // the original order and split only batches whose every member has a
     // validated native footprint (the health frame/highlight uses two).
-    if (spriteFootprint && !engineWorldOpen && scale > 1 && haveTex && rt->w >= 480 &&
-        (s.flags & DF_SPRITE) && count > 6 && count % 6 == 0 && bitsOf(s.tex1, 2, 3) == 0 &&
-        bitsOf(s.tex1, 5, 4) == 0 && cfg.textureFilter != 2) {
+    if (spriteFootprint && !engineWorldOpen && scale > 1 && haveTex && rt->w >= 480 && (s.flags & DF_SPRITE) &&
+        count > 6 && count % 6 == 0 && bitsOf(s.tex1, 2, 3) == 0 && bitsOf(s.tex1, 5, 4) == 0 &&
+        cfg.textureFilter != 2) {
         bool valid = true;
         const float tw = (float)(1u << std::min<uint64_t>(bitsOf(s.tex0, 26, 4), 10));
         const float th = (float)(1u << std::min<uint64_t>(bitsOf(s.tex0, 30, 4), 10));
         for (uint32_t i = 0; i < count && valid; i += 6)
-            valid = sprite_footprint::bounds(v + i, 6, (s.flags & DF_FST) != 0, tw, th, tb.isRT ? (unsigned)scale : tb.factor).valid;
+            valid = sprite_footprint::bounds(v + i, 6, (s.flags & DF_FST) != 0, tw, th,
+                                             tb.isRT ? (unsigned)scale : tb.factor)
+                        .valid;
         if (valid) {
             for (uint32_t i = 0; i < count; i += 6)
                 draw(s, clut, v + i, 6);
@@ -582,10 +584,10 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
     k.h[2] = 16384;
     // Single native UI sprite, point sampling only. Work from original
     // endpoints before HUD transforms; never infer borders from colours.
-    if (spriteFootprint && !engineWorldOpen && scale > 1 && haveTex && rt->w >= 480 &&
-        (s.flags & DF_SPRITE) && count == 6 && mxl == 0 && mmag == 0 && mmin == 0 && cfg.textureFilter != 2) {
-        const auto b =
-            sprite_footprint::bounds(v, count, (s.flags & DF_FST) != 0, (float)k.b[1], (float)k.b[2], tb.isRT ? (unsigned)scale : tb.factor);
+    if (spriteFootprint && !engineWorldOpen && scale > 1 && haveTex && rt->w >= 480 && (s.flags & DF_SPRITE) &&
+        count == 6 && mxl == 0 && mmag == 0 && mmin == 0 && cfg.textureFilter != 2) {
+        const auto b = sprite_footprint::bounds(v, count, (s.flags & DF_FST) != 0, (float)k.b[1], (float)k.b[2],
+                                                tb.isRT ? (unsigned)scale : tb.factor);
         if (b.valid) {
             k.a[0] |= 1u << 24;
             k.spriteBounds[0] = b.u0;

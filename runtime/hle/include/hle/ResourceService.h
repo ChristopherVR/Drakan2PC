@@ -48,8 +48,8 @@ public:
     // requested sub, then any sub; when it is missing the requested entry is served. Register before the first request.
     using IdRedirect = std::function<u16(const std::string& fileKey, u16 type, u16 id)>;
     void setIdRedirect(IdRedirect f) { redirect_ = std::move(f); }
-    // Music chunk silencer (CampaignMusicDucker): called for every located request with the final id; true = silence the
-    // ADPCM payload of this request.
+    // Music chunk silencer (CampaignMusicDucker): called for every located request with the final id; true = silence
+    // the ADPCM payload of this request.
     using ChunkDuck = std::function<bool(const std::string& fileKey, u16 type, u16 id, u32 offset)>;
     void setChunkDuck(ChunkDuck f) { duck_ = std::move(f); }
     bool skipFailureCompletions = false; // experiment: do not report failed requests (status != 0) to the EE at all

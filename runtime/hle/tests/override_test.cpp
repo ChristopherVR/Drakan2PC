@@ -299,10 +299,12 @@ int main() {
         const std::string music = "ENGLISH\MUSIC\PS2MUSIC\PS2MUSIC.SDB";
         CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0)); // Drakan 2: nothing changes
         on = true;
-        CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0) && !md.silence(music, 0x304, 8, 163840));
+        CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0) &&
+              !md.silence(music, 0x304, 8, 163840));
         CHECK(!md.silence(music, 0x302, 6, 0)); // the cue's descriptor: the loop is replaced
-        CHECK(md.silence(music, 0x304, 8, 245760) && !md.silence(music, 0x304, 6, 0) && !md.silence(music, 0x304, 6, 163840));
-        CHECK(md.silence(music, 0x304, 8, 0)); // a wrapping loop with no gap stays silent
+        CHECK(md.silence(music, 0x304, 8, 245760) && !md.silence(music, 0x304, 6, 0) &&
+              !md.silence(music, 0x304, 6, 163840));
+        CHECK(md.silence(music, 0x304, 8, 0));                              // a wrapping loop with no gap stays silent
         CHECK(!md.silence("ENGLISH\COMMON\SOUNDS\SOUND.SDB", 0x304, 8, 0)); // other files untouched
         std::vector<u8> blocks(32, 0xff);
         CampaignMusicDucker::silenceAdpcm(blocks);

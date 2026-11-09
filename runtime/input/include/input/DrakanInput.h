@@ -67,7 +67,7 @@ public:
     // gameplay, mouse / keyboard owner)? Also runs the aim zoom on the camera's target FOV (cam+0x60).
     void updateBowAim(IGuest& g);
     void afterBowLaunch(IGuest& g); // glue: after the native launch: continue the loose from the held frame
-    bool suppressBowLaunch(); // glue: true while the held draw is up: its clip's launch event must not shoot
+    bool suppressBowLaunch();       // glue: true while the held draw is up: its clip's launch event must not shoot
     void noteBowArcherClip(uint32_t clip); // glue: the clip id of the native bow attack's first motion call
     // Before the native arrow launch FUN_0020e6c8 (bow = its argument): points the arrow of a shot started by
     // releasing the aim button at the crosshair (the camera's centre ray), unless a target is locked.
@@ -236,14 +236,15 @@ private:
     std::atomic<bool> bowReady_{false}, bowAiming_{false}, bowSightOpen_{false};
     bool bowSightCrosshair(IGuest& g) const; // m_ held: the native first-person bow sight is open in gameplay
     int bowChannelFrames_ = 0; // frames after a release in which the attack start may take the torso channel
-    int bowDrawRelease_ = 0, bowDrawQuiet_ = 0; // frames the frozen clip waits for the native attack / launches stay muted
+    int bowDrawRelease_ = 0,
+        bowDrawQuiet_ = 0;     // frames the frozen clip waits for the native attack / launches stay muted
     bool bowDrawSnap_ = false; // the shot being released came from a held draw: skip the clip's start after its launch
-    bool bowDrawActive_ = false;             // the held-draw clip is playing / frozen on the torso channel
+    bool bowDrawActive_ = false; // the held-draw clip is playing / frozen on the torso channel
     uint32_t bowDrawPlayer_ = 0, bowArcherClip_ = 0x20896u; // the archer clip id (learned from the native shot call)
     uint32_t bowTorsoChannel(IGuest& g, uint32_t player);
     void bowDrawFrame(IGuest& g, uint32_t player, bool want);
-    bool bowAimedLaunch_ = false;            // beforeBowLaunch pointed the arrow; consumed by bowAutoTarget
-    int bowShotFrames_ = 0;                  // frames during which a launch belongs to a shot released from the aim
+    bool bowAimedLaunch_ = false; // beforeBowLaunch pointed the arrow; consumed by bowAutoTarget
+    int bowShotFrames_ = 0;       // frames during which a launch belongs to a shot released from the aim
     bool bowZoomActive_ = false;
     uint32_t bowZoomCam_ = 0;
     float bowZoomNative_ = 0, bowZoomTarget_ = 0;

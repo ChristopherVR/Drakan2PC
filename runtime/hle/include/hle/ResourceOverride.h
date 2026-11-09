@@ -132,11 +132,11 @@ private:
 
 // ---- campaign music replaces the playing music
 // ----------------------------------------------------------------------------------------------------------------
-// On the PC a new music cue replaces the playing music (DirectMusic switches the primary segment). The PS2 engine plays a
-// cue on top of the level's Triggered Music Loops, and a sequence message does not reach those loops, so in a campaign
-// the sample chunks (PS2MUSIC.SDB 0x304) of every track but the newest one are served silent (ADPCM blocks with the
-// predictor, shift and data zeroed, the loop flags kept). A track starts when its descriptor (0x302) is read; a track
-// whose chunk requests stop for a while and begin again at offset 0 starts again too. Drakan 2 is not affected.
+// On the PC a new music cue replaces the playing music (DirectMusic switches the primary segment). The PS2 engine plays
+// a cue on top of the level's Triggered Music Loops, and a sequence message does not reach those loops, so in a
+// campaign the sample chunks (PS2MUSIC.SDB 0x304) of every track but the newest one are served silent (ADPCM blocks
+// with the predictor, shift and data zeroed, the loop flags kept). A track starts when its descriptor (0x302) is read;
+// a track whose chunk requests stop for a while and begin again at offset 0 starts again too. Drakan 2 is not affected.
 class CampaignMusicDucker {
 public:
     void setActive(std::function<bool()> f) { active_ = std::move(f); }

@@ -162,9 +162,9 @@ enum class TitlePage : uint8_t {
 
 struct TitleConfig {
     ScreenConfig screen;
-    bool showContinue = true;     // a Continue row when TitleState::continueSlot is set
-    bool showPcSettings = true;   // a PC Settings row on the main page
-    bool showMultiplayer = false; // a Multiplayer row (after New Game); the host glue turns it on
+    bool showContinue = true;         // a Continue row when TitleState::continueSlot is set
+    bool showPcSettings = true;       // a PC Settings row on the main page
+    bool showMultiplayer = false;     // a Multiplayer row (after New Game); the host glue turns it on
     bool showSwitchCampaigns = false; // a Switch Campaigns row (before Quit) while TitleState::games has several games
     bool showCoop = false; // New Game asks Solo / Co-op first (Co-op is played on the campaign, not in Multiplayer)
     uint32_t suspendFrames = 240; // input ignored after an action that leaves the menu, until reactivate()
