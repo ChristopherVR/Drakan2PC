@@ -165,6 +165,51 @@ class TrackerTests(unittest.TestCase):
         )
         self.assertEqual(out.strip(), "a.c,b.c | c.c,d.c | 2")
 
+    def test_a_file_without_a_known_object_is_never_the_oldest(self):
+        # Such a file cannot be seen finishing; as "oldest" it would be shown for the rest of the build.
+        with tempfile.TemporaryDirectory() as temp:
+            build, _ = make_build(Path(temp))
+            out = run(
+                f"""
+                $t = New-CompileTracker (Get-CompilePlan {quote(build)}) 8 @{{}}
+                $start = (Get-Date).AddMinutes(-5)
+                Add-CompileStart $t 'SaveRecord.cpp' $start
+                "none: [$((Get-OldestCompile $t).Name)]"
+                Add-CompileStart $t 'ps2_vu1_aot_0.cpp' $start.AddMinutes(3)
+                "oldest: $((Get-OldestCompile $t).Name) of $($t.Running.Count)"
+                """
+            )
+            self.assertEqual(out.strip().splitlines(), ["none: []", "oldest: ps2_vu1_aot_0.cpp of 2"])
+
+
+@unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) not on PATH")
+class ProgressLineTests(unittest.TestCase):
+    def test_the_step_title_is_short(self):
+        out = run(
+            "Get-ProgressTitle '[5/6] Compiling the game (380 files, one to two hours on a fast PC)'; "
+            "Get-ProgressTitle '[3/6] Generating the game C++'"
+        )
+        self.assertEqual(out.strip().splitlines(), ["[5/6] Compiling the game", "[3/6] Generating the game C++"])
+
+    def test_status_is_one_short_line_with_the_slow_file(self):
+        out = run(
+            """
+            $now = Get-Date
+            $job = [pscustomobject]@{ Name = 'ps2_vu1_aot_2.cpp'; Start = $now.AddMinutes(-4); Estimate = [TimeSpan]::FromMinutes(6) }
+            Format-ProgressStatus 262 380 '00:04:09' $job $now
+            Format-ProgressStatus 262 380 '00:04:09' $null $now
+            Format-ProgressStatus 5 380 '00:00:20' ([pscustomobject]@{ Name = 'a.cpp'; Start = $now.AddSeconds(-5); Estimate = $null }) $now
+            Format-ProgressStatus 400 380 '00:09:00' $null $now
+            """
+        )
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[0], "262/380 files, 00:04:09 | ps2_vu1_aot_2.cpp 4 min (about 6 min)")
+        self.assertEqual(lines[1], "262/380 files, 00:04:09")
+        self.assertEqual(lines[2], "5/380 files, 00:00:20", "a file that just started is not shown")
+        self.assertEqual(lines[3], "400 files, 00:09:00")
+        for line in lines:
+            self.assertLess(len(line), 80, "short enough for a narrow console")
+
 
 @unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) not on PATH")
 class ReviewTests(unittest.TestCase):

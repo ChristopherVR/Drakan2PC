@@ -252,21 +252,14 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
                     $oldest.NextNote += 3
                 }
                 $done = [Math]::Max($tracker.Finished, $compiled - $tracker.Running.Count)
-                $status = "$done$(if ($CompileTotal -gt 0 -and $done -le $CompileTotal) { " of $CompileTotal" }) files done, $status"
+                $clock = '{0:00}:{1:00}:{2:00}' -f [int][Math]::Floor($elapsed.TotalHours), $elapsed.Minutes, $elapsed.Seconds
+                $status = Format-ProgressStatus $done $CompileTotal $clock $oldest $now
                 if ($CompileTotal -gt 0) { $percent = [Math]::Min(99, [int](100 * $done / $CompileTotal)) }
                 $Host.UI.RawUI.WindowTitle = "Building Drakan: $(if ($percent -ge 0) { "$percent% " })($done files)"
-                Write-Progress -Activity $script:stepTitle -Status $status -PercentComplete $percent
-                # A second bar for the longest-running file, measured against its usual time when there is one.
-                if ($oldest -and ($now - $oldest.Start).TotalSeconds -ge 20) {
-                    $filePercent = if ($oldest.Estimate) {
-                        [Math]::Min(99, [int](100 * ($now - $oldest.Start).TotalSeconds / $oldest.Estimate.TotalSeconds))
-                    } else { -1 }
-                    Write-Progress -Id 1 -ParentId 0 -Activity "Compiling $($oldest.Name)" -Status (Format-RunningCompile $oldest $now) -PercentComplete $filePercent
-                } else {
-                    Write-Progress -Id 1 -ParentId 0 -Activity 'Compiling' -Completed
-                }
+                # One short line (the console cuts a long one off): the step, the file count and the longest-running file.
+                Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $status -PercentComplete $percent
             } else {
-                Write-Progress -Activity $script:stepTitle -Status $status -PercentComplete $percent
+                Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $status -PercentComplete $percent
             }
         }
         $process.WaitForExit()
@@ -279,8 +272,7 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
             foreach ($name in $tracker.Durations.Keys) { if ($tracker.Durations[$name] -ge 60) { $measured[$name] = $tracker.Durations[$name] } }
             try { $measured | ConvertTo-Json | Set-Content -LiteralPath $timesFile } catch { Write-Verbose "compile-times.json: $_" }
         }
-        if ($tracker) { Write-Progress -Id 1 -ParentId 0 -Activity 'Compiling' -Completed }
-        Write-Progress -Activity $script:stepTitle -Completed
+        Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Completed
         $Host.UI.RawUI.WindowTitle = $title
     }
     if ($process.ExitCode) {

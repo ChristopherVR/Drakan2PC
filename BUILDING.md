@@ -165,10 +165,12 @@ step's outputs on disk (`Get-BuildReview` in `Build-Progress.ps1`: the boot ELF 
 plus `recompile.stamp`, the VU1 image, `CMakeCache.txt`, and the object of every source of `ps2EntryRunner` and its
 project references against its source), prints that, and continues from the first incomplete step (Enter) or starts
 over (`S`, or `-Fresh`); incomplete ISO files always start over. It also passes `-Progress` (numbered steps, a progress
-bar with the elapsed time, one `[n/N]` line per compiled file where N is what is still out of date, a second bar and a
-"still compiling" line every 3 minutes for the longest-running file, measured against its time on this PC from
+bar on one short line (step, `done/total files`, elapsed time, and the longest-running file with its usual time), one
+`[n/N]` line per compiled file where N is what is still out of date, and a
+"still compiling" line every 3 minutes for that file, measured against its time on this PC from
 `build/game/compile-times.json`; cl creates an empty object when it starts a file, so a file counts as finished once
-its object is non-empty and newer than its start. The tools' own output goes to `build/game-output.log` and only errors
+its object is non-empty and newer than its start (a file the plan has no object for is never shown as the longest-running one,
+since its end cannot be seen). The tools' own output goes to `build/game-output.log` and only errors
 and, on failure, the output's tail reach the console) and, while
 `build/game` is not configured yet, `-NoWarnings` (CMake `DRAKAN_COMPILER_WARNINGS=OFF`, `/W0` instead of `/W4`; not
 applied to a configured tree because the flag change would recompile everything). The console is logged to

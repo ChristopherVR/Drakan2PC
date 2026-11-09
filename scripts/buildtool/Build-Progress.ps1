@@ -147,10 +147,28 @@ function Update-CompileTracker($Tracker, [datetime]$Now) {
     return , $done
 }
 
-# The longest-running file, or $null.
+# The longest-running file whose object file is known, or $null. A file the plan does not know cannot be seen finishing
+# (it is only retired once more than $Slots files run), so it would stay "oldest" for the rest of the build.
 function Get-OldestCompile($Tracker) {
-    if (-not $Tracker.Running.Count) { return $null }
-    return ($Tracker.Running | Sort-Object Start | Select-Object -First 1)
+    $known = @($Tracker.Running | Where-Object { $_.Objects })
+    if (-not $known.Count) { return $null }
+    return ($known | Sort-Object Start | Select-Object -First 1)
+}
+
+# The short step name for the progress bar: "[5/6] Compiling the game (380 files, one to two hours ...)" -> "[5/6] Compiling the game".
+# A long title is cut off by the console's progress line.
+function Get-ProgressTitle([string]$Title) {
+    return ($Title -replace '\s*\(.*$', '').Trim()
+}
+
+# The progress line's text: "262/380 files, 00:04:09 | ps2_vu1_aot_2.cpp 4 min (about 6 min)". No file name repeats, no brackets.
+function Format-ProgressStatus([int]$Done, [int]$Total, [string]$Elapsed, $Oldest, [datetime]$Now) {
+    $text = if ($Total -gt 0 -and $Done -le $Total) { "$Done/$Total files, $Elapsed" } else { "$Done files, $Elapsed" }
+    if ($Oldest -and ($Now - $Oldest.Start).TotalSeconds -ge 20) {
+        $text += " | $($Oldest.Name) $(Format-Duration ($Now - $Oldest.Start))"
+        if ($Oldest.Estimate) { $text += " (about $(Format-Duration $Oldest.Estimate))" }
+    }
+    return $text
 }
 
 # One line about a running file: "ps2_vu1_aot_2.cpp, 4 min so far (usually about 6 min)".
