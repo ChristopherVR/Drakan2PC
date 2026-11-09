@@ -107,6 +107,9 @@ BINARY_SUFFIXES = {
 # Reviewed binaries that may be tracked; pinned by SHA-256 so a swapped file is rejected.
 ALLOWED_BINARIES = {
     "ps2recomp/ps2xRuntime/src/res/drakan.ico": "92ae70a057c098687dff194a7bd972b793012d178510e20fab22c8943d077946",
+    # The Order of the Flame campaign cover (7680 x 4800): the title art of the converted campaign, shipped by the builder
+    # because an install folder holds no title picture. Tracked on the owner's decision; see THIRD_PARTY.md.
+    "scripts/buildtool/kit/art/ootf-cover.png": "e1ac723f61550d1fa58e45b42df50cb112ff2cdbc86f3f0acbf46d8813c3cdbc",
 }
 TOKEN_PATTERNS = [
     re.compile(rb"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----"),

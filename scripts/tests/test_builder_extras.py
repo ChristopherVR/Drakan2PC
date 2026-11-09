@@ -646,6 +646,65 @@ class ConverterTests(unittest.TestCase):
         self.assertIn("not converted", err.getvalue())
 
 
+class CoverArtTests(unittest.TestCase):
+    """The campaign cover is the one tracked picture: pinned in the guard, bundled by the kit, passed to the converter."""
+
+    def guard(self):
+        spec_guard = importlib.util.spec_from_file_location("repository_guard", ROOT / "scripts/repository_guard.py")
+        guard = importlib.util.module_from_spec(spec_guard)
+        spec_guard.loader.exec_module(guard)
+        return guard
+
+    def test_the_cover_is_a_png_pinned_by_the_guard(self):
+        path = ROOT / extras.COVER
+        data = path.read_bytes()
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(int.from_bytes(data[16:20], "big"), 7680)
+        self.assertEqual(int.from_bytes(data[20:24], "big"), 4800)
+        guard = self.guard()
+        self.assertEqual(guard.ALLOWED_BINARIES[extras.COVER], hashlib.sha256(data).hexdigest())
+        self.assertIsNone(guard.reason(extras.COVER, data))
+        self.assertEqual(guard.reason(extras.COVER, data + b"x"), "allowed binary differs from its pinned SHA-256")
+        self.assertIsNotNone(guard.reason("scripts/buildtool/kit/art/other.png", data), "no other picture is allowed")
+
+    def test_the_kit_ships_the_cover(self):
+        spec_kit = importlib.util.spec_from_file_location(
+            "package_builder_kit", ROOT / "scripts/buildtool/package_builder_kit.py"
+        )
+        kit = importlib.util.module_from_spec(spec_kit)
+        spec_kit.loader.exec_module(kit)
+        kept = kit.select([(extras.COVER, (ROOT / extras.COVER).read_bytes())], kit.load_guard())
+        self.assertIn(extras.COVER, kept)
+
+    def test_bundled_cover_is_found_or_absent(self):
+        self.assertEqual(extras.bundled_cover(ROOT), ROOT / extras.COVER)
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertIsNone(extras.bundled_cover(Path(temp)))
+
+    def test_the_converter_gets_the_cover_and_a_changed_cover_converts_again(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            install = make_install(root / "Drakan")
+            iso = root / "game.iso"
+            iso.write_bytes(b"iso")
+            cover = root / "cover.png"
+            cover.write_bytes(b"one")
+            command = extras.converter_command("node", install, root / "d", iso, root / "o.zip", False, cover)
+            self.assertEqual(command[command.index("--cover") + 1], str(cover))
+            self.assertNotIn(
+                "--cover", extras.converter_command("node", install, root / "d", iso, root / "o.zip", False)
+            )
+            work = root / "work"
+            (work / "mods").mkdir(parents=True)
+            (work / "mods" / "ootf-levels.zip").write_bytes(b"zip")
+            state = extras.convert_state(install, iso, False, "v1", cover)
+            (work / "convert-state.json").write_text(json.dumps(state), encoding="utf-8")
+            self.assertFalse(extras.convert_needed(work, state))
+            cover.write_bytes(b"two")
+            self.assertTrue(extras.convert_needed(work, extras.convert_state(install, iso, False, "v1", cover)))
+            self.assertTrue(extras.convert_needed(work, extras.convert_state(install, iso, False, "v1", None)))
+
+
 class HdToolsTests(unittest.TestCase):
     def setUp(self):
         quiet = mock.patch.object(sys, "stdout", io.StringIO())

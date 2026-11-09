@@ -201,7 +201,8 @@ on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers th
   levels, with `--hd` also the lossless texture sources) plus a `mods.ini`; this runs **before** the game build, which
   installs the folder through `Build-LocalGame.ps1 -ModDirectory` and pictures its maps. The converter needs only Node
   and the pinned `fflate` (no `npm install`): `extras.py` unpacks it into `editor/node_modules` and writes one
-  re-exporting stub per editor workspace package. A rebuild converts again only when the source, the ISO, the converter
+  re-exporting stub per editor workspace package. The campaign's cover picture (`scripts/buildtool/kit/art/ootf-cover.png`, tracked, SHA-pinned in the repository guard) is passed as
+  `--cover`, so the pack ships `previews/campaign-ootf.png` and `background-ootf.png`. A rebuild converts again only when the source, the ISO, the cover, the converter
   code (`KIT-VERSION.txt` or the Git revision) or the need for HD sources changed (`build/ootf/convert-state.json`). A
   failed conversion is reported and the game build goes on without it.
 * **HD textures** (`-HdTextures on`): after the game build `analysis/scripts/hd_pack.py` decodes every disc texture and

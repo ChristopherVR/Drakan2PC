@@ -480,6 +480,16 @@ def ootf_cab():
     return module
 
 
+COVER = "scripts/buildtool/kit/art/ootf-cover.png"
+
+
+def bundled_cover(root: Path = ROOT) -> Path | None:
+    """The Order of the Flame campaign cover tracked in the repository (the pack's card picture and title background),
+    or None when this tree lacks it. The converter ships it as previews/campaign-ootf.png and background-ootf.png."""
+    path = root / COVER
+    return path if path.is_file() else None
+
+
 def ps2_data():
     spec = importlib.util.spec_from_file_location("ootf_ps2_data", ANALYSIS / "ootf_ps2_data.py")
     sys.path.insert(0, str(ANALYSIS))
@@ -579,10 +589,11 @@ def code_version(root: Path = ROOT) -> str:
     return "dev"
 
 
-def convert_state(install: Path, iso: Path, hd: bool, version: str) -> dict:
+def convert_state(install: Path, iso: Path, hd: bool, version: str, cover: Path | None = None) -> dict:
     rrc = child(install, "Dragon.rrc")
     return {"install": str(install), "rrc": file_stamp(rrc) if rrc else None, "iso": [str(iso), file_stamp(iso)],
-            "hd": hd, "code": version}  # fmt: skip
+            "hd": hd, "code": version,
+            "cover": hashlib.sha1(cover.read_bytes()).hexdigest() if cover and cover.is_file() else None}  # fmt: skip
 
 
 def convert_needed(work: Path, state: dict, force: bool = False) -> bool:
@@ -599,12 +610,17 @@ def convert_needed(work: Path, state: dict, force: bool = False) -> bool:
     return {k: v for k, v in previous.items() if k != "hd"} != {k: v for k, v in state.items() if k != "hd"}
 
 
-def converter_command(node: str, install: Path, data: Path, iso: Path, out: Path, hd: bool) -> list[str]:
+def converter_command(
+    node: str, install: Path, data: Path, iso: Path, out: Path, hd: bool, cover: Path | None = None
+) -> list[str]:
     cmd = [
         node, "--experimental-transform-types", "--no-warnings", CONVERTER,
         "--ootf", str(install), "--ps2", str(data), "--template", TEMPLATE,
         "--campaign", "1", "--id", PACK_ID, "--iso", str(iso), "--out", str(out),
     ]  # fmt: skip
+    if cover:
+        # the campaign's card cover and title / loading background (previews/campaign-ootf.png, background-ootf.png)
+        cmd += ["--cover", str(cover)]
     if hd:
         # lossless pixels of the textures the converter has to quantise, next to the pack (<out>.hdsrc); the HD step
         # indexes and upscales them itself, so the converter does not start its own HD run
@@ -642,7 +658,8 @@ def convert_ootf(
     if not iso.is_file():
         raise ExtrasError(f"ISO not found: {iso}")
     mods = work / "mods"
-    state = convert_state(install, iso, hd, code_version(root))
+    cover = bundled_cover(root)
+    state = convert_state(install, iso, hd, code_version(root), cover)
     if not convert_needed(work, state, force):
         print(f"Order of the Flame pack is up to date: {mods / (PACK_ID + '.zip')}")
         write_mods_ini(mods)
@@ -671,7 +688,7 @@ def convert_ootf(
     )
     mark = time.time()
     environment = dict(os.environ, DRAKAN_ISO=str(iso))
-    code = run_logged(converter_command(node, install, data, iso, out, hd), log_file, root, environment)
+    code = run_logged(converter_command(node, install, data, iso, out, hd, cover), log_file, root, environment)
     if code or not out.is_file():
         raise ExtrasError(f"The converter stopped (exit code {code}). Last lines of {log_file}:\n{tail(log_file)}")
     timings.record("ootf-convert", time.time() - mark)
