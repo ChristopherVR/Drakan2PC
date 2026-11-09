@@ -389,13 +389,36 @@ int main(int argc, char** argv) {
                                 }
                         }
                     };
-                    const float last = float(20 + 20 * (factor - 1));
+                    // The footprint clamp keeps every sample on the texel centres of the cells the original draw
+                    // sampled (sprite_footprint.h): the coordinate is clamped to [lo, hi] in texel units, then point
+                    // sampled. pixelAt() is the atlas content of the physical texel that sample lands on.
+                    const auto pixelAt = [&](float texel) -> Pixel {
+                        const UINT p = std::min<UINT>(size - 1, UINT(std::floor(texel * factor)));
+                        const UINT cell = p / factor, sub = p % factor;
+                        if (cell == 1)
+                            return {0, 60, 0, 128};
+                        if (cell == 2)
+                            return {float(20 + 20 * sub), 0, 0, 128};
+                        if (cell == 3)
+                            return {255, 255, 255, 127};
+                        return {0, 0, 255, 128};
+                    };
+                    const auto clamped = [&](float along, const gsr::sprite_footprint::Bounds& b) {
+                        const float lo = vertical ? b.v0 : b.u0, hi = vertical ? b.v1 : b.u1;
+                        return pixelAt(std::min(std::max(along, lo), hi));
+                    };
                     probe("flag off leaves adjacent white visible", 3.25f, {255, 255, 255, 127}, false, excluded);
-                    probe("flag on excludes unsampled white cell", 3.25f, {last, 0, 0, 128}, true, excluded);
+                    // The unsampled white cell is never drawn: the sample lands on the last sampled texel's centre.
+                    const Pixel lastCentre = clamped(3.25f, excluded);
+                    if (lastCentre[0] == 255 || lastCentre[2] == 255)
+                        throw std::runtime_error("footprint fixture: the clamp still reaches the unsampled cell");
+                    probe("flag on excludes unsampled white cell", 3.25f, lastCentre, true, excluded);
                     probe("intentional white outline and alpha127 preserved", 3.25f, {255, 255, 255, 127}, true,
                           included);
-                    probe("first HD subtexel retained", 2 + .5f / factor, {20, 0, 0, 128}, true, excluded);
-                    probe("last HD subtexel retained", 3 - .5f / factor, {last, 0, 0, 128}, true, excluded);
+                    probe("samples inside the footprint are clamped to the texel centres", 3 - .5f / factor,
+                          clamped(3 - .5f / factor, excluded), true, excluded);
+                    probe("first sub-texel is clamped up to the first texel centre", 2 + .5f / factor,
+                          clamped(2 + .5f / factor, excluded), true, excluded);
                     probe("lower footprint excludes adjacent blue cell", .75f, {0, 60, 0, 128}, true, excluded);
                     probe("flag off leaves lower blue cell visible", .75f, {0, 0, 255, 128}, false, excluded);
                 }
