@@ -272,3 +272,10 @@ That slice used to be presented as a 4:3 pillarbox inside the wide loading scree
 the loading layout while 0x1a follows 0xe, so loading keeps one presentation for its whole length (2026-11-08,
 `docs/journal/2026-11-08/loading-aspect-flip.md`). Movies stay 4:3.
 
+While the loading screen's own GUI packet (`0x43d340`, screen 14, `gsr::isLoadingScreenPacket`) is the renderer's scene
+camera, the presenter draws the last HD menu frame over the top 85.5 % of the display (the bar lives in the band below).
+Only a validated world camera used to replace that packet; the begin of an engine world phase (`0x139010`) now drops it too.
+A level whose draws never match the world camera (a converted level with no terrain, OotF's Ruined Village Book) otherwise
+kept it for its whole length: the held menu frame covered the top of every frame and only the bottom band showed the
+level (2026-11-09, `docs/journal/2026-11-09/ootf-book-scene.md`).
+

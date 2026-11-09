@@ -162,6 +162,9 @@ void WgpuBackend::noteSceneCamera(const SceneGuideCamera& camera) {
                 m_impl->pendingTemporalEnd = false;
             }
             ++m_impl->worldPhaseSerial;
+            // A world phase ends the loading screen (see D3D11Backend::noteSceneCamera).
+            if (isLoadingScreenPacket(m_impl->sceneCamera))
+                m_impl->sceneCamera = {};
         }
         return;
     }

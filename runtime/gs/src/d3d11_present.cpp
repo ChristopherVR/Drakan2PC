@@ -148,8 +148,7 @@ bool D3D11Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, ui
     ID3D11ShaderResourceView* nulls[2] = {nullptr, nullptr};
     ctx->PSSetShaderResources(0, 2, nulls);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
-    if (recordLatch && menuHoldValid && menuHoldSrv && sceneCamera.guiScreen == 14 &&
-        sceneCamera.sourcePc == 0x43d340u) {
+    if (recordLatch && menuHoldValid && menuHoldSrv && isLoadingScreenPacket(sceneCamera)) {
         // The loading screen shows the engine's native-resolution grab of the menu, which is drawn once and left in
         // the target. Show the last HD menu frame instead; the loading bar lives in the band below it.
         D3D11_TEXTURE2D_DESC hold{}, disp{};

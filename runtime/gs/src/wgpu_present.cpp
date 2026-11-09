@@ -114,9 +114,8 @@ bool WgpuBackend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, uin
     gpu->setTexture(0, srv[0] ? srv[0] : dummy.get());
     gpu->setTexture(1, srv[1] ? srv[1] : dummy.get());
     gpu->drawNoInput(3);
-    if (recordLatch && menuHoldValid && menuHoldTex && sceneCamera.guiScreen == 14 &&
-        sceneCamera.sourcePc == 0x43d340u && menuHoldTex->width() == dispTex->width() &&
-        menuHoldTex->height() == dispTex->height()) {
+    if (recordLatch && menuHoldValid && menuHoldTex && isLoadingScreenPacket(sceneCamera) &&
+        menuHoldTex->width() == dispTex->width() && menuHoldTex->height() == dispTex->height()) {
         // The loading screen shows the engine's native-resolution grab of the menu: show the last HD menu frame
         // instead; the loading bar lives in the band below it.
         const float full[4] = {0, 0, (float)dispW, (float)dispH};

@@ -22,4 +22,10 @@ struct SceneGuideCamera {
 };
 static_assert(std::is_trivially_copyable_v<SceneGuideCamera>);
 static_assert(sizeof(SceneGuideCamera) == 352);
+
+// The loading screen's GUI packet (its draw handler at EE 0x43d340, screen 14). While it is the scene camera the
+// presenter covers the top of the frame with the last menu frame (the loading bar lives in the band below it).
+inline bool isLoadingScreenPacket(const SceneGuideCamera& c) {
+    return c.sourcePc == 0x43d340u && c.guiScreen == 14;
+}
 } // namespace gsr

@@ -301,6 +301,14 @@ on the terrain. The Wartok's victim in scene 1.2a hung at the Wartok's hand; the
 ignores later keys, so the converter replaces such attaches by world keys that lift him onto the spear tip (seen in game). See
 [opening cut and impale](../journal/2026-11-09/ootf-opening-cut-and-impale.md). Needs a regenerated pack.
 
+**November 9 Ruined Village Book backstory (on by default):** Atimar's book now plays the PC level's 250 s backstory (nine paintings,
+camera path, narration) full-screen, then hands back to Ruined Village with the HUD and control. The thin strip it showed was the
+runtime's loading-screen hold: the Book has no terrain, so no world camera ever replaced the loading screen's GUI packet, and the
+presenter kept covering the top 85.5 % of each frame with the last menu frame; a world phase now ends that packet (runtime `gsr`).
+The scene held Rynn and the camera to the level's end, which left her held (no HUD, no control) after the hand-back; the converter
+now releases them at the scene's end (formats). `OOTF_BOOK_SCENE=0` restores the 28 s empty Book. Verified on a full 23-level pack
+through the real path. See [Book backstory](../journal/2026-11-09/ootf-book-scene.md). Needs a regenerated pack and runtime.
+
 ## What works
 
 * Converter `editor/scripts/ootf-convert.ts` (`--campaign 1` for the campaign): terrain, textures, models, creatures (skinned, retargeted

@@ -171,6 +171,11 @@ void D3D11Backend::noteSceneCamera(const SceneGuideCamera& camera) {
                 m_impl->pendingTemporalEnd = false;
             }
             ++m_impl->worldPhaseSerial;
+            // A world phase ends the loading screen. Its packet stays the scene camera until a validated world camera
+            // replaces it, and a level whose draws never match the world camera (a converted level with no terrain,
+            // OotF's Ruined Village Book) kept it: the held menu frame then covered the top of every frame.
+            if (isLoadingScreenPacket(m_impl->sceneCamera))
+                m_impl->sceneCamera = {};
             if (m_impl->neuralEnabled)
                 m_impl->neuralStatusText = "Waiting for a valid world camera, depth and render target.";
         }
