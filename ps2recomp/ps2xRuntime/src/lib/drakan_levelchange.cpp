@@ -635,7 +635,10 @@ void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         if (Ram::ok(pl, 0x20)) {
             const float dx = f32(r, pl + 0x14) - f32(r, h + 0x14), dz = f32(r, pl + 0x1c) - f32(r, h + 0x1c);
             const float dist = std::sqrt(dx * dx + dz * dz);
-            if (dist > kRemoteExitDist) {
+            // The Ruined Village Book's player stands beside its exit (the PC level has her there), so the end-of-scene
+            // Timer's message arrives with her a few hundred units away; the level has nothing else to do, take it.
+            const bool bookExit = g_currentLevel.find("Ruined Village Book") != std::string::npos;
+            if (dist > kRemoteExitDist || bookExit) {
                 std::fprintf(stderr,
                              "[levelchange] exit %x got its touch message %.0f units from the player: taking it\n", h,
                              static_cast<double>(dist));
