@@ -9,10 +9,13 @@ struct Bounds {
     bool valid = false;
 };
 
-// Preserve the texel cells covered by the original integer-centred GS raster.
-// Enlarging a sprite must not expose an adjacent atlas cell that the original
-// draw never sampled. Keep every subtexel of an HD replacement inside those
-// cells. This is deliberately limited to one rectangular, affine sprite.
+// Keep every sample of an enlarged sprite on the texel centres the original integer-centred GS raster sampled, i.e.
+// inside [centre of the first sampled texel, centre of the last sampled texel]. Enlarging a sprite must not expose an
+// adjacent atlas cell that the original draw never sampled, and the outer sub-texels of an upscaled (xBRZ / HD
+// replacement) or render-target source blend towards that neighbouring cell: a margin of half a physical texel was not
+// enough and left a one-texel line past the right and bottom edge of the HUD orbs at 3 or more physical texels.
+// textureFactor (physical texels per texel) only has to be positive: the clamp is the same for every factor.
+// This is deliberately limited to one rectangular, affine sprite.
 template <class V>
 Bounds bounds(const V* v, uint32_t count, bool fst, float width, float height, unsigned textureFactor) {
     Bounds out;
@@ -58,8 +61,8 @@ Bounds bounds(const V* v, uint32_t count, bool fst, float width, float height, u
         if (first > last)
             return false;
         float p = ta + (tb - ta) * (first - a) / (b - a), q = ta + (tb - ta) * (last - a) / (b - a);
-        lo = std::floor(std::min(p, q)) + .5f / textureFactor;
-        hi = std::floor(std::max(p, q)) + 1 - .5f / textureFactor;
+        lo = std::floor(std::min(p, q)) + .5f;
+        hi = std::floor(std::max(p, q)) + .5f;
         return true;
     };
     out.valid = axis(x0, x1, us[0], us[1], out.u0, out.u1) && axis(y0, y1, vs[0], vs[2], out.v0, out.v1);
