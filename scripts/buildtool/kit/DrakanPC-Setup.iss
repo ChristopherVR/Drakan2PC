@@ -74,7 +74,10 @@ var
   PlayPage: TInputDirWizardPage;
   OotfPage: TWizardPage;
   OotfEdit: TNewEdit;
+  DlssPage: TInputOptionWizardPage;
+  HdPage: TInputOptionWizardPage;
   OptionsPage: TInputOptionWizardPage;
+  OotfRejected: Boolean;
   CpuPage: TInputQueryWizardPage;
 
 procedure OotfBrowseFolder(Sender: TObject);
@@ -168,23 +171,48 @@ begin
 
   CreateOotfPage;
 
-  OptionsPage := CreateInputOptionPage(OotfPage.ID,
-    'Optional extras',
-    'Choose what else to build.',
-    'NVIDIA DLSS works only on NVIDIA RTX graphics cards. Its SDK is downloaded from NVIDIA during the build, under ' +
-    'the NVIDIA RTX SDKs License (https://github.com/NVIDIA/DLSS/blob/v310.9.16/LICENSE.txt); ticking the box means you ' +
-    'accept that licence.' + #13#10#13#10 +
+  DlssPage := CreateInputOptionPage(OotfPage.ID,
+    'NVIDIA DLSS (optional)',
+    'AI upscaling and frame generation on NVIDIA RTX graphics cards.',
+    'DLSS works only on NVIDIA RTX graphics cards; on any other card leave it off. Its SDK is downloaded from ' +
+    'NVIDIA during the build, under the NVIDIA RTX SDKs License ' +
+    '(https://github.com/NVIDIA/DLSS/blob/v310.9.16/LICENSE.txt); ticking the box means you accept that licence. ' +
+    'Without it the game still runs on every graphics card.',
+    False, False);
+  DlssPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
+
+  HdPage := CreateInputOptionPage(DlssPage.ID,
+    'HD textures (optional)',
+    'Upscale every texture with an AI upscaler on your graphics card.',
+    'After the build every texture of the game (and of Order of the Flame, when you chose it) is upscaled 4x with the ' +
+    'free Real-ESRGAN AI upscaler. It runs on any graphics card with Vulkan drivers and downloads about 75 MB of tools ' +
+    'once, checked against pinned hashes. About 11 to 20 min on a fast graphics card (about 2 GB), ' +
+    '17 to 31 min together with Order of the Flame (about 4 GB); several times longer on an older card and ' +
+    'hours on integrated graphics. The game plays without them, the step can be stopped and resumed, and the build can ' +
+    'be run again to make them later. The build window shows the estimate for your own PC before it starts.',
+    False, False);
+  HdPage.Add('Make HD textures after the build (needs a Vulkan graphics card)');
+  // DrakanPC-Setup.exe /HD=1 ticks it.
+  HdPage.Values[0] := ExpandConstant('{param:HD|}') = '1';
+
+  OptionsPage := CreateInputOptionPage(HdPage.ID,
+    'Other options',
+    'Browser version, build priority and the VU1 build method.',
     'The browser version needs Windows Subsystem for Linux with Ubuntu (wsl --install -d Ubuntu). You play it on ' +
     'the project''s browser player page by choosing the built folder and your .iso; nothing is uploaded.' + #13#10#13#10 +
-    'HD textures: after the build every texture is upscaled 4x with the free Real-ESRGAN AI upscaler on your graphics ' +
-    'card (it downloads about 75 MB of tools once). About 11 to 20 min on a fast graphics card (about 2 GB), ' +
-    '17 to 31 min together with Order of the Flame (about 4 GB); several times longer on an older card and ' +
-    'hours on integrated graphics. The game plays without them and the build can be run again to make them later. The ' +
-    'build window shows the estimate for your own PC before it starts.' + #13#10#13#10 +
-    'Whole VU1 blocks: the older, slower way to build (up to 17 GB per file); the game runs at the same speed.',
+    'VU1 microcode: the PlayStation 2 has a second vector processor (VU1) that runs much of the game''s 3D geometry ' +
+    'code. The builder translates that microcode into C++ and compiles it. By default this is done in small chunks that ' +
+    'need about 2 GB of memory per compiler, which suits any PC. "Whole blocks" is the older method: four very large ' +
+    'files, each needing up to 17 GB of memory and 10 to 20 minutes, compiled one after another. The game runs at ' +
+    'the same speed either way, so tick it only if you have 24 GB or more of memory and a reason to.',
     False, False);
-  OptionsPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
   OptionsPage.Add('Also build the browser version (needs WSL with Ubuntu)');
+  OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
+  OptionsPage.Add('Start the game when the build has finished');
+  OptionsPage.Add('Compile the VU1 microcode as whole blocks (older method, needs 24 GB or more)');
+  // DrakanPC-Setup.exe /VUBLOCKS=whole ticks it; otherwise the last install's choice.
+  OptionsPage.Values[3] := (CompareText(ExpandConstant('{param:VUBLOCKS|}'), 'whole') = 0) or
+    ((ExpandConstant('{param:VUBLOCKS|}') = '') and (GetPreviousData('VuBlocks', '') = 'Whole'));
 
   CpuPage := CreateInputQueryPage(OptionsPage.ID,
     'Build speed',
@@ -198,15 +226,6 @@ begin
   CpuPage.Values[0] := ExpandConstant('{param:CORES|}');
   CpuPage.Add('Windows build affinity hex mask (e.g. 0xFFF; empty = default):', False);
   CpuPage.Values[1] := ExpandConstant('{param:AFFINITY|}');
-  OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
-  OptionsPage.Add('Start the game when the build has finished');
-  OptionsPage.Add('Compile the VU1 microcode as whole blocks (older method, needs 24 GB or more)');
-  OptionsPage.Add('Make HD textures after the build (needs a Vulkan graphics card)');
-  // DrakanPC-Setup.exe /VUBLOCKS=whole ticks it; otherwise the last install's choice.
-  OptionsPage.Values[4] := (CompareText(ExpandConstant('{param:VUBLOCKS|}'), 'whole') = 0) or
-    ((ExpandConstant('{param:VUBLOCKS|}') = '') and (GetPreviousData('VuBlocks', '') = 'Whole'));
-  // DrakanPC-Setup.exe /HD=1 ticks it.
-  OptionsPage.Values[5] := ExpandConstant('{param:HD|}') = '1';
 end;
 
 function DefaultPlayDir: String;
@@ -231,14 +250,50 @@ end;
 procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
   SetPreviousData(PreviousDataKey, 'PlayFolder', GetPlayDir(''));
-  if OptionsPage.Values[4] then
+  if OptionsPage.Values[3] then
     SetPreviousData(PreviousDataKey, 'VuBlocks', 'Whole')
   else
     SetPreviousData(PreviousDataKey, 'VuBlocks', 'Chunked');
 end;
 
+// What is wrong with a Drakan: Order of the Flame choice, or '' when it looks usable. The builder checks the contents
+// again (scripts/buildtool/extras.py check-source --deep) once the files are installed, before the build starts.
+function OotfProblem(Path: String): String;
+var
+  Found: TFindRec;
+  Ext: String;
+  FileBytes: Int64;
+begin
+  Result := '';
+  Path := RemoveBackslashUnlessRoot(Path);
+  if DirExists(Path) then begin
+    if FileExists(Path + '\Dragon.rrc') or FileExists(Path + '\SETUP\DATA1.CAB') or FileExists(Path + '\DATA1.CAB') then
+      Exit;
+    if FindFirst(Path + '\*', Found) then begin
+      try
+        repeat
+          if ((Found.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and (Found.Name <> '.') and (Found.Name <> '..') then
+            if FileExists(Path + '\' + Found.Name + '\Dragon.rrc') then
+              Exit;
+        until not FindNext(Found);
+      finally
+        FindClose(Found);
+      end;
+    end;
+    Result := 'That folder holds neither the installed game (Dragon.rrc) nor a copy of its disc (SETUP\DATA1.CAB).';
+  end else if FileExists(Path) then begin
+    Ext := Lowercase(ExtractFileExt(Path));
+    if (Ext <> '.zip') and (Ext <> '.mdx') and (Ext <> '.iso') and (Ext <> '.cue') and (Ext <> '.bin') then
+      Result := 'Choose the installed game folder, a disc image (.mdx, .iso, or .cue with its .bin tracks) or a .zip holding one.'
+    else if (Ext <> '.cue') and FileSize64(Path, FileBytes) and (FileBytes < 50 * 1024 * 1024) then
+      Result := 'That file is too small to be the game disc. For a .cue / .bin rip choose the .cue sheet or Track 1.';
+  end else
+    Result := 'That file or folder does not exist.';
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
+  Problem: String;
   Size: Int64;
   Cores, I: Integer;
   Mask: String;
@@ -256,8 +311,9 @@ begin
     end;
   end;
   if (CurPageID = OotfPage.ID) and (Trim(OotfEdit.Text) <> '') then begin
-    if not (FileExists(Trim(OotfEdit.Text)) or DirExists(Trim(OotfEdit.Text))) then begin
-      MsgBox('That file or folder does not exist. Choose your Drakan: Order of the Flame folder, disc image or zip, ' +
+    Problem := OotfProblem(Trim(OotfEdit.Text));
+    if Problem <> '' then begin
+      MsgBox(Problem + #13#10#13#10 + 'Choose your Drakan: Order of the Flame folder, disc image or zip, ' +
         'or leave the field empty to skip it.', mbError, MB_OK);
       Result := False;
     end;
@@ -296,6 +352,35 @@ begin
   end;
 end;
 
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Log, Text: String;
+  Output: AnsiString;
+  Code: Integer;
+begin
+  // The files are installed, so the builder's own checker can read the choice (a zip's contents, a disc's cabinet).
+  // A choice that does not work is left out of the build instead of stopping it. Silent installs build nothing.
+  if (CurStep = ssPostInstall) and (Trim(OotfEdit.Text) <> '') and not WizardSilent then begin
+    WizardForm.StatusLabel.Caption := 'Checking your Drakan: Order of the Flame files...';
+    Log := ExpandConstant('{tmp}\ootf-check.txt');
+    DeleteFile(Log);
+    OotfRejected := True;
+    if Exec(ExpandConstant('{cmd}'),
+      '/C ""' + ExpandConstant('{app}\tools\python\python.exe') + '" -I "' +
+      ExpandConstant('{app}\scripts\buildtool\extras.py') + '" check-source --deep "' + Trim(OotfEdit.Text) +
+      '" > "' + Log + '" 2>&1"', '', SW_HIDE, ewWaitUntilTerminated, Code) then
+      OotfRejected := Code <> 0;
+    if OotfRejected then begin
+      Text := '';
+      if LoadStringFromFile(Log, Output) then
+        Text := Trim(String(Output));
+      MsgBox('Your Drakan: Order of the Flame choice cannot be used:' + #13#10#13#10 + Text + #13#10#13#10 +
+        'The game itself is still built, without Order of the Flame. To add it later, run "Rebuild Drakan" from a ' +
+        'command prompt with -OotfSource <path>, or run this setup again with a working copy.', mbError, MB_OK);
+    end;
+  end;
+end;
+
 function GetIsoPath(Param: String): String;
 begin
   Result := IsoPage.Values[0];
@@ -304,9 +389,9 @@ end;
 function GetBuildOptions(Param: String): String;
 begin
   Result := '';
-  if OptionsPage.Values[0] then
+  if DlssPage.Values[0] then
     Result := Result + ' -EnableDlss';
-  if OptionsPage.Values[1] then
+  if OptionsPage.Values[0] then
     Result := Result + ' -Web';
   // Always passed, so a reinstall replaces the choice remembered by an earlier one.
   Result := Result + ' -Cores ' + IntToStr(StrToIntDef(Trim(CpuPage.Values[0]), 0));
@@ -314,23 +399,23 @@ begin
     Result := Result + ' -CpuAffinity "' + Trim(CpuPage.Values[1]) + '"'
   else
     Result := Result + ' -CpuAffinity default';
-  if OptionsPage.Values[2] then
+  if OptionsPage.Values[1] then
     Result := Result + ' -Priority Low'
   else
     Result := Result + ' -Priority Normal';
-  if OptionsPage.Values[3] then
+  if OptionsPage.Values[2] then
     Result := Result + ' -LaunchWhenDone';
   // Always passed, so a reinstall replaces the choice remembered by an earlier one.
-  if OptionsPage.Values[4] then
+  if OptionsPage.Values[3] then
     Result := Result + ' -VuBlocks Whole'
   else
     Result := Result + ' -VuBlocks Chunked';
   // Always passed, so a reinstall replaces what an earlier one remembered. The builder checks the source and says so.
-  if Trim(OotfEdit.Text) <> '' then
+  if (Trim(OotfEdit.Text) <> '') and not OotfRejected then
     Result := Result + ' -OotfSource "' + Trim(OotfEdit.Text) + '"'
   else
     Result := Result + ' -OotfSource none';
-  if OptionsPage.Values[5] then
+  if HdPage.Values[0] then
     Result := Result + ' -HdTextures on'
   else
     Result := Result + ' -HdTextures off';

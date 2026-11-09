@@ -165,14 +165,90 @@ def extract_cab(cab: bytes, root: Path) -> int:
     return len(entries)
 
 
+RAW_SECTOR = 2352
+COOK_CHUNK = 2048  # raw sectors per read
+
+
+def cue_data_track(text: str) -> tuple[str, int] | None:
+    """(file name, bytes to skip at the start of each sector) of the first data track of a cue sheet.
+
+    MODE1/2352 skips the 12-byte sync and 4-byte header, MODE2/2352 also the 8-byte subheader, MODE1/2048 nothing.
+    """
+    current = None
+    for line in text.splitlines():
+        words = line.strip().split()
+        if not words:
+            continue
+        if words[0].upper() == "FILE":
+            quoted = line.strip()[4:].strip()
+            current = quoted[1 : quoted.rindex('"')] if quoted.startswith('"') else quoted.split()[0]
+        elif words[0].upper() == "TRACK" and len(words) >= 3 and current:
+            skip = {"MODE1/2352": 16, "MODE2/2352": 24, "MODE1/2048": 0}.get(words[2].upper())
+            if skip is not None:
+                return current, skip
+    return None
+
+
+def cook_sectors(stream, skip: int) -> bytes:
+    """2048-byte user data of a raw 2352-byte-sector track (skip = 16 or 24); skip 0 means the track is already cooked."""
+    if skip == 0:
+        return stream.read()
+    out = []
+    while True:
+        block = stream.read(RAW_SECTOR * COOK_CHUNK)
+        if not block:
+            break
+        if len(block) % RAW_SECTOR:
+            raise ValueError("data track is not a whole number of 2352-byte sectors")
+        out.append(b"".join(block[o + skip : o + skip + 2048] for o in range(0, len(block), RAW_SECTOR)))
+    return b"".join(out)
+
+
+def sniff_skip(head: bytes) -> int | None:
+    """Sector layout of a track from its first 17 sectors: None when it holds no ISO9660 volume."""
+    if head[16 * 2048 + 1 : 16 * 2048 + 6] == b"CD001" or head[0x40 + 16 * 2048 + 1 : 0x40 + 16 * 2048 + 6] == b"CD001":
+        return 0
+    for skip in (16, 24):
+        at = 16 * RAW_SECTOR + skip + 1
+        if head[at : at + 5] == b"CD001":
+            return skip
+    return None
+
+
 def read_image(image: Path) -> bytes:
-    """The raw disc image: a .mdx / .iso file, or the one image inside a .zip."""
-    if image.suffix.lower() == ".zip":
+    """The disc as a plain 2048-byte-sector image: a .mdx / .iso, the data track of a .cue / .bin rip, or a .zip holding one."""
+    suffix = image.suffix.lower()
+    if suffix == ".zip":
         with zipfile.ZipFile(image) as z:
-            names = [n for n in z.namelist() if n.lower().endswith((".mdx", ".iso"))]
-            if len(names) != 1:
-                raise ValueError("zip must contain exactly one MDX or ISO image")
-            return z.read(names[0])
+            names = z.namelist()
+            images = [n for n in names if n.lower().endswith((".mdx", ".iso"))]
+            if len(images) == 1:
+                return z.read(images[0])
+            cues = [n for n in names if n.lower().endswith(".cue")]
+            if len(images) == 0 and len(cues) == 1:
+                track = cue_data_track(z.read(cues[0]).decode("latin-1"))
+                if not track:
+                    raise ValueError("the cue sheet in the zip lists no data track")
+                folder = cues[0].rsplit("/", 1)[0] + "/" if "/" in cues[0] else ""
+                member = next((n for n in names if n.lower() == (folder + track[0]).lower()), None)
+                if member is None:
+                    raise ValueError(f"the zip lacks the data track {track[0]}")
+                with z.open(member) as stream:
+                    return cook_sectors(stream, track[1])
+            raise ValueError("zip must contain exactly one MDX or ISO image, or one cue sheet with its tracks")
+    if suffix == ".cue":
+        track = cue_data_track(image.read_text(encoding="latin-1"))
+        if not track:
+            raise ValueError("the cue sheet lists no data track")
+        with open(image.parent / track[0], "rb") as stream:
+            return cook_sectors(stream, track[1])
+    if suffix == ".bin":
+        with open(image, "rb") as stream:
+            skip = sniff_skip(stream.read(18 * RAW_SECTOR))
+            if skip is None:
+                raise ValueError("the .bin holds no ISO9660 data track (is it an audio track?)")
+            stream.seek(0)
+            return cook_sectors(stream, skip)
     return image.read_bytes()
 
 

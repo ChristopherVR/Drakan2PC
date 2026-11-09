@@ -180,12 +180,17 @@ is not for sharing; only the setup/kit is.
 
 Both are made on the player's PC from files the player owns (`scripts/buildtool/extras.py`, standard library only, so it
 runs under the kit's embeddable Python; nothing is uploaded or committed). The setup has an "Order of the Flame" page
-(`/OOTF=<path>`) and an extras checkbox (`/HD=1`); `Build-Drakan.ps1` takes `-OotfSource <path|none>`, `-HdTextures
+(`/OOTF=<path>`), a page of its own each for NVIDIA DLSS and for HD textures (`/HD=1`), and one for the other options
+(browser build, low priority, start when done, VU1 blocks); `Build-Drakan.ps1` takes `-OotfSource <path|none>`, `-HdTextures
 on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers the answers in `build/build-options.json`.
 
 * **Drakan: Order of the Flame** (`-OotfSource`): an install folder (`Dragon.rrc` beside a world folder, found one level
-  down too), a copy of the disc (`SETUP/DATA1.CAB`), a disc image (`.mdx` / `.iso`, 2048-byte sectors) or the `.zip` that
-  holds one. Images and cabinets are unpacked into `build/ootf/cab_disc` (`analysis/scripts/ootf_cab.py`); an install is
+  down too), a copy of the disc (`SETUP/DATA1.CAB`), a disc image (`.mdx` / `.iso`, or a `.cue` with its `.bin` tracks; the raw 2352-byte data track is
+  cooked to 2048-byte sectors on the fly) or a `.zip` holding one of those. The source is **checked before anything long
+  starts**: the wizard page refuses a choice that cannot work (missing, wrong type, a folder without `Dragon.rrc` or
+  `SETUP/DATA1.CAB`), and once the builder files are installed the setup runs `extras.py check-source --deep` (reads the
+  disc's cabinet and looks for `Dragon.rrc`); a choice that fails is dropped with the reason shown and the game is still
+  built. `Build-Drakan.ps1` does the same check and only leaves Order of the Flame out of that run. Images and cabinets are unpacked into `build/ootf/cab_disc` (`analysis/scripts/ootf_cab.py`); an install is
   read in place. The Drakan 2 level template comes from the ISO already chosen (`analysis/scripts/ootf_ps2_data.py`, into
   `build/ootf/ps2/data`). `editor/scripts/ootf-convert.ts --campaign 1` writes `build/ootf/mods/ootf-levels.zip` (23
   levels, with `--hd` also the lossless texture sources) plus a `mods.ini`; this runs **before** the game build, which

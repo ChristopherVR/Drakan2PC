@@ -39,6 +39,16 @@ numpy 2.0 imports from a private folder under the embeddable Python (`-I`, no `s
   path must register it.
 * Inno Setup's `/D...` switches are mangled by Git Bash; run ISCC from PowerShell.
 
+## Follow-up: wrong sources, BIN/CUE, page split
+
+A real Order of the Flame download (`Drakan-Order-of-the-Flame_Win_EN_Disc-Image-EU-Release.zip`) is a BIN/CUE rip (a MODE1/2352
+data track plus seven audio tracks), not an `.mdx`; the first build stopped on it ("holds 0" images) because the source check
+threw. Now: `ootf_cab.read_image` cooks a cue / bin / zip-of-cue data track to 2048-byte sectors (extraction of the real zip:
+337 files in 3.2 s; deep check 1.7 s); `extras.py check-source --deep` reads the disc's cabinet and looks for `Dragon.rrc`; the
+wizard refuses a wrong choice on its page and runs the deep check after the files are installed, dropping a failing choice
+with the reason; `Build-Drakan.ps1` leaves Order of the Flame out of that run instead of throwing. DLSS and HD textures got
+pages of their own, and the VU1 option is explained on the options page.
+
 ## Not done
 
 * The HD upscale step itself was timed only on the reference card; other classes are multipliers, not measurements.

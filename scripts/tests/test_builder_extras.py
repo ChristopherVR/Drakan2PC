@@ -183,6 +183,72 @@ class SourceTests(unittest.TestCase):
             z.writestr("DRAKAN.mdx", b"x")
         self.assertEqual(extras.classify_source(one), ("image", one))
 
+    def test_cue_bin_rips_are_images(self):
+        raw = bytearray(18 * 2352)
+        raw[16 * 2352 + 17 : 16 * 2352 + 22] = b"CD001"
+        cue = 'FILE "Game (Track 1).bin" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n'
+        (self.dir / "Game (Track 1).bin").write_bytes(bytes(raw))
+        (self.dir / "Game.cue").write_text(cue, encoding="utf-8")
+        for name in ("Game.cue", "Game (Track 1).bin"):
+            with self.subTest(name=name):
+                self.assertEqual(extras.classify_source(self.dir / name)[0], "image")
+        rip = self.dir / "rip.zip"
+        with zipfile.ZipFile(rip, "w") as z:
+            z.writestr("Game/Game.cue", cue)
+            z.writestr("Game/Game (Track 1).bin", bytes(raw))
+        self.assertEqual(extras.classify_source(rip), ("image", rip))
+        (self.dir / "Game (Track 1).bin").unlink()
+        with self.assertRaises(extras.ExtrasError) as caught:
+            extras.classify_source(self.dir / "Game.cue")
+        self.assertIn("not next to it", str(caught.exception))
+        (self.dir / "audio.bin").write_bytes(bytes(40000))
+        with self.assertRaises(extras.ExtrasError):
+            extras.classify_source(self.dir / "audio.bin")
+
+    def test_deep_check_reads_the_cabinet_and_names_the_problem(self):
+        disc = self.dir / "disc.iso"
+        make_iso(disc)
+
+        state = {"names": [], "missing": False}
+
+        class Cab:
+            @staticmethod
+            def read_image(path):
+                return bytes(17 * 2048)
+
+            @staticmethod
+            def iso_find(image, base, name):
+                if state["missing"]:
+                    raise FileNotFoundError(name)
+                return 0, 4
+
+            @staticmethod
+            def read_cab(data):
+                return [("", name, 0, 1, 1, 0) for name in state["names"]]
+
+        with mock.patch.object(extras, "ootf_cab", lambda: Cab):
+            state["names"] = ["Dragon.rrc", "Drakan.exe"]
+            self.assertIn("2 files", extras.verify_source(disc))
+            state["names"] = ["setup.exe"]
+            with self.assertRaises(extras.ExtrasError) as caught:
+                extras.verify_source(disc)
+            self.assertIn("not Drakan: Order of the Flame", str(caught.exception))
+            state["missing"] = True
+            with self.assertRaises(extras.ExtrasError) as caught:
+                extras.verify_source(disc)
+            self.assertIn("SETUP/DATA1.CAB", str(caught.exception))
+
+    def test_deep_check_of_an_install_needs_no_image(self):
+        install = make_install(self.dir / "Drakan")
+        self.assertIn("install folder", extras.verify_source(install))
+
+    def test_cli_deep_check_exit_codes(self):
+        install = make_install(self.dir / "Drakan")
+        with mock.patch.object(sys, "stdout", io.StringIO()):
+            self.assertEqual(extras.main(["check-source", "--deep", str(install)]), 0)
+        with mock.patch.object(sys, "stderr", io.StringIO()):
+            self.assertEqual(extras.main(["check-source", "--deep", str(self.dir / "nope.zip")]), 1)
+
     def test_bad_sources_say_what_to_choose(self):
         two = self.dir / "two.zip"
         with zipfile.ZipFile(two, "w") as z:
@@ -740,18 +806,54 @@ class PolicyTests(unittest.TestCase):
                 self.assertIn(time, text)
                 self.assertIn(f"{round(disk)} GB", text)
 
-    def test_wizard_passes_both_choices_to_the_builder(self):
+    def test_wizard_passes_the_choices_to_the_builder(self):
         text = ISS.read_text(encoding="utf-8")
         for needle in (
             "-OotfSource",
             "-HdTextures on",
             "-HdTextures off",
             "-OotfSource none",
-            "OotfPage",
-            "OptionsPage.Values[5]",
+            "-EnableDlss",
+            "HdPage.Values[0]",
+            "DlssPage.Values[0]",
         ):
             self.assertIn(needle, text)
-        self.assertIn("CreateInputOptionPage(OotfPage.ID", text, "the extras page follows the Order of the Flame page")
+
+    def test_dlss_hd_textures_and_the_other_options_have_their_own_pages(self):
+        text = ISS.read_text(encoding="utf-8")
+        order = [
+            "CreateInputOptionPage(OotfPage.ID",
+            "CreateInputOptionPage(DlssPage.ID",
+            "CreateInputOptionPage(HdPage.ID",
+            "CreateInputQueryPage(OptionsPage.ID",
+        ]
+        positions = [text.index(item) for item in order]
+        self.assertEqual(positions, sorted(positions), "Order of the Flame, DLSS, HD textures, other options, CPU")
+        dlss = text[text.index("DlssPage := ") : text.index("HdPage := ")]
+        hd = text[text.index("HdPage := ") : text.index("OptionsPage := ")]
+        other = text[text.index("OptionsPage := ") : text.index("CpuPage := ")]
+        self.assertIn("NVIDIA RTX SDKs License", dlss)
+        self.assertNotIn("Real-ESRGAN", dlss)
+        self.assertIn("Real-ESRGAN", hd)
+        self.assertNotIn("DLSS", hd)
+        self.assertNotIn("DLSS", other)
+        self.assertNotIn("Real-ESRGAN", other)
+        self.assertEqual(other.count("OptionsPage.Add("), 4, "browser, priority, start the game, VU1 blocks")
+
+    def test_the_vu1_option_is_explained(self):
+        text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
+        for needle in ("VU1 microcode", "vector processor", "2 GB of memory per compiler", "17 GB", "same speed"):
+            self.assertIn(needle, text)
+
+    def test_the_wizard_checks_the_order_of_the_flame_choice_before_the_build(self):
+        text = ISS.read_text(encoding="utf-8")
+        self.assertIn("function OotfProblem", text)
+        self.assertIn("Problem := OotfProblem(", text, "the page cannot be left with a wrong choice")
+        self.assertIn("Dragon.rrc", text)
+        self.assertIn("DATA1.CAB", text)
+        self.assertIn("check-source --deep", text, "the builder's own checker runs once its files are installed")
+        self.assertIn("ssPostInstall", text)
+        self.assertIn("and not OotfRejected", text, "a rejected choice is not passed to the build")
 
     def test_builder_script_exposes_and_remembers_the_options(self):
         text = BUILD_DRAKAN.read_text(encoding="utf-8")
@@ -765,6 +867,8 @@ class PolicyTests(unittest.TestCase):
             "ootfSource",
             "hdTextures",
             "'--ootf-pack'",
+            "check-source --deep",
+            "left out of this build",
         ):
             self.assertIn(needle, text)
         # The pack is converted before the long game build, the HD textures made after it.

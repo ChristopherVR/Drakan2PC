@@ -392,7 +392,8 @@ def sniff_iso(path: Path) -> bool:
 
 SOURCE_HELP = (
     "Choose the folder Drakan: Order of the Flame is installed in (it holds Dragon.rrc and the 'Mountain World' folder), "
-    "its disc image (.mdx or .iso), or the Drakan.zip that holds the image."
+    "a copy of its disc (SETUP/DATA1.CAB), its disc image (.mdx, .iso, or a .cue with its .bin tracks), or a .zip that "
+    "holds one of those."
 )
 
 
@@ -414,15 +415,61 @@ def classify_source(path: str | Path) -> tuple[str, Path]:
         if not zipfile.is_zipfile(source):
             raise ExtrasError(f"{source} is not a readable zip file.")
         with zipfile.ZipFile(source) as z:
-            images = [n for n in z.namelist() if n.lower().endswith((".mdx", ".iso"))]
-        if len(images) != 1:
-            raise ExtrasError(f"{source.name} must hold exactly one .mdx or .iso disc image; it holds {len(images)}.")
-        return "image", source
+            names = z.namelist()
+        images = [n for n in names if n.lower().endswith((".mdx", ".iso"))]
+        cues = [n for n in names if n.lower().endswith(".cue")]
+        if len(images) == 1 or (not images and len(cues) == 1):
+            return "image", source
+        raise ExtrasError(
+            f"{source.name} must hold one .mdx or .iso disc image, or one .cue sheet with its .bin tracks; "
+            f"it holds {len(images)} images and {len(cues)} cue sheets."
+        )
     if suffix in (".mdx", ".iso"):
         if not sniff_iso(source):
-            raise ExtrasError(f"{source.name} is not a raw ISO9660 disc image (BIN/CUE is not supported).")
+            raise ExtrasError(f"{source.name} is not a raw ISO9660 disc image.")
+        return "image", source
+    if suffix == ".cue":
+        track = ootf_cab().cue_data_track(source.read_text(encoding="latin-1", errors="replace"))
+        if not track:
+            raise ExtrasError(f"{source.name} lists no data track.")
+        if not (source.parent / track[0]).is_file():
+            raise ExtrasError(f"{source.name} names {track[0]}, which is not next to it.")
+        return "image", source
+    if suffix == ".bin":
+        with open(source, "rb") as stream:
+            head = stream.read(18 * 2352)
+        if ootf_cab().sniff_skip(head) is None:
+            raise ExtrasError(f"{source.name} holds no data track (an audio track?). Choose the .cue sheet or Track 1.")
         return "image", source
     raise ExtrasError(f"Unsupported Drakan 1 source {source.name}. {SOURCE_HELP}")
+
+
+def verify_source(path: str | Path) -> str:
+    """Everything short of unpacking: the source is readable, and a disc's cabinet lists the Order of the Flame files.
+    Returns a one-line description or raises ExtrasError. The installer and Build-Drakan.ps1 run this before any long step,
+    so a wrong choice is reported at once instead of stopping the build."""
+    kind, where = classify_source(path)
+    if kind == "install":
+        return f"install folder {where}"
+    cab = ootf_cab()
+    try:
+        if kind == "disc-folder":
+            data = where.read_bytes()
+        else:
+            image = cab.read_image(where)
+            base = 0 if image[16 * 2048 + 1 : 16 * 2048 + 6] == b"CD001" else 0x40
+            offset, size = cab.iso_find(image, base, "SETUP/DATA1.CAB")
+            data = image[offset : offset + size]
+        names = {name.lower() for _, name, *_ in cab.read_cab(data)}
+    except FileNotFoundError:
+        raise ExtrasError(
+            f"{where.name} is a disc image but has no SETUP/DATA1.CAB: it is not the Order of the Flame PC disc."
+        ) from None
+    except (ValueError, OSError, zipfile.BadZipFile) as error:
+        raise ExtrasError(f"{where.name} could not be read as the Order of the Flame disc: {error}") from error
+    if "dragon.rrc" not in names:
+        raise ExtrasError(f"{where.name} is a disc but not Drakan: Order of the Flame (its cabinet has no Dragon.rrc).")
+    return f"{kind} {where} ({len(names)} files in the cabinet)"
 
 
 def ootf_cab():
@@ -811,6 +858,9 @@ def cmd_estimate(args) -> int:
 
 def cmd_check_source(args) -> int:
     try:
+        if args.deep:
+            print(verify_source(args.source))
+            return 0
         kind, where = classify_source(args.source)
     except ExtrasError as error:
         print(error, file=sys.stderr)
@@ -867,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_estimate)
     p = sub.add_parser("check-source", help="validate a Drakan 1 install, disc folder or image")
     p.add_argument("source")
+    p.add_argument("--deep", action="store_true", help="also read the disc image and check its cabinet (a few seconds)")
     p.set_defaults(func=cmd_check_source)
     p = sub.add_parser("ootf", help="convert Drakan: Order of the Flame into a mod pack")
     p.add_argument("--iso", required=True, help="your Drakan 2 ISO (the level template comes from it)")

@@ -64,9 +64,11 @@ Play-Original30.cmd in dist\DrakanPC runs the world at the original 30 fps.
 OPTIONAL EXTRAS
 ---------------
 * Drakan: Order of the Flame (the first game, PC): give the setup the folder
-  it is installed in, a copy of its disc, its disc image (.mdx / .iso) or the
-  Drakan.zip that holds the image (the setup's "Drakan: Order of the Flame"
-  page; Build-Drakan.cmd -OotfSource <path> does the same). The builder converts
+  it is installed in, a copy of its disc, its disc image (.mdx / .iso, or a
+  .cue with its .bin tracks) or a .zip holding one (the setup's "Drakan: Order
+  of the Flame" page; Build-Drakan.cmd -OotfSource <path> does the same). The
+  choice is checked before the build starts; one that does not work is left out
+  with the reason shown, and the game is still built. The builder converts
   its 13 levels and 10 multiplayer arenas, with scenes and music, into a mod pack
   before the game build and installs it; the title menu then offers both
   games. About 3 to 8 minutes and 1 GB. It is made on this PC from your own files and
@@ -89,6 +91,13 @@ OPTIONAL EXTRAS
   WSL with Ubuntu: wsl --install -d Ubuntu). Play it with Play-Browser.cmd in
   dist\DrakanPC-web, or on the project's browser player page by choosing that
   folder and your .iso (nothing is uploaded).
+* VU1 build method (setup page "Other options", -VuBlocks Chunked|Whole): the
+  PlayStation 2's second vector processor (VU1) runs much of the game's 3D
+  geometry code; the builder translates it to C++ and compiles it. Chunked (the
+  default) uses small pieces of about 2 GB of memory per compiler and suits any
+  PC. Whole is the older method: four very large files of up to 17 GB of memory
+  and 10 to 20 minutes each, one after another. The game runs at the same speed;
+  choose Whole only with 24 GB or more of memory and a reason to.
 * Ray-traced water and shadows are built automatically (the Build Tools include
   the DirectX Shader Compiler).
 

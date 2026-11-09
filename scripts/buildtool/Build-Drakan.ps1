@@ -304,10 +304,7 @@ try {
     # the player owns and stay on this PC. A first interactive run asks once; the answers are remembered.
     $extras = Join-Path $PSScriptRoot 'extras.py'
     $interactive = [Environment]::UserInteractive -and -not $CheckOnly
-    if ($OotfSource) {
-        & $python $extras check-source $OotfSource | Out-Null
-        if ($LASTEXITCODE) { & $python $extras check-source $OotfSource; throw "The Order of the Flame source cannot be used: $OotfSource" }
-    }
+    $extraNotes = [Collections.Generic.List[string]]::new()
     if (-not $extrasKnown -and -not $OotfSource -and $interactive) {
         Write-Host "`nOptional: Drakan: Order of the Flame (Drakan 1) as a second campaign. It is converted from your own PC copy"
         Write-Host '(install folder, disc folder, .mdx / .iso disc image or Drakan.zip) into a mod pack on this PC; the title menu then'
@@ -315,7 +312,7 @@ try {
         Show-ExtrasEstimate $python $extras $true '' $false
         $answer = (Read-Host 'Path to your Order of the Flame copy (drag it into this window), or Enter to skip').Trim().Trim('"')
         if ($answer) {
-            & $python $extras check-source $answer
+            & $python $extras check-source --deep $answer
             if ($LASTEXITCODE) { Write-Warning 'That is not usable, so Order of the Flame is skipped this time.' } else { $OotfSource = $answer }
         }
         $extrasKnown = $true
@@ -330,6 +327,17 @@ try {
     }
     if (-not $HdTextures) { $HdTextures = 'off' }
     & $saveOptions
+    if ($OotfSource) {
+        # Checked before anything long starts. A source that does not work (moved disc, wrong file, damaged zip) only leaves
+        # Order of the Flame out of this run; it never stops the game build, and the remembered choice is kept.
+        Write-Step 'Checking the Order of the Flame source'
+        & $python $extras check-source --deep $OotfSource
+        if ($LASTEXITCODE) {
+            Write-Warning "Order of the Flame is left out of this build: $OotfSource cannot be used (see above)."
+            $extraNotes.Add("Order of the Flame: skipped, the source cannot be used. Run the build again with -OotfSource <path> to add it.")
+            $OotfSource = ''
+        }
+    }
     if ($OotfSource -or $HdTextures -eq 'on') {
         Write-Step 'Optional extras selected'
         if ($OotfSource) { Write-Host "Order of the Flame: $OotfSource" }
@@ -414,7 +422,6 @@ try {
         Write-Step 'Building the game: this takes one to two hours. A few files take several minutes each; the window is not stuck.'
     }
     $started = Get-Date
-    $extraNotes = [Collections.Generic.List[string]]::new()
     $ootfPack = $null
     if ($OotfSource) {
         # Before the game build: the converter needs only the ISO's level template, and the build then installs the pack
