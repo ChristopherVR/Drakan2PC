@@ -44,7 +44,8 @@ Generated output goes under `build/` (gitignored).
   `subtitles/`, `nr/`, `ngx_data/` and `*.ini` are kept). Launch and test from `dist/DrakanPC`, never from a bare
   `WORKDIR/bin` (default settings, no HD textures). Do not copy files into `dist/` by hand.
 - The only currently permitted tracked binaries are the SHA-pinned original `drakan.ico` and the two game covers
-  `scripts/buildtool/kit/art/{ootf,d2}-cover.png` in `scripts/repository_guard.py`; NVIDIA SDK/runtime binaries must stay under ignored `local/` or `tools/`.
+  `scripts/buildtool/kit/art/{ootf,d2}-cover.png` and the 13 map pictures `scripts/buildtool/kit/art/maps/*.png` in
+  `scripts/repository_guard.py`; NVIDIA SDK/runtime binaries must stay under ignored `local/` or `tools/`.
   HD textures stay uncommitted and are regenerated with `analysis/scripts/hd_pack.py`.
 
 ## Conventions

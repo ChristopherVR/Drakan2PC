@@ -653,10 +653,23 @@ $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$Rep
     '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
 Invoke-Checked $Python $launchArgs
 if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPictures) {
+    # The tracked pictures (kit/art/maps) are put in first, never over one the player already has, so the run below only
+    # happens for a map that has none (a new arena, or a tree without them).
+    $trackedMaps = Join-Path $PSScriptRoot 'kit/art/maps'
+    if (Test-Path -LiteralPath $trackedMaps -PathType Container) {
+        $mapDest = Join-Path $DistDirectory 'previews/maps'
+        New-Item -ItemType Directory -Force -Path $mapDest | Out-Null
+        $added = 0
+        foreach ($picture in Get-ChildItem -LiteralPath $trackedMaps -Filter '*.png') {
+            $target = Join-Path $mapDest $picture.Name
+            if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { Copy-Item -LiteralPath $picture.FullName -Destination $target; $added++ }
+        }
+        if ($added) { Write-Stage "Installing $added multiplayer map pictures that ship with the builder" }
+    }
     # The multiplayer menu's map pictures: one short game run per built-in arena without a picture yet, from the map's
     # authored camera point (previews/maps/ survives the play folder clean, so later builds skip this). A failure
     # only leaves the drawn sketch in the menu; it does not fail the build.
-    Write-Stage 'Making the multiplayer map pictures (a short game run per map; later builds skip the ones made)' 'The game opens and closes by itself several times to take these pictures; this is normal, so leave it alone.'
+    Write-Stage 'Making the multiplayer map pictures that are missing (a short game run per map; later builds skip the ones made)' 'The game opens and closes by itself several times to take these pictures; this is normal, so leave it alone.'
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/map_previews.py'),'--exe',$gameExe,
             '--src',$DistDirectory,'--out',(Join-Path $DistDirectory 'previews/maps'))

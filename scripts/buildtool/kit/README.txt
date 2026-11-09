@@ -41,10 +41,10 @@ look stuck for a while; leave it running. When the window says "Done", start
 the game with the "Drakan - The Ancients' Gates" shortcut (Start menu or
 desktop). The game files are in the install folder under dist\DrakanPC.
 
-Near the end of the build the finished game is started several times, each in a
-small window that closes by itself, to take the multiplayer map pictures and the
-settings pictures. This is normal: leave those windows alone (they are only made
-once; later builds skip the pictures that exist).
+The multiplayer map pictures ship with the builder. Only for a map without a
+picture does the build start the finished game, in a small window that closes by
+itself, to take it. This is normal: leave such a window alone (a picture is only
+made once; later builds skip the ones that exist).
 
 The game reads the disc image while it runs (its path is in
 dist\DrakanPC\drakan.ini), so keep the .iso where it was.

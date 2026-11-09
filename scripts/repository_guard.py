@@ -112,6 +112,21 @@ ALLOWED_BINARIES = {
     # The Drakan: The Ancients' Gates cover (1280 x 720): the widescreen title art the "Choose your game" card and the original
     # menus' background use; the build copies it as previews/game-d2.png and background-d2.png. See THIRD_PARTY.md.
     "scripts/buildtool/kit/art/d2-cover.png": "165cecc53fb5b7b4f255801eb337b0bf52de69d2b5e31d602c5abdcc7ec1a6d6",
+    # The multiplayer menu's map pictures (1280 x 720 screenshots of the game running each arena), so a build does not have to
+    # start the game once per map. See THIRD_PARTY.md.
+    "scripts/buildtool/kit/art/maps/Alwarren_of_Death__air_.png": "1446dae88e19138e103620694b4e1d07e930d95802a32294b56245af3393adb7",
+    "scripts/buildtool/kit/art/maps/Arena_of_Death__air_.png": "b1521c0c1e93dd81d85e1dab9d339b135c525375c4edc28260f44bcbd1920195",
+    "scripts/buildtool/kit/art/maps/City_of_the_Damned__Skeleton_Square.png": "750ae540db2430adb71a1bc48a49614247cd9cf06b1dc9b1778a73bba2d2b30d",
+    "scripts/buildtool/kit/art/maps/Grotto_of_Death__air_.png": "4faaa5e7e9e8256f579d1dea2397047e716355e3a71ebcc7093601a2dadc18c2",
+    "scripts/buildtool/kit/art/maps/Hill_of_Fire__ground_.png": "6c6e4cfd70ecfc4b7d09405b2fb65e617df51cc4968f5c8539e323d83087891d",
+    "scripts/buildtool/kit/art/maps/Inquisitor_s_Lair__The_Depths.png": "7e2721e4b5c08e826d7c8a1ef8508c980501b548a76dacec5af4272003d69eb3",
+    "scripts/buildtool/kit/art/maps/Island_of_Death__mod_.png": "e6fb8659008bf1b0dc0c7fbfa8435c02363bcca2977376279865c13db669ebc8",
+    "scripts/buildtool/kit/art/maps/Nemesis__air_.png": "40bc4bf8a773c9eb14c1c2a27a704e1a0f68cde746e7cdb845a1657db4ae8ef9",
+    "scripts/buildtool/kit/art/maps/Relic__ground_.png": "29739de1e637c3a1b97279dff57388ac6169b36a406b067175ee36ba37f511d0",
+    "scripts/buildtool/kit/art/maps/Rise_to_Power__mod_.png": "ede55847f3c9866532e3202a88002ad4c7124a9bc965b04804a314d1080827de",
+    "scripts/buildtool/kit/art/maps/Sanctuary__ground_.png": "63541f63a51ae5131ec4f68679ac92ff53b4c15783c977e593a137016708a969",
+    "scripts/buildtool/kit/art/maps/Surdana_Meadow.png": "fcd341fc57218306aedacd417a59830189d954aef631a9ee21256272e8fdea81",
+    "scripts/buildtool/kit/art/maps/Volcano_of_Death__mod_.png": "676e7de1e92370df1dae32cf87e7b9076c3d5f8b4fcb425777c791fea1e7f9d2",
     "scripts/buildtool/kit/art/ootf-cover.png": "e1ac723f61550d1fa58e45b42df50cb112ff2cdbc86f3f0acbf46d8813c3cdbc",
 }
 TOKEN_PATTERNS = [

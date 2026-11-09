@@ -53,7 +53,7 @@ Name: "{autoprograms}\Drakan play folder"; Filename: "{code:GetPlayDir}"
 Name: desktopicon; Description: "Create a desktop shortcut"
 
 [Run]
-Filename: "{app}\Build-Drakan.cmd"; Parameters: "-IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "Build the game now (one to two hours; installs Microsoft's C++ Build Tools if needed). Near the end the game opens and closes by itself several times to take pictures; leave it alone"; Flags: postinstall shellexec nowait skipifsilent
+Filename: "{app}\Build-Drakan.cmd"; Parameters: "-IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "Build the game now (one to two hours; installs Microsoft's C++ Build Tools if needed). If a multiplayer map picture is missing, the game opens and closes by itself to take it; leave it alone"; Flags: postinstall shellexec nowait skipifsilent
 
 [UninstallDelete]
 ; Build products; the play folder (saves and settings) is left in place.

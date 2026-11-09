@@ -655,6 +655,38 @@ class CoverArtTests(unittest.TestCase):
         spec_guard.loader.exec_module(guard)
         return guard
 
+    def test_the_map_pictures_are_pinned_and_cover_every_arena(self):
+        folder = ROOT / "scripts/buildtool/kit/art/maps"
+        pictures = sorted(folder.glob("*.png"))
+        self.assertEqual(len(pictures), 13)
+        guard = self.guard()
+        for picture in pictures:
+            data = picture.read_bytes()
+            name = f"scripts/buildtool/kit/art/maps/{picture.name}"
+            with self.subTest(picture=picture.name):
+                self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(guard.ALLOWED_BINARIES[name], hashlib.sha256(data).hexdigest())
+                self.assertIsNone(guard.reason(name, data))
+        # The built-in arenas and the converted Order of the Flame arenas are all there, under the names the game looks for.
+        harness = importlib.util.spec_from_file_location("map_previews", ROOT / "scripts/harness/map_previews.py")
+        previews = importlib.util.module_from_spec(harness)
+        sys.path.insert(0, str(ROOT / "scripts/harness"))
+        harness.loader.exec_module(previews)
+        built_in = previews.arenas((ROOT / "configs/mp_maps.ini").read_text(encoding="utf-8"))
+        names = {picture.name for picture in pictures}
+        for arena in built_in:
+            self.assertIn(previews.safe_name(arena["name"]) + ".png", names, arena["name"])
+        self.assertEqual(len([n for n in names if "__air_" in n or "__ground_" in n or "__mod_" in n]), 10)
+
+    def test_the_build_installs_the_tracked_map_pictures_before_it_would_take_any(self):
+        build = (ROOT / "scripts/buildtool/Build-LocalGame.ps1").read_text(encoding="utf-8")
+        copy = build.index("kit/art/maps")
+        run = build.index("'scripts/harness/map_previews.py'")
+        self.assertLess(copy, run, "the pictures are in place before the harness looks for missing ones")
+        block = build[copy:run]
+        self.assertIn("Test-Path -LiteralPath $target", block, "an existing picture is never replaced")
+        self.assertIn("previews/maps", block)
+
     def test_the_drakan_2_cover_is_pinned_and_copied_by_the_build(self):
         art = "scripts/buildtool/kit/art/d2-cover.png"
         data = (ROOT / art).read_bytes()

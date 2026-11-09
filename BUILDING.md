@@ -175,7 +175,9 @@ and, on failure, the output's tail reach the console) and, while
 `build/game` is not configured yet, `-NoWarnings` (CMake `DRAKAN_COMPILER_WARNINGS=OFF`, `/W0` instead of `/W4`; not
 applied to a configured tree because the flag change would recompile everything). The console is logged to
 `build-log.txt`. The result is `dist/DrakanPC` in the install folder, with the `scripts/launchers` `Play*.cmd` files.
-The last step starts the built game several times (one short run per multiplayer map and per settings picture that does
+The 13 multiplayer map pictures ship with the builder (`scripts/buildtool/kit/art/maps`, SHA-pinned in the repository guard) and are copied
+into the play folder first, never over one the player has, so that step normally starts no game at all. For any map without a
+picture (and for settings pictures, which the guided build does not make) the last step starts the built game once (one short run per multiplayer map and per settings picture that does
 not exist yet, `scripts/harness/map_previews.py`, `setting_shots.py`); the windows close by themselves and the console says
 so. Later builds skip the pictures already made.
 `Build-Drakan.cmd -CheckOnly` stops after the checks and installs nothing. The built game is derived from the disc and
