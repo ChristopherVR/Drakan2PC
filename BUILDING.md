@@ -175,6 +175,11 @@ and, on failure, the output's tail reach the console) and, while
 `build/game` is not configured yet, `-NoWarnings` (CMake `DRAKAN_COMPILER_WARNINGS=OFF`, `/W0` instead of `/W4`; not
 applied to a configured tree because the flag change would recompile everything). The console is logged to
 `build-log.txt`. The result is `dist/DrakanPC` in the install folder, with the `scripts/launchers` `Play*.cmd` files.
+The 106 PC Settings help pictures (`scripts/buildtool/kit/art/settings`, about 100 MB, listed in `settings.sha256` which the repository guard reads) are
+copied into `previews/settings` the same way, so `setting_shots.py` is not needed for a normal build.
+**Ending the builder ends the compilers:** `Build-Drakan.ps1` and `Build-LocalGame.ps1` put their PowerShell in a Windows job object with kill-on-close
+(`scripts/buildtool/Build-Job.ps1`), so closing the window, Ctrl+C or ending PowerShell also ends cmake, MSBuild, `cl.exe`, the picture runs and
+MSBuild's reusable nodes; `-LaunchWhenDone` releases the job first so the started game survives.
 The 13 multiplayer map pictures ship with the builder (`scripts/buildtool/kit/art/maps`, SHA-pinned in the repository guard) and are copied
 into the play folder first, never over one the player has, so that step normally starts no game at all. For any map without a
 picture (and for settings pictures, which the guided build does not make) the last step starts the built game once (one short run per multiplayer map and per settings picture that does

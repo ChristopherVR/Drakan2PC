@@ -129,6 +129,21 @@ ALLOWED_BINARIES = {
     "scripts/buildtool/kit/art/maps/Volcano_of_Death__mod_.png": "676e7de1e92370df1dae32cf87e7b9076c3d5f8b4fcb425777c791fea1e7f9d2",
     "scripts/buildtool/kit/art/ootf-cover.png": "e1ac723f61550d1fa58e45b42df50cb112ff2cdbc86f3f0acbf46d8813c3cdbc",
 }
+
+
+def _pin_manifest(prefix: str, manifest: str) -> None:
+    """Pin every file listed in a `<sha256>  <path under prefix>` manifest (many pictures, one reviewed list)."""
+    path = ROOT / manifest
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        digest, _, rel = line.partition("  ")
+        if len(digest) == 64 and rel:
+            ALLOWED_BINARIES[prefix + rel] = digest
+
+
+# The PC Settings help panel's pictures (106 screenshots, previews/settings/<row key>/<value>.png). See THIRD_PARTY.md.
+_pin_manifest("scripts/buildtool/kit/art/settings/", "scripts/buildtool/kit/art/settings.sha256")
 TOKEN_PATTERNS = [
     re.compile(rb"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----"),
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),

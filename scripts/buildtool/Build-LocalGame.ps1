@@ -64,6 +64,8 @@ $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
 . (Join-Path $PSScriptRoot 'Build-Progress.ps1')
+. (Join-Path $PSScriptRoot 'Build-Job.ps1')
+[void](Enter-BuildJob) # no-op when Build-Drakan.ps1 already did
 if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
     throw '-CpuAffinity supports native Windows builds only; Linux/WSL/browser builds keep their platform defaults.'
 }
@@ -653,6 +655,21 @@ $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$Rep
     '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
 Invoke-Checked $Python $launchArgs
 if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPictures) {
+    # The tracked PC Settings pictures (kit/art/settings/<row key>/<value>.png) are copied in the same way (the guided build
+    # does not take them itself): the settings help panel shows them from the first start.
+    $trackedSettings = Join-Path $PSScriptRoot 'kit/art/settings'
+    if (Test-Path -LiteralPath $trackedSettings -PathType Container) {
+        $settingsDest = Join-Path $DistDirectory 'previews/settings'
+        $settingsAdded = 0
+        foreach ($picture in Get-ChildItem -LiteralPath $trackedSettings -Recurse -File -Filter '*.png') {
+            $target = Join-Path $settingsDest ([IO.Path]::GetRelativePath($trackedSettings, $picture.FullName))
+            if (Test-Path -LiteralPath $target -PathType Leaf) { continue }
+            New-Item -ItemType Directory -Force -Path (Split-Path $target) | Out-Null
+            Copy-Item -LiteralPath $picture.FullName -Destination $target
+            $settingsAdded++
+        }
+        if ($settingsAdded) { Write-Stage "Installing $settingsAdded PC Settings pictures that ship with the builder" }
+    }
     # The tracked pictures (kit/art/maps) are put in first, never over one the player already has, so the run below only
     # happens for a map that has none (a new arena, or a tree without them).
     $trackedMaps = Join-Path $PSScriptRoot 'kit/art/maps'

@@ -63,6 +63,9 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
 . (Join-Path $PSScriptRoot 'Build-Policy.ps1')
 . (Join-Path $PSScriptRoot 'Build-Progress.ps1')
+. (Join-Path $PSScriptRoot 'Build-Job.ps1')
+# Everything the build starts (cmake, MSBuild, the compilers, the game for the pictures) ends with this window.
+[void](Enter-BuildJob)
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
@@ -487,6 +490,7 @@ try {
     if ($ootfPack) { Write-Host 'Drakan: Order of the Flame is installed: choose it on the title menu ("Choose your game").' }
     foreach ($note in $extraNotes) { Write-Host $note -ForegroundColor Yellow }
     if ($LaunchWhenDone -and (Test-Path -LiteralPath (Join-Path $play 'drakan.exe') -PathType Leaf)) {
+        Disable-BuildJobKill # the game must outlive this window
         Start-Process -FilePath (Join-Path $play 'drakan.exe') -WorkingDirectory $play
     }
 } finally {

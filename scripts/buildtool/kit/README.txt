@@ -49,7 +49,8 @@ made once; later builds skip the ones that exist).
 The game reads the disc image while it runs (its path is in
 dist\DrakanPC\drakan.ini), so keep the .iso where it was.
 
-"Rebuild Drakan" in the Start menu (Build-Drakan.cmd in the install folder)
+Closing the build window (or pressing Ctrl+C) also ends the compilers it started,
+so nothing keeps compiling in the background. "Rebuild Drakan" in the Start menu (Build-Drakan.cmd in the install folder)
 runs the build again. It continues where a stopped build left off and keeps
 your saves, settings (*.ini) and textures.
 
