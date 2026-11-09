@@ -151,6 +151,7 @@ void readArtFromDisc() {
 
 dsettings::ModsModel& harnessMods();                // the Mods page model (defined below)
 void titleModsAction(const gameui::TitleAction& a); // the title's new mod packs card (defined below)
+void previewTitleBackdrop(int game);                // bind a chosen game's title art at the choice (defined below)
 
 // Test aid: DRAKAN_OVERLAY_SHOT_DIR=<dir>. When <dir>\\shot.txt exists (its first line = a file name without extension)
 // the presented frame, with the overlay, is written to <dir>\\<name>.bmp and shot.txt is deleted. Works without the
@@ -2409,8 +2410,11 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             if (a.kind == gameui::TitleActionKind::ModsEnable || a.kind == gameui::TitleActionKind::ModsKeepOff ||
                 a.kind == gameui::TitleActionKind::OpenMods)
                 titleModsAction(a); // host only: no native press
-            else
+            else {
+                if (a.kind == gameui::TitleActionKind::SelectGame)
+                    previewTitleBackdrop(a.value); // this thread closes the chooser now; the EE applies the choice later
                 sh.titleActions.push(a);
+            }
         }
         for (const gameui::PauseAction& a : out.optionActions)
             sh.titleOptionActions.push(a);
@@ -3000,7 +3004,16 @@ std::string titlePictureOf(const drakan_game::GameInfo& g) {
     return {};
 }
 
+// The overlay thread closes the classic chooser in the frame of the choice, but the EE applies the choice
+// (drakan_game::select) a frame or two later. Until then the native title would draw the disc art, so the choice binds its picture first and
+// syncTitleBackdrop follows the chosen index until the game index catches up (or a second passes: a refused choice).
+std::mutex g_backdropM;
+int g_backdropPending = -1;
+std::chrono::steady_clock::time_point g_backdropPendingUntil;
+
 void syncTitleBackdrop() {
+    // The overlay (every present) and the game thread (the choice, syncTitleBackdropNow) both call this.
+    std::lock_guard<std::mutex> lock(g_backdropM);
     static int s_game = -2;
     static std::string s_path;
     static std::chrono::steady_clock::time_point s_checked;
@@ -3012,8 +3025,14 @@ void syncTitleBackdrop() {
             if (const std::string p = titlePictureOf(g); !p.empty())
                 gsr::preloadTitleBackdropImage(p);
     }
-    const int game = drakan_game::currentIndex();
     const auto now = std::chrono::steady_clock::now();
+    int game = drakan_game::currentIndex();
+    if (g_backdropPending >= 0) {
+        if (g_backdropPending == game || now >= g_backdropPendingUntil)
+            g_backdropPending = -1;
+        else
+            game = g_backdropPending; // chosen, not yet applied by the EE
+    }
     if (game == s_game && (!s_path.empty() || now - s_checked < std::chrono::seconds(3)))
         return; // no picture yet: look again every 3 s (mapPreviewId's own retry)
     s_game = game;
@@ -3025,6 +3044,15 @@ void syncTitleBackdrop() {
     s_path = path;
     gsr::setTitleBackdropImage(path);
     std::fprintf(stderr, "[menu-screens] title art: %s\n", path.empty() ? "the disc's" : path.c_str());
+}
+
+void previewTitleBackdrop(int game) {
+    {
+        std::lock_guard<std::mutex> lock(g_backdropM);
+        g_backdropPending = game;
+        g_backdropPendingUntil = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    }
+    syncTitleBackdrop();
 }
 
 void overlayCallback(const gsr::OverlayContext& oc) {
@@ -3383,6 +3411,9 @@ void requestOpenControls() {
 }
 int frameLimit() {
     return g_frameLimit.load();
+}
+void syncTitleBackdropNow() {
+    syncTitleBackdrop();
 }
 } // namespace drakan_settings_host
 #endif // PS2X_HAVE_DRAKAN_SETTINGS

@@ -253,6 +253,11 @@ private:
     bool offerGames_ = false; // TitleState::offerGames of the last frame
     bool classic_ = false;    // TitleState::classicGameChoice of the last frame
     int classicGame_ = 0;     // TitleState::game of the last frame (Back keeps it)
+    // Classic game choice: the chosen game's background stays up for a moment after the choice, until the native title
+    // has drawn a frame with that game's art (the last frame it drew still shows the previous game's art).
+    int holdGame_ = -1;
+    double holdUntil_ = 0;
+    double now_ = 0; // TitleState::now of the last frame
     std::vector<HitTarget> targets_;
     std::vector<Hint> hints_;
     LayoutFrame lf_;

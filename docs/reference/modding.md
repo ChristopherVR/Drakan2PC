@@ -523,7 +523,7 @@ What the runtime does with it (`drakan_game.cpp`):
   The native title art (it names The Ancients' Gates) is hidden while the list is up: the screen is black, or shows the
   focused game's own background, `previews/background-<id>.png` (a pack ships it like `campaign-<id>.png`, in its
   `previews/` folder; the player can put `background-d2.png` / `background-ootf.png` in `previews/` next to the exe; the
-  same lookup as the covers, `mapPreviewId`), dimmed under the text. `TitleState::Game::background`. It lists Drakan, then every campaign (Order of the Flame and the custom
+  same lookup as the covers, `mapPreviewId`; the build writes `background-d2.png` from the disc's title art with `title_cover.py --background-out`, the same picture as the `game-d2.png` cover), dimmed under the text. `TitleState::Game::background`. Choosing a game keeps its background up for 0.25 s and binds its title art at once (`previewTitleBackdrop`), so the native title never shows a frame of the previous game's art. It lists Drakan, then every campaign (Order of the Flame and the custom
   ones) on the left, and the focused game's cover and description on the right ("Playing" marks the current one; more than
   seven games scroll). The main menu (New Game, Load Game, Continue, Multiplayer, Options ...) then runs for the chosen game;
   the footer names it. Code: `gameui::TitleState::games`, `TitlePage::GameChoice`, `TitleActionKind::SelectGame` (value =

@@ -510,6 +510,10 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
         return;
     if (isGameRow(r)) { // the game card: the menu runs for that game from now on (the host switches at once)
         out.actions.push_back({0, TitleActionKind::SelectGame, gameOf(r)});
+        if (classic_ && page_ == TitlePage::GameChoice) {
+            holdGame_ = gameOf(r);
+            holdUntil_ = now_ + 0.25;
+        }
         page_ = TitlePage::Main;
         focus_ = {};
         out.sound = UiSound::Confirm;
@@ -741,6 +745,7 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
     lf_ = computeFrame(vp);
     offerGames_ = st.offerGames;
     classic_ = st.classicGameChoice;
+    now_ = st.now;
     classicGame_ = std::clamp(st.game, 0, gameCount(st) - 1);
     if (!st.newMods.empty() && !modsAsked_ && page_ == TitlePage::Main && !loading_) {
         modsAsked_ = true; // first: enabling restarts the game, so the game card would be asked for nothing
@@ -1022,6 +1027,12 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
     if (st.backdrop.kind != ImageKind::None && !(page_ == TitlePage::GameChoice && !st.classicGameChoice))
         d.image(view, st.backdrop);
     if (st.classicGameChoice) { // the native title is the menu: only its game list is ours
+        if (page_ != TitlePage::GameChoice && holdGame_ >= 0 && st.now < holdUntil_ &&
+            holdGame_ < static_cast<int>(st.games.size()) &&
+            st.games[static_cast<size_t>(holdGame_)].background.kind != ImageKind::None) {
+            d.rect(view, rgba(0, 0, 0, 255)); // just chosen: keep that game's picture up until the title shows it
+            d.image(view, st.games[static_cast<size_t>(holdGame_)].background);
+        }
         if (page_ == TitlePage::GameChoice) {
             drawClassicGameChoice(st, d);
             for (const Hint& h : hints_) {

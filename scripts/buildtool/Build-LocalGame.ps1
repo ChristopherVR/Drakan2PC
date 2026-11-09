@@ -477,7 +477,8 @@ if ($gameRegion -eq 'pal') {
     # The Choose-your-game cover of The Ancients' Gates: the title screen artwork of the supplied disc.
     Write-Detail 'Extracting the Drakan 2 cover picture'
     Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/title_cover.py'),'--iso',$IsoPath,
-        '--out',(Join-Path $gameOutput 'previews/game-d2.png'))
+        '--out',(Join-Path $gameOutput 'previews/game-d2.png'),
+        '--background-out',(Join-Path $gameOutput 'previews/background-d2.png'))
 if (-not $NoDist) {
     # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
     $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }
@@ -528,6 +529,11 @@ if (-not $NoDist) {
     if (Test-Path -LiteralPath $coverPicture -PathType Leaf) {
         New-Item -ItemType Directory -Force -Path (Join-Path $DistDirectory 'previews') | Out-Null
         Copy-Item -LiteralPath $coverPicture -Destination (Join-Path $DistDirectory 'previews/game-d2.png') -Force
+        # The same artwork is the classic Choose-your-game screen's background for The Ancients' Gates.
+        $backgroundPicture = Join-Path $gameOutput 'previews/background-d2.png'
+        if (Test-Path -LiteralPath $backgroundPicture -PathType Leaf) {
+            Copy-Item -LiteralPath $backgroundPicture -Destination (Join-Path $DistDirectory 'previews/background-d2.png') -Force
+        }
     }
     # Likewise the character meshes of the multiplayer menu: previews/ is kept, so a regenerated set (a new pose, new
     # roster) would never reach the play folder. They are cheap to rebuild and derive only from the disc, so replace them.

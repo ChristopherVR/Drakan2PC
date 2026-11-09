@@ -51,6 +51,9 @@ void requestOpen(); // thread safe; opens the overlay at the next present
 // Thread safe; opens the overlay at the next present on its Controls page (the modern pause menu's Key Bindings).
 void requestOpenControls();
 int frameLimit(); // fps cap for the host loop, 0 = off
+// Bind the current game's title art now (thread safe). The game thread calls it right after a game is chosen, so the
+// native title never draws a frame with the previous game's art before the overlay's per-present sync.
+void syncTitleBackdropNow();
 // The disc the game runs from: the overlay decodes the game's own UI textures (INTERFCE.TXD 0x40: frame, stone, font
 // ...) from it at run time to draw in the game's style (nothing is stored). Called once after the file system is open
 // (drakan_overrides.cpp).

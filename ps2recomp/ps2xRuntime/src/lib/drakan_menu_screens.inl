@@ -998,6 +998,7 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
             if (!drakan_game::select(a.value)) // the card index: the campaigns, then Drakan
                 return refuse("that game is not installed");
             menuLog("game: %s", drakan_game::currentName().c_str());
+            drakan_settings_host::syncTitleBackdropNow(); // the new game's title art before the native title draws
             g_title.scanned = false; // the other game's saves: Continue / Load Game
             // Load Game's native enable state came from the old card: the title's own refresh (message 4) from 37e810.
             if (id == static_cast<int>(titleui::kScreenTitle))

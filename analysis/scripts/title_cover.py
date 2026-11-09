@@ -1,10 +1,12 @@
 """Write the Drakan 2 cover picture (the title screen artwork) from the player's own PS2 disc.
 
-usage: python -I title_cover.py --iso <game.iso> --out previews/game-d2.png [--width 1280]
+usage: python -I title_cover.py --iso <game.iso> --out previews/game-d2.png [--background-out previews/background-d2.png] [--width 1280]
 
 The title menu backdrop is six 256x256 24-bit textures (ids 72..77) of ENGLISH/COMMON/INTERFCE/INTERFCE.TXD: a 3x2 mosaic of
 768x512 pixels, each tile stored bottom-up. The top 768x432 (16:9) holds the logo, the heroine and the dragon; the copyright
-lines at the bottom are left out. The crop is scaled up to --width (default 1280x720) with a bilinear filter. Private derivative of
+lines at the bottom are left out.
+--background-out writes the same picture a second time as the classic "Choose your game" screen's full-screen background
+(previews/background-d2.png, the file a campaign pack ships as background-<id>.png). The crop is scaled up to --width (default 1280x720) with a bilinear filter. Private derivative of
 the supplied disc: written under the build output, never tracked. Standard library only.
 """
 
@@ -97,6 +99,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--iso", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--background-out", type=Path, help="also write the picture as the classic game choice background")
     ap.add_argument("--width", type=int, default=1280, help="output width (16:9; default 1280)")
     args = ap.parse_args(argv)
     if args.width < CROP_W or args.width % 16:
@@ -116,6 +119,10 @@ def main(argv=None):
     args.out.parent.mkdir(parents=True, exist_ok=True)
     txd_decode.write_png(str(args.out), w, h, rgba)
     print("title_cover: wrote %s (%dx%d)" % (args.out, w, h))
+    if args.background_out:
+        args.background_out.parent.mkdir(parents=True, exist_ok=True)
+        txd_decode.write_png(str(args.background_out), w, h, rgba)
+        print("title_cover: wrote %s (%dx%d)" % (args.background_out, w, h))
     return 0
 
 
