@@ -362,6 +362,18 @@ Battle Axe itself and the sheen layer of five swords; swapped weapons now carry 
 owner's settings (3 to 9 fps under shared GPU load, so not dense in time). Needs a regenerated pack, the rebuilt
 executable and an HD step for the rope texture. See [trap ropes and mace heads](../journal/2026-11-12/ootf-axe-trap-ropes.md).
 
+**November 12 church stair scene (the Book): framing and subtitles.** The owner's "cinematic" on entering the church
+stair is the walked exit into the Ruined Village Book and its 250 s backstory. At 16:9 it showed black beside the paintings
+(they are flat pictures framed for the PC's 4:3 screen at field of view 80; the port widened the view), and it had no
+subtitles, like every OotF scene: the PC game has no subtitle text, and the engine only subtitles actors with a speech
+controller. Now the pack marks the Book `level_aspect = 4:3` and the runtime pillarboxes such a level; a subtitle file made
+on the player's machine from the install's voice clips (`analysis/scripts/ootf_subtitles.py`, 298 lines here) is stored in
+the clips' sound descriptors as timed pages (`ootf-convert.ts --subtitles`), and the runtime shows them with the narration
+band for any actor. Seen on a full pack at 3840 x 2160 and in a 4:3 window through the walked exit (Rynn placed at the foot
+of the stair: the floor needs the book), and in the Ruined Village opening. Open: the PC exit sequence "Book 1B" is not
+converted, the text is unreviewed machine transcription, the builder does not run the tool yet. Needs a regenerated pack
+and the new exe. See [church stair scene](../journal/2026-11-12/ootf-church-cinematic.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
