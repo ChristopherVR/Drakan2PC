@@ -743,6 +743,31 @@ void testTitleClassicGameChoice() {
     o = bk.frame(st, keys({UiKey::Back}), kVp);
     CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 1);
     CHECK(o.sound == UiSound::Back);
+    // A chosen game's background stays up for a quarter of a second, alone: nothing black under it (the host fades
+    // this layer out over the title art, which is the same picture for the disc game) and no list text over it.
+    {
+        TitleState hs = st;
+        hs.games[0].background = {ImageKind::LevelPreview, 90};
+        hs.games[1].background = {ImageKind::LevelPreview, 92};
+        hs.now = 10.0;
+        TitleScreen hold;
+        hold.open();
+        o = hold.frame(hs, {}, kVp); // focus: the current game (1)
+        CHECK(findImage(o.draw, ImageKind::LevelPreview, 92) != nullptr);
+        o = hold.frame(hs, keys({UiKey::Up}), kVp); // the disc game
+        CHECK(findImage(o.draw, ImageKind::LevelPreview, 90) != nullptr &&
+              findImage(o.draw, ImageKind::LevelPreview, 92) == nullptr);
+        CHECK(hasText(o.draw, "Choose your game"));
+        o = hold.frame(hs, keys({UiKey::Confirm}), kVp);
+        CHECK(o.actions.size() == 1 && o.actions[0].kind == TitleActionKind::SelectGame && o.actions[0].value == 0);
+        hs.now = 10.1;
+        o = hold.frame(hs, {}, kVp);
+        CHECK(o.draw.size() == 1 && findImage(o.draw, ImageKind::LevelPreview, 90) != nullptr);
+        CHECK(!hasText(o.draw, "Choose your game"));
+        hs.now = 10.3; // the title has drawn its own frame by now
+        o = hold.frame(hs, {}, kVp);
+        CHECK(o.draw.size() == 0);
+    }
     // A mouse click on a row picks it.
     TitleScreen mk;
     mk.open();

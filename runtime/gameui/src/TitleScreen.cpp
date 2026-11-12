@@ -1030,7 +1030,9 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         if (page_ != TitlePage::GameChoice && holdGame_ >= 0 && st.now < holdUntil_ &&
             holdGame_ < static_cast<int>(st.games.size()) &&
             st.games[static_cast<size_t>(holdGame_)].background.kind != ImageKind::None) {
-            d.rect(view, rgba(0, 0, 0, 255)); // just chosen: keep that game's picture up until the title shows it
+            // Just chosen: keep that game's picture up until the title shows it. No black under it: the picture fills
+            // the view, and while the host fades this list out a black layer would darken the title art below for a
+            // moment (the same picture for The Ancients' Gates), a dip of a quarter of the brightness.
             d.image(view, st.games[static_cast<size_t>(holdGame_)].background);
         }
         if (page_ == TitlePage::GameChoice) {

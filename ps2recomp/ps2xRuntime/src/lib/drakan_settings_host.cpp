@@ -28,6 +28,7 @@
 #include "drakan_inventory_views_policy.h"
 #include "drakan_tab_preview_policy.h"
 #include "drakan_map_preview_policy.h"
+#include "drakan_title_picture_policy.h"
 
 #include <gsr/gsr.h>
 #include <spu2/AudioOutput.h>
@@ -1388,6 +1389,67 @@ uint32_t mapPreviewId(const std::string& mapName) {
     return id;
 }
 
+// The disc game's title picture for the Original game list: the texture pack's wide title set, the image the renderer
+// draws behind the title menu in a wide window (<texture_dir>/wide/screen8_<a>x<b>.png, widescreen.md "Wide menu
+// backdrops"), picked for the view's aspect by the renderer's own rule. 0 = the pack has none (looked at again every
+// 3 s). The folder is the renderer's: GSR_TEXDIR, else [video] texture_dir next to the exe.
+uint32_t titleArtPictureId(float viewAspect) {
+    struct Wide {
+        float aspect = 0;
+        std::string path;
+    };
+    static std::vector<Wide> set;
+    static std::chrono::steady_clock::time_point checked;
+    std::lock_guard<std::mutex> l(g_mapPreviewM);
+    const auto now = std::chrono::steady_clock::now();
+    if (set.empty() && (checked.time_since_epoch().count() == 0 || now - checked > std::chrono::seconds(3))) {
+        checked = now;
+        std::string dir;
+        if (const char* e = std::getenv("GSR_TEXDIR"); e && *e) {
+            dir = e;
+        } else {
+            dir = drakan_cfg::getString("video", "texture_dir", nullptr, "textures");
+            if (dir.empty())
+                dir = "textures";
+            if (dir.size() < 2 || (dir[1] != ':' && dir[0] != '\\' && dir[0] != '/'))
+                dir = drakan_cfg::exeDir() + dir;
+        }
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(dir + "/wide", ec)) {
+            const float aspect = drakan_title_picture::wideAspectOf(e.path().filename().string());
+            if (aspect > 0)
+                set.push_back({aspect, e.path().generic_string()});
+        }
+        std::sort(set.begin(), set.end(), [](const Wide& a, const Wide& b) { return a.path < b.path; });
+    }
+    std::vector<float> aspects;
+    for (const Wide& w : set)
+        aspects.push_back(w.aspect);
+    const int pick = drakan_title_picture::pickWide(aspects, viewAspect);
+    if (pick < 0)
+        return 0;
+    const std::string& path = set[static_cast<size_t>(pick)].path;
+    uint32_t id = 2166136261u;
+    for (unsigned char c : path)
+        id = (id ^ c) * 16777619u;
+    id |= 1u;
+    g_mapPreviewPaths[id] = path;
+    return id;
+}
+
+// How far a picture of mapPreviewId / titleArtPictureId has got (the render thread's view of g_mapPreviews).
+drakan_title_picture::Load pictureLoad(uint32_t id) {
+    using drakan_title_picture::Load;
+    if (id == 0)
+        return Load::Missing;
+    const auto it = g_mapPreviews.find(id);
+    if (it == g_mapPreviews.end())
+        return Load::Pending; // the next updateMapPreviews starts its decode
+    if (it->second.tex)
+        return Load::Ready;
+    return it->second.decode.valid() ? Load::Pending : Load::Failed;
+}
+
 // ---- real pictures of the settings (gameui/SettingPreview.h) ----
 // previews/settings/<row key>/<value>.png next to the exe: screenshots of this game with that value applied, written by
 // scripts/harness/setting_shots.py on the player's machine (never committed). A value without its own file takes the
@@ -2355,8 +2417,17 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             if (pic != 0)
                 g.cover = {gameui::ImageKind::LevelPreview, pic};
             // The classic game choice's full-screen background: previews/background-<id>.png (a pack's, or the player's
-            // picture of "d2" / "ootf" next to the exe); none = plain black.
-            if (const uint32_t bg = mapPreviewId("background-" + g.id); bg != 0)
+            // picture of "d2" / "ootf" next to the exe); none = plain black. The disc game shows the picture its title
+            // menu shows, the texture pack's wide title art, and keeps background-d2.png (the 1280 x 720 cover, soft
+            // on a large screen) for a pack without one or a file that does not decode.
+            uint32_t bg = mapPreviewId("background-" + g.id);
+            if (g.id == "d2") {
+                const uint32_t art = titleArtPictureId(f.h > 0 ? f.w / f.h : 16.0f / 9);
+                if (drakan_title_picture::choose(pictureLoad(art), pictureLoad(bg)) ==
+                    drakan_title_picture::Source::TitleArt)
+                    bg = art;
+            }
+            if (bg != 0)
                 g.background = {gameui::ImageKind::LevelPreview, bg};
         }
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
