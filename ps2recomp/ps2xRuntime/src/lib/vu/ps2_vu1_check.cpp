@@ -7,6 +7,8 @@
 #include "ps2_vu1_fast.h"
 #include "aot/ps2_vu1_aot.h"
 #include "ps2_vu1_func.h"
+#include "ps2_vu1_gpu_program.h"
+#include "gsr/vertex_program.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_vu1.h"
 #include "ps2_perf.h"
@@ -290,6 +292,13 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
     }
 }
 
+bool gpuProgramsEnabled() {
+    return vu1gpu::enabled();
+}
+bool gpuProgramIntercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory) {
+    return vu1gpu::intercept(vu, data, dataSize, memory);
+}
+
 bool benchRequested() {
     const char* e = std::getenv("DRAKAN_VU_BENCH");
     return e && *e;
@@ -358,6 +367,41 @@ void bench(PS2Memory& memory, GS& gs) {
             v.execute(vcode, h.codeSize, d, kDataSize, gs, &memory, r.e.startPC, r.e.top, r.e.itop, 65536);
     };
 
+    // DRAKAN_VU_BENCH_RUNS=<csv>: one line per recorded run (entry and exit pc, the flag word and batch header of
+    // the image's data layout, packets and vertices sent, pairs and best time), for scripts/perf/vu_run_classes.py.
+    struct RunFacts {
+        uint32_t entryPc = 0, exitPc = 0, flags = 0, packets = 0, vertices = 0, fanVertices = 0;
+        uint32_t header[4] = {};
+        uint64_t pairs = 0;
+        double ns = 1e30;
+    };
+    const char* runsCsv = std::getenv("DRAKAN_VU_BENCH_RUNS");
+    std::vector<RunFacts> facts(runsCsv && *runsCsv ? runs.size() : 0);
+
+    // DRAKAN_VU_BENCH_GPUPROG=1: for every run the vertex-program recogniser accepts (vu/ps2_vu1_gpu_program.h),
+    // evaluate its record with the CPU mirror of the shader (gsr/vertex_program.h) and compare every field a GS reads
+    // with the packets the engine sent; then replay once more without executing those runs and compare the packets of
+    // all other runs (the registers a skipped run would have left must not matter).
+    const bool gpuProg = std::getenv("DRAKAN_VU_BENCH_GPUPROG") != nullptr;
+    struct GpuProgStats {
+        uint64_t runs = 0, vertices = 0, badVertices = 0, badPosition = 0, badDepth = 0, badFog = 0, badColour = 0,
+                 badSt = 0, badShape = 0, skipBits = 0, unsafeFog = 0, flatRuns = 0, litRuns = 0;
+        uint64_t declined[6] = {}; // by vu1gpu::Decline (0: pipelines pending)
+    } gp;
+    const char* gpDumpPath = std::getenv("DRAKAN_VU_BENCH_GPUPROG_DUMP");
+    FILE* gpDump = gpuProg && gpDumpPath && *gpDumpPath ? std::fopen(gpDumpPath, "wb") : nullptr;
+    std::vector<uint64_t> packetHash(gpuProg ? runs.size() : 0);
+    std::vector<uint8_t> taken(gpuProg ? runs.size() : 0);
+    const auto hashPackets = [](const std::vector<std::vector<uint8_t>>& packets) {
+        uint64_t h = 1469598103934665603ull;
+        for (const auto& pk : packets) {
+            for (uint8_t b : pk)
+                h = (h ^ b) * 1099511628211ull;
+            h = (h ^ 0xFFu) * 1099511628211ull;
+        }
+        return h;
+    };
+
     // 1. correctness: new vs reference, all runs (state, VU data memory, XGKICK packets)
     uint64_t bad = 0;
     if (!std::getenv("DRAKAN_VU_BENCH_NOCHECK")) {
@@ -379,8 +423,111 @@ void bench(PS2Memory& memory, GS& gs) {
             else
                 rv.execute(vcode, h.codeSize, refData.data(), kDataSize, gs, nullptr, r.e.startPC, r.e.top, r.e.itop,
                            65536);
+            if (!facts.empty()) {
+                RunFacts& ft = facts[i];
+                ft.entryPc = r.e.resume ? nv.state().pc : r.e.startPC;
+                std::memcpy(&ft.flags, r.data.data() + 7 * 16, 4);
+                std::memcpy(ft.header, r.data.data() + 9 * 16, 16);
+            }
+            std::vector<uint8_t> gpRecord;
+            uint32_t gpExit = 0;
+            vu1gpu::Decline gpWhy = vu1gpu::Decline::None;
+            const bool gpStage = gpuProg && r.e.resume && nv.state().pc == 0x2A60u;
+            const bool gpTaken = gpStage && Vu1Func::canEnter(nv) &&
+                                 vu1gpu::buildStrips(nv.state(), vdata, kDataSize, gpRecord, gpExit, &gpWhy);
+            if (gpStage && !gpTaken)
+                ++gp.declined[static_cast<uint32_t>(gpWhy) < 6u ? static_cast<uint32_t>(gpWhy) : 0u];
             runOne(nv, r, vdata);
             nv.setPacketTap(nullptr);
+            if (gpuProg)
+                packetHash[i] = hashPackets(pn);
+            if (gpTaken) {
+                taken[i] = 1;
+                ++gp.runs;
+                if (gpDump) { // records for runtime/gs/tests/test_vertex_program.cpp (GSR_VP_RECORDS): size, record
+                    const uint32_t size = static_cast<uint32_t>(gpRecord.size() - 16);
+                    std::fwrite(&size, 4, 1, gpDump);
+                    std::fwrite(gpRecord.data() + 16, 1, size, gpDump);
+                }
+                gsr::vp::View rec;
+                if (!gsr::vp::parse(gpRecord.data() + 16, static_cast<uint32_t>(gpRecord.size() - 16), rec) ||
+                    rec.header.stripCount != pn.size() || nv.state().pc != gpExit) {
+                    ++gp.badShape;
+                } else {
+                    (rec.header.program == gsr::vp::StripsFlat ? gp.flatRuns : gp.litRuns)++;
+                    if (!gsr::vp::neverSkipsVertices(*rec.constants))
+                        ++gp.unsafeFog;
+                    const gsr::vp::Vertex* in = rec.vertices;
+                    for (uint32_t st = 0; st < rec.header.stripCount; ++st) {
+                        const std::vector<uint8_t>& pk = pn[st];
+                        const uint32_t n = rec.strips[st];
+                        uint64_t lo = 0;
+                        if (pk.size() >= 8)
+                            std::memcpy(&lo, pk.data(), 8);
+                        if (pk.size() != 16 + size_t(n) * 64 || (lo & 0x7FFFu) != n ||
+                            ((lo >> 47) & 0x7FFu) != rec.header.prim) {
+                            ++gp.badShape;
+                            in += n;
+                            continue;
+                        }
+                        for (uint32_t k = 0; k < n; ++k, ++in) {
+                            const gsr::vp::Output o = gsr::vp::evaluate(rec.header.program, *rec.constants, *in);
+                            uint32_t w[16];
+                            std::memcpy(w, pk.data() + 16 + size_t(k) * 64, 64);
+                            bool ok = true;
+                            if (w[0] != o.s || w[1] != o.t || w[2] != o.q) {
+                                ++gp.badSt;
+                                ok = false;
+                            }
+                            if ((w[4] & 0xFF) != o.r || (w[5] & 0xFF) != o.g || (w[6] & 0xFF) != o.b ||
+                                (w[7] & 0xFF) != o.a) {
+                                ++gp.badColour;
+                                ok = false;
+                            }
+                            if (((w[11] >> 4) & 0xFF) != o.fog) {
+                                ++gp.badFog;
+                                ok = false;
+                            }
+                            if ((w[12] & 0xFFFF) != o.x || (w[13] & 0xFFFF) != o.y) {
+                                ++gp.badPosition;
+                                ok = false;
+                            }
+                            if (w[14] != o.z) {
+                                ++gp.badDepth;
+                                ok = false;
+                            }
+                            if (((w[15] >> 15) & 1u) != (o.adc ? 1u : 0u))
+                                ok = false;
+                            if ((w[15] >> 15) & 1u)
+                                ++gp.skipBits;
+                            ++gp.vertices;
+                            if (!ok)
+                                ++gp.badVertices;
+                        }
+                    }
+                }
+            }
+            if (!facts.empty()) {
+                RunFacts& ft = facts[i];
+                ft.exitPc = nv.state().pc;
+                ft.packets = static_cast<uint32_t>(pn.size());
+                for (const auto& pk : pn) {
+                    // packed-mode tags only (the image sends nothing else): NLOOP in bits 0..14, PRIM in 47..57
+                    for (size_t at = 0; at + 16 <= pk.size();) {
+                        uint64_t lo;
+                        std::memcpy(&lo, pk.data() + at, 8);
+                        const uint32_t nloop = static_cast<uint32_t>(lo & 0x7FFFu);
+                        const uint32_t nreg =
+                            static_cast<uint32_t>((lo >> 60) & 15u) ? static_cast<uint32_t>((lo >> 60) & 15u) : 16u;
+                        ft.vertices += nloop;
+                        if (((lo >> 47) & 7u) == 5u)
+                            ft.fanVertices += nloop;
+                        at += 16 + size_t(nloop) * nreg * 16;
+                        if ((lo >> 15) & 1u)
+                            break;
+                    }
+                }
+            }
             char why[128] = {};
             bool ok = compareState(rv.state(), nv.state(), why, sizeof(why));
             if (ok && std::memcmp(refData.data(), vdata, kDataSize) != 0) {
@@ -405,12 +552,75 @@ void bench(PS2Memory& memory, GS& gs) {
                      static_cast<unsigned long long>(bad));
     }
 
+    if (gpDump)
+        std::fclose(gpDump);
+    if (gpuProg) {
+        std::fprintf(stderr,
+                     "[vubench] vertex programs: %llu of %zu runs taken (%llu constant colour, %llu lit), %llu "
+                     "vertices, %llu differ from the engine's packets (position %llu, depth %llu, fog %llu, colour "
+                     "%llu, texture coordinate %llu), %llu runs or strips of unexpected shape, %llu vertices with the "
+                     "skip bit, %llu runs the constants cannot clear of it\n",
+                     static_cast<unsigned long long>(gp.runs), runs.size(),
+                     static_cast<unsigned long long>(gp.flatRuns), static_cast<unsigned long long>(gp.litRuns),
+                     static_cast<unsigned long long>(gp.vertices), static_cast<unsigned long long>(gp.badVertices),
+                     static_cast<unsigned long long>(gp.badPosition), static_cast<unsigned long long>(gp.badDepth),
+                     static_cast<unsigned long long>(gp.badFog), static_cast<unsigned long long>(gp.badColour),
+                     static_cast<unsigned long long>(gp.badSt), static_cast<unsigned long long>(gp.badShape),
+                     static_cast<unsigned long long>(gp.skipBits), static_cast<unsigned long long>(gp.unsafeFog));
+        std::fprintf(stderr,
+                     "[vubench] vertex programs, strip runs left on the CPU: %llu engine state, %llu tag template, "
+                     "%llu first length, %llu strip longer than a packet buffer, %llu outside the vertex window\n",
+                     static_cast<unsigned long long>(gp.declined[0]), static_cast<unsigned long long>(gp.declined[2]),
+                     static_cast<unsigned long long>(gp.declined[3]), static_cast<unsigned long long>(gp.declined[4]),
+                     static_cast<unsigned long long>(gp.declined[5]));
+        // second replay: taken runs are not executed
+        nv.reset();
+        nv.state() = init;
+        uint64_t skipped = 0, others = 0, othersBad = 0, lost = 0;
+        double nsOthers = 0;
+        for (size_t i = 0; i < runs.size(); ++i) {
+            const Run& r = runs[i];
+            std::memcpy(vdata, r.data.data(), kDataSize);
+            std::vector<uint8_t> record;
+            uint32_t exitPc = 0;
+            if (r.e.resume && Vu1Func::canEnter(nv) &&
+                vu1gpu::buildStrips(nv.state(), vdata, kDataSize, record, exitPc)) {
+                nv.state().pc = exitPc;
+                ++skipped;
+                if (!taken[i])
+                    ++lost;
+                continue;
+            }
+            if (taken[i])
+                ++lost;
+            std::vector<std::vector<uint8_t>> pk;
+            nv.setPacketTap(&pk);
+            const auto t0 = std::chrono::steady_clock::now();
+            runOne(nv, r, vdata);
+            nsOthers += std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
+            nv.setPacketTap(nullptr);
+            ++others;
+            if (hashPackets(pk) != packetHash[i])
+                ++othersBad;
+        }
+        std::fprintf(stderr,
+                     "[vubench] vertex programs, replay without the taken runs: %llu skipped, %llu other runs, %llu "
+                     "of them sent different packets, %llu runs changed sides\n",
+                     static_cast<unsigned long long>(skipped), static_cast<unsigned long long>(others),
+                     static_cast<unsigned long long>(othersBad), static_cast<unsigned long long>(lost));
+        (void)nsOthers;
+    }
+
     const auto profileStart = Vu1Fast::spare(nv);
 
     // 2. speed
     if (std::getenv("PS2X_HOSTPROF"))
         ps2perf::start(nullptr, nullptr, nullptr); // host sampler on the benchmark loop
     Vu1Fast::spare(nv).sinkNone = 1;
+    const char* gpuProgEnv = std::getenv("DRAKAN_VU_BENCH_GPUPROG");
+    const bool gpuSkip = gpuProg && gpuProgEnv[0] == 's';
+    if (gpuSkip)
+        std::fprintf(stderr, "[vubench] the timed replay builds records for the taken runs instead of running them\n");
     double best = 1e30;
     uint64_t cycles = 0, pairs = 0;
     for (int rep = 0; rep < reps; ++rep) {
@@ -419,11 +629,27 @@ void bench(PS2Memory& memory, GS& gs) {
         const uint64_t pairs0 = ps2perf::g_vu1Pairs.load();
         const uint64_t cyc0 = nv.totalCycles();
         double ns = 0;
-        for (const Run& r : runs) {
+        for (size_t i = 0; i < runs.size(); ++i) {
+            const Run& r = runs[i];
             std::memcpy(vdata, r.data.data(), kDataSize);
+            const uint64_t runPairs0 = facts.empty() ? 0 : ps2perf::g_vu1Pairs.load();
             const auto t0 = std::chrono::steady_clock::now();
-            runOne(nv, r, vdata);
-            ns += std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
+            if (gpuSkip && taken[i]) {
+                // what the hook costs instead of the run: building the record
+                thread_local std::vector<uint8_t> record;
+                uint32_t exitPc = 0;
+                if (vu1gpu::buildStrips(nv.state(), vdata, kDataSize, record, exitPc))
+                    nv.state().pc = exitPc;
+                else
+                    runOne(nv, r, vdata);
+            } else
+                runOne(nv, r, vdata);
+            const double one = std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t0).count();
+            ns += one;
+            if (!facts.empty()) {
+                facts[i].ns = std::min(facts[i].ns, one);
+                facts[i].pairs = ps2perf::g_vu1Pairs.load() - runPairs0;
+            }
         }
         cycles = nv.totalCycles() - cyc0;
         pairs = ps2perf::g_vu1Pairs.load() - pairs0;
@@ -455,6 +681,19 @@ void bench(PS2Memory& memory, GS& gs) {
                  runs.size(), best * 1e-6, reps, best * 1e-3 / runs.size(), static_cast<unsigned long long>(cycles),
                  cycles * 1e3 / best, static_cast<unsigned long long>(pairs), best / std::max<uint64_t>(pairs, 1),
                  pairs * 1e3 / best);
+    if (!facts.empty()) {
+        if (FILE* out = std::fopen(runsCsv, "w")) {
+            std::fprintf(out, "run,resume,entry_pc,exit_pc,flags,h0,h1,h2,h3,packets,vertices,fan_vertices,pairs,ns\n");
+            for (size_t i = 0; i < facts.size(); ++i) {
+                const RunFacts& ft = facts[i];
+                std::fprintf(out, "%zu,%u,0x%x,0x%x,0x%x,%u,%u,%u,%u,%u,%u,%u,%llu,%.0f\n", i, runs[i].e.resume,
+                             ft.entryPc, ft.exitPc, ft.flags, ft.header[0], ft.header[1], ft.header[2], ft.header[3],
+                             ft.packets, ft.vertices, ft.fanVertices, static_cast<unsigned long long>(ft.pairs), ft.ns);
+            }
+            std::fclose(out);
+            std::fprintf(stderr, "[vubench] per-run facts written to %s\n", runsCsv);
+        }
+    }
     std::fflush(stderr);
     ps2perf::stop();
     drakan_log::flush();

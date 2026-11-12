@@ -21,4 +21,10 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
             const uint8_t* code, uint32_t codeSize, const uint8_t* data, uint32_t dataSize);
 bool benchRequested();
 void bench(PS2Memory& memory, GS& gs);
+
+// Vertex-program draws (vu/ps2_vu1_gpu_program.h, prototype, DRAKAN_GPU_VERTEX): the MSCNT hook, defined here because
+// this file already sees the engine's internals. True from gpuProgramIntercept: the run went to the renderer as a
+// record and must not be executed.
+bool gpuProgramsEnabled();
+bool gpuProgramIntercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory);
 } // namespace vu1check
