@@ -3,7 +3,7 @@
 Report: "Can we also investigate combat with the flesh eating spiders, we can't seem to hit them", then "I'm not talking
 about the cave spiders, I'm talking about the flesh eaters running around."
 
-**Outcome, revised by the follow-up at the end: with god mode off and Atimar's Blade, Rynn loses to the Scavengers that attack (her swings are cut by their hits); no fix is proven yet. The sections up to the follow-up were written before that and used god mode in most runs.** In those runs the miss was not reproduced. The creature is identified, a visible Scavenger is hit and killed in every
+**Outcome, revised by the follow-up at the end: with god mode off and Atimar's Blade, Rynn loses to the Scavengers that attack (her swings are cut by their hits); one converter change went in after the second follow-up (new games only). The sections up to the follow-up were written before that and used god mode in most runs.** In those runs the miss was not reproduced. The creature is identified, a visible Scavenger is hit and killed in every
 condition tried, and no combat code or converter rule was changed. What exists now is a diagnostic
 (`DRAKAN_MELEE_TRACE`) to capture the engine's own view of a swing when it happens in real play. Probes, runs and
 pictures are private under `build/review/flesheaters/`; nothing from either game is quoted here.
@@ -210,3 +210,85 @@ use saves made next to the creatures instead.
 * Whether the PC original behaves like this: only its class values were read, the PC game was not run.
 * Fights against three at once, hand play, the owner's display settings and sound in these fights.
 * Whether the flee limit works at all for this class in the PS2 engine.
+
+## Second follow-up: the levers, and the change that went in
+
+Order of the coordinator's list. God mode off in every fight; one probe (flee) used it and says so.
+
+**1. Flee.** The PC Scavenger runs away at 20 of 35 hit points; the disc Scavenger class has the field (`Flee Health
+Limit`) at 0. Of the 155 disc classes that carry the field, 90 set it, all of engine classes 49 (orcs, trogs, Wartoks: 2
+to 40), 157 (villagers: 20), 66 and 30; no class of the Spider / Scavenger engine classes (40, 41) does. With the PC
+limit written as an object parameter (pack `fix1`), a Scavenger hit slowly under god mode from 35 down to 0 stayed
+within 1,100 to 1,600 units and went on attacking in 4 of 4 fights (`flee1`; a run clip showed in one). So the limit
+has no visible effect on this class. The engine code that reads the field was not located, so "class 41 never flees" is
+shown by behaviour and by the disc's own data, not by the code. Nearest equivalent the engine does support: end the
+fight after the same number of blows, see "The change".
+
+**2. Attack rhythm.** PC: one attack clip, `attacklow`, 0.60 s, class `Attack Speed` 0.9, no delay field, 10 damage.
+Disc: `attacklow` 0.70 s and `attackbite` 0.97 s, `Attack Speed` 0.9, `Delay Between Attacks` 0.4 s (+- 0.1), 5 damage.
+Read from the clip headers and class data; the PC game was not run. On paper the PC creature can strike about every
+0.67 s for 10 (about 15 hit points a second at most), the disc one every 1.2 to 1.5 s for 5 (about 4 at most; measured
+1.1 to 5.8 on Rynn, depending on how many reach her). The converted creature is already slower and weaker per hit than
+the original, so there is nothing to slow down on that reference, and matching the PC interval would raise the damage.
+Not changed.
+
+**3. Rynn's hit reaction.** PC Rynn (`Begin Health` 100) has six hit-reaction clip fields (`HitRxn HSL / HSH / OSL / OSH
+/ FSL / FSH`), so the original also plays a reaction when she is hit; whether it cancels a swing in progress cannot be
+read from the data and the PC game was not run. In the PS2 engine a hit clears her attack flag: of 473 hits on her in
+the series below, the flag was still set afterwards in 2. Native Drakan 2 does the same (both swings measured). It is
+engine behaviour for every enemy, not a converted setting; no change proposed without the PC behaviour.
+
+**4. Starting weapon.** The PC player object links Atimar's Blade (object 1059) as inventory; nothing in the PC data
+read here says whether the original puts it in her hand at the start. Not changed. In the port a new game starts with it
+in the inventory, unequipped, and an unarmed click does nothing (100 clicks, attack flag never set).
+
+**5. The village Scavenger.** PC object 885 carries no parameters at all (class defaults, the same as the hill ones) and
+has the visible flag clear; the flame book links to it. So it is an ambush creature that the book shows, not one with
+lost aggression settings. Why it stands idle after being shown in the owner's save was not found.
+
+### The change (formats, in the tree)
+
+The swap row of the Scavenger gets `healthUntilFlee`: each placed Scavenger receives, as an `Initial Health` object
+parameter, the damage the PC one takes before it runs (PC health minus PC flee limit, from the object's own PC values,
+else the class: 35 - 20 = 15). 48 creatures in six levels (Ruined Village 19, Wartok Canyons 10, Succubus Lair 8,
+Grotto 6, Grimstone Mines 3, Alwarren 2); a creature placed dead and one whose PC values give no flee keep the disc
+health. Three dagger hits now end the fight, as three dagger hits drive the original off. It is a stand-in for
+fleeing, not the original behaviour: the creature dies instead of running, and gives its experience.
+
+Balanced against: the number of blows the first weapon of the campaign needs in the original. Not touched: damage,
+attack rhythm, speed.
+
+### Proof, and its limits
+
+Same driver as above (0.4 s clicks, 0.25 s look delay, 80 unit aim error, strafing), owner's executable, hill
+Scavengers, Atimar's Blade only.
+
+| Series | Scavenger health | Fights | First Scavenger killed | Rynn died | Time to kill, median (range) | Hit points lost up to the kill |
+| --- | --- | --- | --- | --- | --- | --- |
+| Fresh game, installed pack (`B_fresh`) | 40 | 8 | 4 | 4 | 23.1 s (18.5 to 44.2) | 30, 55, 60, 45 |
+| Fresh game, changed pack (`F2_fresh`) | 15 | 11 | 10 | 1 | 8.3 s (2.6 to 13.4) | 10, 15, 35, 35, 55, 25, 5, 80, 45, 30 |
+| Owner's 14:59 save, installed pack (`dE_s3`) | 40 | 5 | 0 | 5 | none | |
+| Owner's save again (`B_own`) | 40 | 15 | 10 | 5 | 9.1 s (4.8 to 21.0) | 20, 55, 45, 40, 10, 35, 5, 5, 50, 25 |
+| Owner's save on the changed pack (`F2_own`) | 40 (see below) | 12 | 4 | 8 | 11.6 s (5.8 to 12.7) | 50, 55, 50, 20 |
+
+* **A save keeps the old creatures.** In `F2_own` the Scavenger still had 40 hit points (8 hits to kill, 30 to 40 left
+  when Rynn died): the owner's save restores the creature with the health it was saved with. The change reaches new
+  games, not existing saves of a level. That series is therefore a third baseline, not a test of the change.
+* **The driver is noisy.** The same condition (owner's save, 40 hit points) gave 0 of 5, 10 of 15 and 4 of 12 kills.
+  Pooled over all 40-point series: 18 kills in 40 fights; with 15 points: 10 in 11.
+* Hits per click and cancelled swings do not change with the health and are not expected to: `B_own` 98 of 339 clicks
+  hit (29 %), Rynn was hit during 59 of 76 attack spans and 24 of those still dealt damage; `F2_fresh` 30 hits (the
+  click count there includes a minute of clicking at a distant second Scavenger).
+* It does not flee in any series.
+* Not run: dual wield on the changed pack (on the installed pack the first Scavenger already died to 5 or 6 hits
+  without hurting her), three at once, hand play, the owner's display settings and sound. One creature at a time
+  reached her in most fights; a second one joined in a few (the 80 point loss).
+* Pictures: `evidence/no-god-mode/fixed-fight/` (brightened three times; the first fight of `F2_fresh`, which took a
+  screenshot every 0.4 s and ran at 10 to 50 frames a second).
+
+### `place` on builds of the current tree
+
+On my build of about 11:15 `place` did not move Rynn (7 of 7 runs: `try N: player 51321 units from the point`); on the
+build of about 12:20 it works, with and without `DRAKAN_LAYER_SEAM_FIX=0`, `DRAKAN_LOD_DISTANCE=1 DRAKAN_DRAW_DISTANCE=1`,
+`DRAKAN_RES_CHAIN=0` and `DRAKAN_SCENE_CAPTURE_MOTION_ONLY=0` (one run each). The failing executable no longer exists,
+so the switch that would have restored it is unknown.
