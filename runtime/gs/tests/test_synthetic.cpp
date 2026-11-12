@@ -2613,10 +2613,14 @@ int main(int argc, char** argv) {
     cfg.vsync = false;
 #if defined(GSR_PARTIAL_UPLOAD_ONLY)
 #if defined(GSR_TEST_WEBGPU)
-    // A machine without a GPU adapter (CI) has nothing to run this subset on: report it and pass.
-    if (!Renderer::create(cfg)) {
-        std::printf("SKIP: no WebGPU adapter\n");
-        return 0;
+    // Like the full suite below, this subset needs a hardware adapter: the software one (WARP, the only adapter of a
+    // CI machine) rounds blends differently from the mirror. Without one, report it and pass.
+    if (!cfg.forceWarp) {
+        cfg.allowWarp = false;
+        if (!Renderer::create(cfg)) {
+            std::printf("SKIP: no hardware WebGPU adapter\n");
+            return 0;
+        }
     }
 #endif
     solidMirrorTest(cfg);
