@@ -53,45 +53,6 @@
 namespace gsr {
 
 namespace wgpu_detail {
-// PS constant flag bits (mirror gs_shaders_wgsl.h)
-enum : uint32_t {
-    PF_TME = 1u << 0,
-    PF_FGE = 1u << 1,
-    PF_FST = 1u << 2,
-    PF_TCC = 1u << 3,
-    PF_ATE = 1u << 6,
-    PF_DATE = 1u << 12,
-    PF_DATM = 1u << 13,
-    PF_ABE = 1u << 14,
-    PF_PABE = 1u << 15,
-    PF_DTHE = 1u << 16,
-    PF_CCLAMP = 1u << 17,
-    PF_FBA = 1u << 18,
-    PF_FB16 = 1u << 19,
-    PF_TEXRT = 1u << 22,
-};
-
-struct PSConsts {
-    float rt[4];
-    uint32_t a[4];
-    uint32_t b[4];
-    uint32_t c[4];
-    float fog[4];
-    uint32_t d[4];
-    float e[4];
-    float src[4];
-    float f[4];
-    float g[4];
-    float h[4];
-    float spriteBounds[4];
-};
-static_assert(sizeof(PSConsts) % 16 == 0 && sizeof(PSConsts) <= 256, "uniform layout");
-
-struct DispConsts {
-    float r1[4], r2[4], bg[4];
-    uint32_t m[4];
-};
-
 // gs_shaders_wgsl.h kWgslRect
 struct RectConsts {
     float rect[4];
@@ -100,15 +61,13 @@ struct RectConsts {
     uint32_t mode[4];
 };
 
-inline uint32_t roundUp(uint32_t v, uint32_t a) {
-    return (v + a - 1) / a * a;
-}
-
 // A sampled texture as the shared texture cache holds it (GpuTexture of gs_backend_shared.h).
 using GpuTexture = rhi::TexturePtr;
 using UpEntry = UpEntryOf<GpuTexture>;
 using UpDone = UpDoneOf<GpuTexture>;
 using TexEntry = TexEntryOf<GpuTexture>;
+// What a draw binds to sample a texture or a target.
+using GpuView = rhi::Texture*;
 
 struct RT {
     uint32_t fbp = 0, fbw = 1, cls = 0, psm = 0; // cls: 0 = 32-bit, 1 = 16-bit
@@ -135,10 +94,17 @@ struct RT {
     // World / temporal phase bookkeeping kept by the shared draw policy; the temporal AA world (wgpu_temporal.cpp).
     uint8_t wstate = 0;
     float wjx = 0, wjy = 0; // the open temporal world's jitter (render pixels)
-    SceneGuideCamera taaCamera;
-    uint32_t taaDepth = 0;
-    float taaZmax = 1.0f;
-    float taaXY[2]{}; // GS XYOFFSET of the world (1/16 pixels)
+    // The open world's render rectangle (enterTemporalWorld): the temporal AA runs at full resolution, so it is the
+    // whole target. The shared draw code scales a world draw by render / frame.
+    struct WorldGeom {
+        uint32_t frameW = 512, frameH = 512, renderW = 0, renderH = 0;
+        float lodBias = 0.0f; // texture LOD bias of a world draw: none at full resolution
+    } wgeom;
+    uint64_t readbackFrame = ~0ull;
+    SceneGuideCamera neuralCamera;
+    uint32_t neuralDepth = 0;
+    float neuralZmax = 1.0f;
+    float neuralXY[2]{}; // GS XYOFFSET of the world (1/16 pixels)
     uint8_t neuralState = 0;
     bool temporalSR = false;
     uint64_t temporalEpoch = 0;
@@ -150,6 +116,8 @@ struct RT {
     uint64_t worldEpoch = 0;
     uint32_t pageH() const { return cls == 0 ? 32u : 64u; }
     uint32_t base() const { return fbp * 32u; }
+    GpuView view() const { return tex.get(); }
+    GpuView copyView() const { return copy.get(); }
 };
 
 struct DepthBuf {
@@ -233,6 +201,25 @@ struct WgpuBackend::Impl {
                             uint32_t logicalW, uint32_t logicalH) const;
     void createMaterialTexture(UpDone& d) const;
     void noteMaterialTexture(uint64_t bytes);
+    uint32_t prepareTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool haveTex, bool texIsTarget,
+                            const RT& rt, bool depthMasked, float dsx, float dsy, PSConsts& k);
+    bool prepareMaterial(const GsDrawState& s, GpuView materialSrv, uint8_t materialClass, bool haveTex,
+                         bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags, float dsx, float dsy,
+                         bool hwBlend);
+    // Behind kCaps.motionVectors / temporalUpscaler / readbackPrefetch / readbackVerify: declared, never called.
+    bool prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count, float sx,
+                             float sy);
+    void drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi::Compare depthCompare, bool restore, bool materialDraw,
+                      bool useHw);
+    bool upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool depthGE, uint32_t zbp, float zmax, int sx1, int sy1);
+    void logTemporalDraw(const RT& rt, const GsDrawState& s, uint32_t fpsm, int sx0, int sy0, int sx1, int sy1,
+                         bool zte, uint32_t ztst);
+    void prefetchReadback(RT& rt, bool stale = false);
+    void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi);
+    // Surface audit / pick diagnostics only (gs_draw.inl); the ray-scene reconstruction uses surfaceBuilder's camera.
+    surface::CachedRasterToWorld surfaceCamera;
+    uint64_t surfaceCameraSerial = ~0ull, surfaceXY = 0;
+    std::set<uint64_t> surfaceAuditMaterials;
     CpuProfile cpuProfile;
     LocalMemory& mem;
     Config cfg;
@@ -533,11 +520,24 @@ struct WgpuBackend::Impl {
     RT* findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox, float& oy);
     std::pair<uint32_t, uint32_t> rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const;
     bool resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint = false);
+    bool readBoundTexture(const TexBind& tb, Image& out); // debug dumps
     uint64_t rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const;
 
     // ---------------------------------------------------------------------------------------------
     // Copy the target into rt.copy (the whole target, or the rectangle x0 y0 x1 y1 in target pixels).
-    rhi::Texture* snapshot(RT& rt, const uint32_t* box);
+    GpuView snapshot(RT& rt, const uint32_t* box);
+    // Backend interface of the draw (gs_draw.inl).
+    void clearTarget(RT& rt, const float rgba[4]);
+    bool fixedFunctionBlend() const { return progHw != nullptr; } // needs dual-source blending
+    DrawVertex* beginVertices(const DrawVertex* v, uint32_t count);
+    void endVertices() {}
+    void bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW, float viewportH,
+                  const int32_t scissor[4]);
+    void setPass(const PSConsts& k, const rhi::BlendState& blend, const rhi::DepthState& depth);
+    void drawVertices(uint32_t count);
+    void endDraw() {}
+    bool readTarget(RT& rt, uint32_t w, uint32_t h, Image& out, bool keepAlpha = false);
+    std::vector<DrawVertex> drawVertexCopy; // beginVertices: the device copies it at draw time
     void logDraw(const GsDrawState& s, const DrawVertex* v, uint32_t count);
     static bool oneToOneSprite(const GsDrawState& s, const DrawVertex* v, uint32_t count);
     void accumulateLod(const GsDrawState& s, const DrawVertex* v, uint32_t count);

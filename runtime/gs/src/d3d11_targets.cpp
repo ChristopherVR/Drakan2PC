@@ -1134,7 +1134,9 @@ std::pair<uint32_t, uint32_t> D3D11Backend::Impl::rowsFromMemory(const RT& rt, u
     return {total, fromMemory};
 }
 
-ID3D11ShaderResourceView* D3D11Backend::Impl::snapshot(RT& rt, const D3D11_BOX* box) {
+GpuView D3D11Backend::Impl::snapshot(RT& rt, const uint32_t* rect) {
+    const D3D11_BOX region{rect ? rect[0] : 0, rect ? rect[1] : 0, 0, rect ? rect[2] : 0, rect ? rect[3] : 0, 1};
+    const D3D11_BOX* box = rect ? &region : nullptr;
     CpuProfile::Scope profile(cpuProfile, CpuProfile::Snapshot);
     if (!rt.copy) {
         rt.copy = makeTex(rt.w * scale, rt.h * scale, D3D11_BIND_SHADER_RESOURCE);

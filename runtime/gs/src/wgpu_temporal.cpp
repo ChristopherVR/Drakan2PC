@@ -110,6 +110,7 @@ void WgpuBackend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uin
     rt.temporalEpoch = motionEpoch;
     rt.temporalSR = false;
     rt.wjx = rt.wjy = 0;
+    rt.wgeom = {rt.w, rt.h, rt.w * scale, rt.h * scale}; // full resolution: a world draw is scaled like any other
     // One history (and one ray-traced world): the first full world target of an epoch owns it.
     if ((!upMode && !modernWater && !rayShadows && !rayReflections && !rayGlobalIllumination) ||
         (taaOwnerEpoch == motionEpoch && taaOwner != &rt)) {
@@ -130,11 +131,11 @@ void WgpuBackend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uin
     }
     taaOwner = &rt;
     taaOwnerEpoch = motionEpoch;
-    rt.taaCamera = sceneCamera;
-    rt.taaDepth = zbp;
-    rt.taaZmax = zmax;
-    rt.taaXY[0] = static_cast<float>(bitsOf(xyoffset, 0, 16));
-    rt.taaXY[1] = static_cast<float>(bitsOf(xyoffset, 32, 16));
+    rt.neuralCamera = sceneCamera;
+    rt.neuralDepth = zbp;
+    rt.neuralZmax = zmax;
+    rt.neuralXY[0] = static_cast<float>(bitsOf(xyoffset, 0, 16));
+    rt.neuralXY[1] = static_cast<float>(bitsOf(xyoffset, 32, 16));
     if (!upMode)
         return; // ray tracing only: an unjittered world
     // 8 Halton (2, 3) phases, in render pixels: the history converges within a few frames.
@@ -157,8 +158,8 @@ void WgpuBackend::Impl::finalizeNeuralWorld(RT& rt) {
         traceWorld(rt, jittered);
     if (!jittered || !upMode)
         return;
-    DepthBuf* depth = getDepth(rt.taaDepth, rt.w, rt.h);
-    const SceneGuideCamera& cam = rt.taaCamera;
+    DepthBuf* depth = getDepth(rt.neuralDepth, rt.w, rt.h);
+    const SceneGuideCamera& cam = rt.neuralCamera;
     const uint32_t frameW = cam.frameWidth, frameH = cam.frameHeight;
     if (!depth || !depth->tex || !progTaa || !frameW || !frameH || frameW > rt.w || frameH > rt.h)
         return;
@@ -176,11 +177,11 @@ void WgpuBackend::Impl::finalizeNeuralWorld(RT& rt) {
     guide::Mapping map;
     map.frameW = w; // pixels of this resolve (the guide matrix maps the frame onto them)
     map.frameH = h;
-    map.zmax = rt.taaZmax;
+    map.zmax = rt.neuralZmax;
     map.farGs = 16.0f * cam.viewportOffset[2] / map.zmax;
     map.nearGs = 16.0f * (cam.viewportOffset[2] + cam.viewportScale[2]) / map.zmax;
     // The mapping is per native pixel: scale the frame (and XYOFFSET) to render pixels.
-    guide::View cur = viewOf(cam, rt.taaXY), prev = viewOf(taaPrevCamera, taaPrevXY);
+    guide::View cur = viewOf(cam, rt.neuralXY), prev = viewOf(taaPrevCamera, taaPrevXY);
     for (guide::View* v : {&cur, &prev}) {
         for (int i = 0; i < 2; ++i) {
             v->scale[i] *= static_cast<float>(scale);
@@ -236,8 +237,8 @@ void WgpuBackend::Impl::finalizeNeuralWorld(RT& rt) {
     taaCurrent ^= 1;
 
     taaPrevCamera = cam;
-    taaPrevXY[0] = rt.taaXY[0];
-    taaPrevXY[1] = rt.taaXY[1];
+    taaPrevXY[0] = rt.neuralXY[0];
+    taaPrevXY[1] = rt.neuralXY[1];
     taaPrevValid = (cam.flags & SceneGuideCamera::Valid) != 0;
     taaPrevSize[0] = w;
     taaPrevSize[1] = h;
@@ -262,8 +263,8 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     const bool wantShadows = rayShadows && nativeModels && nativeModels->lighting.hasContribution();
     if (!wantWater && !wantShadows && !rayReflections && !rayGlobalIllumination)
         return;
-    DepthBuf* depth = getDepth(rt.taaDepth, rt.w, rt.h);
-    const SceneGuideCamera& cam = rt.taaCamera;
+    DepthBuf* depth = getDepth(rt.neuralDepth, rt.w, rt.h);
+    const SceneGuideCamera& cam = rt.neuralCamera;
     const uint32_t frameW = cam.frameWidth, frameH = cam.frameHeight;
     if (!depth || !depth->tex || !frameW || !frameH || frameW > rt.w || frameH > rt.h ||
         !(cam.flags & SceneGuideCamera::Valid)) {
@@ -280,13 +281,13 @@ void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
     guide::Mapping map;
     map.frameW = frameW;
     map.frameH = frameH;
-    map.zmax = rt.taaZmax;
+    map.zmax = rt.neuralZmax;
     map.farGs = 16.0f * cam.viewportOffset[2] / map.zmax;
     map.nearGs = 16.0f * (cam.viewportOffset[2] + cam.viewportScale[2]) / map.zmax;
     guide::Matrix worldToClip{};
     ray::PassFrame f;
     const char* why = "invalid camera";
-    if (!(map.nearGs > map.farGs + 1e-8f) || !guide::cameraMatrix(map, viewOf(cam, rt.taaXY), worldToClip) ||
+    if (!(map.nearGs > map.farGs + 1e-8f) || !guide::cameraMatrix(map, viewOf(cam, rt.neuralXY), worldToClip) ||
         !guide::frameCamera(worldToClip, cam.worldToView, f.camera, &why)) {
         static bool warned = false;
         if (!warned) {

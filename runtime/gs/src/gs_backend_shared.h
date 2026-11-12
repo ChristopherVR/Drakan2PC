@@ -31,7 +31,63 @@ struct BackendCaps {
     bool materialDetail = false;
     // Terrain detail and side projection (terrain_detail.h): the terrain shader fragment exists.
     bool terrainDetail = false;
+    // Motion vectors: a velocity pass after every colour pass of a draw inside an object motion scope.
+    bool motionVectors = false;
+    // A temporal upscaler that renders the world at a reduced resolution (DLSS); also its diagnostics.
+    bool temporalUpscaler = false;
+    // Readback prefetch: a staged copy of a scratch target the game stopped drawing, started without waiting.
+    bool readbackPrefetch = false;
+    // GSR_RB_VERIFY: compare a target's GPU content with memory after a readback was avoided.
+    bool readbackVerify = false;
 };
+
+// ---- draw (gs_draw.inl) ----
+
+// PS constant flag bits (mirror gs_shaders.h and gs_shaders_wgsl.h)
+enum : uint32_t {
+    PF_TME = 1u << 0,
+    PF_FGE = 1u << 1,
+    PF_FST = 1u << 2,
+    PF_TCC = 1u << 3,
+    PF_ATE = 1u << 6,
+    PF_DATE = 1u << 12,
+    PF_DATM = 1u << 13,
+    PF_ABE = 1u << 14,
+    PF_PABE = 1u << 15,
+    PF_DTHE = 1u << 16,
+    PF_CCLAMP = 1u << 17,
+    PF_FBA = 1u << 18,
+    PF_FB16 = 1u << 19,
+    PF_TEXRT = 1u << 22,
+    PF_TERRAIN = 1u << 26,      // terrain layer: world-space detail (gs_terrain.inc)
+    PF_TERRAIN_SIDE = 1u << 27, // terrain layer whose steep faces may sample the texture from the side
+};
+
+// The constants block of a draw; the same layout in HLSL and WGSL.
+struct PSConsts {
+    float rt[4];
+    uint32_t a[4];
+    uint32_t b[4];
+    uint32_t c[4];
+    float fog[4];
+    uint32_t d[4];
+    float e[4];
+    float src[4];
+    float f[4];
+    float g[4];
+    float h[4];
+    float spriteBounds[4];
+};
+static_assert(sizeof(PSConsts) % 16 == 0 && sizeof(PSConsts) <= 256, "constant buffer / uniform layout");
+
+struct DispConsts {
+    float r1[4], r2[4], bg[4];
+    uint32_t m[4];
+};
+
+inline uint32_t roundUp(uint32_t v, uint32_t a) {
+    return (v + a - 1) / a * a;
+}
 
 // ---- texture cache (gs_texture_cache.inl) ----
 

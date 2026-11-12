@@ -21,6 +21,7 @@
 
 #include "gs_internal.h"
 #include "gs_backend_shared.h"
+#include "gs_pipeline_state.h"
 #include "gs_texdecode.h"
 #include "gs_texup.h"
 #include "gs_palette_hd.h"
@@ -85,51 +86,6 @@ void prewarmMovieShader(ID3D11Device* dev);
 void prewarmBackdropShader(ID3D11Device* dev);
 
 namespace d3d11_detail {
-// PS constant flag bits (mirror gs_shaders.h)
-enum : uint32_t {
-    PF_TME = 1u << 0,
-    PF_FGE = 1u << 1,
-    PF_FST = 1u << 2,
-    PF_TCC = 1u << 3,
-    PF_ATE = 1u << 6,
-    PF_DATE = 1u << 12,
-    PF_DATM = 1u << 13,
-    PF_ABE = 1u << 14,
-    PF_PABE = 1u << 15,
-    PF_DTHE = 1u << 16,
-    PF_CCLAMP = 1u << 17,
-    PF_FBA = 1u << 18,
-    PF_FB16 = 1u << 19,
-    PF_TEXRT = 1u << 22,
-    PF_TERRAIN = 1u << 26,      // terrain layer: world-space detail (gs_terrain.inc)
-    PF_TERRAIN_SIDE = 1u << 27, // terrain layer whose steep faces may sample the texture from the side
-};
-
-struct PSConsts {
-    float rt[4];
-    uint32_t a[4];
-    uint32_t b[4];
-    uint32_t c[4];
-    float fog[4];
-    uint32_t d[4];
-    float e[4];
-    float src[4];
-    float f[4];
-    float g[4];
-    float h[4];
-    float spriteBounds[4];
-};
-static_assert(sizeof(PSConsts) % 16 == 0, "cb alignment");
-
-struct DispConsts {
-    float r1[4], r2[4], bg[4];
-    uint32_t m[4];
-};
-
-inline uint32_t roundUp(uint32_t v, uint32_t a) {
-    return (v + a - 1) / a * a;
-}
-
 // A sampled texture as the shared texture cache holds it (GpuTexture of gs_backend_shared.h).
 struct GpuTexture {
     ComPtr<ID3D11Texture2D> tex;
@@ -144,6 +100,8 @@ struct GpuTexture {
 using UpEntry = UpEntryOf<GpuTexture>;
 using UpDone = UpDoneOf<GpuTexture>;
 using TexEntry = TexEntryOf<GpuTexture>;
+// What a draw binds to sample a texture or a target.
+using GpuView = ID3D11ShaderResourceView*;
 
 struct RT {
     uint32_t fbp = 0, fbw = 1, cls = 0, psm = 0; // cls: 0 = 32-bit, 1 = 16-bit
@@ -215,6 +173,8 @@ struct RT {
     uint64_t motionEpoch = 0;
     uint32_t pageH() const { return cls == 0 ? 32u : 64u; }
     uint32_t base() const { return fbp * 32u; }
+    GpuView view() const { return srv.Get(); }
+    GpuView copyView() const { return copySrv.Get(); }
 };
 
 struct DepthBuf {
@@ -291,7 +251,13 @@ private:
 
 struct D3D11Backend::Impl {
     // What this backend can do beyond the common interface (gs_backend_shared.h).
-    static constexpr BackendCaps kCaps{.texturesOffThread = true, .materialDetail = true, .terrainDetail = true};
+    static constexpr BackendCaps kCaps{.texturesOffThread = true,
+                                       .materialDetail = true,
+                                       .terrainDetail = true,
+                                       .motionVectors = true,
+                                       .temporalUpscaler = true,
+                                       .readbackPrefetch = true,
+                                       .readbackVerify = true};
     CpuProfile cpuProfile;
     LocalMemory& mem;
     Config cfg;
@@ -500,7 +466,7 @@ struct D3D11Backend::Impl {
     ComPtr<ID3D11Buffer> vb, cbPS, cbDisp;
     PSConsts cbPSContent{}; // last upload to cbPS (draw() is its only writer)
     bool cbPSValid = false;
-    uint32_t vbCapacity = 0, vbOffset = 0;
+    uint32_t vbCapacity = 0, vbOffset = 0, vbDrawOffset = 0;
     ComPtr<ID3D11SamplerState> smpPt, smpLin;
     // ---- terrain detail (d3d11_terrain.cpp; policy and maths in terrain_detail.h) ----
     terrain::Settings terrainCfg;
@@ -567,9 +533,9 @@ struct D3D11Backend::Impl {
     void noteMaterialTexture(uint64_t bytes); // a material map entered the texture cache
     // Binds the material pixel shader, constants, map and sampler for this draw and returns true, or returns
     // false and leaves the pipeline alone.
-    bool prepareMaterial(const GsDrawState& s, ID3D11ShaderResourceView* materialSrv, uint8_t materialClass,
-                         bool haveTex, bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags, float dsx,
-                         float dsy, bool hwBlend);
+    bool prepareMaterial(const GsDrawState& s, GpuView materialSrv, uint8_t materialClass, bool haveTex,
+                         bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags, float dsx, float dsy,
+                         bool hwBlend);
     ComPtr<ID3D11RasterizerState> rast;
     std::unordered_map<uint32_t, ComPtr<ID3D11BlendState>> blendStates;
     std::unordered_map<uint32_t, ComPtr<ID3D11DepthStencilState>> depthStates;
@@ -796,10 +762,27 @@ struct D3D11Backend::Impl {
     RT* findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox, float& oy);
     std::pair<uint32_t, uint32_t> rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const;
     bool resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint = false);
+    bool readBoundTexture(const TexBind& tb, Image& out); // debug dumps
     uint64_t rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const;
 
     // ---------------------------------------------------------------------------------------------
-    ID3D11ShaderResourceView* snapshot(RT& rt, const D3D11_BOX* box);
+    // Copy the target into rt.copy (the whole target, or the rectangle x0 y0 x1 y1 in target pixels).
+    GpuView snapshot(RT& rt, const uint32_t* box);
+    // Backend interface of the draw (gs_draw.inl).
+    void clearTarget(RT& rt, const float rgba[4]);
+    bool fixedFunctionBlend() const { return true; }
+    DrawVertex* beginVertices(const DrawVertex* v, uint32_t count);
+    void endVertices();
+    void bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW, float viewportH,
+                  const int32_t scissor[4]);
+    void setPass(const PSConsts& k, const rhi::BlendState& blend, const rhi::DepthState& depth);
+    void drawVertices(uint32_t count);
+    void drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi::Compare depthCompare, bool restore, bool materialDraw,
+                      bool useHw);
+    void endDraw();
+    bool readTarget(RT& rt, uint32_t w, uint32_t h, Image& out, bool keepAlpha = false);
+    void logTemporalDraw(const RT& rt, const GsDrawState& s, uint32_t fpsm, int sx0, int sy0, int sx1, int sy1,
+                         bool zte, uint32_t ztst);
     void logDraw(const GsDrawState& s, const DrawVertex* v, uint32_t count);
     static bool oneToOneSprite(const GsDrawState& s, const DrawVertex* v, uint32_t count);
     void accumulateLod(const GsDrawState& s, const DrawVertex* v, uint32_t count);

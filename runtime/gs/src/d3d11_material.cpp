@@ -151,9 +151,9 @@ bool D3D11Backend::Impl::ensureMaterialGpu() {
     return true;
 }
 
-bool D3D11Backend::Impl::prepareMaterial(const GsDrawState& s, ID3D11ShaderResourceView* materialSrv,
-                                         uint8_t materialClass, bool haveTex, bool texIsTarget, const RT& rt,
-                                         bool depthTested, uint32_t pixelFlags, float dsx, float dsy, bool hwBlend) {
+bool D3D11Backend::Impl::prepareMaterial(const GsDrawState& s, GpuView materialSrv, uint8_t materialClass, bool haveTex,
+                                         bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags,
+                                         float dsx, float dsy, bool hwBlend) {
     if (materialMode == material::Mode::Off || !materialSrv || materialGpu.failed)
         return false;
     if (!(material::classMask(materialMode) & (1u << materialClass)))

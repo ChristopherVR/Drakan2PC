@@ -10,6 +10,8 @@
 // every call into ordered batches for a dedicated GPU thread (rhi_proxy.cpp); natively it is the device itself
 // (DRAKAN_RHI_PROXY=1 selects the proxy there too, for tests).
 #pragma once
+#include "gs_pipeline_state.h"
+
 #include <gpu/Gpu.h>
 
 #include <cstdint>
@@ -59,40 +61,6 @@ protected:
     uint64_t size_ = 0;
 };
 using BufferPtr = std::shared_ptr<Buffer>;
-
-// ---- fixed-function state (the subset of D3D11 the GS pipeline uses) ----
-enum class BlendFactor : uint8_t {
-    Zero,
-    One,
-    Src1Color,
-    OneMinusSrc1Color,
-    Src1Alpha,
-    OneMinusSrc1Alpha,
-    SrcAlpha,
-    OneMinusSrcAlpha,
-    DstAlpha,
-    OneMinusDstAlpha
-};
-enum class BlendOp : uint8_t { Add, Subtract, ReverseSubtract, Min, Max };
-enum class Compare : uint8_t { Never, Less, Equal, LessEqual, Greater, NotEqual, GreaterEqual, Always };
-enum class Topology : uint8_t { TriangleList, LineList, PointList };
-
-struct BlendState {
-    bool enable = false;
-    BlendOp op = BlendOp::Add;
-    BlendFactor src = BlendFactor::One, dst = BlendFactor::Zero;
-    BlendOp alphaOp = BlendOp::Add;
-    BlendFactor alphaSrc = BlendFactor::One, alphaDst = BlendFactor::Zero;
-    uint8_t writeMask = 0xf; // R=1 G=2 B=4 A=8
-    bool operator==(const BlendState&) const = default;
-};
-
-struct DepthState {
-    bool enable = false; // false = no depth test and no write
-    Compare compare = Compare::Always;
-    bool write = false;
-    bool operator==(const DepthState&) const = default;
-};
 
 // A shader program: WGSL with a vertex and a fragment entry point, and its bindings, all in @group(0):
 //   @binding(0 .. uniformSlots-1)                     uniform buffers (one struct each; dynamic offsets)
