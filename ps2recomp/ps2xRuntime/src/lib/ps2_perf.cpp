@@ -1,6 +1,7 @@
 #include "ps2_perf.h"
 
 #include "drakan_polyclip.h"
+#include "runtime/ps2_chain_buffers.h"
 
 #include <chrono>
 #include <cstdio>
@@ -133,8 +134,9 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
         const DWORD gameTid = GetThreadId(gameH);
         g_reporter = std::thread([=]() {
             std::map<DWORD, double> prev;
+            std::map<DWORD, std::string> names;
             uint64_t prevFlips2 = 0, prevFlips = 0, prevVs = 0, prevGp = 0, prevGb = 0, prevVc = 0, prevVr = 0,
-                     prevVp = 0;
+                     prevVp = 0, prevChains = 0, prevChainBytes = 0, prevChainReused = 0;
             auto prevT = std::chrono::steady_clock::now();
             int line = 0;
             int stalledSeconds = 0;
@@ -153,6 +155,18 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                     if (!h)
                         continue;
                     const double cpu = threadCpuSeconds(h);
+                    if (names[tid].empty()) {
+                        // The description a thread gave itself (ThreadNaming::SetCurrentThreadName), asked for until
+                        // it has one.
+                        std::string text;
+                        PWSTR wide = nullptr;
+                        if (SUCCEEDED(GetThreadDescription(h, &wide)) && wide) {
+                            for (const wchar_t* c = wide; *c && text.size() < 24; ++c)
+                                text += (*c > 32 && *c < 127 && *c != '(' && *c != ')' && *c != ':') ? char(*c) : '_';
+                            LocalFree(wide);
+                        }
+                        names[tid] = text;
+                    }
                     CloseHandle(h);
                     const double d = cpu - prev[tid];
                     prev[tid] = cpu;
@@ -163,8 +177,14 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                         otherCpu += d;
                         if (d > 0.5 * dt)
                             busy.push_back(tid);
-                        char b[48];
-                        std::snprintf(b, sizeof(b), " t%lu:%.0f%%", static_cast<unsigned long>(tid), 100.0 * d / dt);
+                        char b[96];
+                        const auto name = names.find(tid);
+                        if (name != names.end() && !name->second.empty())
+                            std::snprintf(b, sizeof(b), " t%lu(%s):%.0f%%", static_cast<unsigned long>(tid),
+                                          name->second.c_str(), 100.0 * d / dt);
+                        else
+                            std::snprintf(b, sizeof(b), " t%lu:%.0f%%", static_cast<unsigned long>(tid),
+                                          100.0 * d / dt);
                         others += b;
                     }
                 }
@@ -187,14 +207,25 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                 prevVs = vs;
                 uint64_t clipNs = 0, clipFans = 0;
                 drakan_polyclip::takeHookStats(clipNs, clipFans);
+                auto& chainPool = ps2x_chain_buffers::pool();
+                const uint64_t chains = chainPool.chains.load(), chainBytes = chainPool.chainBytes.load(),
+                               chainReused = chainPool.reused.load();
+                const double chainsRate = (chains - prevChains) / dt,
+                             chainMb = (chainBytes - prevChainBytes) / dt / 1048576.0,
+                             chainReuseRate = (chainReused - prevChainReused) / dt;
+                prevChains = chains;
+                prevChainBytes = chainBytes;
+                prevChainReused = chainReused;
                 std::fprintf(
                     stderr,
                     "[perf %d] flips/s=%.1f flips2/s=%.1f vblank/s=%.1f gifpk/s=%.0f gifMB/s=%.1f vu1Mcyc/s=%.1f "
                     "vu1runs/s=%.0f vu1Mpairs/s=%.1f ee_thread_cpu=%.0f%% ee_ms/flip=%.2f other_cpu=%.0f%% "
-                    "clip_fans/s=%.0f clip_us/s=%.1f clip_ee_pct=%.3f%s\n",
+                    "clip_fans/s=%.0f clip_us/s=%.1f clip_ee_pct=%.3f dma_chains/s=%.0f dma_chainMB/s=%.1f "
+                    "dma_pooled/s=%.0f ee_ms/flip2=%.2f%s\n",
                     line++, df / dt, df2 / dt, dv / dt, gifPk, gifMb, vuMc, vuRuns, vuMp, 100.0 * gameCpu / dt,
                     df ? 1000.0 * gameCpu / df : 0.0, 100.0 * otherCpu / dt, clipFans / dt, clipNs / dt / 1e3,
-                    gameCpu > 0 ? 100.0 * (clipNs / 1e9) / gameCpu : 0.0, others.c_str());
+                    gameCpu > 0 ? 100.0 * (clipNs / 1e9) / gameCpu : 0.0, chainsRate, chainMb, chainReuseRate,
+                    df2 ? 1000.0 * gameCpu / df2 : 0.0, others.c_str());
                 // No flips for three seconds: print where the EE thread and every busy thread are, once per second.
                 stalledSeconds = df == 0 ? stalledSeconds + 1 : 0;
                 if (stalledSeconds >= 3 && stalledSeconds <= 8) {
@@ -294,6 +325,13 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
             std::vector<Sample> samples;
             samples.reserve(2000000);
             std::map<DWORD, HANDLE> handles;
+            // PS2X_HOSTPROF_BUSY=1: sample only the threads that used CPU in the last second (re-evaluated every
+            // second). The process has over a hundred mostly parked threads; suspending each of them per round limits
+            // the default mode to about 70 samples per second and thread.
+            const char* busyEnv = std::getenv("PS2X_HOSTPROF_BUSY");
+            const bool busyOnly = busyEnv && busyEnv[0] && busyEnv[0] != '0';
+            std::map<DWORD, double> cpuSeen;
+            std::vector<std::pair<DWORD, HANDLE>> active;
             const auto t0 = std::chrono::steady_clock::now();
             auto lastList = t0 - std::chrono::seconds(10);
             while (!g_stop.load() &&
@@ -308,8 +346,17 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                             if (h)
                                 handles[tid] = h;
                         }
+                    active.clear();
+                    for (auto& [tid, h] : handles) {
+                        const double cpu = busyOnly ? threadCpuSeconds(h) : 0.0;
+                        const auto seen = cpuSeen.find(tid);
+                        // a thread first seen now is sampled for one second before its CPU use is known
+                        if (!busyOnly || seen == cpuSeen.end() || cpu - seen->second > 0.005)
+                            active.emplace_back(tid, h);
+                        cpuSeen[tid] = cpu;
+                    }
                 }
-                for (auto& [tid, h] : handles) {
+                for (auto& [tid, h] : active) {
                     if (SuspendThread(h) == static_cast<DWORD>(-1))
                         continue;
                     CONTEXT ctx{};

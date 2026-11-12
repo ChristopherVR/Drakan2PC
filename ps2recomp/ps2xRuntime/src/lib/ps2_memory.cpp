@@ -1,6 +1,7 @@
 #include "ps2_perf.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_vu1_async.h"
+#include "runtime/ps2_chain_buffers.h"
 #include "drakan_object_motion.h"
 #include "ps2_vu1_batch_capture.h"
 #include "runtime/ps2_address.h"
@@ -18,6 +19,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <thread>
 
 #include "runtime/ps2_render_queue.h"
 
@@ -838,7 +840,23 @@ uint64_t PS2Memory::read64(uint32_t address) {
     if (isGsPrivReg(address)) {
         const uint32_t regOff = (address - PS2_GS_PRIV_REG_BASE) & ~0x7u;
         if (regOff == kGsCsrRegOffset) {
-            return gs_regs.csr.load();
+            const uint64_t csr = gs_regs.csr.load();
+            // The game waits for the GS by polling CSR.FINISH in a loop (0x1dc688, before its per-frame read-back):
+            // a quarter to two thirds of the EE thread while the VU1 and GS workers finish the frame.
+            // PS2X_FINISH_YIELD=1 (experiment, off by default): from the 16th poll in a row that finds it clear, give
+            // the rest of the time slice to another thread that is ready on this processor. Measured without a
+            // benefit and with collapses when CPU-bound background threads take the slice
+            // (docs/journal/2026-11-12/perf-cpu.md, 4.4).
+            static const bool yieldOn = [] {
+                const char* value = std::getenv("PS2X_FINISH_YIELD");
+                return value && value[0] == '1';
+            }();
+            static thread_local uint32_t clearPolls = 0;
+            if (csr & 0x2ull)
+                clearPolls = 0;
+            else if (yieldOn && ++clearPolls >= 16u)
+                std::this_thread::yield();
+            return csr;
         }
         uint64_t* reg = gsRegPtr(gs_regs, address);
         return reg ? *reg : 0;
@@ -1320,7 +1338,14 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value) {
                     uint32_t asp = (chcr >> 4) & 0x3u;
                     const bool tieEnabled = (chcr & (1u << 7)) != 0u;
                     const int kMaxChainTags = 4096;
-                    std::vector<uint8_t> chainBuf;
+                    // Gathered in a scratch vector that keeps its capacity from chain to chain; the block that travels
+                    // is made in one allocation at the end (runtime/ps2_chain_buffers.h). PS2X_DMA_CHAIN_POOL=0: a new
+                    // vector grows with every piece, as before.
+                    static thread_local std::vector<uint8_t> t_chainScratch;
+                    std::vector<uint8_t> chainOwn;
+                    const bool chainScratch = ps2x_chain_buffers::enabled();
+                    std::vector<uint8_t>& chainBuf = chainScratch ? t_chainScratch : chainOwn;
+                    chainBuf.clear();
                     auto objectChain = drakan_object_motion::beginChain(channelBase == 0x10009000u);
 
                     auto appendData = [&](uint32_t srcAddr, uint32_t qwCount) {
@@ -1558,7 +1583,12 @@ bool PS2Memory::writeIORegister(uint32_t address, uint32_t value) {
                         pt.fromScratchpad = false;
                         pt.srcAddr = 0;
                         pt.qwc = 0;
-                        pt.chainData = std::move(chainBuf);
+                        if (chainScratch) {
+                            pt.chainData = ps2x_chain_buffers::copyOf(chainBuf.data(), chainBuf.size());
+                        } else {
+                            ps2x_chain_buffers::noteChain(chainBuf.size());
+                            pt.chainData = std::move(chainOwn);
+                        }
                         if (channelBase == 0x10009000u)
                             pt.objectMotion = objectChain.finish(static_cast<uint32_t>(pt.chainData.size()));
                         if (channelBase == 0x1000A000) {
@@ -1748,6 +1778,7 @@ void PS2Memory::runVif1Slice(const uint8_t* data, uint32_t size, uint32_t offset
 void PS2Memory::dispatchVif1(std::vector<uint8_t>&& job, drakan_object_motion::JobPtr motion) {
     if (!vu1async::enabled()) {
         runVif1Job(job.data(), static_cast<uint32_t>(job.size()), motion.get());
+        ps2x_chain_buffers::release(job);
         return;
     }
     vu1async::Meta meta;
@@ -1788,8 +1819,10 @@ void PS2Memory::processPendingTransfers() {
             m_gifCopyCount.fetch_add(1, std::memory_order_relaxed);
             if (queueGif)
                 vu1async::submitPath3(this, std::move(p.chainData));
-            else
+            else {
                 emitGif(p.chainData.data(), static_cast<uint32_t>(p.chainData.size()));
+                ps2x_chain_buffers::release(p.chainData);
+            }
         } else if (p.qwc > 0) {
             const uint64_t bytes64 = static_cast<uint64_t>(p.qwc) * 16ull;
             uint32_t sizeBytes = (bytes64 > 0xFFFFFFFFull) ? 0xFFFFFFFFu : static_cast<uint32_t>(bytes64);
@@ -1840,6 +1873,7 @@ void PS2Memory::processPendingTransfers() {
     for (auto& p : m_pendingVif0Transfers) {
         if (!p.chainData.empty()) {
             processVIF0Data(p.chainData.data(), static_cast<uint32_t>(p.chainData.size()));
+            ps2x_chain_buffers::release(p.chainData);
         } else if (p.qwc > 0) {
             uint32_t srcPhys = 0;
             const uint64_t bytes64 = static_cast<uint64_t>(p.qwc) * 16ull;

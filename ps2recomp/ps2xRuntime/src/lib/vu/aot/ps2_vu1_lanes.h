@@ -36,6 +36,30 @@
 
 namespace Vu1Lanes {
 
+// Which FMAC results of the loop path are recomputed by the scalar engine (fmacBad below). The loop path only needs
+// the value of a result, never its flags, and Vu1Step::fmacSlow changes a value only when the exact result is zero,
+// underflows or overflows. By default a component is left to the plain SSE value in three more cases than the scalar
+// classification (ordinary = exponent field 8..246) allows:
+//  * ADD / SUB / MUL, and MADD / MSUB whose ACC component is zero or whose second operand is the constant 1: one
+//    rounding. A finite result of 2^120 or more cannot come from a zero or underflowing exact result, and when the
+//    exact result exceeds FLT_MAX the finite rounded float is FLT_MAX with the same sign, which is what the overflow
+//    rule stores. Only exponent fields below 8 and 255 (infinity, NaN) need the exact path.
+//  * other MADD / MSUB: the product is rounded before the sum. A result in the top binade (exponent field 254) can be
+//    up to two units below FLT_MAX while the exact result overflows, and with round-toward-zero a product that
+//    overflowed is the finite FLT_MAX, so the sum can be far below an exact result that overflows. A result or a
+//    product in the top binade (or with an exponent field below 8) therefore keeps the exact path.
+//  * a MADD / MSUB component with a zero operand is ACC itself, and the class of the product only feeds flags.
+// DRAKAN_VU_LANES_STRICT=1 restores the scalar classification for comparisons. The limits are compared against
+// (magnitude + 0x7c000000) as a signed value.
+inline int32_t g_valueLimit = -0x04800000; // one rounding; strict: -0x08800000
+inline int32_t g_sumLimit = -0x05000000;   // product then sum; strict: -0x08800000
+inline uint32_t g_strictTerms = 0u;        // strict: 0xffffffff
+inline void setStrictFmac(bool strict) {
+    g_valueLimit = strict ? -0x08800000 : -0x04800000;
+    g_sumLimit = strict ? -0x08800000 : -0x05000000;
+    g_strictTerms = strict ? 0xffffffffu : 0u;
+}
+
 // Widest pack the CPU and the build support: 4 (AVX-512F), 2 (AVX2) or 0 (none).
 inline uint32_t detect() {
 #if defined(VU_LANES_AVX2)
@@ -194,6 +218,15 @@ struct Avx2 {
     static VU_LANES_INLINE M mand(M a, M b) { return _mm256_and_si256(a, b); }
     // components of m whose value is not ordinary / not zero
     static VU_LANES_INLINE M notOrdinary(M m, V v) { return _mm256_andnot_si256(ordinary(v), m); }
+    // components of m whose value may differ from the exact path's (see g_valueLimit)
+    static VU_LANES_INLINE M needsExact(M m, V v, int32_t limit) {
+        const __m256i magnitude = _mm256_and_si256(_mm256_castps_si256(v), _mm256_set1_epi32(0x7fffffff));
+        const __m256i biased = _mm256_add_epi32(magnitude, _mm256_set1_epi32(0x7c000000));
+        return _mm256_andnot_si256(_mm256_cmpgt_epi32(_mm256_set1_epi32(limit), biased), m);
+    }
+    static VU_LANES_INLINE M strictOnly(M m) {
+        return _mm256_and_si256(m, _mm256_set1_epi32(static_cast<int>(g_strictTerms)));
+    }
     static VU_LANES_INLINE M nonzero(M m, V v) { return _mm256_andnot_si256(zero(v), m); }
     static VU_LANES_INLINE bool any(M m) { return !_mm256_testz_si256(m, m); }
     // any component of lane j
@@ -328,6 +361,12 @@ struct Avx512 {
         const __m512i biased = _mm512_add_epi32(magnitude, _mm512_set1_epi32(0x7c000000));
         return _mm512_mask_cmpge_epi32_mask(m, biased, _mm512_set1_epi32(-0x08800000));
     }
+    static VU_LANES_INLINE M needsExact(M m, V v, int32_t limit) {
+        const __m512i magnitude = _mm512_and_si512(_mm512_castps_si512(v), _mm512_set1_epi32(0x7fffffff));
+        const __m512i biased = _mm512_add_epi32(magnitude, _mm512_set1_epi32(0x7c000000));
+        return _mm512_mask_cmpge_epi32_mask(m, biased, _mm512_set1_epi32(limit));
+    }
+    static VU_LANES_INLINE M strictOnly(M m) { return g_strictTerms ? m : static_cast<M>(0); }
     static VU_LANES_INLINE M nonzero(M m, V v) {
         return _mm512_mask_test_epi32_mask(m, _mm512_castps_si512(v), _mm512_set1_epi32(0x7fffffff));
     }
@@ -357,16 +396,17 @@ struct Avx512 {
 };
 #endif
 
-// Components of `comps` whose FMAC result Vu1Step::calculateFmac would not return as the plain SSE result, i.e. where
-// neither its fast path (ordinary result, and ordinary product for MADD/MSUB) nor flagsKnownClasses (a zero sum for
-// ADD/SUB; a zero result with a zero operand for MUL/MADD/MSUB; for MADD/MSUB a product that is ordinary or has a zero
-// operand) applies. Kind: 1 ADD, 2 SUB, 3 MUL, 4 MADD, 5 MSUB. ConstB: the second operand is the constant 0 (0), the
-// constant 1 (1) or a value (-1). vs and b are the (normalized) operands.
+// Components of `comps` whose FMAC value Vu1Step::calculateFmac might not return as the plain SSE result. With
+// DRAKAN_VU_LANES_STRICT=1 these are exactly the components where neither its fast path (ordinary result, and ordinary
+// product for MADD/MSUB) nor flagsKnownClasses (a zero sum for ADD/SUB; a zero result with a zero operand for
+// MUL/MADD/MSUB; for MADD/MSUB a product that is ordinary or has a zero operand) applies; the default leaves out the
+// components described at g_valueLimit. Kind: 1 ADD, 2 SUB, 3 MUL, 4 MADD, 5 MSUB. ConstB: the second operand is the
+// constant 0 (0), the constant 1 (1) or a value (-1). vs, b and acc (MADD/MSUB only) are the normalized operands.
 template <class B, int Kind, int ConstB>
-VU_LANES_INLINE typename B::M fmacBad(typename B::M comps, typename B::V vs, typename B::V b, typename B::V product,
-                                      typename B::V result) {
+VU_LANES_INLINE typename B::M fmacBad(typename B::M comps, typename B::V vs, typename B::V b, typename B::V acc,
+                                      typename B::V product, typename B::V result) {
     if constexpr (Kind <= 2)
-        return B::nonzero(B::notOrdinary(comps, result), result);
+        return B::nonzero(B::needsExact(comps, result, g_valueLimit), result);
     else if constexpr (Kind == 3 && ConstB == 0)
         return B::none(); // zero times a normalized value is an exact zero
     else {
@@ -378,10 +418,16 @@ VU_LANES_INLINE typename B::M fmacBad(typename B::M comps, typename B::V vs, typ
         else
             nz = B::nonzero(B::nonzero(comps, vs), b);
         if constexpr (Kind == 3)
-            return B::notOrdinary(nz, result);
+            return B::needsExact(nz, result, g_valueLimit);
         else {
-            const typename B::M t = B::notOrdinary(comps, result);
-            return B::mor(B::mor(B::mand(t, nz), B::nonzero(t, result)), B::notOrdinary(nz, product));
+            const typename B::M single = B::needsExact(comps, result, g_valueLimit);
+            typename B::M t = single;
+            if constexpr (ConstB != 1)
+                t = B::mor(t, B::nonzero(B::mor(B::needsExact(comps, result, g_sumLimit),
+                                                B::needsExact(comps, product, g_sumLimit)),
+                                         acc));
+            return B::mor(B::mand(t, nz),
+                          B::strictOnly(B::mor(B::nonzero(single, result), B::notOrdinary(nz, product))));
         }
     }
 }

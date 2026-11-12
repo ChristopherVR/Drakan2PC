@@ -1,6 +1,9 @@
 // The multi-iteration packs of the functional VU1 engine (vu/aot/ps2_vu1_lanes.h) against the SSE code of the scalar
 // engine, lane by lane: operand normalization, FTOI/ITOF, ABS, DIV, the lane moves, and the test that decides whether
-// Vu1Step::calculateFmac would return the plain SSE result (fast path or flagsKnownClasses).
+// Vu1Step::calculateFmac would return the plain SSE result (fast path or flagsKnownClasses). The default rule of
+// fmacBad leaves more components to the plain result than that test (finite results of 2^120 and above, the class of a
+// MADD/MSUB product, see g_valueLimit in the header): for those the plain value is compared with the exact path's
+// value, computed here.
 #include "vu/aot/ps2_vu1_lanes.h"
 #include "runtime/ps2_vu1.h"
 #include "vu/ps2_vu1_simd.h"
@@ -56,12 +59,50 @@ float clampVu(float value) {
     return asFloat(bits);
 }
 
+// The value Vu1Step::fmacSlow stores for every component (ps2_vu1_upper.cpp): the plain result, except +-0 where the
+// exact (double precision) result is zero or underflows and +-FLT_MAX where it overflows, with the exact result's sign.
+template <int Kind>
+__m128 exactValue(__m128 vs, __m128 b, __m128 acc, __m128 plain) {
+    const __m128d vsLo = _mm_cvtps_pd(vs), vsHi = _mm_cvtps_pd(_mm_movehl_ps(vs, vs));
+    const __m128d bLo = _mm_cvtps_pd(b), bHi = _mm_cvtps_pd(_mm_movehl_ps(b, b));
+    const __m128d accLo = _mm_cvtps_pd(acc), accHi = _mm_cvtps_pd(_mm_movehl_ps(acc, acc));
+    __m128d lo, hi;
+    if constexpr (Kind == 1) {
+        lo = _mm_add_pd(vsLo, bLo);
+        hi = _mm_add_pd(vsHi, bHi);
+    } else if constexpr (Kind == 2) {
+        lo = _mm_sub_pd(vsLo, bLo);
+        hi = _mm_sub_pd(vsHi, bHi);
+    } else if constexpr (Kind == 3) {
+        lo = _mm_mul_pd(vsLo, bLo);
+        hi = _mm_mul_pd(vsHi, bHi);
+    } else if constexpr (Kind == 4) {
+        lo = _mm_add_pd(accLo, _mm_mul_pd(vsLo, bLo));
+        hi = _mm_add_pd(accHi, _mm_mul_pd(vsHi, bHi));
+    } else {
+        lo = _mm_sub_pd(accLo, _mm_mul_pd(vsLo, bLo));
+        hi = _mm_sub_pd(accHi, _mm_mul_pd(vsHi, bHi));
+    }
+    const Vu1FmacDetail::Classes r = Vu1FmacDetail::classifyExact(lo, hi);
+    alignas(16) uint32_t out[4];
+    _mm_store_ps(reinterpret_cast<float*>(out), plain);
+    for (int c = 0; c < 4; ++c) {
+        const uint32_t sign = ((r.neg >> c) & 1) ? 0x80000000u : 0u;
+        if (((r.zero | r.under) >> c) & 1)
+            out[c] = sign;
+        else if ((r.over >> c) & 1)
+            out[c] = sign | 0x7F7FFFFFu;
+    }
+    return _mm_load_ps(reinterpret_cast<const float*>(out));
+}
+
 template <class B>
 struct Tester {
     static constexpr uint32_t W = B::W;
     using V = typename B::V;
     using M = typename B::M;
     uint64_t checks = 0;
+    uint64_t relaxed = 0; // components the default rule leaves plain although the scalar classification would not
 
     static V fromLanes(const __m128 (&x)[W]) {
         alignas(64) float f[4 * W];
@@ -131,8 +172,36 @@ struct Tester {
                     expectedBad |= 1u << (4 * j + c);
             }
         }
+        // Default rule: a subset of the scalar classification, and every component it leaves out has the exact
+        // path's value already.
+        Vu1Lanes::setStrictFmac(false);
+        const uint32_t loose =
+            maskBits(Vu1Lanes::fmacBad<B, Kind, ConstB>(B::template comps<15>(), fromLanes(vs), fromLanes(b),
+                                                        fromLanes(acc), fromLanes(product), fromLanes(result)));
+        Vu1Lanes::setStrictFmac(true);
+        bool looseOk = (loose & ~expectedBad) == 0;
+        for (uint32_t j = 0; j < W && looseOk; ++j) {
+            alignas(16) uint32_t plainBits[4], exactBits[4];
+            _mm_store_ps(reinterpret_cast<float*>(plainBits), result[j]);
+            _mm_store_ps(reinterpret_cast<float*>(exactBits), exactValue<Kind>(vs[j], b[j], acc[j], result[j]));
+            for (uint32_t c = 0; c < 4; ++c)
+                if (!((loose >> (4 * j + c)) & 1u) && plainBits[c] != exactBits[c]) {
+                    std::printf("W=%u FMAC kind %d constB %d lane %u comp %u: plain %08x exact %08x not fixed\n", W,
+                                Kind, ConstB, j, c, plainBits[c], exactBits[c]);
+                    looseOk = false;
+                }
+        }
+        if (!looseOk) {
+            std::printf("W=%u FMAC kind %d constB %d: default rule %x, scalar classification %x\n", W, Kind, ConstB,
+                        loose, expectedBad);
+            return false;
+        }
+        for (uint32_t bits = expectedBad & ~loose; bits; bits &= bits - 1)
+            ++relaxed;
+        // DRAKAN_VU_LANES_STRICT=1: exactly the scalar classification.
         const M bad = Vu1Lanes::fmacBad<B, Kind, ConstB>(B::template comps<15>(), fromLanes(vs), fromLanes(b),
-                                                         fromLanes(product), fromLanes(result));
+                                                         fromLanes(acc), fromLanes(product), fromLanes(result));
+        Vu1Lanes::setStrictFmac(false);
         if (maskBits(bad) != expectedBad) {
             std::printf("W=%u FMAC kind %d constB %d: bad %x expected %x\n", W, Kind, ConstB, maskBits(bad),
                         expectedBad);
@@ -261,13 +330,14 @@ struct Tester {
 int main() {
     const uint32_t width = Vu1Lanes::detect();
     std::printf("lane width supported: %u\n", width);
-    uint64_t checks = 0;
+    uint64_t checks = 0, relaxed = 0;
 #if defined(VU_LANES_AVX2)
     if (width >= 2) {
         Tester<Vu1Lanes::Avx2> t;
         if (!t.run())
             return 1;
         checks += t.checks;
+        relaxed += t.relaxed;
     }
 #endif
 #if defined(VU_LANES_AVX512)
@@ -276,8 +346,14 @@ int main() {
         if (!t.run())
             return 2;
         checks += t.checks;
+        relaxed += t.relaxed;
     }
 #endif
-    std::printf("vu_lanes: %llu checks passed\n", static_cast<unsigned long long>(checks));
+    if (width >= 2 && relaxed == 0) {
+        std::printf("vu_lanes: the default FMAC rule never left a component to the plain result\n");
+        return 3;
+    }
+    std::printf("vu_lanes: %llu checks passed, %llu components plain under the default rule only\n",
+                static_cast<unsigned long long>(checks), static_cast<unsigned long long>(relaxed));
     return 0;
 }

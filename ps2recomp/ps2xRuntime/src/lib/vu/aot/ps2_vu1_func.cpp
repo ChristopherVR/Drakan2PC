@@ -1044,6 +1044,8 @@ constexpr bool prevNormUsed(uint32_t node) {
 uint32_t width() {
     static const uint32_t w = [] {
         const uint32_t best = Vu1Lanes::detect();
+        if (const char* strict = std::getenv("DRAKAN_VU_LANES_STRICT"); strict && strict[0] && strict[0] != '0')
+            Vu1Lanes::setStrictFmac(true);
         const char* e = std::getenv("DRAKAN_VU_LANES");
         if (e && e[0] == '0')
             return 0u;
@@ -1198,7 +1200,7 @@ struct Exec {
         if constexpr (nd.op == N_FMAC) {
             const V vs = operand<Nd, 0>(c);
             const V b = second<Nd>(c);
-            V result, product = B::set1(0.0f);
+            V result, product = B::set1(0.0f), acc = B::set1(0.0f);
             if constexpr (nd.kind == 1)
                 result = B::add(vs, b);
             else if constexpr (nd.kind == 2)
@@ -1206,7 +1208,7 @@ struct Exec {
             else if constexpr (nd.kind == 3)
                 result = product = B::mul(vs, b);
             else {
-                const V acc = operand<Nd, 2>(c);
+                acc = operand<Nd, 2>(c);
                 product = B::mul(vs, b);
                 result = nd.kind == 4 ? B::add(acc, product) : B::sub(acc, product);
             }
@@ -1214,7 +1216,7 @@ struct Exec {
             // lanes where Vu1Step::calculateFmac would not return the plain result (zero / underflow / overflow of
             // the exact result) are recomputed by the scalar engine's fmac
             if constexpr (!(nd.kind == 3 && constantB<Nd>() == 0)) {
-                const M bad = Vu1Lanes::fmacBad<B, nd.kind, constantB<Nd>()>(B::template comps<nd.wcomps>(), vs, b,
+                const M bad = Vu1Lanes::fmacBad<B, nd.kind, constantB<Nd>()>(B::template comps<nd.wcomps>(), vs, b, acc,
                                                                              product, result);
                 if (B::any(bad)) {
                     ++c.fixed;

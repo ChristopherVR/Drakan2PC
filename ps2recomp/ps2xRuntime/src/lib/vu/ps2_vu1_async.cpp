@@ -1,4 +1,6 @@
 #include "runtime/ps2_vu1_async.h"
+#include "runtime/ps2_chain_buffers.h"
+#include "ThreadNaming.h"
 #include "input/ThreadBoost.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_render_queue.h"
@@ -68,6 +70,7 @@ struct Worker {
 
     void run() {
         drakan_input::boostThread(drakan_input::ThreadRole::Frame);
+        ThreadNaming::SetCurrentThreadName("VU1Worker"); // shown by debuggers and in the PS2X_PERF line
         t_worker = true;
         for (;;) {
             Job job;
@@ -138,6 +141,7 @@ struct Worker {
                                         job.meta.objectMotion.get());
             }
             t_meta = nullptr;
+            ps2x_chain_buffers::release(job.data); // a large chain copy goes back to the pool (no-op otherwise)
             if (g_pending.fetch_sub(completed, std::memory_order_release) == completed) {
                 // Publish every job through g_pending, but take the
                 // mutex only at the completion barrier. Holding it for

@@ -418,5 +418,21 @@ inline void install(PS2Runtime& rt) {
         timerOriginal = rt.lookupFunction(0x143448u);
         rt.replaceFunction(0x143448u, timerHook);
     }
+    // Diagnostic only (docs/reference/env-flags.md): DRAKAN_DEBUG_SKIP_FN=<hex>[,<hex>...] makes the listed guest
+    // functions return at once, to find out what a function is for and what it costs. It breaks whatever they do.
+    if (const char* skip = std::getenv("DRAKAN_DEBUG_SKIP_FN"); skip && *skip) {
+        for (const char* at = skip; *at;) {
+            char* end = nullptr;
+            const uint32_t address = static_cast<uint32_t>(std::strtoul(at, &end, 16));
+            if (end == at)
+                break;
+            if (rt.hasFunction(address)) {
+                rt.replaceFunction(address,
+                                   [](uint8_t*, R5900Context* ctx, PS2Runtime*) { ctx->pc = GPR_U32(ctx, 31); });
+                std::fprintf(stderr, "[debug] guest function %x returns at once (DRAKAN_DEBUG_SKIP_FN)\n", address);
+            }
+            at = *end == ',' ? end + 1 : end;
+        }
+    }
 }
 } // namespace drakan_frame_rate
