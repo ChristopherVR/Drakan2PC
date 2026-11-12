@@ -14,7 +14,9 @@ rotated per repeat, so the variants see the same machine on average.
 
 Before every run the tool waits (up to `--wait-quiet` seconds) until at most `--quiet-games` other `drakan.exe` and no
 replay tool (`gsr_*`) or compiler (`cl.exe`, `link.exe`) is running, and records what ran before and during the run.
-A run that started on a busy machine is marked and left out of the tables unless `--keep-busy` is given.
+A run that started on a busy machine is marked and left out of the tables unless `--keep-busy` is given. Runs of
+every copy of this tool on the machine take turns (a lock in the temp folder), so two of our own games never measure
+each other.
 
 `--foreground` runs the game as the activated, focused window (`DRAKAN_NO_ACTIVATE=0`; the harness default keeps the
 window behind the others and never activates it) and records how often the foreground window belonged to the game
@@ -33,11 +35,13 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import os
 import re
 import shutil
 import statistics
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -115,6 +119,36 @@ def quiet(state: dict, games: int) -> bool:
     return state["games"] <= games and state["replays"] == 0 and state["compilers"] == 0
 
 
+LOCK = Path(tempfile.gettempdir()) / "drakan_scene_bench.lock"
+
+
+def pid_alive(pid: int) -> bool:
+    return any(p == pid for _name, p in tasks())
+
+
+def take_lock() -> None:
+    """One benchmark game at a time on this machine, whichever copy of this tool starts it: two games of our own
+    would measure each other. The lock is a folder holding the owner's process id; a dead owner's lock is removed."""
+    while True:
+        try:
+            LOCK.mkdir()
+            (LOCK / "pid").write_text(str(os.getpid()))
+            return
+        except FileExistsError:
+            try:
+                owner = int((LOCK / "pid").read_text())
+            except (OSError, ValueError):
+                owner = -1
+            if owner > 0 and not pid_alive(owner):
+                shutil.rmtree(LOCK, ignore_errors=True)
+                continue
+            time.sleep(5)
+
+
+def release_lock() -> None:
+    shutil.rmtree(LOCK, ignore_errors=True)
+
+
 def foreground_pid() -> int:
     user32 = ctypes.windll.user32
     pid = ctypes.c_ulong(0)
@@ -122,10 +156,27 @@ def foreground_pid() -> int:
     return pid.value
 
 
-def watch(stop: threading.Event, games_before: set[int], samples: list, fg: list) -> None:
-    """Samples the machine load and whether the game owns the foreground window while a run is going."""
+def exe_of(pid: int) -> str:
+    """Full path of a process image (empty when it cannot be opened)."""
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ""
+    try:
+        size = ctypes.c_ulong(1024)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        ok = kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size))
+        return buffer.value if ok else ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def watch(stop: threading.Event, exe: Path, samples: list, fg: list) -> None:
+    """Samples the machine load and whether the game owns the foreground window while a run is going. Our game is
+    the drakan.exe that runs from the benchmarked exe's path."""
+    want = str(exe.resolve()).lower()
     while not stop.wait(2):
-        ours = {pid for n, pid in tasks() if n == "drakan.exe"} - games_before
+        ours = {pid for n, pid in tasks() if n == "drakan.exe" and exe_of(pid).lower() == want}
         samples.append(load(ours))
         if ours:
             fg.append(foreground_pid() in ours)
@@ -411,19 +462,26 @@ def main() -> int:
                 cmd.append("--audio")
             for kv in common + extra:
                 cmd += ["--env", kv]
-            waited, before = 0.0, load()
-            while not quiet(before, a.quiet_games) and waited < a.wait_quiet:
-                time.sleep(10)
-                waited += 10
+            waited = 0.0
+            while True:  # wait for a quiet machine without holding the lock, then check again with it
                 before = load()
-            games_before = {pid for n, pid in tasks() if n == "drakan.exe"}
+                while not quiet(before, a.quiet_games) and waited < a.wait_quiet:
+                    time.sleep(10)
+                    waited += 10
+                    before = load()
+                take_lock()
+                before = load()
+                if quiet(before, a.quiet_games) or waited >= a.wait_quiet:
+                    break
+                release_lock()
             samples, fg, stop = [], [], threading.Event()
 
-            watcher = threading.Thread(target=watch, args=(stop, games_before, samples, fg), daemon=True)
+            watcher = threading.Thread(target=watch, args=(stop, a.exe, samples, fg), daemon=True)
             watcher.start()
             code = subprocess.run(cmd, capture_output=True, text=True).returncode
             stop.set()
             watcher.join()
+            release_lock()
             log = folder / run / "drakan.log"
             for profile in ("hostprof.csv", "hostprof_stacks.csv"):  # PS2X_HOSTPROF writes next to the exe
                 if (a.exe.parent / profile).is_file() and (folder / run).is_dir():
