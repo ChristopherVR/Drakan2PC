@@ -12,6 +12,9 @@ export PS2X_MAX_SECONDS=${PS2X_MAX_SECONDS:-400} PS2X_GS=${PS2X_GS:-d3d11} DRAKA
 export DRAKAN_AUTOPRESS=4000 DRAKAN_AUTOPRESS_NOSTART=1 DRAKAN_AUTOPRESS_UNTIL=30000
 export DRAKAN_INPUT_SCRIPT="$script" DRAKAN_SHOT_DIR="$t" DRAKAN_INPUT_LOGFILE="$t/$name.in.log"
 cd "$bin" || exit 2
+# The game's card is next to its exe; this run uses the card next to the ELF (iso/mc0), as it always did.
+elf="${COMBAT_ELF:-../../../iso/SCES_500.06}"
+export DRAKAN_MEMCARD_DIR="${DRAKAN_MEMCARD_DIR:-$(cd "$(dirname "$elf")" && pwd -W 2>/dev/null || pwd)/mc0}"
 for try in 1 2 3 4 5 6; do
   "./$exe" "${COMBAT_ELF:-../../../iso/SCES_500.06}" > "$t/$name.log" 2>&1 &
   pid=$!

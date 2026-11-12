@@ -33,7 +33,9 @@ $values = @{
     DRAKAN_INPUT_INI="$out/drakan_input.ini";
     DRAKAN_INPUT_LOGFILE="$out/input.log"; DRAKAN_SHOT_DIR=$out;
     DRAKAN_CMD_LOG='1'; DRAKAN_COMBAT_LOG='0'; DRAKAN_COMBAT_AUDIT="$AuditEvery";
-    DRAKAN_CONSOLE='0'; DRAKAN_PAUSE_UNFOCUSED='0'
+    DRAKAN_CONSOLE='0'; DRAKAN_PAUSE_UNFOCUSED='0';
+    # The card of this run is the one next to the given ELF (a private fixture copy), never the play folder's.
+    DRAKAN_MEMCARD_DIR=(Join-Path (Split-Path -Parent $Elf) 'mc0')
 }
 if ($QuietDiagnostics) {
     $values.DRAKAN_CMD_LOG = '0'

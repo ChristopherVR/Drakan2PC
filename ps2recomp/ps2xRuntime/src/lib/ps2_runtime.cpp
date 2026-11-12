@@ -3,6 +3,7 @@
 #include "input/CpuAffinity.h"
 #include "input/ThreadBoost.h"
 #include "ps2_vu1_batch.h"
+#include "drakan_card_root.h"
 #include "drakan_config.h"
 #include "drakan_null_call_recovery.h"
 #include "drakan_region.h"
@@ -880,7 +881,8 @@ bool PS2Runtime::initialize(const char* title) {
         {
             if (wantD3D11) {
                 if (m_gs.enableD3D11(m_nativeWindow ? drakan_win::handle() : GetWindowHandle())) {
-                    std::cerr << "[gs] backend: d3d11 (gsr)" << std::endl;
+                    // The API in use is on the "[gsr] <API> renderer on '<adapter>'" line.
+                    std::cerr << "[gs] backend: gsr (GPU renderer)" << std::endl;
                     if (m_nativeWindow)
                         drakan_win::show(); // after the renderer applied the start-up window mode
                 } else {
@@ -1183,16 +1185,36 @@ void PS2Runtime::configureIoPathsFromElf(const std::string& elfPath) {
         paths.cdRoot = paths.elfDirectory;
         paths.mcRoot = paths.elfDirectory / "mc0";
     }
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
-    // The extracted ELF lives in the disposable build cache. Native Linux cards
-    // belong to the deployed player, including when started from another cwd.
-    paths.mcRoot = std::filesystem::path(drakan_cfg::exeDir()) / "mc0";
+    // The extracted ELF lives in the disposable build folder (drakan.ini `elf`). The cards belong to the play folder,
+    // the folder of the executable, whatever the working directory or the ELF's place (drakan_card_root.h, issue #6).
+    // Platforms where exeDir() is only the launch directory keep the card next to the ELF.
+#if defined(_WIN32) || (defined(__linux__) && !defined(__EMSCRIPTEN__))
+    const std::string playDir = drakan_cfg::exeDir();
+#else
+    const std::string playDir;
 #endif
     // DRAKAN_MEMCARD_DIR=<dir>: memory card 1 root (card 2 is the sibling "mc1" or "<dir>_slot1"); test runs point it
     // at an empty scratch folder to boot without saves and never touch the player's cards.
-    if (const char* mc = std::getenv("DRAKAN_MEMCARD_DIR"); mc && *mc) {
-        paths.mcRoot = std::filesystem::path(mc);
+    const char* mc = std::getenv("DRAKAN_MEMCARD_DIR");
+    if (std::filesystem::path root = drakan_card_root::resolve(mc, playDir, paths.elfDirectory); !root.empty()) {
+        paths.mcRoot = std::move(root);
     }
+#if defined(_WIN32)
+    // Windows builds up to v0.1.11 saved next to the ELF (native Linux never did): bring the saves the play folder
+    // lacks over (a copy, nothing is replaced or removed). The builder's migrate_saves.py settles saves that both
+    // places have. A failure here only leaves the old saves where they are; it must never stop the boot.
+    if (!(mc && *mc) && !playDir.empty()) {
+        try {
+            for (const auto& save : drakan_card_root::adoptMissingSaves(paths.elfDirectory, playDir)) {
+                const std::u8string from = save.from.u8string(), to = save.to.u8string();
+                std::fprintf(stderr, "[mc] copied the save '%s' into the play folder: '%s'\n",
+                             reinterpret_cast<const char*>(from.c_str()), reinterpret_cast<const char*>(to.c_str()));
+            }
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "[mc] the saves next to the ELF were not copied: %s\n", error.what());
+        }
+    }
+#endif
 
     setIoPaths(paths);
 }

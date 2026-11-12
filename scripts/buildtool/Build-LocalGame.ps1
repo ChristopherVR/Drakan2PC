@@ -512,7 +512,7 @@ if (-not $NoDist) {
         throw 'DistDirectory cannot be a filesystem root or the source checkout.'
     }
     # Saves, user settings and hand-staged assets survive the clean; everything else is a build product or stale.
-    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
+    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','save-backups','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
     New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $DistDirectory -Force) {
         $name = $item.Name
@@ -541,6 +541,19 @@ if (-not $NoDist) {
         if ($keep | Where-Object { $name -like $_ }) { continue }
         if ($name -like '*.map' -or $name -like '*.log') { continue }
         Copy-Item -LiteralPath $item.FullName -Destination $DistDirectory -Recurse -Force
+    }
+    if ($TargetPlatform -eq 'windows') {
+        # Windows builds up to v0.1.11 saved next to the ELF of drakan.ini (in an installer build this WorkDir), not into the play folder. The
+        # game reads the play folder's cards now, so copy those saves over: nothing is overwritten or deleted, a save
+        # both places have keeps its other version in save-backups/ (migrate_saves.py, issue #6). A failure leaves
+        # every save where it is and the game copies the missing ones itself on its next start.
+        Write-Stage 'Checking for saves outside the play folder'
+        try {
+            Invoke-Checked $Python @('-I',(Join-Path $PSScriptRoot 'migrate_saves.py'),'--play',$DistDirectory,'--work',$WorkDir)
+        } catch {
+            $message = "Saves outside the play folder were not copied (they are untouched; see docs/guides/saves.md): $_"
+            if ($Progress) { Write-Detail $message } else { Write-Warning $message }
+        }
     }
     if ($ModDirectory) {
         Write-Stage 'Installing the mod packs (Order of the Flame)'

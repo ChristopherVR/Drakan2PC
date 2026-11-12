@@ -414,8 +414,18 @@ try {
         }
     }
     if ($CheckOnly) { Write-Host "`nReady to build."; return }
+    # Builds up to v0.1.11 saved into the build folder (next to the ELF) instead of the play folder. Before the build
+    # folder is deleted, those saves are copied into the play folder (migrate_saves.py, issue #6); when that fails the
+    # folder is not deleted.
+    $rescueSaves = {
+        & $python -I (Join-Path $PSScriptRoot 'migrate_saves.py') --play $DistDirectory --work $WorkDir --before-delete
+        if ($LASTEXITCODE) {
+            throw "Saves in $WorkDir could not be copied to the play folder $DistDirectory, so the build folder was not deleted. Copy its mc0 and mc1 folders somewhere safe, then run the build again."
+        }
+    }
     if ($Fresh -and (Test-Path -LiteralPath $WorkDir)) {
         Write-Step 'Starting over (the play folder, saves and settings are kept)'
+        & $rescueSaves
         Remove-Item -LiteralPath $WorkDir -Recurse -Force
     }
     # Compiler warnings are for developers and bury the progress. Only a not yet configured folder gets this: flipping it
@@ -428,7 +438,7 @@ try {
         $buildArgs.Incremental = $true
     } else {
         # A folder without local-input.json stopped before the ISO was read; it holds nothing worth keeping.
-        if (Test-Path -LiteralPath $WorkDir) { Remove-Item -LiteralPath $WorkDir -Recurse -Force }
+        if (Test-Path -LiteralPath $WorkDir) { & $rescueSaves; Remove-Item -LiteralPath $WorkDir -Recurse -Force }
         Write-Step 'Building the game: this takes one to two hours. A few files take several minutes each; the window is not stuck.'
     }
     $started = Get-Date

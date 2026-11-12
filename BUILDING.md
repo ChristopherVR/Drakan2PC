@@ -224,10 +224,18 @@ on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers th
   failed conversion is reported and the game build goes on without it.
 * **HD textures** (`-HdTextures on`): after the game build `analysis/scripts/hd_pack.py` decodes every disc texture and
   every texture of the converted pack, then Real-ESRGAN (`realesrgan-ncnn-vulkan`, any Vulkan GPU) upscales them 4x into
-  `<play folder>/textures`; two passes (disc, then the pack), both resumable. numpy, Pillow (cp312 wheels for the pinned
+  `<play folder>/textures`; two passes (disc, then the pack), both resumable. For the pack it upscales the lossless sources
+  the conversion wrote with `--hd` (the PC pixels before the converter quantised or resized them; the 64 px ground tiles go
+  through the upscaler twice to reach the disc ground's density), and redoes once the images an older build made from the
+  8 bpp or resized picture. numpy, Pillow (cp312 wheels for the pinned
   Python), Real-ESRGAN v0.2.5.0 and `fflate` are fetched on demand, never bundled, pinned by SHA-256 in
   `scripts/buildtool/kit/installer.lock.json` (`hd`), and refused when a hash differs. A TLS failure in Python falls back
   to `curl.exe` / PowerShell; the hash is still checked. A Python that already has numpy and Pillow is used as it is.
+  The upscale ends with a refit of every image to its source (colour drift, lost grain, soft alpha planes; CPU only,
+  once per image, `hd_pack.py refit`), and `analysis/scripts/material_maps.py` then writes the material maps (normal,
+  occlusion / roughness / metallic, height) of every upscaled texture into `<play folder>/textures/materials`, keyed by
+  the same hash as the images (step `hd-materials`: about 6 to 12 min for both together, no graphics card needed,
+  about 0.25 GB per pack). The game's `material_detail` setting reads them (`docs/reference/hd-textures.md` 11 and 12).
 * **Time estimates.** `extras.py estimate` prints a per-step table, the total and the disk space before anything long
   starts; the setup text carries the same figures (a test keeps them equal). Reference figures, measured on an RTX
   5080: conversion 168 s, index 15 s + 18 s, upscale 616 s for 2,962 disc textures and 162 s for about 1,400 new
@@ -282,6 +290,17 @@ WebGPU ray tracing reports itself unavailable on D3D12 (Vulkan is unaffected).
 The Windows game also contains the Direct3D 11 renderer for DLSS, neural rendering and hardware (DXR) ray tracing:
 choose it under PC Settings > Display > Renderer (applied after a restart), with `renderer = d3d11` under `[video]` in
 `drakan.ini`, or with `PS2X_GS=d3d11`. `renderer = webgpu` is the default and `renderer = sw` selects the software GS.
+`renderer = vulkan` (PC Settings > Display > Renderer > Vulkan, `PS2X_GS=vulkan`) is the WebGPU renderer held to Vulkan,
+on Windows and Linux: no Direct3D 12 or OpenGL adapter is considered, and when Vulkan cannot start the log says
+`[gsr-webgpu] Vulkan is not available (...)` and the automatic choice runs instead. The `[gpu] device: <adapter> via
+Vulkan, ..., driver <text>` line reports what the adapter itself answered. No Vulkan SDK is needed to build: wgpu-native
+loads the system's Vulkan loader at run time. The ctest entries `synthetic_webgpu_vulkan`, `ray_trace_vulkan` and
+`rhi_vulkan` run the renderer suites on Vulkan and skip (77) on a machine without it. `gpu_no_backend` checks that a named API
+without a driver fails cleanly (the fallback depends on it), and `partial_upload_webgpu` runs the readback-avoidance
+checks on the WebGPU backend. `device_loss_webgpu` / `device_loss_vulkan` destroy the device mid-run and expect a renderer
+that reports the loss and ignores further work; `renderer_session` covers the rule for the start after such a session.
+`gsr_replay_webgpu <capture.bin> [--gpu-api vulkan]` replays a GS capture on the WebGPU backend as `gsr_replay` does on
+Direct3D 11 (`--hashes` for picture comparisons between the two).
 Play folders keep their `drakan.ini`, so one written by an older build still says `renderer = d3d11` until it is
 changed. On WebGPU the DLSS setting turns on a portable temporal AA (every mode at full internal resolution), and modern
 water and ray-traced shadows are traced in WebGPU compute (slower than DXR: shadows and water reflections at the native
@@ -332,7 +351,21 @@ Linux and WSL/browser builds retain their defaults and reject this Windows optio
 `WORKDIR/bin` as "the game": it has default settings and none of the HD textures. Every successful
 build cleans `dist/DrakanPC` (or `-DistDirectory <path>`) and refills it from `WORKDIR/bin`, so stale
 executables, DLLs, logs and notes do not pile up. When DLSS is built, `nvngx_dlss.dll` from your downloaded DLSS SDK (or `local/nvidia/dlss/`) is copied into the play folder; it is never part of the source tree. The script also stages the `scripts/launchers/Play*.cmd` launchers that are not there yet and prints the deployed `drakan.exe` SHA-256. Kept across the clean (never overwritten from `bin/`):
-`mc0`/`mc1` (saves), `textures`, `subtitles`, `nr`, `ngx_data`, `*.ini`, `Play*.cmd` and `PLAY.txt`.
+`mc0`/`mc1` and the campaign cards `mc0_*`/`mc1_*` (saves), `save-backups`, `textures`, `subtitles`, `nr`, `ngx_data`, `*.ini`, `Play*.cmd` and `PLAY.txt`.
+
+The game keeps its memory cards in the play folder, next to `drakan.exe`, whatever the working directory or the
+place of the boot ELF (`drakan_card_root.h`). Windows builds up to v0.1.11 kept them next to the ELF named in
+`drakan.ini`, which the builder puts in WorkDir, so they saved into `WORKDIR/mc0` (`build/game/mc0` for an
+installer build; a developer tree whose `drakan.ini` names `iso/SCES_500.06` saved into `iso/mc0`). Every Windows
+deployment therefore runs `scripts/buildtool/migrate_saves.py --play <play folder> --work <WorkDir>`: saves found
+next to that ELF are copied (never moved) into the play folder, a save both places have keeps its other version
+under `save-backups/<time>/`, and the old folder gets the note `saves-copied-to-play-folder.txt` with one line per
+play folder it was settled for (several play folders may name one ELF; each gets the saves). `Build-Drakan.ps1` runs
+the same step with `--before-delete` before it deletes a build folder (start over, another disc region) and stops
+if it fails; the uninstaller does the same before it removes `build/` and asks (a silent uninstall answers No) when
+it fails while card folders are there. On its first start the game itself copies the save folders the play folder
+lacks, until the builder's note names that play folder. See `docs/journal/2026-11-10/issue6-save-location.md` and
+`docs/journal/2026-11-12/issue6-save-location-check.md`.
 Pass `-NoDist` to leave `dist/` untouched.
 
 `textures/` is not committed; regenerate it from your ISO with `analysis/scripts/hd_pack.py extract`
@@ -458,7 +491,7 @@ pwsh scripts/buildtool/Build-LocalGame.ps1 -IsoPath "D:/MyDiscs/Drakan.iso" -Tar
 
 `runtime-build-linux` / `bin-linux` and `runtime-build-web` / `bin-web` are siblings of the existing
 Windows output inside WorkDir. Build one target at a time because extraction/generation inputs are shared. Deployment goes through the canonical builder and keeps the Windows
-play folder separate. Native Linux cards are stored in the deployed player's `mc0` / `mc1` folders.
+play folder separate. Native Windows and Linux cards are stored in the deployed player's `mc0` / `mc1` folders.
 `DRAKAN_MEMCARD_DIR` can redirect cards for tests.
 
 The browser launcher runs a Python standard-library server on `http://127.0.0.1:8715/`. It supplies

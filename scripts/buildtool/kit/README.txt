@@ -62,7 +62,11 @@ PLAYING
   F11, Alt+Enter   borderless fullscreen
   Esc              pause menu
 Keyboard, mouse and XInput gamepads work; bindings are editable in F1 or in
-drakan_input.ini. Saves go to dist\DrakanPC\mc0.
+drakan_input.ini. Saves go to the play folder (dist\DrakanPC unless you chose
+another): mc0, mc1 and mc0_ootf for Order of the Flame. Versions up to 0.1.11
+saved into build\game\mc0 (and mc1, mc0_ootf) instead; the build copies those
+saves into the play folder. Nothing is deleted; if a save existed in both
+places, the other one is in save-backups in the play folder.
 
 Play-Original30.cmd in dist\DrakanPC runs the world at the original 30 fps.
 
@@ -84,8 +88,8 @@ OPTIONAL EXTRAS
   the Flame when chosen, is upscaled 4x with the free Real-ESRGAN AI upscaler on
   your graphics card (any Vulkan card). The builder downloads the tools once
   (about 75 MB, checked against pinned SHA-256 hashes) and prints the estimated
-  time for your own graphics card before it starts: about 11 to 20 minutes
-  on a fast NVIDIA or AMD card, 17 to 31 minutes with Order of the Flame, several
+  time for your own graphics card before it starts: about 17 to 32 minutes
+  on a fast NVIDIA or AMD card, 23 to 43 minutes with Order of the Flame, several
   times longer on an older card and hours on integrated graphics. It needs about
   2 GB (4 GB with Order of the Flame). The step can be stopped and resumed: run the
   build again. -HdGpu <n> picks the Vulkan device when the first one is not your
@@ -93,6 +97,11 @@ OPTIONAL EXTRAS
 * NVIDIA DLSS (NVIDIA RTX GPUs): tick the DLSS box in the setup, or answer "y"
   when the build asks. The SDK is then downloaded from NVIDIA under the NVIDIA
   RTX SDKs License, which you accept by doing so.
+* Renderer (F1 > Display > Renderer, or renderer = ... under [video] in
+  drakan.ini; a restart applies it): webgpu is the default and uses Vulkan when
+  your graphics driver has it, otherwise Direct3D 12. vulkan is the same
+  renderer held to Vulkan. d3d11 is Direct3D 11, the only one with NVIDIA DLSS
+  and hardware (DXR) ray tracing.
 * Browser version: tick "Also build the browser version" in the setup (needs
   WSL with Ubuntu: wsl --install -d Ubuntu). Play it with Play-Browser.cmd in
   dist\DrakanPC-web, or on the project's browser player page by choosing that

@@ -14,6 +14,8 @@ export DRAKAN_HLE_LOG=100000 DRAKAN_SND_LOG=${DRAKAN_SND_LOG:-3} DRAKAN_SND_DBG=
 export DRAKAN_AUTOPRESS=4000 DRAKAN_AUTOPRESS_NOSTART=1 DRAKAN_AUTOPRESS_UNTIL=30000
 export DRAKAN_INPUT_SCRIPT="$script" DRAKAN_SHOT_DIR="$t" DRAKAN_INPUT_LOGFILE="$t/$name.in.log" DRAKAN_AUDIO_DUMP="$t/$name.wav"
 cd "$bin" || exit 2
+# The game's card is next to its exe; this run uses the card next to the ELF (iso/mc0), as it always did.
+export DRAKAN_MEMCARD_DIR="${DRAKAN_MEMCARD_DIR:-$(cd ../../../iso && pwd -W 2>/dev/null || pwd)/mc0}"
 for try in 1 2 3 4 5 6; do
   "./$exe" "../../../iso/SCES_500.06" > "$t/$name.log" 2>&1 &
   pid=$!

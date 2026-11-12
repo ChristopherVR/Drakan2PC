@@ -187,8 +187,8 @@ begin
     'Upscale every texture with an AI upscaler on your graphics card.',
     'After the build every texture of the game (and of Order of the Flame, when you chose it) is upscaled 4x with the ' +
     'free Real-ESRGAN AI upscaler. It runs on any graphics card with Vulkan drivers and downloads about 75 MB of tools ' +
-    'once, checked against pinned hashes. About 11 to 20 min on a fast graphics card (about 2 GB), ' +
-    '17 to 31 min together with Order of the Flame (about 4 GB); several times longer on an older card and ' +
+    'once, checked against pinned hashes. About 17 to 32 min on a fast graphics card (about 2 GB), ' +
+    '23 to 43 min together with Order of the Flame (about 4 GB); several times longer on an older card and ' +
     'hours on integrated graphics. The game plays without them, the step can be stopped and resumed, and the build can ' +
     'be run again to make them later. The build window shows the estimate for your own PC before it starts.',
     False, False);
@@ -395,6 +395,54 @@ begin
         'command prompt with -OotfSource <path>, or run this setup again with a working copy.', mbError, MB_OK);
     end;
   end;
+end;
+
+// Builds up to v0.1.11 saved into build\game (next to the game's ELF) instead of the play folder, and the uninstaller
+// deletes the build folder. Before it does, the builder's own script copies those saves into the play folder; it
+// never overwrites or deletes a save (scripts/buildtool/migrate_saves.py). When that fails the player decides.
+// Any card folder (mc0, mc1, the campaign cards mc0_<campaign>) directly in Folder.
+function HasCardFolder(Folder: String): Boolean;
+var
+  Found: TFindRec;
+begin
+  Result := False;
+  if FindFirst(Folder + '\mc*', Found) then
+    try
+      repeat
+        if ((Found.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0) and
+          ((CompareText(Found.Name, 'mc0') = 0) or (CompareText(Found.Name, 'mc1') = 0) or
+           (CompareText(Copy(Found.Name, 1, 4), 'mc0_') = 0) or (CompareText(Copy(Found.Name, 1, 4), 'mc1_') = 0)) then
+          Result := True;
+      until Result or not FindNext(Found);
+    finally
+      FindClose(Found);
+    end;
+end;
+
+function InitializeUninstall(): Boolean;
+var
+  Python, Script, Work, Play: String;
+  Code: Integer;
+begin
+  Result := True;
+  Python := ExpandConstant('{app}\tools\python\python.exe');
+  Script := ExpandConstant('{app}\scripts\buildtool\migrate_saves.py');
+  Work := ExpandConstant('{app}\build\game');
+  Play := GetPreviousData('PlayFolder', ExpandConstant('{app}\dist\DrakanPC'));
+  if not DirExists(Work) then
+    Exit;
+  Code := 1;
+  if FileExists(Python) and FileExists(Script) then
+    if not Exec(Python, '-I "' + Script + '" --play "' + Play + '" --work "' + Work + '" --before-delete', '',
+      SW_HIDE, ewWaitUntilTerminated, Code) then
+      Code := 1;
+  // A silent uninstall answers No: the build folder stays.
+  if (Code <> 0) and HasCardFolder(Work) then
+    Result := SuppressibleMsgBox('Saves of an older game version may still be in the card folders (mc0, mc1, ' +
+      'mc0_...) of' + #13#10 + Work + #13#10 + 'and could not be copied to the play folder. Uninstalling deletes ' +
+      'that folder.' + #13#10#13#10 + 'Choose No to keep everything, copy those folders somewhere safe and ' +
+      'uninstall again.' + #13#10#13#10 + 'Uninstall anyway?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2,
+      IDNO) = IDYES;
 end;
 
 function GetIsoPath(Param: String): String;

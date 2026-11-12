@@ -6,7 +6,9 @@ Save files are part of your local game data. Back them up before moving to anoth
 
 ## Windows and Linux save locations
 
-On Windows, saves normally live under `dist/DrakanPC/mc0`; a second virtual card may use `mc1`. On Linux, card folders sit beside the deployed executable in `dist/DrakanPC-linux`. Custom launch overrides can change the location.
+On Windows, saves live in the play folder next to `drakan.exe` (normally `dist/DrakanPC`): `mc0`, a second virtual card `mc1`, and one card per campaign such as `mc0_ootf` for Order of the Flame. On Linux, card folders sit beside the deployed executable in `dist/DrakanPC-linux`. Custom launch overrides (`DRAKAN_MEMCARD_DIR`) can change the location.
+
+Windows versions up to v0.1.11 saved into the builder's work folder instead (`build/game/mc0`, `mc1` and `mc0_<campaign>` inside the folder the builder was installed to), while the `mc0` and `mc1` folders next to `drakan.exe` stayed empty. This was the case in every release, not only in v0.1.11. If you want a backup before updating from one of those versions, copy every `mc*` folder in `build/game`. Do not uninstall one of those versions before updating: their uninstaller deletes `build`, and your saves with it. From the next version on the game saves next to `drakan.exe`. The update copies your existing saves there by itself: nothing is deleted, the old folder gets a note named `saves-copied-to-play-folder.txt`, and if a save slot exists in both places the newer one is used and the other one is kept in `save-backups` next to `drakan.exe` (its `README.txt` lists what is there). The game also copies saves that are missing from the play folder on its first start, in case the build could not.
 
 With the game closed, copy the whole `mc0` folder, any `mc1` folder and your `*.ini` configuration files to a separate backup location. Restore the folders to the corresponding playable directory while the game is closed.
 

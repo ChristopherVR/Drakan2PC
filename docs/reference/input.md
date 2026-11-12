@@ -408,7 +408,7 @@ python scripts/harness/play_run.py --list-levels
 
 | Piece | What it does |
 | --- | --- |
-| `DRAKAN_MEMCARD_DIR` | Memory card root (`ps2_runtime.cpp`, `configureIoPathsFromElf`). The runner points it at `build/harness/<run>/card/mc0`, so Load Game is greyed out and the title's Cross is New Game. Without it the card is `<elf dir>/mc0` (here `iso/mc0`, which holds the Surdana save the combat fixtures use). |
+| `DRAKAN_MEMCARD_DIR` | Memory card root (`ps2_runtime.cpp`, `configureIoPathsFromElf`). The runner points it at `build/harness/<run>/card/mc0`, so Load Game is greyed out and the title's Cross is New Game. Without it the card is `<folder of drakan.exe>/mc0` (`drakan_card_root.h`; up to v0.1.11 it was `<elf dir>/mc0`, here `iso/mc0`, which holds the Surdana save the combat fixtures use, and a start without the variable copies the save folders the exe's card lacks from there, until the builder's note `iso/saves-copied-to-play-folder.txt` names that play folder). |
 | `DRAKAN_AUTOPRESS` + `DRAKAN_INPUT_AUTOSTART` | Start/Cross taps through the title, the memory-card prompts and the intro cut scene. In free gameplay the taps stop (they opened the pause menu every 3 s and kept resetting the control count in slower levels). "Under control" = 100 camera-look calls and 80 gameplay frames, or 240 uninterrupted gameplay frames (mounted on Arokh the on-foot look hook is not called). |
 | `DRAKAN_START_LEVEL` | New Game plays `Level 0 - Intro`, whose transition opens `cdrom0:/English/Levels/Level 1A - Surdana/Level 1A - Surdana.lvl`. The HLE file service rewrites that level name in every opened path (`FileService::setLevelRedirect`), so the engine loads another level under the original name; it even builds the follow-up paths (`<folder>/<level>_splats.*`) through the redirect. Verified: Level 1B Kragmor, 2 Shadowmire, 3B Crystal Mine, 4A Ravenshold. Saves made in such a run carry the Surdana name. Level names: `play_run.py --list-levels` (strings in the `.lvl` files on the disc). |
 | `shot <label>` | Script command: besides the old desktop BMP (invalid for hidden / covered windows) it asks the renderer for the next presented image (`gsr::requestWindowShot`) and writes `<DRAKAN_SHOT_DIR>/<label>.png`. |
@@ -520,7 +520,20 @@ released from the hold starts while `player+0x504` / `+0x508` (forward-back / st
 for airborne shots. The arrow flies along the crosshair ray (`beforeBowLaunch`), so the third-person auto-aim
 (`bowAutoTarget`) stands aside for it (`bowAimedLaunch_`); it only serves non-LMB fire bindings. The crosshair is the
 centre of the game image, the point the arrow is aimed at 8000 units down the camera ray (nearer targets sit slightly
-off by the shoulder offset). Held draw (`[mouse] bow_draw = 1`, default): the native archer clip `0x20896` is started on the torso channel at press, its launch event muted, and frozen at phase 0.20 through the animation record (`*(model+0xe8) + i * 0x80`: `+0x50` clip, `+0x54` rate, `+0x58` phase); release fires natively. Details: `docs/journal/2026-11-09/ootf-bow-hold-aim.md`.
+off by the shoulder offset). Held draw (`[mouse] bow_draw = 1`, default, revised 2026-11-12 for issue 6): while the
+button is held the torso channel plays the bow's own stand motion (native cached Stand `player+0xabc` mapped by
+`0x325650`; clip `0x20895` for Rynn's bow), her aiming stance with the arrow drawn to the chin, over whatever the legs
+play; native locomotion that replaces it is answered by starting it again. Release fires natively (the tap's attack
+plays the archer clip `0x20896` over both channels). A refused tap (12 frames without `player+0x94` bit 0x80) or an aim
+cancelled without a shot hands the torso back to the base channel's clip at its phase. No launch is muted any more.
+The clips are started after the module lock is released (`runBowDrawAction`): the motion setter `0x32cf30` is not a
+leaf function. Do not put the archer clip `0x20896` on the torso for the hold: its presence alone makes the player's
+weapon update `0x303d18` take the arrow off the string (`arrow+4` bit 0x400000 cleared) and request the launch every
+frame (return `0x303ea8`). The 2026-11-09 version did that (frozen at 0.20 s, launches muted while held): the arrow hung
+in the air behind Rynn during every draw, and a freeze was caught with the EE thread inside that launch call (issue 6, see
+`docs/journal/2026-11-12/issue6-modern-bow-aim.md`). Animation records: `*(model+0xe8) + i * 0x80` (`+0x50` clip,
+`+0x54` rate, `+0x58` phase); the channel map `*(model+0xdc)` holds 16-bit record indices, and Rynn's torso channel 2
+uses record 8, so scans must go past the first 8 records.
 
 Crossbows are holder mode 4, not the bow's mode 5, and are not covered by any of these adapters yet (their
 attack mask already allows jumping); they keep the native press-to-fire.
@@ -589,15 +602,22 @@ Native bow (static analysis, live-checked where noted):
 
 Modern mode: with the bow out (on foot, gameplay, sight closed, mouse / keyboard owner), LMB (when bound to SQUARE) no
 longer reaches the pad. Holding it aims: `cam+0x60` x `bow_zoom` (restored on release unless the game set its own),
-camera target offset `cam+0x10c/+0x114` 200 units along the camera's right axis (over the shoulder; the native easing
-slides the camera), and a host crosshair at the centre of the game image. Release sends one Square tap (2 frames).
+an over-the-shoulder view, and a host crosshair at the centre of the game image. Release sends one Square tap (2 frames).
+Over the shoulder (revised 2026-11-12, issue 6): after each native follow tick `0x41f848` the glue's
+`afterCameraFollow` moves the camera transform (`*(cam+0x148)+0x14`) 210 units along its own right axis and 40 along
+its up axis, eased in and out at 8/s (engine dt `ctx+0x3c`) and scaled down when the camera is nearer than 700 units to
+Rynn (collision pulled it in); `beforeCameraFollow` takes the shift back out first, only if the camera is still where
+the shift put it, so the native easing, collision and the mouse orbit never see it. The crosshair and the arrow's aim
+ray use the shifted view. The earlier camera target offset `cam+0x10c/+0x114` did not hold: the camera eased about
+110 units out and back to Rynn's back within half a second while the button was still held, which is why the crosshair
+sat on her (v0.1.10 and v0.1.11).
 Within 120 frames, the launch hook points the arrow from its position at the camera's centre ray 8000 units ahead,
 keeping the matrix handedness; only bows owned by the current player are retargeted, and a locked target keeps the native
 ballistic aim. Other actors' launches leave the pending player shot intact (fake-guest regression, 2026-11-04).
 Live (Surdana, fixture-bow-item): FOV
 80 -> 68 while aiming and back, Square only on release, the arrow converged on the centre ray (101 -> 36 -> 20 units
-off it) and stuck where the ray met the ground. Not yet live-checked: the shoulder offset and the crosshair overlay
-(renderer screenshots do not include the overlay layer).
+off it) and stuck where the ray met the ground. Renderer `shot` frames do show the host crosshair (checked
+2026-11-12).
 
 ## 17. Quick-slot hotkeys (2026-10-25)
 
