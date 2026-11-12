@@ -79,6 +79,9 @@ margins used to be cleared to black. When `<texture_dir>/wide/` holds images the
   (`screenN`) images, since the engine's unstretched art must not be drawn over it. The extreme outer columns end as
   a soft smear. Real painted extensions (see `template`) remain the better result.
 * Not yet verified in a live game session; covered by `hud_page` unit tests only (selection and alignment).
+* The Original "Choose your game" list draws the same `screen8` image behind The Ancients' Gates (host side, through the
+  menu picture path, so on every renderer; `modding.md` "Campaign packs"). In a 4:3 window it takes the 16:9 image and
+  shows its centre, which is the 4:3 art.
 
 ## Inventory canvas
 
