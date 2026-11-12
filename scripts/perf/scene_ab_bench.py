@@ -123,7 +123,16 @@ LOCK = Path(tempfile.gettempdir()) / "drakan_scene_bench.lock"
 
 
 def pid_alive(pid: int) -> bool:
-    return any(p == pid for _name, p in tasks())
+    """Asks the system directly: a process list that comes back empty on a loaded machine must not free a lock."""
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return kernel32.GetLastError() == 5  # access denied: it exists
+    try:
+        code = ctypes.c_ulong(0)
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def take_lock() -> None:
@@ -138,11 +147,13 @@ def take_lock() -> None:
             try:
                 owner = int((LOCK / "pid").read_text())
             except (OSError, ValueError):
-                owner = -1
+                owner = -1  # being taken or released right now
             if owner > 0 and not pid_alive(owner):
                 shutil.rmtree(LOCK, ignore_errors=True)
                 continue
             time.sleep(5)
+        except OSError:
+            time.sleep(1)  # the folder went away between the two steps
 
 
 def release_lock() -> None:
