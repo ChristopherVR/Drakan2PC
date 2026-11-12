@@ -20,9 +20,10 @@
 namespace drakan_view_layer {
 
 constexpr int32_t kNoLayer = -1;
-// The follow camera sits about 1500 units behind Rynn and further behind Arokh; two cells cover both. Beyond that
-// the camera is not following the controlled actor and the engine's own search stands.
-constexpr float kFollowRange = 4096.0f;
+// On foot the follow camera sits about 1500 units behind Rynn and trails by up to 600 more while she runs. Beyond
+// this range the camera is not following her (parked behind a wall after a placement, still in flight, or behind
+// Arokh, whose camera is 4400 units out and always outdoors) and the engine's own search stands.
+constexpr float kFollowRange = 2560.0f;
 
 inline bool nearActor(float dx, float dy, float dz) {
     return dx * dx + dy * dy + dz * dz <= kFollowRange * kFollowRange;

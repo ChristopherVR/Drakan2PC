@@ -69,9 +69,13 @@ int main() {
     assert(decide(lookup(kNoLayer, 195, 4, false, false)) == Action::Native);
     assert(decide(lookup(4, kNoLayer, kNoLayer, false, false)) == Action::Native);
     assert(resolve(Action::Native, lookup(4, kNoLayer, 4, false, false), 5) == kNoLayer);
-    // The range that counts as following: the camera 1500 units behind her is near, one 5000 units off is not.
+    // The range that counts as following: the camera 1500 units behind her is near (2200 with the travel lag); one
+    // parked 3900 units off after a placement, Arokh's at 4400 and one 5000 units off are not.
     assert(nearActor(1200.0f, 400.0f, 800.0f));
     assert(nearActor(0.0f, 0.0f, kFollowRange));
+    assert(nearActor(2100.0f, 300.0f, 600.0f));
+    assert(!nearActor(3800.0f, 400.0f, 800.0f));
+    assert(!nearActor(4300.0f, 900.0f, 0.0f));
     assert(!nearActor(3000.0f, 0.0f, 4000.0f));
     assert(!nearActor(0.0f, 20000.0f, 0.0f)); // straight above the cellar on the outdoor terrain
     // A placed actor: more than 2048 units between two view updates. Running (about 30 units a frame), a fall and
