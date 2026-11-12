@@ -15,7 +15,7 @@
 //          previous read; the current pixels are fetched by a task queued behind the frame's draws and become the
 //          answer to the next read. The guest sees such data one read late.
 // PS2X_READBACK_VERIFY=1 (with late): every read is also done the blocking way; reads whose late answer would have
-// differed are counted (`[readback] verify` at exit and `rb_diff/s` in the PS2X_PERF line) and the exact bytes are
+// differed are counted (the `[readback]` line at exit and `rb_diff/s` in the PS2X_PERF line) and the exact bytes are
 // served.
 //
 // The game side names the routine: setFinishPollPc (guest pc of the routine's first CSR read) and noteCaller (a key
@@ -68,6 +68,7 @@ inline bool frameQueue() {
 // (setFlipReadyRange): its reads of the VIF1 / GIF status registers ask "has everything I kicked been taken?". The
 // flip is queued behind that work anyway, so while the VU1 worker still has work such a read gets the value the
 // register had the last time the worker was idle, instead of waiting for the worker (PS2Runtime::Load32).
+
 constexpr uint32_t kMaxLateBytes = 16384; // a 64x64 CT32 rectangle; larger reads (screen grabs) always wait
 
 struct State {

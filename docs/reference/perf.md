@@ -714,3 +714,26 @@ whole captures, with identical pictures. `GSR_RT_REFRESH_STATS=1` prints the ref
 targets hold. `scripts/perf/gs_replay_ab.py` re-measures on a recorded stream (`gsr_replay --bench / --hashes`).
 Numbers, conditions, the WebGPU work left and what is not fixed (the blocking readback):
 [journal](../journal/2026-11-12/perf-gpu.md).
+
+## Which of the 12 November changes are proven (round 2, 2026-11-12)
+
+State after the second round of the day ([journal](../journal/2026-11-12/perf-round2.md)). The machine was never
+quiet (2 to 5 other games at every check), so no frame-rate or load-time verdict could be taken; the gated
+benchmarks are written and queued (`scripts/perf/scene_ab_bench.py`).
+
+| Change | Proven | Not proven |
+| --- | --- | --- |
+| VU1 loop path for huge finite values (`DRAKAN_VU_LANES_STRICT`) | identical values (tests, replay); VU1 replay 3.4 to 0.9 ns per pair and VU1 worker CPU per frame halved in the Order of the Flame levels | world fps in any scene |
+| Scene model capture (`DRAKAN_SCENE_CAPTURE_FAST`, `DRAKAN_SCENE_CAPTURE_MOTION_ONLY`) | equal snapshots in the tests; capture share of the EE thread 16 to 19 % to 8.6 to 9.8 % in Surdana | world fps; EE time of the motion-only snapshot |
+| DMA chain copies (`PS2X_DMA_CHAIN_POOL`) | same bytes; allocation and copy share of the EE thread | world fps |
+| Target refreshes and readbacks (`GSR_RT_LAZY_SYNC`, `GSR_RT_UPLOAD_GPU`, `GSR_RB_PREFETCH`, `GSR_RB_SOLID`), motion batching (`GSR_MOTION_BATCH`) | identical pictures in replay; refresh bytes and waiting readbacks per capture | live frame rate and frame time |
+| Resource batches on the EE thread (`DRAKAN_RES_CHAIN`, `DRAKAN_RES_LATENCY_ELAPSED`) | same calls and order; hand-overs per level | a shorter load on a quiet machine |
+| DLSS writes the window's pixels (`GSR_UPSCALE_WINDOW_OUTPUT`) | measured quiet by its own session: Surdana 101.8 to 155.0 world fps | the cross-check of round 2; DLSS with ray effects |
+| Mod packs read beside the renderer start-up (`DRAKAN_MODS_EARLY`, round 2) | the pack phase of the start-up 0.615 to 0.242 s, four interleaved pairs with disjoint ranges under load | a quiet-machine start-up time |
+| Read-back modes and the frame queue (`PS2X_READBACK`, `PS2X_FRAME_QUEUE`, round 2, **default off**) | FINISH polls per frame from about a million to 1, the EE's waits for the VU1 worker to 0, EE CPU per frame 19 to 22 ms to 7.2 to 7.4 ms in two scenes; late answers differ in about one read in a thousand | frame rate, frame pacing, input latency; whether they should be on |
+
+Round 2 also found that the end-of-frame wait is three waits (the FINISH poll before the probe read in the views
+that read back, the flip routine's status reads and the display commit in every view), that every world frame waits
+for its own `Present` (so a paced present caps the world rate), and that the process teardown after the window
+closes is not DLL detach work (ending the process without it was not faster). All absolute frame rates of the
+12 November notes come from windows that were never activated; the foreground comparison is still open.
