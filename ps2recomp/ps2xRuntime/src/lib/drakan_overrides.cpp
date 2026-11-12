@@ -65,7 +65,7 @@
 #include "drakan_model_detail.h"
 #include "drakan_terrain_distance.h"
 #include "drakan_polyclip.h"
-#include "drakan_layer_seam_hook.h"
+#include "drakan_view_layer_hook.h"
 #include "drakan_melee_trace.h"
 #include "drakan_levelchange.h"
 #include "drakan_region.h"
@@ -1661,7 +1661,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     drakan_polyclip::install(runtime);    // near-plane clip for projected polygons (ribbons crossing the camera)
-    drakan_layer_seam::install(runtime);  // no hand-over to an outdoor layer from an interior (issue #6 cellar, PAL)
+    drakan_view_layer::install(runtime);  // the view keeps to the player's layer behind interior walls (issue #6, PAL)
     drakan_melee_trace::install(runtime); // DRAKAN_MELEE_TRACE: log the player's swings and contacts (diagnosis, PAL)
     drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
     drakan_model_detail::install(runtime); // LOD and draw distance factors for models (PAL)

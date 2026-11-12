@@ -214,8 +214,12 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
   it puts her at the position saved at the end of the last frame (player `+0xbe4`) minus a step from `0x325d30` and
   files her again (`0x1499c8` from `0x321548`); a large step moves her 1000 units and more in one frame. Inside an
   interior the search from -1 can return the outdoor layer above it, which does not list the interior back: Rynn is
-  moved outdoors or the view keeps drawing the outdoor world from below. This is the Surdana cellar fault of issue #6; the port refuses that hand-over for the controlled actor and the
-  view (`drakan_layer_seam.h`, [journal](../journal/2026-11-12/issue6-cellar-glitch.md)) [game, 2026-11-12]. A level
+  moved outdoors or the view keeps drawing the outdoor world from below. The engine tick `0x135c40` skips the world
+  update while the view layer is -1 and otherwise runs it from the view layer's record (`0x151790`, `0x14cf08`), so a
+  view in the outdoor layer also stops the player in the interior. This is the Surdana cellar fault of issue #6: the
+  PC camera follow carries the camera round Rynn on an arc, through the corner of a room and past the layer edge. The
+  port answers a follow-camera point with no layer from the controlled actor's layer (`drakan_view_layer.h`, view
+  only, [journal](../journal/2026-11-12/issue6-cellar-glitch.md)) [game, 2026-11-12]. A level
   should list every layer an actor can walk into, and walls should not let the sphere centre or the camera reach past
   the layer they bound.
 * **Inline blob [?]**: each definition is followed by a variable-length blob (92 bytes for a flat 3x4 layer, 7 KB for 21x47)

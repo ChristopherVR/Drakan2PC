@@ -150,6 +150,10 @@ const Entry kEntries[] = {
      "1 = clip the engine's projected polygons (ribbons, beams) against the camera near plane instead of drawing them "
      "whole; fixes starburst fans when the camera is inside an effect, 0 = original behaviour (PAL only; env "
      "DRAKAN_POLY_NEAR_CLIP)"},
+    {"video", "camera_layer_fix", "1",
+     "1 = a camera that swings behind the wall of a cellar or cave keeps showing the room Rynn is in instead of "
+     "the outdoor world above it (which also froze her), 0 = original behaviour (PAL only; env "
+     "DRAKAN_VIEW_LAYER_FIX)"},
     {"video", "hd_textures", "1",
      "1 = use replacement textures from texture_dir (also accepted: texture_replace) (env GSR_TEXREPLACE)"},
     {"video", "terrain_detail", "0",
