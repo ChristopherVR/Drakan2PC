@@ -104,6 +104,55 @@ int main(int argc, char** argv) {
         drakan_subtitles::stop();
         std::puts("PASS pack voice clips: timed pages parsed, played and each play started once");
     }
+    {
+        // The pages of a clip end with its sound (a skipped scene stops it) and at a level load or save restore.
+        using namespace drakan_clip_subtitles::detail;
+        ClipWatch watch;
+        if (watch.gone(true, 0) || watch.gone(false, 10) || watch.gone(false, 100) || !watch.gone(false, 130))
+            return 40; // one look that finds it gone is not enough: gone for kGoneMs
+        watch.reset();
+        if (watch.gone(false, 1000) || watch.gone(true, 1100) || watch.gone(false, 1200) || watch.gone(false, 1300))
+            return 41; // playing again clears the miss
+        clock = 0;
+        bool playing = true;
+        drakan_subtitles::setEnabled(true);
+        drakan_subtitles::startClip({{0, 5000, "a long page"}}, [&] { return playing; });
+        clock = 1000;
+        drakan_subtitles::pollClip(0);
+        if (drakan_subtitles::g_track.current(&alpha) != "a long page")
+            return 42;
+        playing = false; // the scene was skipped: the voice stopped at 1 s of a 5 s page
+        drakan_subtitles::pollClip(10);
+        if (!drakan_subtitles::g_track.running())
+            return 43;
+        drakan_subtitles::pollClip(200);
+        if (drakan_subtitles::g_track.running() || !drakan_subtitles::g_track.current(&alpha).empty())
+            return 44;
+        // a load while a page shows: the page goes; a later clip starts as usual
+        drakan_subtitles::startClip({{0, 5000, "line before the load"}});
+        drakan_subtitles::stopClip("a save is loaded");
+        if (drakan_subtitles::g_track.running())
+            return 45;
+        clock = 0;
+        drakan_subtitles::startClip({{0, 2000, "line after the load"}});
+        clock = 500;
+        if (drakan_subtitles::g_track.current(&alpha) != "line after the load")
+            return 46;
+        drakan_subtitles::stop();
+        // a load leaves the intro / outro narration alone
+        drakan_subtitles::g_track.start({{0, 60000, "narration"}});
+        drakan_subtitles::stopClip("a level is loaded");
+        if (drakan_subtitles::g_track.current(&alpha) != "narration")
+            return 47;
+        drakan_subtitles::stop();
+        // the sound system starts its play handles over after a load: handles seen before it start pages again
+        StartedHandles handles;
+        handles.add(0x80000011u);
+        handles.clear();
+        if (handles.seen(0x80000011u))
+            return 48;
+        std::puts("PASS pack voice clips: pages end with a stopped sound and at a load; handles are forgotten");
+    }
     std::puts("PASS narration visibility: hidden timeline preserved, current cue restored, expired/stopped tracks stay "
               "stopped");
 }

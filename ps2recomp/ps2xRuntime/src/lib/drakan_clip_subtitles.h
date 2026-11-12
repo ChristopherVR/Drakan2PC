@@ -8,6 +8,9 @@
 //     and whose descriptor text starts with a page mark; each instance (by its handle) starts its pages once;
 //   * display: the narration subtitle band (drakan_subtitles, HudSlot::Subtitles) on the SPU2 audio clock, so the
 //     text follows the voice and freezes with it;
+//   * end: the pages end early when the instance stops (it no longer holds this play's handle with a voice: a skipped
+//     scene, a dropped sound), and at every level load and save restore (lifecycle events), which also forget the
+//     handles already seen;
 //   * the engine's own bar is not given marked text (SetSubtitle 0x4149a0 returns at once for it), so a line spoken
 //     by the player is not drawn twice.
 // Disc text has no page marks and is untouched. PAL addresses; not installed for other regions.

@@ -17,6 +17,7 @@
 //   * drakan.ini [subtitles] narration = 1, size = auto | 0.5 .. 3.0; env DRAKAN_SUBTITLES=0|1, DRAKAN_SUB_OFFSET_MS
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -44,7 +45,14 @@ void onSpuUpload(uint32_t spuAddr, uint32_t bytes);
 void onVoiceKeyOn(uint32_t spuAddr, uint64_t frames);
 void stop();
 // Timed pages of a voice clip that starts now (drakan_clip_subtitles): they replace whatever the band shows.
-void startClip(std::vector<dsettings::SubCue> cues);
+// `playing` (optional, polled from the render thread while the pages run) says whether the clip's sound still plays:
+// the pages end when it has stopped (drakan_clip_subtitles::detail::ClipWatch), for a skipped scene or a dropped sound.
+void startClip(std::vector<dsettings::SubCue> cues, std::function<bool()> playing = {});
+// Ends the pages of a voice clip, if a clip's pages are what the band shows (a level load, a save restore); the intro /
+// outro narration is left alone. `why` goes to the log.
+void stopClip(const char* why);
+// Polls the running clip's `playing` probe (the HUD layer does this every frame); public for the tests.
+void pollClip(double nowMs);
 // Registers the subtitle band in the shared HUD layers (dsettings::hudLayers()), before the first present.
 void installHudLayer();
 } // namespace drakan_subtitles

@@ -26,10 +26,40 @@ public:
         ring_[next_] = handle;
         next_ = (next_ + 1) % ring_.size();
     }
+    // A level load or a save restore: the sound system starts over and may hand out the same handles again.
+    void clear() {
+        ring_.fill(0);
+        next_ = 0;
+    }
 
 private:
     std::array<uint32_t, 64> ring_{}; // handles are never 0 (bit 31 is set)
     size_t next_ = 0;
+};
+
+// Whether the pages of a clip still have a voice to follow. The pages run on the audio clock from the clip's start;
+// when the instance stops early (a skipped scene stops its sounds, a load drops them) the pages must go with it. One
+// look that finds the instance gone may be a torn read of guest memory, so the pages end only after it has been gone
+// for `kGoneMs` (host time) in looks at least that far apart.
+class ClipWatch {
+public:
+    static constexpr double kGoneMs = 120.0;
+    // `playing`: the instance still has this play's handle and a voice. Returns true once the pages should end.
+    bool gone(bool playing, double nowMs) {
+        if (playing) {
+            goneSince_ = -1.0;
+            return false;
+        }
+        if (goneSince_ < 0.0) {
+            goneSince_ = nowMs;
+            return false;
+        }
+        return nowMs - goneSince_ >= kGoneMs;
+    }
+    void reset() { goneSince_ = -1.0; }
+
+private:
+    double goneSince_ = -1.0;
 };
 
 // cp1252 / Latin-1 descriptor text -> UTF-8 for the overlay font (0x80..0x9f are not used by subtitle text).

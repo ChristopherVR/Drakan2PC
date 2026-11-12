@@ -1,5 +1,6 @@
 // Drakan: narration subtitles - see drakan_subtitles.h and docs/reference/subtitles.md.
 #include "drakan_subtitles.h"
+#include "drakan_clip_subtitles_policy.h"
 #include "drakan_config.h"
 
 #include <hle/ResourceOverride.h>
@@ -41,6 +42,16 @@ double g_offsetMs = 0.0;
 std::mutex g_presentationMutex;
 std::vector<int> g_touchingBoundaries;
 
+// The band shows a voice clip's pages (startClip) rather than the intro / outro narration; guarded by
+// g_presentationMutex, as are the probe and its watch.
+bool g_clipTrack = false;
+std::function<bool()> g_clipPlaying;
+drakan_clip_subtitles::detail::ClipWatch g_clipWatch;
+
+double hostMs() {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 // A narration request that has been seen but whose voice has not been key-on'd yet.
 struct Pending {
     std::mutex m;
@@ -65,6 +76,8 @@ void startTrackAt(std::vector<dsettings::SubCue>&& cues, const std::string& name
     for (size_t i = 1; i < cues.size(); ++i)
         if (cues[i - 1].endMs == cues[i].startMs)
             g_touchingBoundaries.push_back(cues[i].startMs);
+    g_clipTrack = false;
+    g_clipPlaying = nullptr;
     g_track.start(std::move(cues), (zeroMs - audioMs()) + g_offsetMs);
     g_startedInMovie.store(name == "intro" ? kIntroId : kOutroId);
     std::fprintf(stderr, "[subtitles] %s narration: cue time 0 = audio time %.3f s (%s), offset %+.0f ms\n",
@@ -187,7 +200,7 @@ void onVoiceKeyOn(uint32_t spuAddr, uint64_t frames) {
     }
 }
 
-void startClip(std::vector<dsettings::SubCue> cues) {
+void startClip(std::vector<dsettings::SubCue> cues, std::function<bool()> playing) {
     if (cues.empty())
         return;
     std::lock_guard<std::mutex> presentation(g_presentationMutex);
@@ -195,10 +208,41 @@ void startClip(std::vector<dsettings::SubCue> cues) {
     for (size_t i = 1; i < cues.size(); ++i)
         if (cues[i - 1].endMs == cues[i].startMs)
             g_touchingBoundaries.push_back(cues[i].startMs);
+    g_clipTrack = true;
+    g_clipPlaying = std::move(playing);
+    g_clipWatch.reset();
     g_track.start(std::move(cues), g_offsetMs);
 }
 
+void stopClip(const char* why) {
+    std::lock_guard<std::mutex> presentation(g_presentationMutex);
+    if (!g_clipTrack)
+        return;
+    if (g_track.running())
+        std::fprintf(stderr, "[subtitles] clip pages ended: %s\n", why);
+    g_track.stop();
+    g_clipTrack = false;
+    g_clipPlaying = nullptr;
+}
+
+void pollClip(double nowMs) {
+    std::lock_guard<std::mutex> presentation(g_presentationMutex);
+    if (!g_clipTrack || !g_clipPlaying || !g_track.running())
+        return;
+    if (g_clipWatch.gone(g_clipPlaying(), nowMs)) {
+        std::fprintf(stderr, "[subtitles] clip pages ended: the clip's sound stopped\n");
+        g_track.stop();
+        g_clipTrack = false;
+        g_clipPlaying = nullptr;
+    }
+}
+
 void stop() {
+    {
+        std::lock_guard<std::mutex> presentation(g_presentationMutex);
+        g_clipTrack = false;
+        g_clipPlaying = nullptr;
+    }
     g_track.stop();
     std::lock_guard<std::mutex> l(g_pending.m);
     g_pending.state = 0;
@@ -210,6 +254,7 @@ void installHudLayer() {
     dsettings::HudLayer layer;
     layer.active = []() {
         checkTimeout();
+        pollClip(hostMs());
         return g_enabled.load() && g_track.running();
     };
     layer.draw = [](const dsettings::HudView& view) {

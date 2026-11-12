@@ -2,6 +2,7 @@
 #include "drakan_clip_subtitles.h"
 
 #include "drakan_clip_subtitles_policy.h"
+#include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "drakan_subtitles.h"
 #include "ps2_runtime.h"
@@ -53,10 +54,16 @@ void setGainHook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                     std::memcpy(&seconds, rdram + ((record + kRecordSeconds) & 0x1fffffffu), 4);
                     const auto cues = detail::clipCues(std::string(p, n), seconds);
                     if (g_log)
-                        std::fprintf(stderr, "[subtitles] clip %x (%.2f s): %zu page(s)\n", u32(rdram, inst + kInstId),
-                                     static_cast<double>(seconds), cues.size());
+                        std::fprintf(stderr, "[subtitles] clip %x (%.2f s): %zu page(s), instance %x handle %x\n",
+                                     u32(rdram, inst + kInstId), static_cast<double>(seconds), cues.size(), inst,
+                                     handle);
+                    // The pages follow this play: they end when the instance no longer holds it with a voice (a
+                    // skipped scene stops its sounds; a load drops them).
                     if (!cues.empty())
-                        drakan_subtitles::startClip(cues);
+                        drakan_subtitles::startClip(cues, [rdram, inst, handle]() {
+                            return u32(rdram, inst + kInstHandle) == handle &&
+                                   static_cast<int32_t>(u32(rdram, inst + kInstVoice)) >= 0;
+                        });
                 }
             }
             // Text or not, this play has been looked at: the gain update runs every tick.
@@ -91,5 +98,14 @@ void install(PS2Runtime& rt) {
         return;
     rt.replaceFunction(kSetGain, &setGainHook);
     rt.replaceFunction(kSetSubtitle, &setSubtitleHook);
+    // A level load (level change, New Game) or a save restore starts the sound system over: whatever page is up
+    // belongs to a sound that is gone, and the new sounds may be given handles seen before the load.
+    const auto reset = [](const drakan_lifecycle::Event& e) {
+        drakan_subtitles::stopClip(e.kind == drakan_lifecycle::Kind::BeforeSaveRestore ? "a save is loaded"
+                                                                                       : "a level is loaded");
+        g_started.clear();
+    };
+    drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, reset);
+    drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, reset);
 }
 } // namespace drakan_clip_subtitles

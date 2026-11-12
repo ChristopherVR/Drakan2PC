@@ -221,7 +221,10 @@ A pack therefore stores a clip's subtitle as timed pages, `[[<start s>]]text[[<s
 | --- | --- |
 | Trigger | The sound manager's per-instance gain update `0x1e5470` (a0 = instance; runs every tick while it plays). Instance: `+4` play handle, `+0xc` sound id, `+0x10` descriptor record, `+0x78` SPU2 voice (-1 until one is taken). Record: `+0x34` f32 clip length in seconds, `+0x50` text (the engine keeps loaded texts in 0x400 byte slots). The first update of a play handle that has a voice and a marked text starts the pages. |
 | Display | `drakan_subtitles::startClip`: the narration band (`HudSlot::Subtitles`) on the SPU2 frame clock, so the text follows the voice and freezes with it. A new clip replaces the previous one. |
+| End | The pages end early when the instance no longer holds the play's handle with a voice for 120 ms (looks from the HUD layer, `ClipWatch`): a skipped scene stops its sounds (`0x1a4c50` stops the scene's sounds before it runs the rest of its actions), so the page goes with the voice. `stopClip` at every level load and save restore (lifecycle `BeforeLevelLoad`, `BeforeSaveRestore`) ends a clip's page; the intro / outro narration is not touched. |
+| Loads | The handles already looked at are forgotten at every level load and save restore. The sound manager's handle counter comes back with a save: after loading the save made at the Book's exit the Book's clips had the same handles as before the load (`80000281`, `80000282`, ...), so the old ring took them for plays already started and the first nine clips of the replayed scene had no text (2026-11-13, `docs/journal/2026-11-13/ootf-book-skip-and-reload.md`). |
 | Engine bar | `SetSubtitle` returns at once for a text that starts with a page mark, so a line the player speaks is not drawn twice. Disc text has no marks and is untouched. |
 | Switches | `[subtitles] narration`, the game's Show Subtitles option, `DRAKAN_CLIP_SUBTITLES=0` (hooks not installed), `DRAKAN_SUB_LOG=1` (logs each clip and cue with the audio clock). |
 
-Tests: `drakan_subtitle_toggle_test` (page parsing, Latin-1 text, one start per play, playback on the media clock).
+Tests: `drakan_subtitle_toggle_test` (page parsing, Latin-1 text, one start per play, playback on the media clock; pages
+ending with a stopped sound and at a load, the narration left alone, handles forgotten at a load).
