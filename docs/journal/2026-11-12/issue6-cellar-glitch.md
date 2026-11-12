@@ -241,6 +241,13 @@ an experiment that only keeps the layer for a lookup miss within 32 units of the
   first frame: the camera stands in the void east of the room). This is the stair-head fault, from walking, on the
   original data; fixing it needs collision there (a wall added by a resource override, or a rule that makes that
   layer edge stop her). Not done.
+  The disc itself has no tile there: the object list of LEVEL1NA without a height filter (62 objects around the
+  room, all with models) places tiles in the x 460800 to 462848 column at z 450560 (`Catacombs Stairs`, 15315),
+  454656 (`Alcove`, 15365) and 458752 (`Corner`, 15316), and none at z 452608 or 456704. In the game the cell is an
+  open side of the room: the floor ends and the sky (the clear colour) shows beyond it (`evidence/stairhead_gap_views.png`,
+  original exe, four directions from (461500, 457700)). The port draws what the disc has; it is a gap in the level
+  data, not a tile the port fails to create. The stair-head hand-over also reproduced with an empty mods folder
+  (`evidence/baseline_hit_plain.png`). A run-time comparison with the resident objects in a RAM dump was not made.
 * **West wall at the stair foot: a harness artefact.** The stairs of 452 (`Catacombs Stairs PS2`, id 15312) fill the
   corridor from x 460800 to 462848 between z 460800 and 462848, treads from y 159164 down to 157900. The `westwall`,
   `pintest` and `barrel` placements at y 158400 for z below 462848 put Rynn inside that block, under the treads (the
