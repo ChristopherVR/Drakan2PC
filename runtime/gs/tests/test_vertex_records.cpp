@@ -1797,14 +1797,16 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
 int main(int argc, char** argv) {
     Config cfg;
     uint32_t onlyScale = 0, toggleFrames = 64;
+    bool lengthGiven = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--warp"))
             cfg.forceWarp = true;
         else if (!std::strcmp(argv[i], "--scale") && i + 1 < argc)
             onlyScale = static_cast<uint32_t>(std::atoi(argv[++i]));
-        else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc)
+        else if (!std::strcmp(argv[i], "--frames") && i + 1 < argc) {
             toggleFrames = static_cast<uint32_t>(std::atoi(argv[++i]));
-        else if (!std::strcmp(argv[i], "--out") && i + 1 < argc)
+            lengthGiven = true;
+        } else if (!std::strcmp(argv[i], "--out") && i + 1 < argc)
             g_outDir = argv[++i];
         else if (!std::strcmp(argv[i], "--pictures"))
             g_dumpPictures = true;
@@ -1836,6 +1838,17 @@ int main(int argc, char** argv) {
             adapter.find(std::string("(") + gpuApiName(cfg.gpuApi) + ")") == std::string::npos) {
             std::printf("SKIP: the renderer is not on %s\n", gpuApiName(cfg.gpuApi));
             return 77;
+        }
+        // A machine without a graphics card (a CI runner) gives Direct3D 11 the software rasteriser as its
+        // "hardware" device. The full run draws and compares billions of pixels and does not finish there in a
+        // test's time, so it runs the reduced case: every scene, mode and control at native resolution, with short
+        // switching sequences. A scale or sequence length given on the command line is kept.
+        if ((adapter.find("Basic Render Driver") != std::string::npos ||
+             adapter.find("llvmpipe") != std::string::npos || adapter.find("SwiftShader") != std::string::npos) &&
+            !onlyScale && !lengthGiven) {
+            onlyScale = 1;
+            toggleFrames = 4;
+            std::printf("software adapter: reduced case (scale 1, switching sequences of %u frames)\n", toggleFrames);
         }
     }
     for (const uint32_t scale : {1u, 3u, 8u})
