@@ -10,9 +10,11 @@
 #include "drakan_scene_assets.h"
 #include "drakan_object_motion.h"
 #include "ps2_runtime.h"
+#include "runtime/ps2_readback.h"
 #include "runtime/ps2_vu1_async.h"
 #include "runtime/gs/gs_gsr_bridge.h"
 
+#include <array>
 #include <gsr/gsr.h>
 
 #include <atomic>
@@ -247,12 +249,28 @@ void installTap(bool on) {
 }
 } // namespace
 void commitDisplay(PS2Runtime& runtime) {
-    Lease lease;
-    if (!lease.bridge)
+    auto lease = std::make_shared<Lease>();
+    if (!lease->bridge)
         return;
     runtime.memory().processPendingTransfers();
+    // PS2X_FRAME_QUEUE=1 (runtime/ps2_readback.h): the commit is queued behind everything the game kicked before
+    // the flip, with the display registers of this moment, and the VU1 worker hands it to the renderer when it gets
+    // there. The EE does not wait for the worker; the worker's queue bounds how far it runs ahead.
+    if (ps2x_readback::frameQueue() && vu1async::renderQueueEnabled() && !vu1async::onWorker()) {
+        std::array<uint64_t, GsrBridge::kDisplayWords> words;
+        lease->bridge->snapshotDisplay(words.data());
+        vu1async::submitRenderTask([lease, words] { lease->bridge->commitDisplay(words.data()); });
+        return;
+    }
     vu1async::sync();
-    lease.bridge->commitDisplay();
+    lease->bridge->commitDisplay();
+}
+bool readLocalToHostLater(uint32_t bytes, std::function<void(std::vector<uint8_t>&&)> done) {
+    Lease lease;
+    if (!lease.bridge)
+        return false;
+    lease.bridge->readLocalToHostLater(bytes, std::move(done));
+    return true;
 }
 
 void configure(gsr::Config& cfg) {

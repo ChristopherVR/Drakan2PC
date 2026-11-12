@@ -23,6 +23,7 @@ void ps2PollHostPad();      // Window thread snapshot for the portable libpad ba
 #include "ps2_perf.h"
 #include "vu/ps2_vu1_check.h"
 #include "runtime/ps2_readback.h"
+#include "runtime/ps2_render_queue.h"
 #include "runtime/ps2_vu1_async.h"
 #include "ps2_log.h"
 #include "ps2_stubs.h"
@@ -2212,6 +2213,22 @@ uint16_t PS2Runtime::Load16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     try {
+        // VIF1 / GIF status read by the flip routine's readiness test with the frame queue on: see
+        // runtime/ps2_readback.h.
+        if (const uint32_t io = vaddr & 0x1FFFFFFFu; io >= 0x10003000u && io < 0x10003E00u && ctx &&
+                                                     ps2x_readback::flipReadyRead(ctx->pc) &&
+                                                     vu1async::renderQueueEnabled() && !vu1async::onWorker()) {
+            static thread_local std::unordered_map<uint32_t, uint32_t> idleValues;
+            if (vu1async::g_pending.load(std::memory_order_acquire) != 0) {
+                if (const auto known = idleValues.find(io); known != idleValues.end()) {
+                    ps2x_readback::state().flipReadyAnswered.fetch_add(1, std::memory_order_relaxed);
+                    return known->second;
+                }
+            }
+            const uint32_t value = m_memory.read32(vaddr); // waits for the worker
+            idleValues[io] = value;
+            return value;
+        }
         return m_memory.read32(vaddr);
     } catch (const std::exception&) {
         SignalException(ctx, EXCEPTION_ADDRESS_ERROR_LOAD);

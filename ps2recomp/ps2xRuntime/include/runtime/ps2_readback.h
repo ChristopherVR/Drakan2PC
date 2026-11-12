@@ -51,10 +51,29 @@ inline bool verify() {
     return value;
 }
 
+// PS2X_FRAME_QUEUE=1: the display commit of a flip and the vertical blank are queued behind the VU1 worker's pending
+// work (render tasks, runtime/ps2_render_queue.h) with the display registers of that moment, instead of the EE thread
+// waiting until the worker has fed everything kicked before them. The order in the renderer's queue is the same; the
+// EE no longer stops once per frame and per vertical blank. Needs the render queue (DRAKAN_RENDER_QUEUE, on by
+// default).
+inline bool frameQueue() {
+    static const bool value = [] {
+        const char* text = std::getenv("PS2X_FRAME_QUEUE");
+        return text && text[0] == '1';
+    }();
+    return value;
+}
+
+// With the frame queue the game side also names the routine that decides whether a flip may happen
+// (setFlipReadyRange): its reads of the VIF1 / GIF status registers ask "has everything I kicked been taken?". The
+// flip is queued behind that work anyway, so while the VU1 worker still has work such a read gets the value the
+// register had the last time the worker was idle, instead of waiting for the worker (PS2Runtime::Load32).
 constexpr uint32_t kMaxLateBytes = 16384; // a 64x64 CT32 rectangle; larger reads (screen grabs) always wait
 
 struct State {
     std::atomic<uint32_t> finishPollPc{0};
+    std::atomic<uint32_t> flipReadyLow{0}, flipReadyHigh{0}; // guest pc range of the flip routine's readiness test
+    std::atomic<uint64_t> flipReadyAnswered{0};              // VIF / GIF register reads answered without waiting
     std::atomic<uint64_t> callerKey{0}; // key of the store-image call in progress on the EE thread, 0 = unknown
     // counters (PS2X_PERF line, exit line)
     std::atomic<uint64_t> finishPolls{0}; // CSR reads that found FINISH clear
@@ -89,6 +108,19 @@ inline State& state() {
 
 inline void setFinishPollPc(uint32_t pc) {
     state().finishPollPc.store(pc, std::memory_order_relaxed);
+}
+inline void setFlipReadyRange(uint32_t low, uint32_t high) {
+    state().flipReadyLow.store(low, std::memory_order_relaxed);
+    state().flipReadyHigh.store(high, std::memory_order_relaxed);
+}
+// True when a status register read at this guest pc belongs to the flip routine's readiness test and the frame queue
+// is on.
+inline bool flipReadyRead(uint32_t pc) {
+    if (!frameQueue())
+        return false;
+    State& s = state();
+    const uint32_t high = s.flipReadyHigh.load(std::memory_order_relaxed);
+    return high && pc >= s.flipReadyLow.load(std::memory_order_relaxed) && pc < high;
 }
 // The store-image routine was entered with these arguments (anything that identifies what is read, not where to).
 inline void noteCaller(uint64_t key) {

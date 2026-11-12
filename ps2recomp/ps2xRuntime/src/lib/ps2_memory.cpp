@@ -23,6 +23,9 @@
 
 #include "runtime/ps2_render_queue.h"
 #include "runtime/ps2_readback.h"
+#if defined(PS2X_HAVE_GSR)
+#include "drakan_dlss.h"
+#endif
 
 namespace {
 inline void inRange(uint32_t offset, size_t bytes, size_t regionSize, const char* op, uint32_t address) {
@@ -1821,9 +1824,17 @@ void PS2Memory::serveLocalToHost(uint8_t* dst, uint32_t bytes) {
                 // Runs on the VU1 worker behind the transfer set-up queued just before this read, so it takes exactly
                 // this read's pixels. It owns its buffer; the guest buffer may be gone by then.
                 vu1async::submitRenderTask([this, key, bytes] {
+                    const auto keep = [key](std::vector<uint8_t>&& current) {
+                        rb::state().store(key, current.data(), static_cast<uint32_t>(current.size()));
+                    };
+#if defined(PS2X_HAVE_GSR)
+                    // The GS worker takes the pixels when it reaches this point of the stream: nothing waits.
+                    if (drakan_dlss::readLocalToHostLater(bytes, keep))
+                        return;
+#endif
                     std::vector<uint8_t> current(bytes);
-                    m_localToHostFn(current.data(), bytes);
-                    rb::state().store(key, current.data(), bytes);
+                    current.resize(m_localToHostFn(current.data(), bytes)); // waits for the GS on this worker
+                    keep(std::move(current));
                 });
                 state.lateServed.fetch_add(1, std::memory_order_relaxed);
             }

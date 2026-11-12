@@ -312,6 +312,33 @@ inline void windHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     }
     windOriginal(ram, ctx, rt);
 }
+inline PS2Runtime::RecompiledFunction ropeUpdateOriginal = nullptr;
+// The rope update 3e3610 in steps of at most the console's tick: ropeTicks (drakan_frame_policy.h).
+inline void ropeUpdateHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t rope = GPR_U32(ctx, 4), engine = readWord(ram, 0x5565d4u), ra = GPR_U32(ctx, 31);
+    if (rope < 0x100000u || rope > PS2_RAM_SIZE - 0x28 || engine < 0x100000u || engine > PS2_RAM_SIZE - 0x28) {
+        ropeUpdateOriginal(ram, ctx, rt);
+        return;
+    }
+    // rope +4: 1 = swinging; +1c: the carried-object group (bit 0 = bound, u16 at +8 = the rope's own handle ref)
+    const float tick = readFloat(ram, engine + 0x24);
+    const RopeTicks t = ropeTicks(tick, readWord(ram, rope + 4) == 1, (readWord(ram, rope + 0x24) & 0xffffu) != 0,
+                                  (readWord(ram, rope + 0x1c) & 1u) != 0);
+    if (t.steps == 1 && t.seconds == tick) {
+        ropeUpdateOriginal(ram, ctx, rt);
+        return;
+    }
+    const R5900Context entry = *ctx;
+    std::memcpy(ram + engine + 0x24, &t.seconds, 4);
+    for (int i = 0; i < t.steps; ++i) {
+        if (i)
+            *ctx = entry;
+        ropeUpdateOriginal(ram, ctx, rt);
+        if (ctx->pc != ra) // did not run to its end: no further step on a half-run update
+            break;
+    }
+    std::memcpy(ram + engine + 0x24, &tick, 4);
+}
 inline void timerHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     // This engine boundary follows timestep completion, including calculations
     // that yield and resume. Do not infer completion from a wrapper return.
@@ -436,6 +463,13 @@ inline void install(PS2Runtime& rt) {
         flipOriginal = rt.lookupFunction(0x1e0048u);
         rt.replaceFunction(0x1e0048u, flipHook);
     }
+    // Ropes keep their carried objects on the rope and their swing centred at any tick length
+    // (DRAKAN_ROPE_TICK=0: the native update).
+    const char* ropeTick = std::getenv("DRAKAN_ROPE_TICK");
+    if (drakan_region::build().identityAddresses && rt.hasFunction(0x3e3610u) && !(ropeTick && *ropeTick == '0')) {
+        ropeUpdateOriginal = rt.lookupFunction(0x3e3610u);
+        rt.replaceFunction(0x3e3610u, ropeUpdateHook);
+    }
     // GS read-backs that do not stop the frame pipeline (PS2X_READBACK, runtime/ps2_readback.h). The addresses are the
     // PAL executable's.
     if (drakan_region::build().identityAddresses && ps2x_readback::mode() != ps2x_readback::Mode::Poll &&
@@ -448,6 +482,12 @@ inline void install(PS2Runtime& rt) {
                          ? "late: a repeated small read gets the bytes of its previous read"
                          : "eager: no FINISH poll, blocking read",
                      ps2x_readback::verify() ? ", verified against the blocking read" : "");
+    }
+    // PS2X_FRAME_QUEUE: the flip worker (1d78f0) tests the VIF1 / GIF status and the DMA channels before every flip.
+    if (drakan_region::build().identityAddresses && ps2x_readback::frameQueue() && rt.hasFunction(0x1d78f0u)) {
+        ps2x_readback::setFlipReadyRange(0x1d78f0u, 0x1d7a30u);
+        std::fprintf(stderr, "[readback] frame queue: display commits and vertical blanks follow the VU1 work in "
+                             "its queue\n");
     }
     const char* audit = std::getenv("DRAKAN_FRAME_AUDIT");
     if (((audit && std::atoi(audit) != 0) || metrics) && rt.hasFunction(0x143448u)) {

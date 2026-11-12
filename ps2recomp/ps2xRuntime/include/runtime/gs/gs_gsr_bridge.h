@@ -3,7 +3,9 @@
 // This header deliberately does not include gsr headers or <windows.h>.
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <vector>
 
 struct GSRegisters;
 namespace gsr {
@@ -25,6 +27,10 @@ public:
     void uploadImage(uint64_t bitbltbuf, uint64_t trxpos, uint64_t trxreg, uint64_t trxdir, const uint8_t* data,
                      uint32_t sizeBytes);
     uint32_t consumeLocalToHost(uint8_t* dst, uint32_t maxBytes);
+    // Queues a reader for the local-to-host transfer set up by the records queued before this call: the GS worker
+    // takes up to `bytes` of it when it gets there and calls `done` with them (on the GS worker; `done` must not
+    // wait for the EE or for this queue). Nothing waits. Without the worker the read happens at once.
+    void readLocalToHostLater(uint32_t bytes, std::function<void(std::vector<uint8_t>&&)> done);
     uint32_t readVram(uint32_t psm, uint32_t base, uint32_t bw, uint32_t x, uint32_t y);
     void writeVram(uint32_t psm, uint32_t base, uint32_t bw, uint32_t x, uint32_t y, uint32_t value);
     // Temporal upscaler camera tap (see docs/reference/dlss.md): a VIF1 UNPACK touched VU1 data rows 0..6; rows = 28
@@ -45,10 +51,18 @@ public:
     // handoff (also in native mode). Call on the EE producer, never the host
     // presentation thread, and hold no GS/queue/context locks across this call.
     void commitDisplay();
+    // The same in two steps, for a producer that queues the commit behind its own ordered work (the VU1 worker's
+    // render tasks, runtime/ps2_render_queue.h): take the privileged-register snapshot on the EE thread at the flip,
+    // hand it over from the thread that feeds the FIFO once everything kicked before the flip has been fed. The
+    // second step blocks that thread until the previous commit has retired.
+    static constexpr unsigned kDisplayWords = 17;
+    void snapshotDisplay(uint64_t* words) const;
+    void commitDisplay(const uint64_t* words);
 
     // Vertical blank: startup/field-sensitive fallback completes a frame;
     // after a safe native commit this only signals VSINT/FIELD. Does not present.
     void vsync(uint64_t vsyncTick);
+    void vsync(uint64_t vsyncTick, const uint64_t* words); // with a snapshot taken earlier (snapshotDisplay)
     // Main-thread tick (once per host frame): follows the parent's client size, presents the display.
     void hostTick();
     // Borderless fullscreen on the monitor the window is on (Alt+Enter / F11 / drakan.ini [video] fullscreen).

@@ -1,6 +1,9 @@
 #include "gs_cpu_async_backend.h"
 #include "gs_host_scanout.h"
+#include <array>
 #include <cstdlib>
+#include "runtime/ps2_readback.h"
+#include "runtime/ps2_render_queue.h"
 #include "runtime/ps2_vu1_async.h"
 #include "ps2_perf.h"
 #include "runtime/gs/gs_frontend.h"
@@ -123,6 +126,9 @@ void GS::shutdownD3D11() {
 }
 
 void GS::vsyncHost(uint64_t vsyncTick) {
+    // PS2X_FRAME_QUEUE=1 (runtime/ps2_readback.h): the vertical blank is queued behind the VU1 worker's pending work
+    // with the display registers as they are now, instead of waiting here until that work has been fed.
+    const bool frameQueue = ps2x_readback::frameQueue() && vu1async::renderQueueEnabled() && !vu1async::onWorker();
     if (m_privRegs) {
         // A display flip (DISPFB1/2 changed since the previous vertical blank) shows a frame that must be complete:
         // wait for the VU1 worker so that everything the game kicked before the flip has reached the renderer's queue
@@ -131,7 +137,8 @@ void GS::vsyncHost(uint64_t vsyncTick) {
         const uint64_t key = m_privRegs->dispfb1 * 0x9E3779B97F4A7C15ull ^ m_privRegs->dispfb2;
         if (key != s_syncKey) {
             s_syncKey = key;
-            vu1async::sync();
+            if (!frameQueue)
+                vu1async::sync();
         }
     }
     std::lock_guard<std::recursive_mutex> lock(m_stateMutex);
@@ -142,8 +149,15 @@ void GS::vsyncHost(uint64_t vsyncTick) {
         ps2perf::onDispfb(s_prevKey, key);
         s_prevKey = key;
     }
-    if (m_gsr)
+    if (m_gsr && frameQueue) {
+        std::array<uint64_t, GsrBridge::kDisplayWords> words;
+        m_gsr->snapshotDisplay(words.data());
+        // The worker is shut down before the bridge goes away (shutdownD3D11), so the pointer outlives the task.
+        vu1async::submitRenderTask(
+            [bridge = m_gsr.get(), vsyncTick, words] { bridge->vsync(vsyncTick, words.data()); });
+    } else if (m_gsr) {
         m_gsr->vsync(vsyncTick);
+    }
 }
 
 void GS::hostTick() {

@@ -3,6 +3,8 @@
 // the VU1 camera tap and offers the live setters to the settings overlay. See docs/reference/dlss.md. Nothing here is
 // needed for the game to run: with dlss = off (default) the hook is not even installed.
 #pragma once
+#include <vector>
+#include <functional>
 #include <string>
 #include <cstdint>
 
@@ -28,6 +30,9 @@ void installSceneHooks(PS2Runtime& runtime);
 void noteNativeCharacterShadow(uint32_t object); // EE thread, selected visible caster, before native projection
 void hostTick();                                 // optional bounded developer toggle sequence
 void commitDisplay(PS2Runtime& runtime);         // ordered complete native display transaction
+// Queues a reader for the GS local-to-host transfer set up by what was queued before (GsrBridge::readLocalToHostLater).
+// False without a renderer bridge.
+bool readLocalToHostLater(uint32_t bytes, std::function<void(std::vector<uint8_t>&&)> done);
 
 // Mode names: off | dlaa | quality | balanced | performance. Presets: auto | j | k | l | m.
 void setMode(const std::string& mode, const std::string& preset,

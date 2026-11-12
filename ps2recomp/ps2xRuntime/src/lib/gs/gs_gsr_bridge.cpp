@@ -329,10 +329,17 @@ struct GsrBridge::Impl {
         RecGeometry = 9,      // immutable pre-cull native level snapshot
         RecModels = 10,       // owned immutable model snapshot, referenced by queue ticket
         RecDisplayCommit = 8, // payload: 17 x u64; a complete native display transaction
+        RecReadLater = 11,    // payload: u64 ticket of a queued local-to-host reader (queuedReads)
     };
     bool async = true;
     std::mutex qmtx;
     std::mutex modelsMutex;
+    struct LaterRead {
+        uint32_t bytes = 0;
+        std::function<void(std::vector<uint8_t>&&)> done;
+    };
+    std::unordered_map<uint64_t, LaterRead> queuedReads; // modelsMutex
+    uint64_t nextReadTicket = 0;                         // modelsMutex
     uint64_t modelsTicket = 0;
     std::unordered_map<uint64_t, std::shared_ptr<const gsr::SceneModels>> queuedModels;
     std::condition_variable qcv;       // worker waits for records
@@ -568,6 +575,26 @@ void GsrBridge::Impl::execute(uint32_t type, const uint8_t* p, uint32_t size) {
             uint64_t snapshot[kPrivCount];
             std::memcpy(snapshot, p, sizeof(snapshot));
             doVsync(snapshot, 0);
+            break;
+        }
+        case RecReadLater: {
+            if (size != 8)
+                break;
+            uint64_t ticket;
+            std::memcpy(&ticket, p, 8);
+            LaterRead read;
+            {
+                std::lock_guard<std::mutex> lock(modelsMutex);
+                auto it = queuedReads.find(ticket);
+                if (it == queuedReads.end())
+                    break;
+                read = std::move(it->second);
+                queuedReads.erase(it);
+            }
+            std::vector<uint8_t> data(read.bytes);
+            data.resize(gs->consumeLocalToHostBytes(data.data(), read.bytes));
+            if (read.done)
+                read.done(std::move(data));
             break;
         }
         case RecDisplayCommit: {
@@ -1132,6 +1159,35 @@ uint32_t GsrBridge::consumeLocalToHost(uint8_t* dst, uint32_t maxBytes) {
     return m_impl->gs->consumeLocalToHostBytes(dst, maxBytes);
 }
 
+void GsrBridge::readLocalToHostLater(uint32_t bytes, std::function<void(std::vector<uint8_t>&&)> done) {
+    Impl& s = *m_impl;
+    if (!s.async) {
+        std::vector<uint8_t> data(bytes);
+        {
+            std::lock_guard<std::recursive_mutex> r(s.rmtx);
+            data.resize(s.gs->consumeLocalToHostBytes(data.data(), bytes));
+        }
+        if (done)
+            done(std::move(data));
+        return;
+    }
+    uint64_t ticket;
+    {
+        std::lock_guard<std::mutex> lock(s.modelsMutex);
+        ticket = ++s.nextReadTicket;
+        s.queuedReads[ticket] = Impl::LaterRead{bytes, std::move(done)};
+    }
+    std::unique_lock<std::mutex> lock = s.lockProducer();
+    s.enqueueBegin(lock, 16);
+    Impl::put(s.pending, static_cast<uint32_t>(Impl::RecReadLater));
+    Impl::put(s.pending, static_cast<uint32_t>(8));
+    Impl::put(s.pending, ticket);
+    const bool wake = s.workerWaiting;
+    lock.unlock();
+    if (wake)
+        s.qcv.notify_one();
+}
+
 uint32_t GsrBridge::readVram(uint32_t psm, uint32_t base, uint32_t bw, uint32_t x, uint32_t y) {
     m_impl->drain(drakan_runtime_profile::DrainRead);
     std::lock_guard<std::recursive_mutex> r(m_impl->rmtx);
@@ -1248,12 +1304,23 @@ void GsrBridge::Impl::completedFrameDiagnostics() {
     }
 }
 
+void GsrBridge::snapshotDisplay(uint64_t* words) const {
+    static_assert(kDisplayWords == Impl::kPrivCount, "the public snapshot size follows the private one");
+    Impl::snapshotPriv(*m_impl->priv, words);
+}
+
 void GsrBridge::commitDisplay() {
+    uint64_t snapshot[Impl::kPrivCount];
+    Impl::snapshotPriv(*m_impl->priv, snapshot);
+    commitDisplay(snapshot);
+}
+
+void GsrBridge::commitDisplay(const uint64_t* words) {
     Impl& s = *m_impl;
     if (!s.uncappedRequested)
         return;
     uint64_t snapshot[Impl::kPrivCount];
-    Impl::snapshotPriv(*s.priv, snapshot);
+    std::memcpy(snapshot, words, sizeof(snapshot));
     if (!s.async) {
         uint64_t published = 0;
         {
@@ -1294,9 +1361,15 @@ void GsrBridge::commitDisplay() {
 }
 
 void GsrBridge::vsync(uint64_t vsyncTick) {
+    uint64_t snapshot[Impl::kPrivCount];
+    Impl::snapshotPriv(*m_impl->priv, snapshot);
+    vsync(vsyncTick, snapshot);
+}
+
+void GsrBridge::vsync(uint64_t vsyncTick, const uint64_t* words) {
     Impl& s = *m_impl;
     uint64_t snapshot[Impl::kPrivCount];
-    Impl::snapshotPriv(*s.priv, snapshot);
+    std::memcpy(snapshot, words, sizeof(snapshot));
     if (!s.async) {
         uint64_t published = 0;
         {
