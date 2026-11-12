@@ -192,8 +192,12 @@ private:
 struct WgpuBackend::Impl {
     // What this backend can do beyond the common interface (gs_backend_shared.h). Textures are created on the render
     // thread (rhi::Device::writeTexture is ordered with the draws); the material and terrain shader fragments exist
-    // in HLSL only.
-    static constexpr BackendCaps kCaps{};
+    // in HLSL only; there is no velocity program, readback prefetch or GSR_RB_VERIFY reader yet.
+    // Clean-block retention and exact partial uploads are implemented here (preparePartialPatch, patchTargetBlock)
+    // and switched off: with them a skipped readback keeps the target's GPU content where the path through GS memory
+    // rewrites it, and replays differ from this backend's pictures without them (by 2 of 255 in the frame measured;
+    // Direct3D 11, where both are on, shows the same dependence). Set both flags to true to match Direct3D 11.
+    static constexpr BackendCaps kCaps{.cleanRowRefresh = false, .partialUploads = false};
     // Behind kCaps.terrainDetail / kCaps.materialDetail: declared for the shared code, never called.
     void initTerrain();
     void initMaterial();
@@ -220,7 +224,6 @@ struct WgpuBackend::Impl {
     void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi, uint32_t cmpBase = ~0u,
                         uint32_t cmpFbw = 0, const PartialUpload* requested = nullptr);
     bool readBitsAreClean(const RT& rt, const PartialUpload& requested) const;
-    // Behind kCaps.partialUploads: declared, never called.
     bool beginPartialUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
     void completePartialUpload(bool apply, uint64_t written);
     bool uploadPartial = false;
@@ -484,9 +487,11 @@ struct WgpuBackend::Impl {
     void endReadback() {}
     std::vector<uint8_t> readbackPixels; // beginReadback
     void copyTargetTop(RT& src, RT& dst, uint32_t w, uint32_t h);
-    // Behind kCaps.partialUploads: declared, never called.
     bool preparePartialPatch();
+    // 8 x 8 native pixels at (bx, by): 64 pairs {bit mask, value}; the masked bits of the target become the value.
     void patchTargetBlock(RT& rt, uint32_t bx, uint32_t by, const uint32_t* patch);
+    rhi::ProgramPtr progPatch;                       // kWgslPatch
+    rhi::TexturePtr patchTex, patchMask, patchValue; // the patched block (8 x scale square) and its two inputs
     PartialUpload partialUpload;
     void syncRT(RT& rt);
     void syncRows(RT& rt, rt_sync::Rows rows);

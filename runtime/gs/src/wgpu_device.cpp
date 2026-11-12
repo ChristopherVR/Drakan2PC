@@ -51,6 +51,10 @@ WgpuBackend::Impl::~Impl() {
     progRect.reset();
     progGather.reset();
     gatherTex.reset();
+    progPatch.reset();
+    patchTex.reset();
+    patchMask.reset();
+    patchValue.reset();
     progTaa.reset();
     taaTex[0].reset();
     taaTex[1].reset();
@@ -133,6 +137,13 @@ bool WgpuBackend::Impl::init() {
     progDisplay = gpu->createProgram(fullscreenProgram(kWgslDisplay, 2, "display"), &error);
     progPresent = gpu->createProgram(fullscreenProgram(kWgslPresent, 1, "present"), &error);
     progGather = gpu->createProgram(fullscreenProgram(kWgslGather, 1, "native gather"), &error);
+    {
+        // Optional: without it uploads that are not block aligned read the target back first, as before.
+        std::string patchError;
+        progPatch = gpu->createProgram(fullscreenProgram(kWgslPatch, 3, "partial patch"), &patchError);
+        if (!progPatch)
+            std::fprintf(stderr, "[gsr-webgpu] partial upload program: %s\n", patchError.c_str());
+    }
     {
         rhi::ProgramDesc d;
         d.wgsl = kWgslRect;

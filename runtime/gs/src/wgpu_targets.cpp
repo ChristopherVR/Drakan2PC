@@ -110,6 +110,46 @@ const uint8_t* WgpuBackend::Impl::beginReadback(RT& rt, uint32_t y0, uint32_t y1
     return read ? readbackPixels.data() : nullptr;
 }
 
+bool WgpuBackend::Impl::preparePartialPatch() {
+    if (!progPatch)
+        return false;
+    if (!patchTex || patchTex->width() != 8 * scale) {
+        patchTex = createTexture(8 * scale, 8 * scale, rhi::RenderTarget | rhi::CopySrc, rhi::Format::RGBA8, 1,
+                                 "partial patch");
+        patchMask = createTexture(8, 8, rhi::Sampled | rhi::CopyDst, rhi::Format::RGBA8, 1, "partial patch mask");
+        patchValue = createTexture(8, 8, rhi::Sampled | rhi::CopyDst, rhi::Format::RGBA8, 1, "partial patch value");
+    }
+    return patchTex && patchMask && patchValue;
+}
+
+void WgpuBackend::Impl::patchTargetBlock(RT& rt, uint32_t bx, uint32_t by, const uint32_t* patch) {
+    uint32_t mask[64], value[64];
+    for (uint32_t i = 0; i < 64; ++i) {
+        mask[i] = patch[i * 2];
+        value[i] = patch[i * 2 + 1];
+    }
+    gpu->writeTexture(*patchMask, 0, 0, 0, 8, 8, mask, 32);
+    gpu->writeTexture(*patchValue, 0, 0, 0, 8, 8, value, 32);
+    const uint32_t params[4] = {bx, by, scale, 0};
+    const uint32_t side = 8 * scale;
+    gpu->setTargets(patchTex.get(), nullptr, 0);
+    gpu->setProgram(progPatch.get());
+    gpu->setBlend({});
+    gpu->setDepth({});
+    gpu->setTopology(rhi::Topology::TriangleList);
+    gpu->setViewport(0, 0, (float)side, (float)side);
+    gpu->setScissor({0, 0, side, side});
+    gpu->setUniforms(0, params, sizeof(params));
+    gpu->setTexture(0, rt.tex.get());
+    gpu->setTexture(1, patchMask.get());
+    gpu->setTexture(2, patchValue.get());
+    gpu->drawNoInput(3);
+    const uint32_t x = bx * scale, y = by * scale;
+    if (x < rt.tex->width() && y < rt.tex->height())
+        gpu->copyTexture(*patchTex, 0, 0, 0, *rt.tex, 0, x, y, std::min(side, rt.tex->width() - x),
+                         std::min(side, rt.tex->height() - y));
+}
+
 void WgpuBackend::Impl::copyTargetTop(RT& src, RT& dst, uint32_t w, uint32_t h) {
     gpu->copyTexture(*src.tex, 0, 0, 0, *dst.tex, 0, 0, 0, w * scale, h * scale);
 }

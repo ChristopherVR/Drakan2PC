@@ -555,6 +555,28 @@ struct G {
 }
 )WGSL";
 
+// Masked patch of one 8 x 8 native block of a target (exact partial uploads, partial_upload.h): every target pixel
+// of the block keeps its bits outside the mask and takes the value's bits inside it. Mask and value are 8 x 8 RGBA8
+// images holding one 32-bit GS word per native pixel. The result is copied back over the block.
+inline const char* kWgslPatch = R"WGSL(
+struct P {
+    p: vec4u, // xy = native origin of the block, z = scale
+}
+@group(0) @binding(0) var<uniform> g: P;
+@group(0) @binding(8) var Src: texture_2d<f32>;
+@group(0) @binding(9) var Mask: texture_2d<f32>;
+@group(0) @binding(10) var Value: texture_2d<f32>;
+@fragment fn fs(i: FSOut) -> @location(0) vec4f {
+    let p = vec2u(i.pos.xy);
+    let s = g.p.z;
+    let cell = vec2i(p / s);
+    let old = vec4u(round(saturate(textureLoad(Src, vec2i(g.p.xy * s + p), 0)) * 255.0));
+    let mask = vec4u(round(textureLoad(Mask, cell, 0) * 255.0));
+    let value = vec4u(round(textureLoad(Value, cell, 0) * 255.0));
+    return vec4f((old & ~mask) | (value & mask)) / 255.0;
+}
+)WGSL";
+
 // A textured or solid rectangle placed by a uniform (target pixels), so placements may extend past the target
 // (WebGPU viewports must stay inside it). mode 0 = linear sample rgb with the given alpha, 1 = solid colour.
 inline const char* kWgslRect = R"WGSL(
