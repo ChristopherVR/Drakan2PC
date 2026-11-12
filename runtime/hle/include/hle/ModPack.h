@@ -69,8 +69,12 @@ public:
         bool hasCrc = false; // false: read the file to get it
     };
     virtual std::vector<Item> list() const = 0;
+    // May be called from several threads at once (the manager reads a pack's members in parallel at start-up).
     virtual bool read(const std::string& path, std::vector<u8>& out) const = 0;
     virtual std::string describe() const = 0; // "folder X" / "zip X"
+    // true: the archive may keep its file open between reads (a batch of many reads); false: close it again, so the
+    // pack file is not held open while the game runs. Reads work either way.
+    virtual void holdOpen(bool) const {}
 };
 // Opens a folder or a .zip. Zip support: stored and deflate, no encryption, no zip64.
 std::shared_ptr<ModArchive> openArchive(const std::string& path, std::string& err);

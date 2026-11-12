@@ -1,5 +1,6 @@
 #include "hle/IsoFs.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -302,6 +303,20 @@ size_t IsoFs::read(const Node& n, u64 off, void* dst, size_t len) const {
         memcpy(dst, n.mem->data() + off, len);
         return len;
     }
+    // Disc reads are counted and timed (readStats): two clock reads per call, against a file read.
+    struct Timed {
+        const IsoFs& fs;
+        size_t bytes;
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        ~Timed() {
+            fs.statReads_.fetch_add(1, std::memory_order_relaxed);
+            fs.statBytes_.fetch_add(bytes, std::memory_order_relaxed);
+            fs.statNanos_.fetch_add(
+                (u64)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start)
+                    .count(),
+                std::memory_order_relaxed);
+        }
+    } timed{*this, len};
     if (source_)
         return readRaw((u64)n.lba * 2048 + off, dst, len) ? len : 0;
     FILE* f = fopen(n.host.c_str(), "rb");

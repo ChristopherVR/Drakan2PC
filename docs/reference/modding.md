@@ -27,6 +27,10 @@ exact sub id wins over `x` within one pack). The file content replaces the entry
 (`lang` = `en de fr it es` or `*`, default all; `;` and `#` start comments; escapes `\\ \n \r \t`; write the game's
 glyph escape `\033` as `\\033`). Same syntax as the dev override folder.
 
+Loading cost: every member of every enabled pack is read once at start-up (in parallel; the log line
+`mods: pack files installed in N ms` reports it) and the files a pack replaces or rebuilds stay in memory for the
+session (`docs/journal/2026-11-12/perf-loading-hitches.md`). A pack file is only held open during that read.
+
 ## Whole files, new entries, custom levels (format 1)
 
 ```

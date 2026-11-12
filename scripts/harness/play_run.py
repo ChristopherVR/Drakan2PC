@@ -31,6 +31,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -78,8 +79,43 @@ def build_recipe(shots: list[int]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_once(exe: Path, env: dict[str, str], out: Path, timeout: float, attempt: int) -> bool:
+def run_timestamped(exe: Path, env: dict[str, str], log: Path, timeout: float) -> int | None:
+    """Runs the game with its output on a pipe and writes every line as `[+seconds] line` (seconds since the process
+    was started, taken when the line arrived), then `[+seconds] [play_run] process exit <code>`. None = timed out."""
+    t0 = time.perf_counter()
+    proc = subprocess.Popen([str(exe)], cwd=exe.parent, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    killed = threading.Event()
+
+    def kill() -> None:
+        killed.set()
+        proc.kill()
+
+    timer = threading.Timer(timeout, kill)
+    timer.start()
+    try:
+        with log.open("wb") as f:
+            for line in proc.stdout:
+                f.write(b"[+%.3f] " % (time.perf_counter() - t0) + line)
+            proc.wait()
+            f.write(b"[+%.3f] [play_run] process exit %d\n" % (time.perf_counter() - t0, proc.returncode))
+    finally:
+        timer.cancel()
+    return None if killed.is_set() else proc.returncode
+
+
+def run_once(exe: Path, env: dict[str, str], out: Path, timeout: float, attempt: int, timestamps: bool = False) -> bool:
     log = out / f"stdout_{attempt}.log"
+    if timestamps:
+        code = run_timestamped(exe, env, log, timeout)
+        if code is None:
+            print(f"attempt {attempt}: timed out after {timeout:.0f} s")
+            return False
+        text = log.read_bytes().decode("latin-1")
+        if code != 0 or "[in] script quit" not in text:
+            print(f"attempt {attempt}: exit {code}; a clean scripted quit is required")
+            return False
+        print(f"attempt {attempt}: ok (exit {code})")
+        return True
     with log.open("wb") as f:
         proc = subprocess.Popen([str(exe)], cwd=exe.parent, env=env, stdout=f, stderr=subprocess.STDOUT)
         try:
@@ -128,6 +164,12 @@ def main() -> int:
         "(--level transition) plays out instead of being skipped (DRAKAN_AUTOPRESS_STOP_AFTER_LOAD)",
     )
     ap.add_argument("--level-save", action="store_true", help="stop at the level-change save screen (see above)")
+    ap.add_argument(
+        "--timestamps",
+        action="store_true",
+        help="prefix every log line in stdout_<n>.log with [+seconds since process start] and record the process "
+        "exit (for scripts/perf/load_phases.py)",
+    )
     ap.add_argument("--list-levels", action="store_true")
     a = ap.parse_args()
 
@@ -213,7 +255,7 @@ def main() -> int:
             shutil.copytree(cdir, card / cname)
         env["DRAKAN_MEMCARD_DIR"] = str(card / "mc0")
         t0 = time.monotonic()
-        if run_once(a.exe, env, out, a.timeout + 30, attempt):
+        if run_once(a.exe, env, out, a.timeout + 30, attempt, a.timestamps):
             pngs = sorted(p.name for p in out.glob("*.png"))
             print(f"{time.monotonic() - t0:.0f} s; {out}: {', '.join(pngs) or 'no screenshots'}")
             return 0

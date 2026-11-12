@@ -1,0 +1,41 @@
+# Hitch survey walk for any level (scripts/perf/hitch_survey.py): 60 s of running from the level start with a turn
+# every 2 s and a jump now and then. No teleports, so it works in every level and campaign.
+clock milliseconds
+0 sync play 90
+1000 key down W
+3000 mouse 260 0
+5000 mouse 260 0
+7000 mouse 260 0
+7500 key tap SPACE
+9000 mouse -700 0
+11000 mouse 260 0
+13000 mouse 260 0
+15000 mouse 260 0
+17000 mouse -700 0
+19000 mouse 260 0
+21000 mouse 260 0
+21500 key tap SPACE
+23000 mouse 260 0
+25000 mouse -700 0
+27000 mouse 260 0
+29000 mouse 260 0
+31000 mouse 260 0
+33000 mouse -700 0
+35000 mouse 260 0
+35500 key tap SPACE
+37000 mouse 260 0
+39000 mouse 260 0
+41000 mouse -700 0
+43000 mouse 260 0
+45000 mouse 260 0
+47000 mouse 260 0
+49000 mouse -700 0
+49500 key tap SPACE
+51000 mouse 260 0
+53000 mouse 260 0
+55000 mouse 260 0
+57000 mouse -700 0
+59000 mouse 260 0
+61000 key up W
+62000 shot end
+63000 quit

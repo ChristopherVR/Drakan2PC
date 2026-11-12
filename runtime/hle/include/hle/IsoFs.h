@@ -1,6 +1,7 @@
 // ISO9660 reader (or extracted-folder backend) + RSRCIOP path resolution.
 #pragma once
 #include "Interfaces.h"
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -72,6 +73,16 @@ public:
     const std::map<std::string, Node>& entries() const { return map_; }
     bool isIso() const { return source_ != nullptr; }
 
+    // What read() fetched from the disc image or the extracted folder since the start (memory files are not counted):
+    // calls, bytes and the time spent in them. For load-time measurements (`DRAKAN_IO_STATS`); any thread may ask.
+    struct ReadStats {
+        u64 reads = 0, bytes = 0, nanos = 0;
+    };
+    ReadStats readStats() const {
+        return {statReads_.load(std::memory_order_relaxed), statBytes_.load(std::memory_order_relaxed),
+                statNanos_.load(std::memory_order_relaxed)};
+    }
+
 private:
     void walk(u32 lba, u32 size, const std::string& prefix, int depth);
     bool readRaw(u64 byteOff, void* dst, size_t n) const;
@@ -79,6 +90,7 @@ private:
     mutable std::mutex mu_;
     std::map<std::string, Node> map_;
     std::string lang_;
+    mutable std::atomic<u64> statReads_{0}, statBytes_{0}, statNanos_{0};
 };
 
 } // namespace hle

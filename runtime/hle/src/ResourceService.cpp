@@ -1,6 +1,7 @@
 #include "hle/ResourceService.h"
 #include "hle/ResourceOverride.h"
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 namespace hle {
@@ -43,10 +44,24 @@ void ResourceService::adpcmFixup(std::vector<u8>& d, u16 flags) {
     }
 }
 
-s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWire& r) {
+// What prepare() found for one request: the payload ready to deliver, or the status that ends the request.
+struct ResourceService::Prepared {
+    ResourceRequestWire r{};
+    s32 status = ST_OK; // not ST_OK: nothing to deliver, the status is reported
+    std::vector<u8> data;
+    u32 len = 0;   // payload bytes (data holds more for an SPU2 destination: padded to 64)
+    u32 dtype = 0; // destination type, flags & 0xf
+};
+
+// Everything of a request that needs neither the EE nor the SPU2: index lookup, redirect, override layer, the read from
+// the disc and the ADPCM fix-ups.
+void ResourceService::prepare(const FileService::Open& f, const ResourceRequestWire& r, Prepared& out) {
+    out.r = r;
+    out.dtype = r.flags & 0xf;
+    auto fail = [&](s32 status) { out.status = status; };
     if (!f.srsc.valid) {
         logf("resource: file %s has no SRSC index", f.node.key.c_str());
-        return ST_NOT_FOUND;
+        return fail(ST_NOT_FOUND);
     }
     u16 id = r.id;
     const SrscEntry* e = nullptr;
@@ -67,11 +82,11 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
     const bool duck = e && duck_ && duck_(f.node.key, r.type, id, r.offset);
     if (!e) {
         logf("resource: %s: %04x/%u/%d not found", f.node.key.c_str(), r.type, r.id, (s16)r.sub);
-        return ST_NOT_FOUND;
+        return fail(ST_NOT_FOUND);
     }
     if (e->size == 0) {
         logf("resource: %04x/%u has size ZERO", r.type, r.id);
-        return ST_ZERO;
+        return fail(ST_ZERO);
     }
 
     if (observer_) {
@@ -104,7 +119,7 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
                 full.resize(e->size);
                 if (files_.fs().read(f.node, (u64)e->off, full.data(), e->size) != e->size) {
                     logf("resource: short read in %s", f.node.key.c_str());
-                    return ST_IO;
+                    return fail(ST_IO);
                 }
                 overridden = true;
             }
@@ -116,105 +131,227 @@ s32 ResourceService::process(const FileService::Open& f, const ResourceRequestWi
     const u32 esize = overridden ? (u32)full.size() : e->size;
     if (esize == 0) {
         logf("resource: %04x/%u override has size ZERO", r.type, r.id);
-        return ST_ZERO;
+        return fail(ST_ZERO);
     }
     if (r.offset >= esize) {
         logf("resource: offset %u beyond entry size %u", r.offset, esize);
-        return ST_NOT_FOUND;
+        return fail(ST_NOT_FOUND);
     }
     u32 avail = esize - r.offset;
     // TODO: length==0 semantics unverified; treated as "whole remainder".
     u32 len = r.length == 0 ? avail : std::min(r.length, avail);
     if (len > MAX_LEN) {
         logf("resource: len %u > 0x%x", len, MAX_LEN);
-        return ST_TOO_BIG;
+        return fail(ST_TOO_BIG);
     }
 
-    std::vector<u8> data(len);
+    statRequests_.fetch_add(1, std::memory_order_relaxed);
+    statBytes_.fetch_add(len, std::memory_order_relaxed);
+    if (overridden)
+        statOverridden_.fetch_add(1, std::memory_order_relaxed);
+    std::vector<u8>& data = out.data;
+    data.resize(len);
     if (overridden)
         memcpy(data.data(), full.data() + r.offset, len);
     else if (files_.fs().read(f.node, (u64)e->off + r.offset, data.data(), len) != len) {
         logf("resource: short read in %s", f.node.key.c_str());
-        return ST_IO;
+        return fail(ST_IO);
+    }
+    out.len = len;
+    if (out.dtype == 1) {
+        adpcmFixup(data, r.flags);
+        if (duck)
+            CampaignMusicDucker::silenceAdpcm(data);
+        data.resize((len + 0x3f) & ~0x3fu, 0); // IOP transfers len rounded up to 64
+    }
+}
+
+// The EE side of a batch: per request the calls of the IOP loader (buffer allocation 0x1303, delivery 0x1301) with
+// the writes into EE and SPU2 memory between them, then the completions (0x1302). Written as a call sequence so the
+// host can run a whole batch on the EE side without a thread hand-over per call (IEeRpcPoster::run); the calls, their
+// payloads and their order are those of the loader thread either way.
+class ResourceService::BatchCalls final : public IEeCallSequence {
+public:
+    BatchCalls(ResourceService& s, const FileService::Open& f, std::vector<Prepared>& items)
+        : s_(s), f_(f), items_(items) {}
+
+    bool next(EeCall& call) override {
+        while (at_ < items_.size()) {
+            Prepared& p = items_[at_];
+            const ResourceRequestWire& r = p.r;
+            if (step_ == Step::Start) {
+                if (p.status != ST_OK) {
+                    finish(p.status);
+                    continue;
+                }
+                dst_ = r.dest;
+                allocOffset_ = 0;
+                if (p.dtype == 0) {
+                    if (r.flags & 0x80) {
+                        // EE allocates the destination: IOP -> EE 0x1303 (blocking), fno = request ptr (cookie),
+                        // send/recv 16 bytes; send word0 = len rounded up to 4; reply word1 = EE address (0 = fail).
+                        const u32 q[4] = {(p.len + 3) & ~3u, 0, 0, 0};
+                        set(call, SID_EE_ALLOC, r.cookie, q, 16, 16, true);
+                        step_ = Step::Allocated;
+                        return true;
+                    }
+                    step_ = Step::Deliver;
+                } else if (p.dtype == 1) {
+                    s_.spu_.ramWrite(r.dest, p.data.data(), (u32)p.data.size());
+                    if (s_.delivery_ == Delivery::Rpc1301) {
+                        const u32 hdr[4] = {0x10, p.len, 0, 0};
+                        set(call, SID_EE_STREAM, r.cookie, hdr, 16, 0, false);
+                        step_ = Step::Last;
+                        return true;
+                    }
+                    finish(ST_OK);
+                    continue;
+                } else if (p.dtype == 2) {
+                    // IOP-internal buffer; no EE-visible data. TODO: never seen in traced paths.
+                    logf("resource: dest type 2 (IOP buffer) requested, cookie %08x - no-op", r.cookie);
+                    finish(ST_OK);
+                    continue;
+                } else {
+                    logf("resource: unknown dest type %u (flags %04x)", p.dtype, r.flags);
+                    finish(ST_IO);
+                    continue;
+                }
+            }
+            if (step_ == Step::Deliver) {
+                if (s_.delivery_ == Delivery::Rpc1301 && (r.flags & 0x80) && dst_ != 0) {
+                    // Alloc flag (measured with the movie player): the data is DMA'd straight into the allocated
+                    // buffer, the 0x1301 call only carries the header and completes the request; the requester's slot
+                    // pointer is (re)written after the completion ran.
+                    if (!s_.mem_.write(dst_, p.data.data(), p.len)) {
+                        logf("resource: bad EE dest %08x", dst_);
+                        finish(ST_IO);
+                        continue;
+                    }
+                    // header word 0 = offset from the 0x1301 receive buffer to the data: the EE handler (0x1f0110)
+                    // computes data = buf + word0. Measured/disassembled (RSRCIOP 0x35a0-0x35f4: s3[0] = reply word 2
+                    // of the 0x1303 call). Inline data uses 0x10.
+                    const u32 hdr[4] = {allocOffset_, p.len, allocOffset_, 0};
+                    set(call, SID_EE_STREAM, r.cookie, hdr, 16, 0, false);
+                    step_ = Step::Rewrite;
+                    return true;
+                }
+                if (s_.delivery_ == Delivery::Direct &&
+                    dst_ != 0) { // dst == 0: the data can only reach the request object through 0x1301
+                    if (!s_.mem_.write(dst_, p.data.data(), p.len)) {
+                        logf("resource: bad EE dest %08x", dst_);
+                        finish(ST_IO);
+                    } else
+                        finish(ST_OK);
+                    continue;
+                }
+                call.sid = SID_EE_STREAM;
+                call.fno = r.cookie;
+                call.replyCap = 0;
+                call.blocking = false;
+                call.payload.resize(16 + p.len);
+                put32(&call.payload[0], 0x10);
+                put32(&call.payload[4], p.len);
+                put32(&call.payload[8], allocOffset_);
+                put32(&call.payload[12], 0);
+                memcpy(&call.payload[16], p.data.data(), p.len);
+                step_ = Step::Last;
+                return true;
+            }
+            return false; // not reached: reply() moves every waiting step on
+        }
+        // Completion order == submission order, <= 64 per 0x1302 call (fno = count, payload = count x
+        // {cookie,status}).
+        if (doneAt_ < done_.size()) {
+            const u32 n = (u32)std::min<size_t>(MAX_BATCH, done_.size() - doneAt_);
+            call.sid = SID_EE_DONE;
+            call.fno = n;
+            call.replyCap = 0;
+            call.blocking = true;
+            call.payload.resize(n * 8);
+            for (u32 k = 0; k < n; ++k) {
+                put32(&call.payload[k * 8], done_[doneAt_ + k].first);
+                put32(&call.payload[k * 8 + 4], (u32)done_[doneAt_ + k].second);
+            }
+            doneAt_ += n;
+            return true;
+        }
+        return false;
     }
 
-    u32 dtype = r.flags & 0xf;
-    if (dtype == 0) {
-        u32 dst = r.dest, allocOffset = 0;
-        if (r.flags & 0x80) {
-            // EE allocates the destination: IOP -> EE 0x1303 (blocking), fno = request ptr (cookie),
-            // send/recv 16 bytes; send word0 = len rounded up to 4; reply word1 = EE address (0 = fail).
-            u32 q[4] = {(len + 3) & ~3u, 0, 0, 0}, a[4] = {};
-            int n = ee_.post(SID_EE_ALLOC, r.cookie, q, 16, a, 16, true);
-            if (n < 8 || a[1] == 0) {
+    void reply(int result, const void* reply, u32 size) override {
+        if (at_ >= items_.size())
+            return; // a 0x1302 completion call: no reply is used
+        Prepared& p = items_[at_];
+        const ResourceRequestWire& r = p.r;
+        if (step_ == Step::Allocated) {
+            u32 a[4] = {};
+            if (reply && size)
+                memcpy(a, reply, std::min<u32>(size, 16));
+            if (result < 8 || a[1] == 0) {
                 logf("resource: EE alloc (0x1303) failed for cookie %08x", r.cookie);
-                return ST_ALLOC;
+                finish(ST_ALLOC);
+                return;
             }
-            dst = a[1];
-            allocOffset = a[2]; // reply word 2 = allocation offset, echoed in the 0x1301 header (word 2)
+            dst_ = a[1];
+            allocOffset_ = a[2]; // reply word 2 = allocation offset, echoed in the 0x1301 header (word 2)
             // The request's dest field is where the allocated EE address is stored for the requester (the player reads
             // it back, e.g. as the DMA source of a movie frame slot). Measured: dest = slot descriptor with alloc flag
             // 0x80.
             if (r.dest != 0)
-                mem_.write(r.dest, &dst, 4);
+                s_.mem_.write(r.dest, &dst_, 4);
             if (verbose())
-                logf("resource: alloc ptr %08x (offset %08x) stored at dest %08x", dst, allocOffset, r.dest);
+                logf("resource: alloc ptr %08x (offset %08x) stored at dest %08x", dst_, allocOffset_, r.dest);
             // TODO: reply word2 is stored by the IOP in its per-request header (offset field of the 0x1301 header);
             // unknown use.
-        }
-        if (delivery_ == Delivery::Rpc1301 && (r.flags & 0x80) && dst != 0) {
-            // Alloc flag (measured with the movie player): the data is DMA'd straight into the allocated buffer, the
-            // 0x1301 call only carries the header and completes the request; the requester's slot pointer is
-            // (re)written after the completion ran.
-            if (!mem_.write(dst, data.data(), len)) {
-                logf("resource: bad EE dest %08x", dst);
-                return ST_IO;
-            }
-            // header word 0 = offset from the 0x1301 receive buffer to the data: the EE handler (0x1f0110) computes
-            // data = buf + word0. Measured/disassembled (RSRCIOP 0x35a0-0x35f4: s3[0] = reply word 2 of the 0x1303
-            // call). Inline data uses 0x10.
-            u32 hdr[4] = {allocOffset, len, allocOffset, 0};
-            ee_.post(SID_EE_STREAM, r.cookie, hdr, 16, nullptr, 0, false);
+            step_ = Step::Deliver;
+        } else if (step_ == Step::Rewrite) {
             if (r.dest != 0)
-                mem_.write(r.dest, &dst, 4);
-        } else if (delivery_ == Delivery::Direct &&
-                   dst != 0) { // dst == 0: the data can only reach the request object through 0x1301
-            if (!mem_.write(dst, data.data(), len)) {
-                logf("resource: bad EE dest %08x", dst);
-                return ST_IO;
-            }
-        } else {
-            std::vector<u8> msg(16 + len);
-            put32(&msg[0], 0x10);
-            put32(&msg[4], len);
-            put32(&msg[8], allocOffset);
-            put32(&msg[12], 0);
-            memcpy(&msg[16], data.data(), len);
-            ee_.post(SID_EE_STREAM, r.cookie, msg.data(), (u32)msg.size(), nullptr, 0, false);
+                s_.mem_.write(r.dest, &dst_, 4);
+            finish(ST_OK);
+        } else if (step_ == Step::Last) {
+            finish(ST_OK);
         }
-    } else if (dtype == 1) {
-        adpcmFixup(data, r.flags);
-        if (duck)
-            CampaignMusicDucker::silenceAdpcm(data);
-        u32 padded = (len + 0x3f) & ~0x3fu; // IOP transfers len rounded up to 64
-        data.resize(padded, 0);
-        spu_.ramWrite(r.dest, data.data(), padded);
-        if (delivery_ == Delivery::Rpc1301) {
-            u32 hdr[4] = {0x10, len, 0, 0};
-            ee_.post(SID_EE_STREAM, r.cookie, hdr, 16, nullptr, 0, false);
-        }
-    } else if (dtype == 2) {
-        // IOP-internal buffer; no EE-visible data. TODO: never seen in traced paths.
-        logf("resource: dest type 2 (IOP buffer) requested, cookie %08x - no-op", r.cookie);
-    } else {
-        logf("resource: unknown dest type %u (flags %04x)", dtype, r.flags);
-        return ST_IO;
     }
-    if (verbose())
-        logf("resource: %s %04x/%u/%d +%u len %u -> type%u dest %08x", f.node.key.c_str(), r.type, r.id, (s16)r.sub,
-             r.offset, len, dtype, r.dest);
-    return ST_OK;
-}
+
+private:
+    enum class Step {
+        Start,
+        Allocated, // waiting for the 0x1303 reply
+        Deliver,   // EE destination known
+        Rewrite,   // waiting for the 0x1301 call of an allocated request; the slot pointer is written again after it
+        Last,      // waiting for the request's last call
+    };
+    static void set(EeCall& call, u32 sid, u32 fno, const u32* words, u32 bytes, u32 replyCap, bool blocking) {
+        call.sid = sid;
+        call.fno = fno;
+        call.replyCap = replyCap;
+        call.blocking = blocking;
+        call.payload.resize(bytes);
+        memcpy(call.payload.data(), words, bytes);
+    }
+    // The request at_ is over with `st`.
+    void finish(s32 st) {
+        const Prepared& p = items_[at_];
+        const ResourceRequestWire& r = p.r;
+        if (st == ST_OK && verbose())
+            logf("resource: %s %04x/%u/%d +%u len %u -> type%u dest %08x", f_.node.key.c_str(), r.type, r.id,
+                 (s16)r.sub, r.offset, p.len, p.dtype, r.dest);
+        // In Rpc1301 mode, successful requests were already completed by their 0x1301 call.
+        if (!(st != ST_OK && s_.skipFailureCompletions) &&
+            !(s_.delivery_ == Delivery::Rpc1301 && st == ST_OK && (r.flags & 0xf) != 2))
+            done_.emplace_back(r.cookie, st);
+        ++at_;
+        step_ = Step::Start;
+    }
+    ResourceService& s_;
+    const FileService::Open& f_;
+    std::vector<Prepared>& items_;
+    size_t at_ = 0;
+    Step step_ = Step::Start;
+    u32 dst_ = 0, allocOffset_ = 0;
+    std::vector<std::pair<u32, s32>> done_;
+    size_t doneAt_ = 0;
+};
 
 void ResourceService::handle(u32 handle, const void* send, u32 sendSize) {
     FileService::Open f;
@@ -225,29 +362,25 @@ void ResourceService::handle(u32 handle, const void* send, u32 sendSize) {
     if (sendSize % sizeof(ResourceRequestWire))
         logf("resource: odd payload size %u", sendSize);
     const u8* in = (const u8*)send;
-    std::vector<std::pair<u32, s32>> done;
+    // The disc work of the whole batch first, then its EE side as one sequence.
+    std::vector<Prepared> items(count);
     for (u32 i = 0; i < count; ++i) {
         ResourceRequestWire r;
         memcpy(&r, in + i * sizeof r, sizeof r);
-        bool via1301 = false;
-        s32 st = ok ? process(f, r) : ST_BAD_HANDLE;
-        (void)via1301;
-        // In Rpc1301 mode, successful requests were already completed by their 0x1301 call.
-        if (st != ST_OK && skipFailureCompletions)
-            continue;
-        if (!(delivery_ == Delivery::Rpc1301 && st == ST_OK && (r.flags & 0xf) != 2))
-            done.emplace_back(r.cookie, st);
-    }
-    // Completion order == submission order, <= 64 per 0x1302 call (fno = count, payload = count x {cookie,status}).
-    for (size_t i = 0; i < done.size(); i += MAX_BATCH) {
-        u32 n = (u32)std::min<size_t>(MAX_BATCH, done.size() - i);
-        std::vector<u8> p(n * 8);
-        for (u32 k = 0; k < n; ++k) {
-            put32(&p[k * 8], done[i + k].first);
-            put32(&p[k * 8 + 4], (u32)done[i + k].second);
+        if (ok)
+            prepare(f, r, items[i]);
+        else {
+            items[i].r = r;
+            items[i].dtype = r.flags & 0xf;
+            items[i].status = ST_BAD_HANDLE;
         }
-        ee_.post(SID_EE_DONE, n, p.data(), (u32)p.size(), nullptr, 0, true);
     }
+    BatchCalls sequence(*this, f, items);
+    const auto start = std::chrono::steady_clock::now();
+    ee_.run(sequence);
+    statEeNanos_.fetch_add(
+        (u64)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(),
+        std::memory_order_relaxed);
 }
 
 } // namespace hle

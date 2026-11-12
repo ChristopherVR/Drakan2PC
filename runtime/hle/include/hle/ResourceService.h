@@ -2,6 +2,7 @@
 #pragma once
 #include "FileService.h"
 #include "ResourceOverride.h"
+#include <atomic>
 #include <functional>
 #include <memory>
 
@@ -54,7 +55,8 @@ public:
     void setChunkDuck(ChunkDuck f) { duck_ = std::move(f); }
     bool skipFailureCompletions = false; // experiment: do not report failed requests (status != 0) to the EE at all
 
-    // `handle` = RPC fno. Processes all entries synchronously, posts completions. Call from a worker thread.
+    // `handle` = RPC fno. Processes all entries synchronously, posts completions. Call from a worker thread. The disc
+    // work of the batch is done first; its EE calls then run as one IEeCallSequence (IEeRpcPoster::run).
     void handle(u32 handle, const void* send, u32 sendSize);
 
     static constexpr s32 ST_OK = 0, ST_NOT_FOUND = -1, ST_ZERO = -2, ST_BAD_HANDLE = -4, ST_IO = -5, ST_ALLOC = -6,
@@ -65,8 +67,22 @@ public:
     // SPU ADPCM fix-ups for flags 0x20 / 0x10 / 0x40 (RSRCIOP 0x4fe8/0x4ffc/0x5048). Exposed for tests.
     static void adpcmFixup(std::vector<u8>& d, u16 flags);
 
+    // Work since the start, for load-time measurements (`DRAKAN_IO_STATS`); any thread may ask. `requests` and `bytes`
+    // count delivered payloads, `overridden` the requests an override layer rewrote, `eeNanos` the time spent in calls
+    // into the EE (buffer allocation, delivery, completion: the guest runs their handlers).
+    struct Stats {
+        u64 requests = 0, bytes = 0, overridden = 0, eeNanos = 0;
+    };
+    Stats stats() const {
+        return {statRequests_.load(std::memory_order_relaxed), statBytes_.load(std::memory_order_relaxed),
+                statOverridden_.load(std::memory_order_relaxed), statEeNanos_.load(std::memory_order_relaxed)};
+    }
+
 private:
-    s32 process(const FileService::Open& f, const ResourceRequestWire& r);
+    struct Prepared;
+    class BatchCalls;
+    void prepare(const FileService::Open& f, const ResourceRequestWire& r, Prepared& out);
+    std::atomic<u64> statRequests_{0}, statBytes_{0}, statOverridden_{0}, statEeNanos_{0};
     FileService& files_;
     IEeMemory& mem_;
     IEeRpcPoster& ee_;

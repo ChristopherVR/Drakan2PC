@@ -3,13 +3,18 @@
 #include "hle/SaveRecord.h"
 #include "hle/Srsc.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <set>
+#include <thread>
 #include <tuple>
+#include <unordered_map>
 
 namespace hle::mods {
 namespace fs = std::filesystem;
@@ -509,20 +514,29 @@ private:
     fs::path root_;
 };
 
+// CRC-32 of a zip member, eight bytes per step (slicing by 8): every member of a pack is checked when it is read.
 u32 crc32(const u8* d, size_t n) {
-    static u32 table[256];
+    static u32 table[8][256];
     static std::once_flag once;
     std::call_once(once, [] {
         for (u32 i = 0; i < 256; ++i) {
             u32 c = i;
             for (int k = 0; k < 8; ++k)
                 c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            table[i] = c;
+            table[0][i] = c;
         }
+        for (int k = 1; k < 8; ++k)
+            for (u32 i = 0; i < 256; ++i)
+                table[k][i] = (table[k - 1][i] >> 8) ^ table[0][table[k - 1][i] & 255];
     });
     u32 c = 0xFFFFFFFFu;
+    for (; n >= 8; d += 8, n -= 8) {
+        const u32 a = rd32(d) ^ c, b = rd32(d + 4);
+        c = table[7][a & 255] ^ table[6][(a >> 8) & 255] ^ table[5][(a >> 16) & 255] ^ table[4][a >> 24] ^
+            table[3][b & 255] ^ table[2][(b >> 8) & 255] ^ table[1][(b >> 16) & 255] ^ table[0][b >> 24];
+    }
     for (size_t i = 0; i < n; ++i)
-        c = table[(c ^ d[i]) & 255] ^ (c >> 8);
+        c = table[0][(c ^ d[i]) & 255] ^ (c >> 8);
     return ~c;
 }
 
@@ -601,7 +615,8 @@ public:
                 return false;
             }
             if (!safeRelPath(e.path))
-                continue; // never reachable through read(): dropped (zip-slip)
+                continue;                         // never reachable through read(): dropped (zip-slip)
+            index_.emplace(e.path, ents_.size()); // the first member of a name wins, as a scan from the start would
             ents_.push_back(e);
         }
         return true;
@@ -612,43 +627,73 @@ public:
             v.push_back({e.path, e.usize, e.crc, true});
         return v;
     }
+    // Safe from several threads at once: only taking and returning a file stream is locked, the member is read,
+    // inflated and checked outside the lock (ModManager::installFiles reads a pack's members in parallel).
     bool read(const std::string& path, std::vector<u8>& out) const override {
-        for (auto& e : ents_) {
-            if (e.path != path)
-                continue;
-            std::lock_guard<std::mutex> lk(mu_);
-            std::ifstream in(path_, std::ios::binary);
+        const auto found = index_.find(path);
+        if (found == index_.end())
+            return false;
+        const Ent& e = ents_[found->second];
+        std::vector<u8> c(e.csize);
+        {
+            std::unique_ptr<std::ifstream> in = takeStream();
             if (!in)
                 return false;
             u8 h[30];
-            in.seekg(e.lho);
-            in.read((char*)h, 30);
-            if (!in || rd32(h) != 0x04034b50u)
-                return false;
-            in.seekg((std::streamoff)e.lho + 30 + rd16(h + 26) + rd16(h + 28));
-            std::vector<u8> c(e.csize);
-            in.read((char*)c.data(), e.csize);
-            if (!in)
-                return false;
-            if (e.method == 0) {
-                if (e.csize != e.usize)
-                    return false;
-                out = std::move(c);
-            } else if (e.method == 8) {
-                if (!inflateRaw(c.data(), c.size(), out, e.usize))
-                    return false;
-            } else
-                return false;
-            return out.size() == e.usize && crc32(out.data(), out.size()) == e.crc;
+            in->seekg(e.lho);
+            in->read((char*)h, 30);
+            bool ok = *in && rd32(h) == 0x04034b50u;
+            if (ok) {
+                in->seekg((std::streamoff)e.lho + 30 + rd16(h + 26) + rd16(h + 28));
+                in->read((char*)c.data(), e.csize);
+                ok = static_cast<bool>(*in);
+            }
+            if (!ok)
+                return false; // the stream is dropped: its error state is not reused
+            std::lock_guard<std::mutex> lk(mu_);
+            if (hold_)
+                streams_.push_back(std::move(in));
         }
-        return false;
+        if (e.method == 0) {
+            if (e.csize != e.usize)
+                return false;
+            out = std::move(c);
+        } else if (e.method == 8) {
+            if (!inflateRaw(c.data(), c.size(), out, e.usize))
+                return false;
+        } else
+            return false;
+        return out.size() == e.usize && crc32(out.data(), out.size()) == e.crc;
     }
     std::string describe() const override { return "zip " + path_; }
+    void holdOpen(bool hold) const override {
+        std::lock_guard<std::mutex> lk(mu_);
+        hold_ = hold;
+        if (!hold)
+            streams_.clear();
+    }
 
 private:
+    // An open stream on the archive: one that an earlier read returned while holdOpen is on, else a new one (one per
+    // concurrent reader). Opening the file for every member cost more than reading the small members of a large pack.
+    std::unique_ptr<std::ifstream> takeStream() const {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (!streams_.empty()) {
+                std::unique_ptr<std::ifstream> s = std::move(streams_.back());
+                streams_.pop_back();
+                return s;
+            }
+        }
+        auto s = std::make_unique<std::ifstream>(path_, std::ios::binary);
+        return *s ? std::move(s) : nullptr;
+    }
     std::string path_;
     std::vector<Ent> ents_;
+    std::unordered_map<std::string, size_t> index_; // member path -> ents_ index
     mutable std::mutex mu_;
+    mutable bool hold_ = false;
+    mutable std::vector<std::unique_ptr<std::ifstream>> streams_;
 };
 } // namespace
 
@@ -666,39 +711,57 @@ std::shared_ptr<ModArchive> openArchive(const std::string& path, std::string& er
     return nullptr;
 }
 
-// ---- inflate (RFC 1951), after the structure of zlib's puff -------------------------------------------------------
+// ---- inflate (RFC 1951) -------------------------------------------------------------------------------------------
+// Table driven: a 64 bit bit buffer and one lookup of kRootBits bits per symbol (canonical codes, bit reversed); the
+// bit by bit canonical walk (as in the puff reference decoder of zlib) remains for the rare longer codes. A large pack
+// holds hundreds of megabytes of deflate data that is read at start-up, so the speed matters
+// (docs/journal/2026-11-12/perf-loading-hitches.md).
 namespace {
 struct Inflater {
     const u8* in;
     size_t n, pos = 0;
-    u32 buf = 0;
+    u64 buf = 0;
     int cnt = 0;
-    std::vector<u8>& out;
+    std::vector<u8>& out; // sized ahead of the data while running; `outLen` bytes of it are written
     size_t limit;
+    size_t outLen = 0;
     bool bad = false;
+    static constexpr int kRootBits = 10;
     struct Huff {
         u16 count[16];
         u16 symbol[288];
+        u16 root[1 << kRootBits]; // (symbol << 4) | code length; 0 = a longer code (or none)
     };
-    int bits(int need) {
-        u32 v = buf;
-        while (cnt < need) {
-            if (pos >= n) {
+    void refill() {
+        while (cnt <= 56 && pos < n) {
+            buf |= (u64)in[pos++] << cnt;
+            cnt += 8;
+        }
+    }
+    int bits(int need) { // need <= 16
+        if (cnt < need) {
+            refill();
+            if (cnt < need) {
                 bad = true;
                 return 0;
             }
-            v |= (u32)in[pos++] << cnt;
-            cnt += 8;
         }
-        buf = v >> need;
+        const int v = (int)(buf & ((1u << need) - 1));
+        buf >>= need;
         cnt -= need;
-        return (int)(v & ((1u << need) - 1));
+        return v;
+    }
+    // Room for `total` output bytes (total <= limit, checked by the caller).
+    void room(size_t total) {
+        if (total > out.size())
+            out.resize(std::min(limit, std::max({total, out.size() * 2, (size_t)4096})));
     }
     static int construct(Huff& h, const u16* len, int num) {
         for (int i = 0; i < 16; ++i)
             h.count[i] = 0;
         for (int i = 0; i < num; ++i)
             h.count[len[i]]++;
+        memset(h.root, 0, sizeof h.root);
         if (h.count[0] == num)
             return 0;
         int left = 1;
@@ -715,17 +778,49 @@ struct Inflater {
         for (int i = 0; i < num; ++i)
             if (len[i])
                 h.symbol[offs[len[i]]++] = (u16)i;
+        // Root table: the canonical code of every symbol up to kRootBits long, bit reversed (deflate sends a code's
+        // most significant bit first, the bit buffer holds the first bit lowest), at every index that starts with it.
+        u32 code = 0;
+        int index = 0;
+        for (int l = 1; l <= kRootBits; ++l) {
+            for (int k = 0; k < h.count[l]; ++k, ++code, ++index) {
+                u32 rev = 0;
+                for (int b = 0; b < l; ++b)
+                    rev |= ((code >> b) & 1u) << (l - 1 - b);
+                const u16 entry = (u16)((h.symbol[index] << 4) | l);
+                for (u32 x = rev; x < (1u << kRootBits); x += 1u << l)
+                    h.root[x] = entry;
+            }
+            code <<= 1;
+        }
         return left;
     }
     int decode(const Huff& h) {
+        if (cnt < 15)
+            refill();
+        if (const u16 e = h.root[buf & ((1u << kRootBits) - 1)]) {
+            const int l = e & 15;
+            if (l > cnt) {
+                bad = true; // the code runs past the end of the input
+                return -1;
+            }
+            buf >>= l;
+            cnt -= l;
+            return e >> 4;
+        }
         int code = 0, first = 0, index = 0;
         for (int len = 1; len <= 15; ++len) {
-            code |= bits(1);
-            if (bad)
+            if (len > cnt) {
+                bad = true;
                 return -1;
+            }
+            code |= (int)((buf >> (len - 1)) & 1);
             int count = h.count[len];
-            if (code - count < first)
+            if (code - count < first) {
+                buf >>= len;
+                cnt -= len;
                 return h.symbol[index + (code - first)];
+            }
             index += count;
             first += count;
             first <<= 1;
@@ -748,25 +843,32 @@ struct Inflater {
             if (sym < 0 || bad)
                 return false;
             if (sym < 256) {
-                if (out.size() >= limit)
+                if (outLen >= limit)
                     return false;
-                out.push_back((u8)sym);
+                room(outLen + 1);
+                out[outLen++] = (u8)sym;
             } else if (sym == 256)
                 return true;
             else {
                 sym -= 257;
                 if (sym >= 29)
                     return false;
-                int len = lens[sym] + bits(lext[sym]);
+                const size_t len = (size_t)lens[sym] + (size_t)bits(lext[sym]);
                 int ds = decode(dc);
                 if (ds < 0 || ds >= 30 || bad)
                     return false;
                 size_t dist = (size_t)dists[ds] + (size_t)bits(dext[ds]);
-                if (bad || dist > out.size() || out.size() + (size_t)len > limit)
+                if (bad || dist > outLen || outLen + len > limit)
                     return false;
-                size_t from = out.size() - dist;
-                for (int i = 0; i < len; ++i)
-                    out.push_back(out[from + (size_t)i]);
+                room(outLen + len);
+                u8* to = out.data() + outLen;
+                const u8* from = to - dist;
+                if (dist >= len)
+                    memcpy(to, from, len);
+                else
+                    for (size_t i = 0; i < len; ++i) // overlapping: the copy repeats what it has just written
+                        to[i] = from[i];
+                outLen += len;
             }
         }
     }
@@ -778,15 +880,22 @@ struct Inflater {
             if (bad)
                 return false;
             if (type == 0) {
+                // Stored: continues at the next byte boundary. The bit buffer holds the rest of the current byte and
+                // whole bytes read ahead; the first is dropped, the others go back to the input.
+                cnt -= cnt & 7;
+                pos -= (size_t)(cnt / 8);
                 buf = 0;
                 cnt = 0;
                 if (pos + 4 > n)
                     return false;
                 u32 len = rd16(in + pos), nlen = rd16(in + pos + 2);
                 pos += 4;
-                if (len != (~nlen & 0xFFFF) || pos + len > n || out.size() + len > limit)
+                if (len != (~nlen & 0xFFFF) || pos + len > n || outLen + len > limit)
                     return false;
-                out.insert(out.end(), in + pos, in + pos + len);
+                room(outLen + len);
+                if (len)
+                    memcpy(out.data() + outLen, in + pos, len);
+                outLen += len;
                 pos += len;
             } else if (type == 1) {
                 Huff lc, dc;
@@ -841,7 +950,7 @@ struct Inflater {
                             lengths[idx++] = (u16)len;
                     }
                 }
-                if (lengths[256] == 0)
+                if (bad || lengths[256] == 0)
                     return false;
                 Huff lc, dc;
                 int e1 = construct(lc, lengths, nlen);
@@ -862,9 +971,13 @@ struct Inflater {
 
 bool inflateRaw(const u8* in, size_t inSize, std::vector<u8>& out, size_t expectedSize) {
     out.clear();
-    out.reserve(expectedSize);
-    Inflater z{in, inSize, 0, 0, 0, out, expectedSize, false};
-    return z.run();
+    // `expectedSize` is the most the stream may produce (a zip member's exact size, or a generous cap): start with what
+    // the input plausibly inflates to and grow to the cap only when the data asks for it.
+    out.resize(std::min(expectedSize, inSize * 8 + 4096));
+    Inflater z{in, inSize, 0, 0, 0, out, expectedSize};
+    const bool ok = z.run();
+    out.resize(z.outLen);
+    return ok;
 }
 
 // ---- merged entry replacements ------------------------------------------------------------------------------------
@@ -1094,16 +1207,30 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
             }
         }
     }
+    // Entries by (type, id), in index order: a pack with thousands of patches for a container of thousands of entries
+    // (the animation databases) made the plain scan per patch a visible part of start-up.
+    std::unordered_map<u32, std::vector<u32>> byTypeId;
+    for (size_t i = 0; i < ents.size(); ++i)
+        byTypeId[((u32)ents[i].type << 16) | ents[i].id].push_back((u32)i);
+    {
+        size_t extra = ents.size() * 14 + 64;
+        for (const SrscPatch& p : *use)
+            extra += p.data.size() + 8;
+        out.reserve(out.size() + extra);
+    }
     for (const SrscPatch& p : *use) {
         if (p.data.size() > 0xFFFFFFF0u) {
             err = "entry too large";
             return false;
         }
         bool hit = false;
-        for (size_t i = 0; i < ents.size(); ++i) {
+        const u32 typeId = ((u32)p.type << 16) | p.id;
+        const auto same = byTypeId.find(typeId);
+        for (size_t at = 0; same != byTypeId.end() && at < same->second.size(); ++at) {
+            const size_t i = same->second[at];
             SrscEntry& e = ents[i];
             const bool subOk = (p.sub == 0xFFFF && !p.add) || e.sub == p.sub;
-            if (e.type != p.type || e.id != p.id || !subOk)
+            if (!subOk)
                 continue;
             hit = true;
             if (p.data.size() <= e.size && !shared(i)) {
@@ -1122,6 +1249,7 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
                     return false;
                 }
                 SrscEntry e{p.type, p.id, p.sub, append(p.data), (u32)p.data.size()};
+                byTypeId[typeId].push_back((u32)ents.size());
                 ents.push_back(e);
             } else
                 logf("mods: patch for %04x/%u/%d matches no entry, skipped", p.type, p.id, (s16)p.sub);
@@ -1169,6 +1297,8 @@ bool patchSrsc(const std::vector<u8>& in, const std::vector<SrscPatch>& patches,
     const u32 n = (u32)ents.size();
     memcpy(out.data() + 10, &n, 4);
     memcpy(out.data() + 14, in.data() + 14, 2);
+    if (out.capacity() - out.size() > out.size() / 16)
+        out.shrink_to_fit(); // the result is kept for the session: do not keep the reserve of in-place patches with it
     return true;
 }
 
@@ -1862,6 +1992,43 @@ static std::vector<std::string> levelDependencyPaths(const IsoFs& fsys, const Is
     return out;
 }
 
+namespace {
+// One pack member to read: `ok` and `data` are the result of `archive->read(*path, data)`.
+struct PackRead {
+    const ModArchive* archive = nullptr;
+    const std::string* path = nullptr;
+    std::vector<u8> data;
+    bool ok = false;
+};
+// Reads every member of `jobs`, on several threads where the platform has them: a large pack is hundreds of megabytes
+// of deflate data and thousands of members, seconds of work on one core, and the members are independent. The archives
+// may keep their file open for the batch.
+void readPackMembers(std::vector<PackRead>& jobs) {
+    std::set<const ModArchive*> archives;
+    for (const PackRead& j : jobs)
+        archives.insert(j.archive);
+    for (const ModArchive* a : archives)
+        a->holdOpen(true);
+    std::atomic<size_t> next{0};
+    auto work = [&] {
+        for (size_t i; (i = next.fetch_add(1)) < jobs.size();)
+            jobs[i].ok = jobs[i].archive->read(*jobs[i].path, jobs[i].data);
+    };
+    size_t workers = 1;
+#if !defined(__EMSCRIPTEN__) // the browser build keeps its fixed pthread pool for the runtime's own workers
+    workers = std::min<size_t>({std::max<size_t>(std::thread::hardware_concurrency(), 1), 8, jobs.size()});
+#endif
+    std::vector<std::thread> pool;
+    for (size_t w = 1; w < workers; ++w)
+        pool.emplace_back(work);
+    work();
+    for (std::thread& t : pool)
+        t.join();
+    for (const ModArchive* a : archives)
+        a->holdOpen(false);
+}
+} // namespace
+
 size_t ModManager::installFiles(IsoFs& fsys) {
     size_t served = 0;
     // English is the editor's portable pack namespace. Mount these files in the running
@@ -1880,10 +2047,33 @@ size_t ModManager::installFiles(IsoFs& fsys) {
                 mountedFiles[localized] = source;
         }
     }
+    // Everything the packs put on the disc is read here, at once (readPackMembers), in the order the steps below use
+    // it: the whole files, the entry patches of plain-read containers, the new entries.
+    std::vector<PackRead> reads;
+    for (auto& [pk, src] : mountedFiles)
+        reads.push_back({src.archive.get(), &src.path});
+    for (auto& [k, src] : merged_->map)
+        if (isPlainReadContainer(k.file))
+            reads.push_back({src.archive.get(), &src.path});
+    for (auto& [k, src] : newEntries_)
+        reads.push_back({src.archive.get(), &src.path});
+    using Clock = std::chrono::steady_clock;
+    auto msSince = [](Clock::time_point t) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
+    };
+    const Clock::time_point tStart = Clock::now();
+    readPackMembers(reads);
+    const double readMs = msSince(tStart);
+    u64 readBytes = 0;
+    for (const PackRead& r : reads)
+        readBytes += r.data.size();
+    const size_t readCount = reads.size();
+    size_t nextRead = 0;
     // 1. whole files: replacement or new
     for (auto& [pk, src] : mountedFiles) {
-        std::vector<u8> b;
-        if (!src.archive->read(src.path, b) || b.empty()) {
+        PackRead& got = reads[nextRead++];
+        std::vector<u8> b = std::move(got.data);
+        if (!got.ok || b.empty()) {
             logf("mods: %s: cannot read %s, file skipped", src.modId.c_str(), src.path.c_str());
             continue;
         }
@@ -1946,6 +2136,7 @@ size_t ModManager::installFiles(IsoFs& fsys) {
              (unsigned long long)n);
     }
 
+    const double filesMs = msSince(tStart) - readMs;
     // 2. entry patches of containers read with plain file reads (.LVL overrides) and `new/` entries
     struct Item {
         size_t modIndex;
@@ -1960,7 +2151,9 @@ size_t ModManager::installFiles(IsoFs& fsys) {
         p.type = k.type;
         p.id = k.id;
         p.sub = k.sub;
-        if (!src.archive->read(src.path, p.data) || p.data.empty()) {
+        PackRead& got = reads[nextRead++];
+        p.data = std::move(got.data);
+        if (!got.ok || p.data.empty()) {
             logf("mods: %s: cannot read %s", src.modId.c_str(), src.path.c_str());
             continue;
         }
@@ -1972,7 +2165,9 @@ size_t ModManager::installFiles(IsoFs& fsys) {
         p.id = k.id;
         p.sub = k.sub;
         p.add = true;
-        if (!src.archive->read(src.path, p.data) || p.data.empty()) {
+        PackRead& got = reads[nextRead++];
+        p.data = std::move(got.data);
+        if (!got.ok || p.data.empty()) {
             logf("mods: %s: cannot read %s", src.modId.c_str(), src.path.c_str());
             continue;
         }
@@ -2020,6 +2215,12 @@ size_t ModManager::installFiles(IsoFs& fsys) {
         }
     }
 
+    // The start-up cost of the packs, for the log (scripts/perf/load_phases.py reads it).
+    if (readCount)
+        logf("mods: pack files installed in %.0f ms: %zu members (%.1f MB) read in %.0f ms, whole files %.0f ms, "
+             "containers rebuilt in %.0f ms",
+             msSince(tStart), readCount, (double)readBytes / (1024.0 * 1024.0), readMs, filesMs,
+             msSince(tStart) - readMs - filesMs);
     // 3. LEVELLST.TXT
     if (!levelDefs_.empty()) {
         IsoFs::Node ln;
