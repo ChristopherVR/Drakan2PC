@@ -4,6 +4,47 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## What the upscaler reads and writes, 12 November 2026
+
+Sizes are decided by `upscale::plan` (`runtime/gs/src/upscale_render_size.h`, backend neutral, unit tested):
+
+- **Target.** The world target is the frame times the internal scale, as always: 4096x4096 for the 512x512 frame at
+  3840x2160 (`scale = auto` gives 8), 2560x2560 at 2560x1440 (scale 5). The window shows 3840x2160 (2560x1440) of it.
+- **Quality, balanced, performance** write the window pixels the frame covers (3840x2160) and render the mode's ratio
+  of that (quality 2560x1440, balanced 2226x1252, performance 1920x1080). Before, they wrote the whole target
+  (16.8 megapixels for an 8.3 megapixel window) from 2730x2730. The rule needs a whole number of window pixels per
+  frame on both axes, a window not larger than the target on either axis, weave output and one display circuit that
+  starts at the target's corner; otherwise the upscaler writes the target as before.
+- **DLAA** keeps the whole target (4096x4096 in and out) on purpose: it is the mode that anti-aliases the full
+  internal resolution, and the downscale to the window is supersampling the player chose. It is the slowest mode.
+- **Texture LOD bias** of world draws is `log2(render / output)` of the plan (`upscale::lodBias`, -0.585 for quality),
+  added to a LOD measured in render pixels. The value is the one the renderer used before; it now follows the plan.
+- **Write-back.** `sr_combined::Pipeline::composeTarget` makes the finished picture at output size (RGBA8, optional
+  sharpening) and writes it into the target unfiltered, all four channels, alpha from the raster: each target pixel
+  shows the output pixel `upscale::resolveIndex` names. The HUD is then drawn into the target as before.
+- **Presentation.** At the display latch `renderViewImage` (`d3d11_present.cpp`, shader `PSPresentView`) builds the
+  display image at window size: a window pixel whose whole footprint in the target still equals what the write-back
+  put there shows the upscaler's own pixel, one to one; any other pixel (HUD, fades, a display the rule does not
+  cover) is the usual area average of the target. `presentLatched` shows that image unscaled. A mismatch can only
+  cost sharpness under an overlay, never show a wrong picture. `GSR_UPSCALE_VIEW_DEBUG=1` tints the pixels that came
+  straight from the upscaler green.
+- **Guides.** The output-sized colour, depth and motion guides and the neural output target were only read by the
+  removed neural path. They are no longer rebuilt or allocated (0.4 GiB at 4096x4096) unless a caller asks
+  (`sr_combined::Inputs::guides`).
+- **Switches.** `GSR_UPSCALE_WINDOW_OUTPUT=0` restores the old pipeline (target-sized output, guide rebuild, two
+  write-back passes) for comparisons. `GSR_UPSCALE_VIEW_RENDER` is gone. `GSR_GPU_PASS_TIMING=1` prints
+  `[gpu-pass]` lines: GPU milliseconds per pass and world over runs of 120 presented frames (`gpu_pass_stats.h`,
+  `d3d11_gpu_passes.h`; 2 also prints the raw marks of a few frames). `GSR_UPSCALE_TIMING` measures the unused legacy
+  resolve and prints nothing useful.
+- **Memory.** With DLSS on, the game needs more GPU memory than with it off (a float motion target of 256 MiB per
+  world buffer, guides, the upscaler's own history). When other programs have filled the GPU's dedicated memory,
+  Windows moves part of the game's resources to shared memory and `Present` takes 150 to 560 ms: 1 to 8 fps. That is
+  the "DLSS collapse" seen on 12 November; it is load, not a fault of the upscaler path.
+- Other backends: the WebGPU renderer has no DLSS. It can use `upscale::plan` and `upscale::resolveIndex` unchanged
+  if it gets a temporal upscaler with a reduced render rectangle.
+
+Measurements, pictures and what is not established: [journal](../journal/2026-11-12/dlss-speed.md).
+
 ## Batching, motion-only snapshots, render size and history resets, 12 November 2026
 
 - **Object-motion scopes do not end a draw batch** (`motion_segments.h`, `GSR_MOTION_BATCH=0` restores): the notes
@@ -15,9 +56,8 @@ are history.
 - **Internal scale and render size.** `scale = auto` is `ceil(longer view side / 512)` whatever the upscaler: 8 at
   3840x2160, an upscaler output of 4096x4096 and a quality-mode render rectangle of 2730x2730. The width needs that
   scale (quality mode of a 3840 wide picture reads 2560 columns); the height is rendered at 1.9 times the screen's
-  lines because the GS frame is square and one scale serves both axes. `GSR_UPSCALE_VIEW_RENDER=1` (experimental,
-  off) sizes the render rectangle per axis against the screen (`upscale_render_size.h`, 2560x1440 here); the picture
-  changes slightly and no gain was proven. A scale per axis would be the fix.
+  lines because the GS frame is square and one scale serves both axes. Superseded the same day by the section
+  above: the upscaler now writes the window's pixels and renders the mode's ratio of them.
 - **History resets.** The temporal and object-motion history is dropped when two world cameras are more than 30
   vertical blanks apart (`kResetTickGap`, `DRAKAN_CAMERA_RESET_TICKS`). It was 6, which reset the history on every
   world slower than a tenth of a second.
