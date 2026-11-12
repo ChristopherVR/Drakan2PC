@@ -71,8 +71,8 @@ struct Config {
                                // release to shoot; RMB still toggles the native sight (ootf and modern, not native).
                                // Cleared by the camera profile when the advanced input hooks are unavailable
     bool bowAimNative = false; // [mouse] bow_aim = native (ps2): the original PS2 bow, none of the OotF adapters
-    bool bowDrawPose = true;   // [mouse] bow_draw: the held draw is shown (the archer clip is started on the torso
-                               // channel at press and frozen part-way); 0 = the pose appears only on the release
+    bool bowDrawPose = true;   // [mouse] bow_draw: the held draw is shown (the bow's aiming stance plays on the torso
+                               // channel while held); 0 = the pose appears only on the release
     float bowZoom = 0.85f;     // [mouse] bow_zoom: field of view factor while aiming (1 = no zoom)
     float pitchViewGain = 1.8f;    // [mouse] pitch_view_gain: the on-foot camera shows 1.8 x cam+0x84; mouse pitch is
                                    // divided by it so a count turns the view as far up / down as sideways (1 = off)

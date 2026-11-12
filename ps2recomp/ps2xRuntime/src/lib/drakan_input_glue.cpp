@@ -1070,6 +1070,7 @@ void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     RecompGuest g(rdram, c, rt);
     beforeCameraFollow(g, cam);
     g_origCameraFollow(rdram, c, rt);
+    afterCameraFollow(g, cam); // the over-the-shoulder view while the bow is aimed
 }
 void hookBowSightController(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x311220u) {
@@ -1165,7 +1166,6 @@ void hookBowShotMotion(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         RecompGuest g(rdram, c, rt);
         if (std::getenv("DRAKAN_BOW_LOG"))
             ilog("[bow] archer clip call: player=%x source=%x blend=%g\n", getRegU32(c, 4), getRegU32(c, 5), 0.0);
-        module().noteBowArcherClip(getRegU32(c, 5));
         const uint32_t channel = module().bowShotChannel(g, getRegU32(c, 4), getRegU32(c, 31), 0);
         SET_GPR_U32(c, 6, channel);
     }
@@ -1178,8 +1178,6 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         g_origBowLaunch(rdram, c, rt);
         return;
     }
-    if (module().suppressBowLaunch())
-        return; // the held draw's clip event: the arrow stays nocked until the release
     const uint32_t bow = getRegU32(c, 4);
     RecompGuest g(rdram, c, rt);
     beforeBowLaunch(g, bow);
@@ -1212,11 +1210,9 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                                     g.write8(player + 0x4db, static_cast<uint8_t>(old >> 8));
                                 });
         ilog("[bow] third-person autoaim target=%u player=%x\n", target, player);
-        module().afterBowLaunch(g);
         return;
     }
     g_origBowLaunch(rdram, c, rt);
-    module().afterBowLaunch(g);
 }
 
 } // namespace

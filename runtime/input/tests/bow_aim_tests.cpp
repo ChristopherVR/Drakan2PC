@@ -194,27 +194,227 @@ static void testAimAndRelease() {
     CHECK(!m.bowCrosshairVisible());
 }
 
-static void testShoulderOffset() {
+// Over-the-shoulder view while aiming: after the native camera tick the presented camera moves along its own right
+// (and a little along its up) axis, eased in; before the next tick the shift is taken back out, so the native easing
+// never sees it and nothing accumulates. The native target offset (cam+0x10c / +0x114) is no longer touched: the
+// camera eased there and straight back while the button was still held (issue 6, crosshair over Rynn).
+static void testShoulderView() {
     InputModule m;
     Config c = Config::defaults();
     c.bowAimModern = true;
     m.initHeadless(c);
     FakeGuest g;
-    setup(g); // camera right axis (column 0) = (0, 0, -1)
+    setup(g); // camera at (0, 300, 0), right axis (column 0) = (0, 0, -1), up axis (column 1) = (0, 1, 0)
+    constexpr uint32_t ACTOR = 0x690000;
+    g.write32(PLAYER + 0x80, ACTOR);
+    g.writeF(ACTOR + 0x14, -1000.0f); // Rynn 1000 units in front of the camera
+    g.writeF(CTX + 0x3c, 0.1f);       // engine frame time: the ease (8/s) covers 80 % per tick
+    const auto pos = [&](int i) { return g.readF(CAMOBJ + 0x14 + 4 * static_cast<uint32_t>(i)); };
     m.beginFrame(FrameInput{});
     m.updateBowAim(g);
-    NEAR(g.readF(CAM + 0x114), 0.0, 1e-6);
+    m.afterCameraFollow(g, CAM);
+    NEAR(pos(2), 0.0, 1e-6); // not aiming: no shift
     pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
-    m.updateBowAim(g);
-    NEAR(g.readF(CAM + 0x10c), 0.0, 1e-4);
-    NEAR(g.readF(CAM + 0x114), -200.0, 1e-3); // 200 units to the camera's right
-    pad(m, mouse(MBTN_LEFT, 0, 0));
-    m.updateBowAim(g);
-    NEAR(g.readF(CAM + 0x114), -200.0, 1e-3); // not accumulated
-    pad(m, mouse(0, 0, MBTN_LEFT));
     m.updateBowAim(g);
     NEAR(g.readF(CAM + 0x10c), 0.0, 1e-6);
     NEAR(g.readF(CAM + 0x114), 0.0, 1e-6);
+    m.afterCameraFollow(g, CAM);
+    NEAR(pos(2), -0.8 * 210.0, 1e-2); // to the camera's right
+    NEAR(pos(1), 300.0 + 0.8 * 40.0, 1e-2);
+    m.beforeCameraFollow(g, CAM); // taken back out before the native tick
+    NEAR(pos(2), 0.0, 1e-3);
+    NEAR(pos(1), 300.0, 1e-3);
+    m.afterCameraFollow(g, CAM);
+    NEAR(pos(2), -0.96 * 210.0, 1e-2); // eased further, not accumulated
+    m.beforeCameraFollow(g, CAM);
+    for (int i = 0; i < 6; ++i) {
+        m.afterCameraFollow(g, CAM);
+        m.beforeCameraFollow(g, CAM);
+    }
+    m.afterCameraFollow(g, CAM);
+    NEAR(pos(2), -210.0, 0.1);
+    NEAR(g.readF(CAM + 0x114), 0.0, 1e-6);
+    // Something else placed the camera since (a sight view, a cut scene): its position is kept.
+    g.writeF(CAMOBJ + 0x1c, 55.0f);
+    m.beforeCameraFollow(g, CAM);
+    NEAR(pos(2), 55.0, 1e-6);
+    g.writeF(CAMOBJ + 0x18, 300.0f);
+    g.writeF(CAMOBJ + 0x1c, 0.0f);
+    // Collision pulled the camera in to 350 units: half the shift (eased in again from zero).
+    g.writeF(ACTOR + 0x14, -350.0f);
+    for (int i = 0; i < 10; ++i) {
+        m.afterCameraFollow(g, CAM);
+        m.beforeCameraFollow(g, CAM);
+    }
+    m.afterCameraFollow(g, CAM);
+    NEAR(pos(2), -105.0, 0.1);
+    m.beforeCameraFollow(g, CAM);
+    g.writeF(ACTOR + 0x14, -1000.0f);
+    // Released: eased back to the native view, then nothing is written at all.
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    m.updateBowAim(g);
+    for (int i = 0; i < 12; ++i) {
+        m.afterCameraFollow(g, CAM);
+        m.beforeCameraFollow(g, CAM);
+    }
+    m.afterCameraFollow(g, CAM);
+    NEAR(pos(2), 0.0, 1e-6);
+    NEAR(pos(1), 300.0, 1e-6);
+    // Another camera object than the context's: untouched.
+    pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    m.updateBowAim(g);
+    constexpr uint32_t OTHER = 0x6f8000;
+    g.write32(OTHER + 0x148, CAMOBJ);
+    m.afterCameraFollow(g, OTHER);
+    NEAR(pos(2), 0.0, 1e-6);
+}
+
+namespace {
+// The player model for the held draw: records at RECS (stride 0x80: +0x50 clip, +0x54 rate, +0x58 phase), channel map
+// at CHANS (channel 0 -> record 0, torso channel 2 -> record 1), torso channel from property 0x52 like the native
+// attack start. The motion setter 0x32cf30 is emulated (clip, start phase, rate into the channel's record) and
+// re-enters the module the way a native callback that reaches another hook would.
+constexpr uint32_t DACTOR = 0x690000, DREADER = 0x6a0000, DREADERVT = 0x6b0000, DFIELD = 0x6c0000, DGET = 0x192e48,
+                   DMODEL = 0x6d0000, DRECS = 0x6e0000, DCHANS = 0x6f0000, STANDSRC = 0x77, STAND = 0x2047b,
+                   RUN = 0x206ad;
+struct DrawGuest : FakeGuest {
+    InputModule* reenter = nullptr;
+    int setterCalls = 0;
+    uint32_t call(const GuestCall& c) override {
+        if (c.addr == 0x32cf30u) {
+            ++setterCalls;
+            if (reenter) // takes the module's lock: this deadlocks if the setter is called with the lock held
+                reenter->bowAttackMask(*this, 0, 0, 0);
+            const uint32_t rec = DRECS + static_cast<uint32_t>(readS16(DCHANS + 2 * c.i[2])) * 0x80;
+            write32(rec + 0x50, c.i[1]);
+            writeF(rec + 0x58, c.f[1] < 0.0f ? 0.0f : c.f[1]);
+            writeF(rec + 0x54, c.f[2]);
+        }
+        return FakeGuest::call(c);
+    }
+};
+
+void setupDraw(DrawGuest& g) {
+    setup(g);
+    g.write32(PLAYER + 0x80, DACTOR);
+    g.write32(DACTOR + 0x54, DREADER);
+    g.write32(DREADER + 8, DREADERVT);
+    g.write16(DREADERVT + 0x18, 0);
+    g.write32(DREADERVT + 0x1c, DGET);
+    g.write32(DFIELD, 2);
+    g.returns[DGET] = DFIELD;
+    g.write32(DACTOR + 0x50, DMODEL);
+    g.write32(DMODEL + 0xe8, DRECS);
+    g.write32(DMODEL + 0xdc, DCHANS);
+    g.write16(DCHANS + 0, 0);
+    g.write16(DCHANS + 4, 1);
+    g.write32(PLAYER + 0xabc, STANDSRC); // native cached Stand
+    g.motions[STANDSRC] = STAND;        // mapped for the bow by 0x325650
+    for (uint32_t r = 0; r < 2; ++r) {  // legs and torso both run
+        g.write32(DRECS + r * 0x80 + 0x50, RUN);
+        g.writeF(DRECS + r * 0x80 + 0x54, 1.0f);
+        g.writeF(DRECS + r * 0x80 + 0x58, 0.3f);
+    }
+}
+} // namespace
+
+// Held draw (issue 6): while the aim is held the torso plays the bow's stand motion (the aiming stance) over the legs'
+// clip. The archer clip is no longer used for the hold: on the torso it makes the native weapon update take the arrow
+// off the string and ask for the launch every frame, which left the arrow hanging in the air behind Rynn. Nothing
+// mutes launches any more. Clips are played with the module's lock released. The release tap's attack takes over; a
+// refused tap or a cancelled aim hands the torso back to the legs' clip.
+static void testHeldDraw() {
+    InputModule m;
+    Config c = Config::defaults();
+    c.bowAimModern = true;
+    m.initHeadless(c);
+    DrawGuest g;
+    setupDraw(g);
+    g.reenter = &m;
+    const auto rec = [&](uint32_t r, uint32_t off) { return DRECS + r * 0x80 + off; };
+    const auto torsoClip = [&] { return g.read32(rec(1, 0x50)); };
+    m.beginFrame(FrameInput{});
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 0);
+    pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    m.updateBowAim(g); // drawn: the stance on the torso channel, at normal speed
+    CHECK(g.setterCalls == 1);
+    CHECK(torsoClip() == STAND);
+    NEAR(g.readF(rec(1, 0x54)), 1.0, 1e-6);
+    CHECK(g.read32(rec(0, 0x50)) == RUN); // the legs keep running
+    const GuestCall* play = nullptr;
+    for (const GuestCall& call : g.calls)
+        if (call.addr == 0x32cf30u)
+            play = &call;
+    CHECK(play && play->i[0] == PLAYER && play->i[2] == 2); // the torso channel from property 0x52
+    pad(m, mouse(MBTN_LEFT, 0, 0));
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 1); // still there: not restarted
+    // Native locomotion replaced the torso clip: the stance is put back.
+    g.write32(rec(1, 0x50), RUN);
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 2 && torsoClip() == STAND);
+    // Release: one Square tap; the stance waits for the attack, which takes the torso over.
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 2);
+    g.write32(PLAYER + 0x94, 0x80);
+    m.updateBowAim(g);
+    g.write32(PLAYER + 0x94, 0);
+    for (int i = 0; i < 20; ++i) {
+        pad(m, FrameInput{});
+        m.updateBowAim(g);
+    }
+    CHECK(g.setterCalls == 2); // nothing handed back: the native attack owned the torso
+    // A refused tap (no attack within 12 frames): the torso goes back to the legs' clip at their phase.
+    for (int i = 0; i < 120; ++i) { // a new draw waits for the shot window (120 frames, or the launch)
+        pad(m, FrameInput{});
+        m.updateBowAim(g);
+    }
+    pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 3 && torsoClip() == STAND);
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    m.updateBowAim(g);
+    for (int i = 0; i < 11; ++i) {
+        pad(m, FrameInput{});
+        m.updateBowAim(g);
+    }
+    CHECK(g.setterCalls == 3); // still waiting for the attack
+    pad(m, FrameInput{});
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 4);
+    CHECK(torsoClip() == RUN);
+    NEAR(g.readF(rec(1, 0x58)), 0.3, 1e-6);
+    NEAR(g.readF(rec(1, 0x54)), 1.0, 1e-6);
+    // Cancelled without a shot (the weapon was changed while held): handed back at once, no tap.
+    for (int i = 0; i < 120; ++i) {
+        pad(m, FrameInput{});
+        m.updateBowAim(g);
+    }
+    pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 5 && torsoClip() == STAND);
+    g.write32(PLAYER + 0xe90, 1);
+    m.updateBowAim(g); // not ready any more
+    CHECK(g.setterCalls == 6 && torsoClip() == RUN);
+    const PadSample s = pad(m, FrameInput{}); // letting go now sends no shot
+    CHECK(!(s.buttons & Pad::SQUARE));
+    m.updateBowAim(g);
+    CHECK(g.setterCalls == 6);
+    g.write32(PLAYER + 0xe90, 5);
+    // bow_draw = 0: no held stance at all.
+    Config off = c;
+    off.bowDrawPose = false;
+    InputModule n;
+    n.initHeadless(off);
+    DrawGuest h;
+    setupDraw(h);
+    n.beginFrame(FrameInput{});
+    n.updateBowAim(h);
+    pad(n, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    n.updateBowAim(h);
+    CHECK(h.setterCalls == 0);
 }
 
 static void testZoomHandsOver() {
@@ -897,7 +1097,8 @@ int main() {
     }
     testAimAndRelease();
     testZoomHandsOver();
-    testShoulderOffset();
+    testShoulderView();
+    testHeldDraw();
     testArrowRetarget();
     testOotfAutoTarget();
     testImportedBowAutoAimMetadata();

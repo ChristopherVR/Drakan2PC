@@ -786,6 +786,7 @@ void rotateAbout(float v[3], const float a[3], float angle) {
 
 void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     std::lock_guard<std::mutex> lock(m_);
+    bowShoulderUndo(g, cam); // the native tick (and the orbit below) work on the unshifted camera
     const float rate = cfg_.cameraFollow;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
     const uint32_t handle = ctx ? g.read32(ctx + camera_.layout.contextCamera) : 0;

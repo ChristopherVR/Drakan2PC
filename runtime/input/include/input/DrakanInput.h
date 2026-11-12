@@ -62,13 +62,14 @@ public:
     // cam+0x210 to `[mouse] camera_follow` (the native value goes back after ownership has been gone for a while).
     // Turns and looking up / down stay locked to her; her travel keeps the native easing and collision handling.
     void beforeCameraFollow(IGuest& g, uint32_t cam);
+    // After FUN_0041f848: while the bow is aimed with the held button, the camera is moved over Rynn's right shoulder
+    // (src/BowAim.cpp). The shift only changes the presented view: beforeCameraFollow takes it back out before the
+    // next native tick, so the native easing and collision always work on the unshifted position.
+    void afterCameraFollow(IGuest& g, uint32_t cam);
     // ---- modern bow aiming (`[mouse] bow_aim = modern`, src/BowAim.cpp, docs/reference/input.md section 16)
     // EE thread, before every PadMgr_Update: is Rynn's bow out (player+0xe90 == 5, native sight closed, on foot in
     // gameplay, mouse / keyboard owner)? Also runs the aim zoom on the camera's target FOV (cam+0x60).
     void updateBowAim(IGuest& g);
-    void afterBowLaunch(IGuest& g); // glue: after the native launch: continue the loose from the held frame
-    bool suppressBowLaunch();       // glue: true while the held draw is up: its clip's launch event must not shoot
-    void noteBowArcherClip(uint32_t clip); // glue: the clip id of the native bow attack's first motion call
     // Before the native arrow launch FUN_0020e6c8 (bow = its argument): points the arrow of a shot started by
     // releasing the aim button at the crosshair (the camera's centre ray), unless a target is locked.
     void beforeBowLaunch(IGuest& g, uint32_t bow);
@@ -236,25 +237,37 @@ private:
     std::atomic<bool> bowReady_{false}, bowAiming_{false}, bowSightOpen_{false};
     bool bowSightCrosshair(IGuest& g) const; // m_ held: the native first-person bow sight is open in gameplay
     int bowChannelFrames_ = 0; // frames after a release in which the attack start may take the torso channel
-    int bowDrawRelease_ = 0,
-        bowDrawQuiet_ = 0;     // frames the frozen clip waits for the native attack / launches stay muted
-    bool bowDrawSnap_ = false; // the shot being released came from a held draw: skip the clip's start after its launch
-    bool bowDrawActive_ = false; // the held-draw clip is playing / frozen on the torso channel
-    uint32_t bowDrawPlayer_ = 0, bowArcherClip_ = 0x20896u; // the archer clip id (learned from the native shot call)
+    int bowDrawRelease_ = 0;         // frames the frozen draw still waits for the release tap's native attack
+    bool bowReleaseTapped_ = false;  // bowAimFrame sent the release tap (false: the aim was cancelled without a shot)
+    bool bowDrawActive_ = false;     // the held draw's stance is on the torso channel
+    uint32_t bowDrawPlayer_ = 0, bowHoldClip_ = 0; // the stance clip the last draw started
     uint32_t bowTorsoChannel(IGuest& g, uint32_t player);
-    void bowDrawFrame(IGuest& g, uint32_t player, bool want);
+    // The held draw decides under m_ (bowDrawFrame) and plays clips after m_ is released (runBowDrawAction): the
+    // motion setter is not a leaf function, and a hook it reaches that takes m_ again would deadlock the EE thread.
+    enum class BowDrawAct { None, Start, HandBack };
+    struct BowDrawAction {
+        BowDrawAct act = BowDrawAct::None;
+        uint32_t player = 0;
+    };
+    BowDrawAction bowDrawFrame(IGuest& g, uint32_t player, bool want); // m_ held
+    BowDrawAction updateBowAimLocked(IGuest& g);                        // m_ held
+    void runBowDrawAction(IGuest& g, const BowDrawAction& a);           // m_ NOT held
+    // Over-the-shoulder view while aiming (afterCameraFollow): the shift applied to the camera transform after the
+    // last native tick, the position it produced (taken back out only if nothing else moved the camera since) and
+    // the eased amount 0..1.
+    uint32_t bowShiftCam_ = 0, bowShiftObj_ = 0;
+    float bowShift_[3] = {}, bowShiftPos_[3] = {}, bowShiftAmount_ = 0;
+    bool bowShiftApplied_ = false;
+    void bowShoulderUndo(IGuest& g, uint32_t cam); // m_ held: takes the last shift back out before a native tick
     bool bowAimedLaunch_ = false; // beforeBowLaunch pointed the arrow; consumed by bowAutoTarget
     int bowShotFrames_ = 0;       // frames during which a launch belongs to a shot released from the aim
     bool bowZoomActive_ = false;
     uint32_t bowZoomCam_ = 0;
     float bowZoomNative_ = 0, bowZoomTarget_ = 0;
-    bool bowShoulderActive_ = false;
-    uint32_t bowShoulderCam_ = 0;
     uint32_t bowSightJumpPlayer_ = 0;
     uint32_t bowSightLocomotionPlayer_ = 0, bowSightLocomotionMotion_ = 0;
     void releaseBowSightLocomotion(IGuest& g, uint32_t player);    // m_ held
     uint32_t ootfBowSightCamera(IGuest& g, uint32_t player) const; // m_ held
-    float bowShoulderNative_[2] = {};
     bool plainPitchBranch(IGuest& g, uint32_t player, uint32_t cam) const;
     bool followOwned_ = false; // cam+0x210 of followCam_ is ours; followNative_ is the game's value
     int followBailTicks_ = 0;
@@ -368,6 +381,7 @@ void beforeCameraUpdateLook(IGuest& g, bool dragonMode, uint32_t playerAddr = 0)
 void beforePadMgrUpdate(IGuest& g, bool dragon);
 void afterPadMgrUpdate(IGuest& g);
 void beforeCameraFollow(IGuest& g, uint32_t cam);
+void afterCameraFollow(IGuest& g, uint32_t cam);
 void updateBowAim(IGuest& g);
 void beforeBowLaunch(IGuest& g, uint32_t bow);
 void setMenuActive(bool active);
