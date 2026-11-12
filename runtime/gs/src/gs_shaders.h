@@ -608,6 +608,56 @@ float4 PSPresent(FSOut i) : SV_Target
             acc += presentFetch(ix0 + x, iy0 + y, dim) * (wx[x] * wy[y]);
     return float4(acc, 1.0);
 }
+
+// The display image at window size for a frame whose world came from a window-sized upscaler output (ViewSrc, one
+// pixel per window pixel). The world target holds that output unfiltered (each target pixel = the output pixel
+// upscale::resolveIndex names), with the HUD drawn over it. A window pixel whose whole footprint in the display
+// image still equals what the write-back put there is untouched world: it shows the upscaler's pixel itself.
+// Any other pixel (HUD, fades, a display that is not the target one to one) is the usual area average.
+// p_a = display size, window size; p_m = (debug tint, unused, sharp, unused); v_b = target size (xy), output size (zw).
+cbuffer CBV : register(b3)
+{
+    uint4 v_b;
+};
+Texture2D<float4> ViewSrc : register(t1);
+float4 PSPresentView(FSOut i) : SV_Target
+{
+    float2 src = p_a.xy;
+    float2 s = p_a.zw / src;
+    float2 p = i.uv * src;
+    int2 dim = int2(src);
+    int ix0, nx, iy0, ny;
+    float wx[8], wy[8];
+    if (p_m.z == 0u) { s = float2(1.0, 1.0); }
+    presentTaps(p.x, s.x, ix0, nx, wx);
+    presentTaps(p.y, s.y, iy0, ny, wy);
+    float3 acc = 0;
+    bool same = true;
+    for (int y = 0; y < ny; ++y)
+        for (int x = 0; x < nx; ++x)
+        {
+            float wgt = wx[x] * wy[y];
+            int2 q = clamp(int2(ix0 + x, iy0 + y), int2(0, 0), dim - 1);
+            float3 c = BlitSrc.Load(int3(q, 0)).rgb;
+            acc += c * wgt;
+            if (wgt > 0.0)
+            {
+                uint2 t = uint2(q);
+                bool inside = t.x < v_b.x && t.y < v_b.y;
+                uint2 r = min((t * 2u + 1u) * v_b.zw / (v_b.xy * 2u), v_b.zw - 1u);
+                float3 k = ViewSrc.Load(int3(r, 0)).rgb;
+                same = same && inside && all(abs(c - k) < 0.0015);
+            }
+        }
+    int2 o = int2(i.pos.xy);
+    if (same && o.x < (int)v_b.z && o.y < (int)v_b.w)
+    {
+        float3 k = ViewSrc.Load(int3(o, 0)).rgb;
+        if (p_m.x != 0u) k = k * 0.5 + float3(0.0, 0.5, 0.0); // GSR_UPSCALE_VIEW_DEBUG: tint the upscaler's own pixels
+        return float4(k, 1.0);
+    }
+    return float4(acc, 1.0);
+}
 )HLSL";
 
 } // namespace gsr

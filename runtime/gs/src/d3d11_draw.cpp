@@ -733,8 +733,8 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     k.f[1] = mipBias;
     k.f[2] = (float)aniso;
     k.f[3] = std::log2(k.f[0]);
-    k.g[0] = userMipBias + (worldDraw ? std::log2(dsx / (float)scale)
-                                      : 0.0f); // world draws: footprint LOD is measured in (fewer) render pixels
+    // world draws: footprint LOD is measured in (fewer) render pixels; the bias is upscale::lodBias of the plan
+    k.g[0] = userMipBias + (worldDraw ? rt->wgeom.lodBias : 0.0f);
     if (worldDraw) // sub-pixel jitter in NDC (render pixels -> NDC; the viewport spans the whole target)
     {
         k.g[1] = 2.0f * rt->wjx / (float)(rt->w * dsx);

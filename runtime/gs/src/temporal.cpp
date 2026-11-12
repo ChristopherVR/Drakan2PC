@@ -377,15 +377,21 @@ float TemporalPipeline::ratioForMode(uint32_t mode) {
 }
 
 TemporalPipeline::Geom TemporalPipeline::geometry(uint32_t fw, uint32_t fh, uint32_t scale, uint32_t mode,
-                                                  uint32_t viewW, uint32_t viewH) const {
+                                                  uint32_t displayW, uint32_t displayH, uint32_t windowW,
+                                                  uint32_t windowH) const {
+    const auto plan =
+        upscale::plan(fw, fh, scale, ratioForMode(mode), mode == 1, {displayW, displayH, windowW, windowH});
     Geom g;
     g.frameW = fw;
     g.frameH = fh;
-    g.outW = fw * scale;
-    g.outH = fh * scale;
-    const auto render = upscale::renderSize(g.outW, g.outH, ratioForMode(mode), mode == 1, viewW, viewH);
-    g.renderW = render.width;
-    g.renderH = render.height;
+    g.outW = plan.target.width;
+    g.outH = plan.target.height;
+    g.renderW = plan.render.width;
+    g.renderH = plan.render.height;
+    g.resolveW = plan.resolve.width;
+    g.resolveH = plan.resolve.height;
+    g.windowSized = plan.windowSized;
+    g.lodBias = upscale::lodBias(plan);
     return g;
 }
 
@@ -399,9 +405,10 @@ void TemporalPipeline::jitter(uint32_t idx, const Geom& g, float& jx, float& jy)
         }
         return r;
     };
-    // The larger of the two axis ratios: the view rule (upscale_render_size.h) can give them different ones.
+    // The larger of the two axis ratios of what the upscaler writes to what it reads.
+    const uint32_t writeW = g.resolveW ? g.resolveW : g.outW, writeH = g.resolveH ? g.resolveH : g.outH;
     const float ratio =
-        std::max((float)g.outW / (float)std::max(1u, g.renderW), (float)g.outH / (float)std::max(1u, g.renderH));
+        std::max((float)writeW / (float)std::max(1u, g.renderW), (float)writeH / (float)std::max(1u, g.renderH));
     const uint32_t phases = std::clamp<uint32_t>((uint32_t)std::ceil(8.0f * ratio * ratio), 8u, 64u);
     const uint32_t i = idx % phases + 1;
     jx = halton(i, 2) - 0.5f;

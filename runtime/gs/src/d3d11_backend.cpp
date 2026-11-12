@@ -185,6 +185,8 @@ void D3D11Backend::noteSceneCamera(const SceneGuideCamera& camera) {
     if (camera.sourcePc == 0x139010u && (camera.flags & ~SceneGuideCamera::EndWorld) == 0) {
         m_impl->nativeSubtitleOpen = false;
         m_impl->engineWorldOpen = !(camera.flags & SceneGuideCamera::EndWorld);
+        m_impl->gpuPasses.mark(m_impl->engineWorldOpen ? gpupass::Pass::World : gpupass::Pass::AfterWorld,
+                               m_impl->engineWorldOpen);
         m_impl->nativeWaterPass = false;
         m_impl->waterWorldCamera = {};
         if (m_impl->engineWorldOpen) {

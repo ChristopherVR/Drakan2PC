@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 using Microsoft::WRL::ComPtr;
@@ -67,6 +68,36 @@ float4 PSCompose(VOut i):SV_Target {
     }
     return float4(halfSafe(c.r),halfSafe(c.g),halfSafe(c.b),0);
 }
+// The finished picture at output size: the upscaler's colour (the stretched raster when it failed), sharpened.
+// sizes = render xy, output zw; jitterFlags = raster jitter xy, z = SR succeeded, w = sharpness.
+float4 PSFinal(VOut i):SV_Target {
+    int2 p=int2(i.p.xy), edge=int2(sizes.zw)-1;
+    float3 c;
+    if(jitterFlags.z!=0) {
+        c=Resolved.Load(int3(p,0)).rgb;
+        if(jitterFlags.w>0) {
+            float3 n=Resolved.Load(int3(clamp(p+int2(0,-1),0,edge),0)).rgb;
+            float3 s=Resolved.Load(int3(clamp(p+int2(0,1),0,edge),0)).rgb;
+            float3 w=Resolved.Load(int3(clamp(p+int2(-1,0),0,edge),0)).rgb;
+            float3 e=Resolved.Load(int3(clamp(p+int2(1,0),0,edge),0)).rgb;
+            float3 lo=min(c,min(min(n,s),min(w,e)));
+            float3 hi=max(c,max(max(n,s),max(w,e)));
+            c=clamp(c+(c-(n+s+w+e)*.25)*jitterFlags.w,max(0,lo-.1),hi+.1);
+        }
+    } else {
+        float2 source=(float2(p)+.5)*float2(sizes.xy)/float2(sizes.zw)+jitterFlags.xy;
+        c=InputColor.SampleLevel(LinearClamp,source/float2(sizes.xy),0).rgb;
+    }
+    return float4(saturate(float3(halfSafe(c.r),halfSafe(c.g),halfSafe(c.b))),1);
+}
+// Write-back to the world target, unfiltered. flags.zw = target size. Resolved (t3) is the finished picture here.
+float4 PSTarget(VOut i):SV_Target {
+    uint2 t=uint2(i.p.xy);
+    uint2 r=min((t*2u+1u)*sizes.zw/(flags.zw*2u),sizes.zw-1u); // upscale::resolveIndex
+    float2 source=(float2(t)+.5)*float2(sizes.xy)/float2(flags.zw)+jitterFlags.xy;
+    int2 q=clamp(int2(floor(source)),int2(0,0),int2(sizes.xy)-1);
+    return float4(Resolved.Load(int3(r,0)).rgb,AlphaRender.Load(int3(q,0)).a);
+}
 )HLSL";
 struct alignas(16) Params {
     uint32_t sizes[4]{};
@@ -113,10 +144,20 @@ struct Pipeline::Impl {
     ComPtr<ID3DDeviceContextState> state;
     ComPtr<ID3D11ComputeShader> cs;
     ComPtr<ID3D11VertexShader> vs;
-    ComPtr<ID3D11PixelShader> ps;
+    ComPtr<ID3D11PixelShader> ps, psFinal, psTarget;
     ComPtr<ID3D11Buffer> cb;
     ComPtr<ID3D11RasterizerState> raster;
-    ComPtr<ID3D11BlendState> rgbOnly;
+    ComPtr<ID3D11BlendState> rgbOnly, opaque;
+    // composeTarget: the finished picture, two of them so the one a presenter holds outlives the next world
+    struct Final {
+        ComPtr<ID3D11Texture2D> tex;
+        ComPtr<ID3D11RenderTargetView> rtv;
+        ComPtr<ID3D11ShaderResourceView> srv;
+    } finals[2];
+    unsigned finalNext = 0;
+    ComPtr<ID3D11ShaderResourceView> lastColor, lastAlpha; // inputs of the last resolve, for composeTarget
+    float lastJitter[2]{};
+    bool guideTargets = false;
     ComPtr<ID3D11DepthStencilState> noDepth;
     ComPtr<ID3D11SamplerState> linear;
     Target rawSr, color, depth, motion, nrOutput;
@@ -207,6 +248,12 @@ void Pipeline::prewarm(ID3D11Device* device) {
     blob.Reset();
     if (s.compile("PSCompose", "ps_5_0", &blob))
         device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &ps);
+    for (const char* entry : {"PSFinal", "PSTarget"}) {
+        blob.Reset();
+        ps.Reset();
+        if (s.compile(entry, "ps_5_0", &blob))
+            device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &ps);
+    }
 }
 
 Pipeline::Pipeline(ID3D11Device* device, ID3D11DeviceContext* context) : impl(new Impl) {
@@ -244,6 +291,14 @@ Pipeline::Pipeline(ID3D11Device* device, ID3D11DeviceContext* context) : impl(ne
     if (!s.compile("PSCompose", "ps_5_0", &blob) ||
         FAILED(device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &s.ps)))
         return;
+    blob.Reset();
+    if (!s.compile("PSFinal", "ps_5_0", &blob) ||
+        FAILED(device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &s.psFinal)))
+        return;
+    blob.Reset();
+    if (!s.compile("PSTarget", "ps_5_0", &blob) ||
+        FAILED(device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &s.psTarget)))
+        return;
     D3D11_BUFFER_DESC bd{};
     bd.ByteWidth = sizeof(Params);
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
@@ -256,13 +311,15 @@ Pipeline::Pipeline(ID3D11Device* device, ID3D11DeviceContext* context) : impl(ne
     D3D11_BLEND_DESC blend{};
     blend.RenderTarget[0].RenderTargetWriteMask =
         D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
+    D3D11_BLEND_DESC all{};
+    all.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     D3D11_DEPTH_STENCIL_DESC ds{};
     D3D11_SAMPLER_DESC sm{};
     sm.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     sm.AddressU = sm.AddressV = sm.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     sm.MaxLOD = D3D11_FLOAT32_MAX;
     if (FAILED(device->CreateBuffer(&bd, nullptr, &s.cb)) || FAILED(device->CreateRasterizerState(&rd, &s.raster)) ||
-        FAILED(device->CreateBlendState(&blend, &s.rgbOnly)) ||
+        FAILED(device->CreateBlendState(&blend, &s.rgbOnly)) || FAILED(device->CreateBlendState(&all, &s.opaque)) ||
         FAILED(device->CreateDepthStencilState(&ds, &s.noDepth)) ||
         FAILED(device->CreateSamplerState(&sm, &s.linear))) {
         s.fail("SR combined states creation failed");
@@ -334,23 +391,29 @@ bool Pipeline::configure(const Config& config) {
     auto up = createDlssUpscaler(s.device.Get(), s.ctx.Get(), d, s.status);
     if (!up)
         return false;
-    Target raw, color, depth, motion, nr;
-    if (!s.make(raw, config.output, DXGI_FORMAT_R16G16B16A16_FLOAT) ||
-        !s.make(color, config.output, DXGI_FORMAT_R16G16B16A16_FLOAT) ||
-        !s.make(depth, config.output, DXGI_FORMAT_R32_FLOAT) ||
-        !s.make(motion, config.output, DXGI_FORMAT_R16G16_FLOAT) ||
-        !s.make(nr, config.output, DXGI_FORMAT_R16G16B16A16_FLOAT))
+    // The output-sized guide targets (colour, depth, motion, neural output) are made by the first resolve that asks
+    // for guides: four output-sized float targets are 0.4 GiB at 4096 x 4096 and nothing reads them without a
+    // neural consumer.
+    Target raw;
+    if (!s.make(raw, config.output, DXGI_FORMAT_R16G16B16A16_FLOAT))
         return s.fail("SR combined output allocation failed");
     s.up = std::move(up);
     s.rawSr = std::move(raw);
-    s.color = std::move(color);
-    s.depth = std::move(depth);
-    s.motion = std::move(motion);
-    s.nrOutput = std::move(nr);
+    s.color = {};
+    s.depth = {};
+    s.motion = {};
+    s.nrOutput = {};
+    s.guideTargets = false;
+    for (auto& f : s.finals)
+        f = {};
+    s.lastColor.Reset();
+    s.lastAlpha.Reset();
     s.config = config;
     s.configured = true;
     s.featureStatus = s.up->name();
     s.status = s.featureStatus + "; RGBA16F outputs allocated";
+    // Rare by design (a mode, window or scale change). A line per world here would mean a size that flickers.
+    std::fprintf(stderr, "[dlss-sr] upscaler feature created: %s\n", s.featureStatus.c_str());
     return true;
 }
 bool Pipeline::resolve(const Inputs& in) {
@@ -373,8 +436,20 @@ bool Pipeline::resolve(const Inputs& in) {
         !std::isfinite(in.jitterPixels[0]) || !std::isfinite(in.jitterPixels[1]) || std::abs(in.jitterPixels[0]) > 1 ||
         std::abs(in.jitterPixels[1]) > 1)
         return reject("invalid supplied SR guide/alpha textures or raster jitter");
+    if (in.guides && !s.guideTargets) {
+        if (!s.make(s.color, s.config.output, DXGI_FORMAT_R16G16B16A16_FLOAT) ||
+            !s.make(s.depth, s.config.output, DXGI_FORMAT_R32_FLOAT) ||
+            !s.make(s.motion, s.config.output, DXGI_FORMAT_R16G16_FLOAT) ||
+            !s.make(s.nrOutput, s.config.output, DXGI_FORMAT_R16G16B16A16_FLOAT))
+            return reject("SR combined guide allocation failed");
+        s.guideTargets = true;
+    }
+    s.lastColor = in.color;
+    s.lastAlpha = in.alphaRender ? in.alphaRender : in.color;
+    s.lastJitter[0] = in.jitterPixels[0];
+    s.lastJitter[1] = in.jitterPixels[1];
     const bool reset = in.reset || s.forceReset || !s.haveFrame || in.frameIndex != s.lastFrame + 1;
-    bool evaluated = false, mapped = false;
+    bool evaluated = false, mapped = !in.guides;
     {
         Scope scope(s.ctx.Get(), s.state.Get());
         Upscaler::Inputs input;
@@ -389,6 +464,8 @@ bool Pipeline::resolve(const Inputs& in) {
         evaluated = s.up->evaluate(input);
         // NGX may have changed all bindings. Clear only our isolated context.
         s.ctx->ClearState();
+        if (in.afterEvaluate)
+            in.afterEvaluate(in.afterEvaluateContext);
         Params p;
         p.sizes[0] = s.config.render.width;
         p.sizes[1] = s.config.render.height;
@@ -401,8 +478,9 @@ bool Pipeline::resolve(const Inputs& in) {
         p.flags[0] = reset || !evaluated;
         p.flags[1] = in.alphaRender ? 1u : 0u;
         D3D11_MAPPED_SUBRESOURCE m{};
-        mapped = SUCCEEDED(s.ctx->Map(s.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m));
-        if (mapped) {
+        if (in.guides)
+            mapped = SUCCEEDED(s.ctx->Map(s.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m));
+        if (in.guides && mapped) {
             std::memcpy(m.pData, &p, sizeof(p));
             s.ctx->Unmap(s.cb.Get(), 0);
             s.ctx->CSSetShader(s.cs.Get(), nullptr, 0);
@@ -433,7 +511,7 @@ Outputs Pipeline::outputs() const {
     if (!s.hasOutput)
         return {};
     Outputs out;
-    out.color = s.color.borrow();
+    out.color = s.color.borrow(); // null textures after a resolve without guides
     out.depth = s.depth.borrow();
     out.motion = s.motion.borrow();
     out.nrOutput = s.nrOutput.borrow();
@@ -444,8 +522,93 @@ Outputs Pipeline::outputs() const {
     out.srEvaluated = s.lastSr;
     return out;
 }
+bool Pipeline::composeTarget(ID3D11RenderTargetView* destination, Size target, float sharpness, ViewImage* view) {
+    Impl& s = *impl;
+    if (!s.hasOutput || !destination || !s.lastColor || !s.lastAlpha || !target.width || !target.height)
+        return s.fail("valid resolve, destination and target size required");
+    ComPtr<ID3D11Resource> resource;
+    destination->GetResource(&resource);
+    ComPtr<ID3D11Texture2D> tex;
+    D3D11_RENDER_TARGET_VIEW_DESC viewDesc{};
+    destination->GetDesc(&viewDesc);
+    if (viewDesc.ViewDimension != D3D11_RTV_DIMENSION_TEXTURE2D || FAILED(resource.As(&tex)))
+        return s.fail("composition requires Texture2D RTV");
+    D3D11_TEXTURE2D_DESC d{};
+    tex->GetDesc(&d);
+    if (d.SampleDesc.Count != 1 || d.Width < target.width || d.Height < target.height)
+        return s.fail("composition destination extent/sample mismatch");
+    Impl::Final& f = s.finals[s.finalNext];
+    if (!f.tex) {
+        D3D11_TEXTURE2D_DESC fd{};
+        fd.Width = s.config.output.width;
+        fd.Height = s.config.output.height;
+        fd.MipLevels = fd.ArraySize = fd.SampleDesc.Count = 1;
+        fd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        fd.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(s.device->CreateTexture2D(&fd, nullptr, &f.tex)) ||
+            FAILED(s.device->CreateRenderTargetView(f.tex.Get(), nullptr, &f.rtv)) ||
+            FAILED(s.device->CreateShaderResourceView(f.tex.Get(), nullptr, &f.srv))) {
+            f = {};
+            return s.fail("finished picture allocation failed");
+        }
+    }
+    Scope scope(s.ctx.Get(), s.state.Get());
+    Params params{};
+    params.sizes[0] = s.config.render.width;
+    params.sizes[1] = s.config.render.height;
+    params.sizes[2] = s.config.output.width;
+    params.sizes[3] = s.config.output.height;
+    params.jitterFlags[0] = s.lastJitter[0];
+    params.jitterFlags[1] = s.lastJitter[1];
+    params.jitterFlags[2] = s.lastSr ? 1.0f : 0.0f;
+    params.jitterFlags[3] = std::isfinite(sharpness) ? std::clamp(sharpness, 0.0f, 1.0f) : 0.0f;
+    params.flags[2] = target.width;
+    params.flags[3] = target.height;
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(s.ctx->Map(s.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        return s.fail("composition constants upload failed");
+    std::memcpy(mapped.pData, &params, sizeof(params));
+    s.ctx->Unmap(s.cb.Get(), 0);
+    s.ctx->PSSetConstantBuffers(0, 1, s.cb.GetAddressOf());
+    s.ctx->IASetInputLayout(nullptr);
+    s.ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    s.ctx->VSSetShader(s.vs.Get(), nullptr, 0);
+    s.ctx->RSSetState(s.raster.Get());
+    s.ctx->OMSetBlendState(s.opaque.Get(), nullptr, 0xffffffff);
+    s.ctx->OMSetDepthStencilState(s.noDepth.Get(), 0);
+    s.ctx->PSSetSamplers(0, 1, s.linear.GetAddressOf());
+    // 1. the finished picture at output size
+    {
+        ID3D11ShaderResourceView* srvs[] = {s.lastColor.Get(), nullptr, nullptr, s.rawSr.srv.Get()};
+        s.ctx->PSSetShader(s.psFinal.Get(), nullptr, 0);
+        s.ctx->PSSetShaderResources(0, 4, srvs);
+        const D3D11_VIEWPORT viewport{
+            0, 0, static_cast<float>(s.config.output.width), static_cast<float>(s.config.output.height), 0, 1};
+        s.ctx->RSSetViewports(1, &viewport);
+        ID3D11RenderTargetView* rtv = f.rtv.Get();
+        s.ctx->OMSetRenderTargets(1, &rtv, nullptr);
+        s.ctx->Draw(3, 0);
+        s.ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    }
+    // 2. written back to the world target, unfiltered, with the raster's alpha
+    {
+        ID3D11ShaderResourceView* srvs[] = {nullptr, nullptr, nullptr, f.srv.Get(), nullptr, s.lastAlpha.Get()};
+        s.ctx->PSSetShader(s.psTarget.Get(), nullptr, 0);
+        s.ctx->PSSetShaderResources(0, 6, srvs);
+        const D3D11_VIEWPORT viewport{0, 0, static_cast<float>(target.width), static_cast<float>(target.height), 0, 1};
+        s.ctx->RSSetViewports(1, &viewport);
+        s.ctx->OMSetRenderTargets(1, &destination, nullptr);
+        s.ctx->Draw(3, 0);
+    }
+    if (view)
+        *view = {f.srv.Get(), s.config.output};
+    s.finalNext = (s.finalNext + 1) % 2;
+    return true;
+}
 bool Pipeline::composeRgb(ID3D11RenderTargetView* destination, bool useNrOutput, float sharpness) {
     Impl& s = *impl;
+    if (!s.guideTargets)
+        return s.fail("composeRgb needs a resolve with guides");
     if (!s.hasOutput || !destination)
         return s.fail("valid combined output and destination required");
     ComPtr<ID3D11Device> owner;

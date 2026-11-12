@@ -33,6 +33,8 @@
 #include "model_motion.h"
 #include "nr_guides.h"
 #include "sr_combined.h"
+#include "upscale_render_size.h"
+#include "d3d11_gpu_passes.h"
 #include "upscale_controls.h"
 #include "cpu_profile.h"
 #include "rt_upload.h"
@@ -284,6 +286,10 @@ struct RT {
     uint64_t wframe = 0; // vsync counter at the last state change
     uint8_t neuralState = 0;
     bool temporalSR = false;
+    // The upscaler's finished picture this target's world was last written from, when it is window-sized
+    // (upscale::Plan::windowSized): the presenter shows it unscaled where the target still holds it.
+    ComPtr<ID3D11ShaderResourceView> srViewSrv;
+    uint32_t srViewW = 0, srViewH = 0, srTargetW = 0, srTargetH = 0;
     uint64_t temporalEpoch = 0;
     uint64_t neuralOutputEpoch = 0;
     ComPtr<ID3D11Texture2D> compareTex;
@@ -458,6 +464,7 @@ struct D3D11Backend::Impl {
     uint64_t lastWorldFrame = 0; // vsync counter of the last resolve
     float curJx = 0, curJy = 0;  // jitter (render pixels) of the world frame in progress
     bool tpLog = false, tpTiming = false;
+    GpuPassTimer gpuPasses; // GSR_GPU_PASS_TIMING
     std::string upStatusText;
 
     ComPtr<ID3D11Device> dev;
@@ -548,6 +555,18 @@ struct D3D11Backend::Impl {
     ComPtr<ID3D11Buffer> motionVb;
     uint32_t motionVbCapacity = 0, motionVbOffset = 0, motionVbDrawOffset = 0; // ring: NO_OVERWRITE appends
     ComPtr<ID3D11PixelShader> psHw, psSb, psDisplay, psBlit, psBlitPt, psPresent, psCopyRGBA, psStretchDepth;
+    // Window-sized upscaler output (rule: upscale_render_size.h; d3d11_world.cpp writes, d3d11_present.cpp shows).
+    ComPtr<ID3D11PixelShader> psPresentView;
+    ComPtr<ID3D11Texture2D> viewTex; // the latched display at window size: the upscaler's pixels where untouched
+    ComPtr<ID3D11RenderTargetView> viewRtv;
+    ComPtr<ID3D11ShaderResourceView> viewSrv;
+    ComPtr<ID3D11Buffer> cbView;
+    uint32_t viewTexW = 0, viewTexH = 0;
+    uint32_t worldDisplayW = 0, worldDisplayH = 0; // display size of the last latched frame that held a world
+    bool latchedView = false;                      // presentLatched shows viewTex instead of scaling dispTex
+    bool displayAtOrigin = false;      // the latched display is one circuit that starts at its target's top-left corner
+    upscale::View presentView() const; // how a world frame reaches the window, zeros when not presentable unscaled
+    void renderViewImage(const DisplayState& d, uint32_t w, uint32_t h);
     ComPtr<ID3D11Buffer> cbPresent;
     HANDLE swapWait = nullptr;    // frame-latency waitable object (flip model)
     bool presentSlotHeld = false; // swapWait was consumed; the next Present uses that slot
@@ -642,8 +661,8 @@ struct D3D11Backend::Impl {
     // Binds the material pixel shader, constants, map and sampler for this draw and returns true, or returns
     // false and leaves the pipeline alone.
     bool prepareMaterial(const GsDrawState& s, ID3D11ShaderResourceView* materialSrv, uint8_t materialClass,
-                         bool haveTex, bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags,
-                         float dsx, float dsy, bool hwBlend);
+                         bool haveTex, bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags, float dsx,
+                         float dsy, bool hwBlend);
     ComPtr<ID3D11RasterizerState> rast;
     std::unordered_map<uint32_t, ComPtr<ID3D11BlendState>> blendStates;
     std::unordered_map<uint32_t, ComPtr<ID3D11DepthStencilState>> depthStates;
@@ -857,7 +876,7 @@ struct D3D11Backend::Impl {
         float averageColor[3]{.35f, .35f, .35f};
         uint8_t minimumAlpha = 0;
         uint32_t reflectionTexture = ~0u;
-        uint32_t factor = 1; // physical texture size / logical size
+        uint32_t factor = 1;                             // physical texture size / logical size
         ID3D11ShaderResourceView* materialSrv = nullptr; // material map of the bound HD texture
         uint8_t materialClass = 0;
     };

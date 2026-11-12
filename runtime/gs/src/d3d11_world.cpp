@@ -123,10 +123,12 @@ bool D3D11Backend::Impl::restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolve
 }
 
 void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_t xyoffset) {
+    GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::WorldEntry);
     dumpTemporalStage("entry-color", rt.tex.Get());
     rt.neuralState = 1;
     rt.temporalEpoch = motionEpoch;
     rt.temporalSR = false;
+    rt.srViewSrv.Reset(); // this world replaces the picture the target was written from
     rt.neuralCamera = sceneCamera;
     rt.neuralDepth = zbp;
     rt.neuralZmax = zmax;
@@ -169,7 +171,7 @@ void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, ui
     }
     const auto geometry = worldGeometry(rt.wgeom.frameW, rt.wgeom.frameH);
     const sr_combined::Config config{
-        {geometry.renderW, geometry.renderH}, {geometry.outW, geometry.outH}, upMode, upPreset};
+        {geometry.renderW, geometry.renderH}, {geometry.resolveW, geometry.resolveH}, upMode, upPreset};
     if (!combinedSr->configure(config)) {
         upStatusText = combinedSr->status();
         upFault = true;
@@ -208,8 +210,11 @@ void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, ui
     rt.temporalSR = true;
     upStatusText = combinedSr->status();
     if (tpLog)
-        std::fprintf(stderr, "[dlss-sr] begin epoch=%llu render=%ux%u output=%ux%u jitter=%g,%g NR=%d\n",
-                     (unsigned long long)motionEpoch, geometry.renderW, geometry.renderH, geometry.outW, geometry.outH,
+        std::fprintf(stderr,
+                     "[dlss-sr] begin epoch=%llu render=%ux%u output=%ux%u target=%ux%u windowSized=%d lodBias=%.3f "
+                     "jitter=%g,%g NR=%d\n",
+                     (unsigned long long)motionEpoch, geometry.renderW, geometry.renderH, geometry.resolveW,
+                     geometry.resolveH, geometry.outW, geometry.outH, (int)geometry.windowSized, geometry.lodBias,
                      rt.wjx, rt.wjy, (int)neuralEnabled);
 }
 
@@ -237,19 +242,33 @@ void D3D11Backend::Impl::restoreTemporalAlpha(RT& rt, ID3D11ShaderResourceView* 
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
-// Geometry of a world frame under the upscaler. GSR_UPSCALE_VIEW_RENDER=1 (experimental, off by default) sizes the
-// render rectangle against the screen pixels the frame covers instead of the scaled target (upscale_render_size.h).
-TemporalPipeline::Geom D3D11Backend::Impl::worldGeometry(uint32_t fw, uint32_t fh) const {
-    static const bool viewRule = [] {
-        const char* value = std::getenv("GSR_UPSCALE_VIEW_RENDER");
-        return value && value[0] == '1';
+// GSR_UPSCALE_WINDOW_OUTPUT=0 restores the pipeline from before 12 November 2026 for comparisons: the upscaler
+// writes the whole target, output-sized guides are rebuilt after it, and colour and alpha go back in two passes.
+static bool upscaleWindowOutput() {
+    static const bool on = [] {
+        const char* value = std::getenv("GSR_UPSCALE_WINDOW_OUTPUT");
+        return !value || value[0] != '0';
     }();
-    uint32_t viewW = 0, viewH = 0;
-    if (viewRule && vpW && vpH && latchedW && latchedH) {
-        viewW = (uint32_t)((uint64_t)vpW * std::min(fw, latchedW) / latchedW);
-        viewH = (uint32_t)((uint64_t)vpH * std::min(fh, latchedH) / latchedH);
-    }
-    return tp->geometry(fw, fh, scale, upMode, viewW, viewH);
+    return on;
+}
+
+// How a world frame reaches the window, for upscale::plan: zeros unless the presenter can show a window-sized
+// picture unscaled (weave, one display circuit at the target's corner, a known window viewport).
+upscale::View D3D11Backend::Impl::presentView() const {
+    const bool windowOutput = upscaleWindowOutput();
+    if (!windowOutput || !haveLatch || !displayAtOrigin || cfg.deinterlace != 0 || !psPresentView)
+        return {};
+    // The display size of the last latched world when there was one: a menu shown in between (another display
+    // size) must not change the plan, and with it the upscaler's history, for the world that follows it.
+    if (worldDisplayW && worldDisplayH)
+        return {worldDisplayW, worldDisplayH, vpW, vpH};
+    return {latchedW, latchedH, vpW, vpH};
+}
+
+// Geometry of a world frame under the upscaler (the rule is upscale::plan, upscale_render_size.h).
+TemporalPipeline::Geom D3D11Backend::Impl::worldGeometry(uint32_t fw, uint32_t fh) const {
+    const upscale::View view = presentView();
+    return tp->geometry(fw, fh, scale, upMode, view.displayW, view.displayH, view.windowW, view.windowH);
 }
 
 bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
@@ -367,6 +386,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::TemporalResolve);
     if (rt.neuralState != 1)
         return;
+    GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::Guides);
     rt.neuralState = 2;
     bool wantNR = neuralEnabled;
     // Pose correspondence has independent immutable inputs. Do it here while the builder
@@ -525,6 +545,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         }
     }
     if (success && (wantNR || wantSR) && nativeModels) {
+        gpuPasses.mark(gpupass::Pass::ModelMotion);
         CpuProfile::Scope stage(cpuProfile, CpuProfile::ModelGuides);
         {
             CpuProfile::Scope prepareStage(cpuProfile, CpuProfile::ModelPrepare);
@@ -584,26 +605,20 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         in.jitterPixels[1] = rt.wjy;
         in.reset = constants.reset;
         in.frameIndex = motionGuideSerial;
+        in.guides = !upscaleWindowOutput(); // no neural consumer: the picture goes back with composeTarget
+        in.afterEvaluate = [](void* timer) { static_cast<GpuPassTimer*>(timer)->mark(gpupass::Pass::Convert); };
+        in.afterEvaluateContext = &gpuPasses;
+        gpuPasses.mark(gpupass::Pass::Evaluate);
         haveSROutput = combinedSr->resolve(in);
         srOutput = combinedSr->outputs();
         success = haveSROutput && srOutput.srEvaluated;
         upStatusText = combinedSr->status();
-        if (haveSROutput) {
-            dumpTemporalStage("sr-color", srOutput.color.texture);
-            textures.color = {srOutput.color.texture, srOutput.color.srv, srOutput.color.uav};
-            textures.depth = {srOutput.depth.texture, srOutput.depth.srv, srOutput.depth.uav};
-            textures.motion = {srOutput.motion.texture, srOutput.motion.srv, srOutput.motion.uav};
-            textures.output = {srOutput.nrOutput.texture, srOutput.nrOutput.srv, srOutput.nrOutput.uav};
-            textures.size = {srOutput.size.width, srOutput.size.height};
-            constants.motionScale[0] = srOutput.motionScale[0];
-            constants.motionScale[1] = srOutput.motionScale[1];
-            constants.jitterPixels[0] = constants.jitterPixels[1] = 0;
+        if (haveSROutput)
             constants.reset = constants.reset || srOutput.historyReset;
-        }
         if (tpLog)
             std::fprintf(stderr, "[dlss-sr] f%llu evaluate=%d render=%ux%u output=%ux%u serial=%llu reset=%d: %s\n",
-                         (unsigned long long)frame, (int)success, rt.wgeom.renderW, rt.wgeom.renderH, rt.wgeom.outW,
-                         rt.wgeom.outH, (unsigned long long)motionGuideSerial, (int)constants.reset,
+                         (unsigned long long)frame, (int)success, rt.wgeom.renderW, rt.wgeom.renderH, rt.wgeom.resolveW,
+                         rt.wgeom.resolveH, (unsigned long long)motionGuideSerial, (int)constants.reset,
                          upStatusText.c_str());
     }
     if (neuralBeforeSr) {
@@ -614,11 +629,24 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     } else if (success && wantNR)
         success = evaluateNeural(textures, constants);
     {
+        gpuPasses.mark(gpupass::Pass::Compose);
         CpuProfile::Scope stage(cpuProfile, CpuProfile::TemporalCompose);
         if (wantSR && haveSROutput) {
-            // Render-resolution NR is already inside the SR color; only output-resolution NR has a separate image.
-            const bool composed = combinedSr->composeRgb(rt.rtv.Get(), wantNR && success && !neuralBeforeSr, upSharp);
-            restoreTemporalAlpha(rt, srOutput.color.srv, srOutput.size.width, srOutput.size.height);
+            // One unfiltered write of all four channels (the raster's alpha). A window-sized picture is remembered
+            // with the target: the presenter shows it unscaled where the HUD left the target alone.
+            sr_combined::Pipeline::ViewImage view;
+            bool composed = false;
+            if (upscaleWindowOutput())
+                composed = combinedSr->composeTarget(rt.rtv.Get(), {rt.wgeom.outW, rt.wgeom.outH}, upSharp, &view);
+            else { // the comparison path: RGB, then the alpha of the rebuilt colour guide
+                composed = combinedSr->composeRgb(rt.rtv.Get(), false, upSharp);
+                restoreTemporalAlpha(rt, srOutput.color.srv, srOutput.size.width, srOutput.size.height);
+            }
+            rt.srViewSrv = composed && rt.wgeom.windowSized ? view.srv : nullptr;
+            rt.srViewW = view.size.width;
+            rt.srViewH = view.size.height;
+            rt.srTargetW = rt.wgeom.outW;
+            rt.srTargetH = rt.wgeom.outH;
             const bool restoredDepth = restoreWorldDepth(rt, *depth, true);
             if (!composed)
                 neuralStatusText = "Temporal output composition failed: " + combinedSr->status();
@@ -673,8 +701,9 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                     ctx->OMSetRenderTargets(0, nullptr, nullptr);
                     ctx->CopyResource(rt.compareTex.Get(), waterBefore.Get());
                 } else
-                    offComposed = wantSR ? combinedSr->composeRgb(rt.compareRtv.Get(), false, upSharp)
-                                         : neuralGuides->composeRgb(rt.compareRtv.Get(), false);
+                    offComposed =
+                        wantSR ? combinedSr->composeTarget(rt.compareRtv.Get(), {rt.wgeom.outW, rt.wgeom.outH}, upSharp)
+                               : neuralGuides->composeRgb(rt.compareRtv.Get(), false);
                 if (offComposed)
                     rt.compareEpoch = motionEpoch;
             }
@@ -825,8 +854,10 @@ void D3D11Backend::Impl::setUpscale(uint32_t mode, uint32_t preset, float sharp)
     motionHistory.reset();
     motionOrdinals.clear();
     motionWorldOpen = false;
-    for (auto& target : rts)
+    for (auto& target : rts) {
         target->neuralState = 0;
+        target->srViewSrv.Reset();
+    }
     // A fresh pipeline drops feature history, failure latches and NGX state on each explicit toggle.
     tp.reset();
     upFault = false;

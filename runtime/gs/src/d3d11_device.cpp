@@ -162,7 +162,8 @@ bool D3D11Backend::Impl::init() {
     if (!mk("VSFull", "vs_5_0", nullptr, &vsFull) || !mk("PSDisplay", "ps_5_0", &psDisplay, nullptr) ||
         !mk("PSBlit", "ps_5_0", &psBlit, nullptr) || !mk("PSBlitPt", "ps_5_0", &psBlitPt, nullptr) ||
         !mk("PSPresent", "ps_5_0", &psPresent, nullptr) || !mk("PSCopyRGBA", "ps_5_0", &psCopyRGBA, nullptr) ||
-        !mk("PSStretchDepth", "ps_5_0", &psStretchDepth, nullptr))
+        !mk("PSStretchDepth", "ps_5_0", &psStretchDepth, nullptr) ||
+        !mk("PSPresentView", "ps_5_0", &psPresentView, nullptr))
         return false;
 
     D3D11_BUFFER_DESC bd{};
@@ -212,6 +213,8 @@ bool D3D11Backend::Impl::init() {
             sh = *runtimeFlags().upscaleSharp;
         tpLog = runtimeFlags().dlssLog;
         tpTiming = runtimeFlags().upscaleTiming;
+        if (runtimeFlags().gpuPassTiming)
+            gpuPasses.enable(dev.Get(), ctx.Get(), runtimeFlags().gpuPassTiming == 2);
         if (m)
             setUpscale(m, pr, sh);
     }

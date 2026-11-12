@@ -64,13 +64,14 @@ struct RuntimeFlags {
     std::optional<uint32_t> upscalePreset; // GSR_UPSCALE_PRESET: j=10 k=11 l=12 m=13, anything else 0 (auto)
     std::optional<float> upscaleSharp;     // GSR_UPSCALE_SHARP: atof; overrides Config::upscaleSharpness
     bool upscaleTiming = false;            // GSR_UPSCALE_TIMING: presence
-    bool dlssLog = false;                  // DRAKAN_DLSS_LOG: presence (backend tpLog and NGX log callback)
-    std::optional<std::string> dlssDir;    // DRAKAN_DLSS_DIR: string; extra folder searched for nvngx_dlss.dll
-    std::optional<uint32_t> dlssDebugMode; // DRAKAN_DLSS_DEBUG: "mv" (case-insensitive) = 1, any other value = 0
-    bool dlssValidate = false;             // DRAKAN_DLSS_VALIDATE: presence
-    bool dlssPresentLog = false;           // DRAKAN_DLSS_PRESENT_LOG: presence
-    bool motionValidate = false;           // DRAKAN_MOTION_VALIDATE: presence
-    bool motionLog = false;                // DRAKAN_MOTION_LOG: presence
+    int gpuPassTiming = 0; // GSR_GPU_PASS_TIMING: 1 = GPU time per pass (gpu_pass_stats.h), 2 = also raw marks
+    bool dlssLog = false;  // DRAKAN_DLSS_LOG: presence (backend tpLog and NGX log callback)
+    std::optional<std::string> dlssDir;           // DRAKAN_DLSS_DIR: string; extra folder searched for nvngx_dlss.dll
+    std::optional<uint32_t> dlssDebugMode;        // DRAKAN_DLSS_DEBUG: "mv" (case-insensitive) = 1, any other value = 0
+    bool dlssValidate = false;                    // DRAKAN_DLSS_VALIDATE: presence
+    bool dlssPresentLog = false;                  // DRAKAN_DLSS_PRESENT_LOG: presence
+    bool motionValidate = false;                  // DRAKAN_MOTION_VALIDATE: presence
+    bool motionLog = false;                       // DRAKAN_MOTION_LOG: presence
     std::optional<std::string> temporalDumpDir;   // GSR_TEMPORAL_DUMP_DIR: string; with one of the two below, dumps
     std::optional<std::string> temporalDumpFrame; // GSR_TEMPORAL_DUMP_FRAME: string, strtoull at the use site
     std::optional<std::string> temporalDumpEpoch; // GSR_TEMPORAL_DUMP_EPOCH: string, strtoull at the use site

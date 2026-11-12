@@ -75,12 +75,17 @@ public:
     // geometry of one world frame
     struct Geom {
         uint32_t frameW = 512, frameH = 512; // native frame size (the GS frame region the world is drawn into)
-        uint32_t outW = 0, outH = 0;         // frame * internal scale
+        uint32_t outW = 0, outH = 0;         // frame * internal scale: the target region the result is written to
         uint32_t renderW = 0, renderH = 0;   // sub-rectangle the world is rendered into (top-left of the render target)
+        uint32_t resolveW = 0,
+                 resolveH = 0;    // what the upscaler writes: the target, or the window's pixels of the frame
+        bool windowSized = false; // resolve is one pixel per window pixel (upscale::Plan)
+        float lodBias = 0;        // texture LOD bias of the world draws (upscale::lodBias)
     };
-    // viewW / viewH: the screen pixels the frame finally covers, or 0 for the plain rule (upscale_render_size.h).
-    Geom geometry(uint32_t frameW, uint32_t frameH, uint32_t scale, uint32_t mode, uint32_t viewW = 0,
-                  uint32_t viewH = 0) const;
+    // The sizes of upscale::plan (upscale_render_size.h). display / window: how the frame reaches the window, zeros
+    // when unknown (the upscaler then writes the whole target).
+    Geom geometry(uint32_t frameW, uint32_t frameH, uint32_t scale, uint32_t mode, uint32_t displayW = 0,
+                  uint32_t displayH = 0, uint32_t windowW = 0, uint32_t windowH = 0) const;
 
     // Halton jitter in render pixels for world frame `idx` (phase count follows the upscale ratio)
     void jitter(uint32_t idx, const Geom& g, float& jx, float& jy) const;

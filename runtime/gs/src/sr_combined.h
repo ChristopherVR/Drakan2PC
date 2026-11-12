@@ -28,6 +28,12 @@ struct Inputs {
     // Contiguous pipeline evaluation serial, NOT host present/vsync count.
     // Camera/object motion must refer to the same last ACCEPTED pipeline sample.
     uint64_t frameIndex = 0;
+    // false: no output-sized guides are reconstructed (outputs() then carries no colour, depth or motion). For a
+    // caller without a neural consumer, which writes the picture back with composeTarget.
+    bool guides = true;
+    // Called once the upscaler's commands are queued, before the passes that follow it (GPU pass timing).
+    void (*afterEvaluate)(void* context) = nullptr;
+    void* afterEvaluateContext = nullptr;
 };
 struct Texture {
     ID3D11Texture2D* texture = nullptr;
@@ -69,6 +75,17 @@ public:
     // Optional local sharpening is applied after SR/NR, before the HUD. It does
     // not alter vendor inputs/history or destination alpha.
     bool composeRgb(ID3D11RenderTargetView*, bool useNrOutput, float sharpness = 0.0f);
+    // The finished picture at the upscaler's output size (RGBA8, sharpened): what composeTarget wrote from.
+    struct ViewImage {
+        ID3D11ShaderResourceView* srv = nullptr; // borrowed until the second composeTarget after this one
+        Size size;
+    };
+    // Writes the last resolve() into the top-left `target` region of `destination`, all four channels, without
+    // filtering: each target pixel shows the output pixel upscale::resolveIndex names (upscale_render_size.h), so
+    // a presenter can recognise untouched world pixels and show the output unscaled. Alpha is the raster's (nearest,
+    // never the upscaler's). `target` may equal the output size (a plain copy) or exceed it on either axis.
+    bool composeTarget(ID3D11RenderTargetView* destination, Size target, float sharpness = 0.0f,
+                       ViewImage* view = nullptr);
     // Main calls after SR-success/NR-failure (after any recovery composition).
     // Resets the next SR evaluation AND exposes historyReset=true for next NR.
     void reset();

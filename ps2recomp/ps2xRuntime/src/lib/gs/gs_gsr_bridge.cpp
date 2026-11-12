@@ -583,6 +583,9 @@ void GsrBridge::Impl::execute(uint32_t type, const uint8_t* p, uint32_t size) {
 
 void GsrBridge::Impl::workerMain() {
     drakan_input::boostThread(drakan_input::ThreadRole::Frame);
+#if defined(_WIN32)
+    SetThreadDescription(GetCurrentThread(), L"GSWorker"); // shown by debuggers and in the PS2X_PERF line
+#endif
     std::vector<uint8_t> work;
     for (;;) {
         {

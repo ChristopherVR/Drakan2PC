@@ -77,6 +77,7 @@ bool D3D11Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, ui
     w = std::min(w, 2048u);
     h = std::min(h, 2048u);
     ensureDisp(w * scale, h * scale);
+    GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::Display);
     outW = w;
     outH = h;
 
@@ -173,6 +174,109 @@ bool D3D11Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, ui
     return true;
 }
 
+// The latched display at window size for a world that came from a window-sized upscaler output: the upscaler's own
+// pixels wherever the target still holds them, the usual area average elsewhere (PSPresentView, gs_shaders.h).
+// Sets latchedView; presentLatched then shows viewTex one to one instead of scaling dispTex. Also records whether
+// this display can be shown that way at all (displayAtOrigin), which the next world's plan reads.
+void D3D11Backend::Impl::renderViewImage(const DisplayState& d, uint32_t w, uint32_t h) {
+    latchedView = false;
+    const DisplayCircuit* only = nullptr;
+    int enabled = 0;
+    for (const DisplayCircuit& c : d.c)
+        if (c.enable) {
+            ++enabled;
+            only = &c;
+        }
+    const bool atOrigin = enabled == 1 && only->dbx == 0 && only->dby == 0 &&
+                          (only->width() ? only->width() : w) == w && (only->height() ? only->height() : h) == h;
+    if (latchedGameWorld || !worldDisplayW) { // menus in between do not move the plan (presentView)
+        displayAtOrigin = atOrigin;
+        if (latchedGameWorld) {
+            worldDisplayW = w;
+            worldDisplayH = h;
+        }
+    }
+    if (!atOrigin || cfg.deinterlace != 0 || !psPresentView || !vpW || !vpH || !dispSrv || compareReady)
+        return;
+    uint32_t psm = only->psm;
+    if (psm != PSM_CT24 && psm != PSM_CT16 && psm != PSM_CT16S)
+        psm = PSM_CT32;
+    RT* rt = getRT(only->fbp, std::max(only->fbw, 1u), psm, only->dby + h);
+    // The picture must be this window's pixels of this display: a resized window or another display size since the
+    // world was drawn falls back to the scaled display (the next world is planned for the new size).
+    const upscale::Plan plan = upscale::plan(rt->wgeom.frameW, rt->wgeom.frameH, scale, 1.0f, false, {w, h, vpW, vpH});
+    if (!rt->srViewSrv || !plan.windowSized || plan.resolve.width != rt->srViewW ||
+        plan.resolve.height != rt->srViewH || plan.target.width != rt->srTargetW ||
+        plan.target.height != rt->srTargetH || dispW != w * scale || dispH != h * scale)
+        return;
+    if (!viewTex || viewTexW != vpW || viewTexH != vpH) {
+        viewRtv.Reset();
+        viewSrv.Reset();
+        viewTex = makeTex(vpW, vpH, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+        viewTexW = vpW;
+        viewTexH = vpH;
+        if (!viewTex || FAILED(dev->CreateRenderTargetView(viewTex.Get(), nullptr, &viewRtv)) ||
+            FAILED(dev->CreateShaderResourceView(viewTex.Get(), nullptr, &viewSrv))) {
+            viewTex.Reset();
+            return;
+        }
+    }
+    if (!cbView) {
+        D3D11_BUFFER_DESC bd{};
+        bd.ByteWidth = 16;
+        bd.Usage = D3D11_USAGE_DYNAMIC;
+        bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        if (FAILED(dev->CreateBuffer(&bd, nullptr, &cbView)))
+            return;
+    }
+    GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::Display);
+    struct PC {
+        float a[4];
+        uint32_t m[4];
+    } pc{};
+    pc.a[0] = (float)dispW;
+    pc.a[1] = (float)dispH;
+    pc.a[2] = (float)vpW;
+    pc.a[3] = (float)vpH;
+    static const bool debugTint = std::getenv("GSR_UPSCALE_VIEW_DEBUG") != nullptr;
+    pc.m[0] = debugTint ? 1u : 0u;
+    pc.m[2] = cfg.sharpPresent ? 1u : 0u;
+    pc.m[3] = scale;
+    const uint32_t sizes[4] = {rt->srTargetW, rt->srTargetH, rt->srViewW, rt->srViewH};
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(ctx->Map(cbPresent.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))
+        return;
+    std::memcpy(ms.pData, &pc, sizeof(pc));
+    ctx->Unmap(cbPresent.Get(), 0);
+    if (FAILED(ctx->Map(cbView.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))
+        return;
+    std::memcpy(ms.pData, sizes, sizeof(sizes));
+    ctx->Unmap(cbView.Get(), 0);
+    ID3D11RenderTargetView* rtv = viewRtv.Get();
+    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+    const D3D11_VIEWPORT vp{0, 0, (float)vpW, (float)vpH, 0, 1};
+    ctx->RSSetViewports(1, &vp);
+    const D3D11_RECT sr{0, 0, (LONG)vpW, (LONG)vpH};
+    ctx->RSSetScissorRects(1, &sr);
+    ctx->RSSetState(rast.Get());
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(vsFull.Get(), nullptr, 0);
+    ctx->PSSetShader(psPresentView.Get(), nullptr, 0);
+    ctx->PSSetConstantBuffers(2, 1, cbPresent.GetAddressOf());
+    ctx->PSSetConstantBuffers(3, 1, cbView.GetAddressOf());
+    ID3D11ShaderResourceView* srvs[2] = {dispSrv.Get(), rt->srViewSrv.Get()};
+    ctx->PSSetShaderResources(0, 2, srvs);
+    ctx->OMSetBlendState(blendOff.Get(), nullptr, 0xFFFFFFFFu);
+    ctx->OMSetDepthStencilState(nullptr, 0);
+    ctx->Draw(3, 0);
+    ID3D11ShaderResourceView* nulls[2] = {nullptr, nullptr};
+    ctx->PSSetShaderResources(0, 2, nulls);
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    latchedView = true;
+}
+
 void D3D11Backend::Impl::latchDisplay(const DisplayState& d, uint32_t field) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::LatchDisplay);
     if (!ok)
@@ -220,6 +324,13 @@ void D3D11Backend::Impl::latchDisplay(const DisplayState& d, uint32_t field) {
         }
     }
     renderDisplay(d, w, h, true);
+    renderViewImage(d, w, h);
+    if (tpLog && frame % 240 == 0)
+        std::fprintf(stderr,
+                     "[dlss-view] f%llu display %ux%u circuits %d/%d origin %u,%u / %u,%u atOrigin=%d window %ux%u "
+                     "view=%d\n",
+                     (unsigned long long)frame, w, h, (int)d.c[0].enable, (int)d.c[1].enable, d.c[0].dbx, d.c[0].dby,
+                     d.c[1].dbx, d.c[1].dby, (int)displayAtOrigin, vpW, vpH, (int)latchedView);
     if (upMode) // targets that were just displayed start their next frame idle
         for (int i = 0; i < 2; ++i)
             if (d.c[i].enable)
@@ -274,13 +385,17 @@ void D3D11Backend::Impl::presentLatched() {
     vpX = vx;
     vpY = vy;
     const float black[4] = {0, 0, 0, 1};
+    gpuPasses.mark(gpupass::Pass::PresentBlit);
     ctx->ClearRenderTargetView(swapRtv.Get(), black);
     struct PC {
         float a[4];
         uint32_t m[4];
     } pc{};
-    pc.a[0] = (float)dispW;
-    pc.a[1] = (float)dispH;
+    // A latched window-sized image (renderViewImage) is shown one to one; a window resized since is scaled again.
+    const bool showView = latchedView && viewSrv && viewTexW == (uint32_t)vw && viewTexH == (uint32_t)vh &&
+                          cfg.deinterlace == 0 && !compareReady;
+    pc.a[0] = (float)(showView ? viewTexW : dispW);
+    pc.a[1] = (float)(showView ? viewTexH : dispH);
     pc.a[2] = vw;
     pc.a[3] = vh;
     pc.m[0] = cfg.deinterlace;
@@ -303,7 +418,7 @@ void D3D11Backend::Impl::presentLatched() {
     ctx->VSSetShader(vsFull.Get(), nullptr, 0);
     ctx->PSSetShader(psPresent.Get(), nullptr, 0);
     ctx->PSSetConstantBuffers(2, 1, cbPresent.GetAddressOf());
-    ID3D11ShaderResourceView* sv = dispSrv.Get();
+    ID3D11ShaderResourceView* sv = showView ? viewSrv.Get() : dispSrv.Get();
     ctx->PSSetShaderResources(0, 1, &sv);
     ID3D11SamplerState* smps[2] = {smpPt.Get(), smpLin.Get()};
     ctx->PSSetSamplers(0, 2, smps);
@@ -329,6 +444,7 @@ void D3D11Backend::Impl::presentLatched() {
     ctx->Draw(3, 0);
     ID3D11ShaderResourceView* nul = nullptr;
     ctx->PSSetShaderResources(0, 1, &nul);
+    gpuPasses.mark(gpupass::Pass::Overlay);
     if (overlayCb) {
         OverlayContext oc;
         oc.device = dev.Get();
@@ -438,6 +554,7 @@ void D3D11Backend::Impl::presentLatched() {
     }
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
     CpuProfile::Scope presentProfile(cpuProfile, CpuProfile::PresentCall);
+    gpuPasses.frameBoundary();
     if (swap) {
         const HRESULT hr = swap->Present(vsyncOn ? 1 : 0, (!vsyncOn && tearingOk) ? DXGI_PRESENT_ALLOW_TEARING : 0u);
         presentSlotHeld = false;

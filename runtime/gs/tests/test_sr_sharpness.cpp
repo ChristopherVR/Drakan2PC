@@ -2,6 +2,7 @@
 #include "sr_combined.h"
 #include "temporal.h"
 #include "upscale_controls.h"
+#include "upscale_render_size.h"
 #include <DirectXPackedVector.h>
 #include <wrl/client.h>
 #include <algorithm>
@@ -202,6 +203,81 @@ int main() {
             ctx->Unmap(t.Get(), 0);
         }
         ++cases;
+        {
+            // composeTarget: the unfiltered write-back of a resolve without guides. Output 16 x 16, target 20 x 28
+            // inside a 32 x 32 RGBA8 destination: every target pixel shows the output pixel upscale::resolveIndex
+            // names, alpha is the raster's nearest sample, the rest of the destination is untouched.
+            constexpr unsigned TW = 20, TH = 28, DW = 32, DH = 32;
+            gsr::sr_combined::Pipeline q(dev.Get(), ctx.Get());
+            require(q.ready(), q.status().c_str());
+            require(q.configure({{W, H}, {W, H}, 2, 0}), q.status().c_str());
+            gsr::sr_combined::Inputs plain;
+            plain.color = cs.Get();
+            plain.depth = zs.Get();
+            plain.motion = ms.Get();
+            plain.guides = false;
+            require(q.resolve(plain), q.status().c_str());
+            require(!q.outputs().color.texture && q.outputs().srEvaluated, "no guide targets without guides");
+            require(!q.composeRgb(rtv.Get(), false, 0), "composeRgb refuses a resolve without guides");
+            std::vector<uint32_t> fill(DW * DH, 0x11223344u);
+            D3D11_TEXTURE2D_DESC d8{};
+            d8.Width = DW;
+            d8.Height = DH;
+            d8.MipLevels = d8.ArraySize = d8.SampleDesc.Count = 1;
+            d8.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            d8.BindFlags = D3D11_BIND_RENDER_TARGET;
+            D3D11_SUBRESOURCE_DATA data8{fill.data(), DW * 4, 0};
+            ComPtr<ID3D11Texture2D> dest8;
+            ComPtr<ID3D11RenderTargetView> rtv8;
+            require(SUCCEEDED(dev->CreateTexture2D(&d8, &data8, &dest8)) &&
+                        SUCCEEDED(dev->CreateRenderTargetView(dest8.Get(), nullptr, &rtv8)),
+                    "RGBA8 destination");
+            gsr::sr_combined::Pipeline::ViewImage first, second, third;
+            ID3D11RenderTargetView* sentinel = rtv.Get();
+            ctx->OMSetRenderTargets(1, &sentinel, nullptr);
+            require(q.composeTarget(rtv8.Get(), {TW, TH}, 0, &first), q.status().c_str());
+            ComPtr<ID3D11RenderTargetView> restored;
+            ctx->OMGetRenderTargets(1, &restored, nullptr);
+            require(restored.Get() == rtv.Get(), "composeTarget restores the caller's bindings");
+            ctx->ClearState();
+            require(first.srv && first.size.width == W && first.size.height == H, "finished picture is output sized");
+            d8.BindFlags = 0;
+            d8.Usage = D3D11_USAGE_STAGING;
+            d8.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Texture2D> stage8;
+            require(SUCCEEDED(dev->CreateTexture2D(&d8, nullptr, &stage8)), "staging RGBA8");
+            ctx->CopyResource(stage8.Get(), dest8.Get());
+            D3D11_MAPPED_SUBRESOURCE map{};
+            require(SUCCEEDED(ctx->Map(stage8.Get(), 0, D3D11_MAP_READ, 0, &map)), "read RGBA8");
+            auto byte = [](float v) { return int(std::lround(std::clamp(v, 0.f, 1.f) * 255.f)); };
+            for (unsigned y = 0; y < DH; ++y)
+                for (unsigned x = 0; x < DW; ++x) {
+                    const uint8_t* px = static_cast<const uint8_t*>(map.pData) + y * map.RowPitch + x * 4;
+                    if (x >= TW || y >= TH) {
+                        require(px[0] == 0x44 && px[1] == 0x33 && px[2] == 0x22 && px[3] == 0x11,
+                                "outside the target region the destination is untouched");
+                        continue;
+                    }
+                    const unsigned rx = gsr::upscale::resolveIndex(x, TW, W), ry = gsr::upscale::resolveIndex(y, TH, H);
+                    const unsigned source = ry * W + rx;
+                    for (unsigned c = 0; c < 3; ++c)
+                        require(std::abs(int(px[c]) - byte(number(rgba[source * 4 + c]))) <= 1,
+                                "target pixel shows the output pixel resolveIndex names, clamped to 0..1");
+                    const unsigned ax = std::min(W - 1, unsigned((x + .5f) * W / TW)),
+                                   ay = std::min(H - 1, unsigned((y + .5f) * H / TH));
+                    require(std::abs(int(px[3]) - byte(number(rgba[(ay * W + ax) * 4 + 3]))) <= 1,
+                            "alpha is the raster's nearest sample");
+                }
+            ctx->Unmap(stage8.Get(), 0);
+            require(q.composeTarget(rtv8.Get(), {TW, TH}, 1, &second) && second.srv && second.srv != first.srv,
+                    "the next write-back uses the other finished picture");
+            require(q.composeTarget(rtv8.Get(), {TW, TH}, 0, &third) && third.srv == first.srv,
+                    "two finished pictures alternate");
+            require(!q.composeTarget(rtv8.Get(), {DW + 1, DH}, 0), "a target larger than the destination is refused");
+            require(!q.composeTarget(nullptr, {TW, TH}, 0), "a destination is required");
+            ctx->ClearState();
+            ++cases;
+        }
         std::printf("PASS %u SR/NR synthetic composition cases: sharpness, HDR, boundaries, all256 alpha values, "
                     "context restore and repeated resolve; no NGX evaluation\n",
                     cases);

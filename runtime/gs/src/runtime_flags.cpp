@@ -100,6 +100,8 @@ RuntimeFlags parse() {
     if (const char* e = env("GSR_UPSCALE_SHARP"))
         f.upscaleSharp = (float)std::atof(e);
     f.upscaleTiming = present("GSR_UPSCALE_TIMING");
+    if (const char* e = env("GSR_GPU_PASS_TIMING"))
+        f.gpuPassTiming = std::max(1, std::atoi(e));
     f.dlssLog = present("DRAKAN_DLSS_LOG");
     f.dlssDir = optString("DRAKAN_DLSS_DIR");
     if (const char* e = env("DRAKAN_DLSS_DEBUG"))
