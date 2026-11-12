@@ -412,3 +412,227 @@ under `build/review/issue6-1/runs/`.
 * All runs used the harness: god mode, windowed 1280x720 (the copied `drakan.ini` otherwise unchanged), audio as in
   the ini. The harness placements cause most of the long rewinds and camera cuts seen; a player without placements was
   not measured.
+
+---
+
+## Second pass (later the same day): real play, the stair-head verdict, the cause and the fix
+
+This section was written by a second investigator who took the note above as a colleague's record. It supersedes
+"Root cause", "Fix" and the stair-head paragraphs above where they disagree. Scratch, tools, run logs and pictures:
+`build/review/issue6-1b/` (`tools/real_drive.py`, `tools/count.py`, `tools/table.py`, `runs/`, `evidence/`).
+
+### Summary
+
+* The reporter's fault reproduces by real play on the v0.1.11-era exe, with no placement inside the building: walk
+  in through the house door, down into the cellar, to the barrel room, up the stairs to the room 453 and back.
+  With the owner's settings (uncapped) it happened on the first climb of the stairs in 6 of 6 runs.
+* It is the camera, not Rynn. In no real-play run did Rynn lose her layer or get handed to an outdoor layer
+  (actor without a layer: 0 frames; actor outdoors: 0 frames, all runs of both exes).
+* Cause: the PC camera follow (`[mouse] camera_follow`, default 5; `InputModule::beforeCameraFollow`) carries the
+  camera's previous position round Rynn rigidly by her heading change, with no collision test. On a quick mouse turn
+  in a narrow place the camera is swung on an arc of its full distance (about 1550 units) through the corner of the
+  room and past the edge of the cellar's terrain layers. The engine's view layer lookup then finds no layer, the next
+  frame searches all layers and takes the outdoor layer above the cellar, and the engine tick, which runs the world
+  update from the view layer, stops moving Rynn. That is "Rynn gets completely stuck and the entire rendering bugs
+  out" in one mechanism.
+* With `camera_follow = 0` (the native PS2 camera) the fault did not occur (4 runs, 22 laps, 88250 samples in the cellar: the view never left the cellar layers and was never -1).
+* Fix: a view-only rule (`drakan_view_layer.h`): a follow-camera point with no layer is answered from the controlled
+  actor's layer. On by default, `[video] camera_layer_fix = 0` or `DRAKAN_VIEW_LAYER_FIX=0` turns it off. Nothing
+  moves the player. The guard (`drakan_layer_seam*.h`, its test and its install line) is deleted in the same commit.
+* The "open side" of the room at the stair head does not exist for a player. The spot the earlier pictures were
+  taken from is a pocket outside the room's east wall that only a harness placement reaches.
+
+### Real entry
+
+There is no quest gate on the way in. The quest giver (object 7906, `Male Villager 3`, in front of the house at
+(451816, 498935)) only adds the journal entry (`Spiders in the Cellar Journal`, 8693) and pays 250 gold when the
+counter 7932 has counted ten spiders; the front door (`Town Door` 15531 at (449081, 497782)) is not locked. Two
+trigger boxes in the entrance hall (15534, 15535) switch the house between its outside model (`Tavern Exterior`,
+15269) and the interior (`Spider Interior Room` 16702, `Spider Interior Door` 15820 and the furniture). The earlier
+runs placed Rynn inside the building without crossing them, so they ran with the outside model shown and the interior
+hidden: that is the "stone wall" their `door` mission met at z 480817.
+
+The recipe of this pass (`tools/recipe_door.txt`) has one placement, on the open ground in front of the door,
+(449500, 500800), facing it. From there `real_drive.py` steers with W and mouse counts along waypoints: through the
+door and the hall (x 449500), east along the corridor (z 486400), south through the inner doorway at (461750,
+485300), down the stairs of layer 205, through 446 and 447 into the barrel room 448, then laps: north up the corridor
+452 and its stairs into the room 453, to the middle of that room, and back down along the right-hand (west) wall into
+the barrel room. Modes per lap, chosen at random: run; sword drawn with attack taps; strafing into the right-hand
+wall; jumping; mouse wobble; sword with strafing; sword with jumping. The ten spiders are alive and chase and bite
+her the whole time (`DRAKAN_PLAYTEST_GOD=1` keeps her alive; they were not killed, so every lap is a fight on the
+move). A poller writes one row per input sample: actor layer, view layer, positions (`runs/<run>/frames.jsonl`).
+
+### Counts
+
+Original exe: `build/review/baseline-play/drakan.exe` (v0.1.11 era). Fixed v1: the rule without the stand-aside
+after placements, built with `Build-LocalGame.ps1 -Incremental` into `build/review/issue6-1b/play` (the exe is kept as
+`exe-v1/drakan.exe`). Fixed v2: the committed code (5757266f), built the same way; it differs from v1 only in the
+stand-aside. Both fixed builds contain everything else the tree had at the time, so "rule off" rows are the control
+for the rule itself. "Owner" is the owner's `drakan.ini` and
+`drakan_input.ini` with only these differences: windowed 1280x720 instead of fullscreen, `pause_when_unfocused = 0`,
+no audio, a fresh empty memory card, the harness input script instead of the devices. "Reporter" adds
+`GSR_TEXREPLACE=0` (no HD textures), an empty mods folder and `fov = 80` (the default; the owner has 99); DLSS quality
+and the rest of the owner's file stay, since the reporter's file is not known. A run ends after 240 s of laps or when
+the view has been outdoors for 5 s with Rynn in a cellar layer ("stuck").
+
+| exe, settings, world rate | runs | laps | samples in the cellar | runs ending stuck | lap of the stop (Rynn's layer, view layer) | view outdoors, samples | view -1, samples | Rynn without a layer, samples | Rynn in an outdoor layer, samples |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| original exe, owner, uncapped | 6 | 6 | 24079 | 6 | 0 (layer 4, view 195); 0 (layer 4, view 195); 0 (layer 4, view 195); 0 (layer 4, view 195); 0 (layer 4, view 195); 0 (layer 4, view 195) | 16822 | 72 | 0 | 0 |
+| original exe, owner, 60 | 3 | 9 | 12600 | 3 | 4 (layer 9, view 217); 0 (layer 4, view 195); 2 (layer 9, view 217) | 920 | 14 | 0 | 0 |
+| original exe, owner, 30 | 3 | 20 | 22698 | 1 | 6 (layer 9, view 217) | 184 | 28 | 0 | 0 |
+| original exe, reporter, uncapped | 5 | 9 | 14822 | 5 | 0 (layer 9, view 217); 3 (layer 5, view 217); 0 (layer 4, view 195); 0 (layer 4, view 195); 1 (layer 9, view 217) | 2108 | 34 | 0 | 0 |
+| original exe, owner, uncapped, `camera_follow = 0` | 4 | 22 | 88250 | 0 | - | 0 | 0 | 0 | 0 |
+| fixed v1, owner, uncapped | 9 | 45 | 204589 | 0 | - | 0 | 235 | 0 | 0 |
+| fixed v1, owner, 60 | 3 | 14 | 34043 | 0 | - | 0 | 18 | 0 | 0 |
+| fixed v1, owner, 30 | 3 | 18 | 20889 | 0 | - | 0 | 23 | 0 | 0 |
+| fixed v1, reporter, uncapped | 6 | 25 | 58464 | 0 | - | 0 | 29 | 0 | 0 |
+| fixed v1, owner, uncapped, rule off | 2 | 6 | 18594 | 2 | 0 (layer 4, view 195); 4 (layer 5, view 217) | 966 | 19 | 0 | 0 |
+| fixed v2 (committed), owner, uncapped | 4 | 29 | 208762 | 0 | - | 0 | 256 | 0 | 0 |
+| fixed v2 (committed), owner, 60 | 0 (not run yet) | | | | | | | | |
+| fixed v2 (committed), owner, 30 | 0 (not run yet) | | | | | | | | |
+| fixed v2 (committed), reporter, uncapped | 3 | 20 | 165736 | 0 | - | 0 | 160 | 0 | 0 |
+| fixed v2 (committed), owner, uncapped, rule off | 0 (not run yet) | | | | | | | | |
+
+Machine load: for the original exe, v1 and the first seven v2 runs two to three game instances ran at the same
+time (two of these batches, and another agent's game), and other sessions built and benchmarked, so the uncapped
+rate varied between about 80 and 260 world frames a second. The later v2 runs ran one instance at a time.
+
+What the numbers say:
+
+* Baseline, uncapped: the first quick turn at the head of the stairs is enough. The onset in
+  `runs/b-cf5-1/frames.jsonl`: Rynn at (461694, 460081) in layer 4 turns west in mouse steps of 0.24 rad; the camera,
+  1550 to 1600 units from her, jumps with each step along an arc, (461899, 461862), (462283, 461614), (462593, 461381),
+  (462838, 461113): view -1 for a frame, then (462829, 461001), whose lookup point 32 units behind it lies past the
+  layer edge x = 462848: view 195, for good. `evidence/t1_first.png`.
+* Baseline at 30 and 60 world frames a second: the same fault, less often per turn, because the native easing pulls
+  the carried camera back by a larger share per tick. One of the 30 fps runs (`b-30-2`, lap 6, sword drawn, along the
+  right-hand wall) is the reporter's video to the place: Rynn at the mouth of the corridor next to the kegs,
+  (461030, 465838), the camera carried to (460777, 464757), west of the corridor's west edge and north of the barrel
+  room's layer: view -1, then 217 (the outdoor layer south of z = 464896), and it stays. `evidence/b-30-2_kegs.png`.
+* Reporter configuration: same result, so HD textures, mods and the wider field of view are not involved.
+* Fixed builds: no outdoor view and no stuck run in any row with the rule on. The "view -1" frames that remain are memory samples
+  between two frames (see "What is left"); Rynn keeps moving through them. The pictures taken on those frames
+  (`evidence/fixed_viewlost.png`) show wall stone at point-blank range for a few frames, then the room: the camera
+  is inside the wall. No sky and no outdoor terrain.
+* Rule off on the fixed builds (`DRAKAN_VIEW_LAYER_FIX=0`): the fault is back, so the difference is the rule and
+  not something else in the newer tree.
+
+### The stair-head room
+
+Verdict: (a). The room is enclosed, and the open side was the harness.
+
+* Geometry (`evidence/slice_l4_159350.png`, `slice_l4_159900.png`: horizontal cuts through the tile meshes at ankle
+  and chest height). Layer 453 is 3 x 4 cells, but the room does not fill it. Its walls are `Corner` 15320, 15319,
+  15288, 15316 and 15314, `Catacombs Wall` 15322, 15321 and 15318 and the `Alcove` 15365. The east wall between the
+  alcove and the stair-head corner is the wall face of 15318 at x 460714 to 460800 (z 456704 to 458752); 15321 is the
+  same north of the alcove. The cells east of those two walls, x 460800 to 462848 at z 456704 to 458752 and at z 452608
+  to 454656, have a floor (the layer's terrain cell) but lie outside the room: bounded by the wall on the west, the
+  alcove's outer wall and the corner tile's outer wall on two sides, and nothing on the east. The earlier note read
+  "no tile in that cell" as "a hole in the room's wall"; the wall stands in the neighbouring cell.
+* The earlier placements were all in that pocket: `look` at (461500, 457700), `l4east` at (462045 +- 300, 457948 +-
+  300), `l4stairs` at x 461000 to 462600, z 455500 to 459000. From there one sees the back of the walls and the clear
+  colour: `stairhead_gap_views.png`.
+* Real play: walked in, the room is closed on every side (`evidence/f-tour3_room.png`: twelve views, four from spots
+  in the room and eight turning on the spot in the middle; stone walls, the alcove with its chest, barrels, webs, no
+  sky). Walking and jumping into the east wall for 6 s at five places (`runs/f-push`, z 457700, 457100, 458300 and
+  453600) Rynn's origin got to x 460543 to 460770 and never past the wall face at 460800.
+* So the stair-head hand-over of Rynn to layer 195 in the first half of this note is an artefact of the placement and
+  is withdrawn with the rest: no fault of Rynn's own layer was seen in real play.
+
+### Why the camera gets there, and why Rynn stops
+
+* `InputModule::beforeCameraFollow` (`runtime/input/src/DrakanInput.cpp`): while mouse and keyboard steer on foot, it
+  rotates the camera's previous position about Rynn's anchor by her heading change since the last tick and writes it
+  back, then lets the native camera tick ease towards its own, collision-limited target at `camera_follow` per second.
+  The rotation is rigid: the radius is whatever the camera had, and nothing tests the new point. At 150 frames a
+  second the ease moves the camera 3 % of the way per tick, so a carried camera stays outside for many frames; at 30
+  frames a second 17 %, so it is usually back before the second lookup.
+* The view layer update `0x112488` (from `0x139010`, right before the terrain draw `0x152330`) stores what the lookup
+  returns into the view (`+0x8c`, PAL `0x4dade4`). A miss stores -1, the next call searches all layers.
+* The engine tick `0x135c40` reads the view layer at `0x1360c0`: with -1 it jumps over the whole world update
+  (`0x1360cc` to `0x13636c`); otherwise it takes the view layer's record (`0x151790`) and runs the update from it
+  (`0x14cf08`). Read from the recompiled code. With the outdoor layer as the view, Rynn stands still while her
+  animation runs and the mouse no longer turns her (heading constant in `runs/t1/frames.jsonl` from the hand-over on):
+  the cellar's layers are not among those the outdoor layer lists. That the update skips her for that reason is
+  inferred from the code path and the observation, not traced further.
+* With `camera_follow = 0` the camera position eases along a chord inside the room and the view never left the cellar.
+  The PS2 game has only that camera, which is why the level shipped like this.
+
+### Fix
+
+`ps2recomp/ps2xRuntime/src/lib/drakan_view_layer.h` (policy) and `drakan_view_layer_hook.h` (a hook on the cell
+lookup `0x14b6b8` that acts only for the call from the view update, return address `0x112550`; every other caller
+goes straight to the original). While the camera point is within 4096 units of the controlled actor:
+
+1. The lookup finds no layer: it is repeated from the actor's layer; when that finds nothing either, the view uses
+   the actor's layer itself.
+2. A search over all layers (the view had none) that ends in a layer unrelated to the actor's (neither lists the
+   other): the same answer.
+3. The actor has no layer on that tick and the lookup finds none: the view keeps the layer it had.
+
+Everything else is the engine's result. A camera further away (a cut scene elsewhere, a camera in flight) is not
+touched, and no actor is ever written. The rule also stands aside for 600 view updates after the controlled actor was
+placed rather than moved (more than 2048 units between two view updates: a script teleport, a play-test placement, a
+level arrival) or replaced (a mount, a new level), so everything such a move does is the engine's own handling. That
+was added after the first fixed build (v1 in the table) logged decisions while the camera flew to Rynn after harness
+placements; v2 is the committed code. Off: `[video] camera_layer_fix = 0` or
+`DRAKAN_VIEW_LAYER_FIX=0`; `DRAKAN_VIEW_LAYER_TRACE=1` logs every decision. Unit test `view_layer_policy`
+(`ps2recomp/ps2xRuntime/tests/view_layer_policy_tests.cpp`).
+
+The guard of the first half (`drakan_layer_seam.h`, `drakan_layer_seam_hook.h`, `layer_seam_policy_tests.cpp`, the
+`DRAKAN_LAYER_SEAM_*` variables) is removed: it had no use left, the actor fault it was built for does not occur in
+play.
+
+Placements (`ISSUE6_MISSION=teleports` of the earlier tools, 18 placements between the cellar, the level start, the
+terrain above the cellar and the house): the test cannot show equality, because the original
+exe does not repeat itself. In seven runs (two of the original exe, two of v1 with the rule off, three of v1 with it
+on) the first eight placements ended in the same layers in six runs (cellar 5; flung by the level-start placement,
+which the engine never takes; lifted onto the outdoor layer 195 three times; house 214; outdoors 272; cellar 205),
+and from the ninth on the outcome differed from run to run within every configuration, the original exe included
+(the same cellar target ended in layer 5 in one run and on the terrain above in the next). v1 did log decisions
+while the camera flew to Rynn after a placement (for example "engine 11, actor layer 217 -> 217"), which is why v2
+stands aside after a placement. The v2 runs of the placements, a level exit and a cut-scene start are in the addendum at the end of this note.
+
+### What is left, and not established
+
+* The camera follow still carries the camera through walls; the rule only keeps the view and the world update in
+  the right layer while it is there. For those frames (episodes of 1 to 12 input samples in the logs) the camera is
+  inside or behind the wall and the picture is stone surfaces at point-blank range (`evidence/fixed_viewlost.png`).
+  That blemish is in v0.1.11 too, wherever a turn does not end in the fault. A collision test for the carried
+  position in `beforeCameraFollow` would be the fix for it; not done here.
+* On the fixed build the view layer in memory still reads -1 between frames while the camera point is outside (721 of 692483
+  samples): something sets the view to -1 after the draw whenever the point is outside the layer, and the hook answers
+  again on the next view update. The tick did not skip the world on those frames (Rynn's position changes on every
+  one of them) and the pictures show cellar geometry, so the draw and the tick both see the answered layer. The writer of
+  that -1 was not found (the earlier note's open item; `0x112568` and `0x112620`, which store -1 into the view, are
+  called from `0x137288`, `0x135988`, `0x16adb8` and `0x1aad10`; which of them runs in play was not traced).
+* Whether the PS2 shows the fault: not tested on hardware or an emulator. With the native camera
+  (`camera_follow = 0`) this port did not show it in 4 runs (22 laps).
+* The reporter's own settings are unknown (frame rate, field of view, camera follow). The runs cover the owner's file
+  and a "no HD textures, no mods, default field of view" variant of it.
+* The laps were driven by a script that turns with mouse steps of up to 120 counts per two input samples. A player
+  who turns slowly will see it less often: a variant with slow turns on the way up (`runs/b-video-*`) reached the room
+  without the fault.
+* God mode was on in every run (the spiders bite, Rynn does not die). Knock-back by a spider did not move Rynn off
+  her layer in any run, but the spiders were not steered into particular walls.
+* Other interiors under outdoor layers (other cellars, caves, the catacombs) were not driven. The rule is general.
+* Arokh mounted and cut scenes: only what every run passes through (the intro, its skip and the level change into
+  Surdana) and the placement table above. No flight was driven on the fixed build.
+* The stair-top snag of the earlier note (Rynn stepping forward and being put back at the south edge of 453) showed
+  as "unstick" events of the driver on both exes; not looked into.
+
+### Evidence of the second pass
+
+`build/review/issue6-1b/evidence/`: `t1_first.png` (the first real-play run: outside the house, the flash at the
+cellar entrance, then the stuck outdoor view at the stair head); `baseline_owner_6runs.png` (the six uncapped runs
+of the original exe, three frames each); `baseline_reporter_5runs.png` (the five runs without HD textures and mods:
+the barrel room on the way in, then the fault); `b-30-2_kegs.png` (30 frames a second, the fault at the mouth of the
+corridor by the kegs, the reporter's place); `f-own-1_walk.png` (fixed build: house, cellar stairs, barrel room,
+the room 453, spiders in every frame); `fixed_viewlost.png` (fixed build, frames taken while the camera was behind a
+wall); `f-tour3_room.png` and `stairhead_plan.png` (the room 453: twelve views, and the plan with the walls, the
+pocket, the earlier placements and the walked tracks); `slice_l4_159350.png`, `slice_l4_159900.png`,
+`slice_house_161000.png` (cuts through the tile meshes). Every picture in the sheets was looked at. Per-sample logs:
+`runs/<run>/frames.jsonl`, driver events `drive.jsonl`, game log `stdout.log`.
+
+Rows of the table marked "not run yet" wait behind another session's GPU benchmark; they and the placement, level
+exit and cut-scene runs of the committed build are added below when they have run.
