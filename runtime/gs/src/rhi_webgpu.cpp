@@ -333,16 +333,23 @@ public:
     }
     TexturePtr acquireSurface() override {
 #if defined(DRAKAN_WGPU_NATIVE)
-        // The next window image is only asked for once the GPU has finished the previous frame. wgpu waits for that
-        // itself inside wgpuSurfaceGetCurrentTexture, but for one second at most, and when the wait runs out (a
-        // large internal scale, compute ray tracing, a busy GPU) it gives the device up and ends the process. Waiting
-        // here has no time limit. GSR_PRESENT_WAIT=0 skips it (diagnosis).
-        static const bool presentWait = [] {
+        // Before it hands out the next window image wgpu waits for the GPU to finish the previous frame, for one second
+        // at most, and when that runs out (compute ray tracing at a large internal scale on a busy GPU) it gives the
+        // device up and ends the process. So the wait is done here, without a time limit, when a frame can be that
+        // slow: whenever this frame or the previous one ran compute work, or when the GPU is already two frames
+        // behind. Waiting always would be safe too, but on a GPU other programs load it costs frame rate (a third to
+        // a half in the measurement of 2026-11-12), because it holds the renderer to one frame in flight.
+        // GSR_PRESENT_WAIT: 0 = never (diagnosis), 2 = always, anything else = the rule above.
+        static const int presentWait = [] {
             const char* value = std::getenv("GSR_PRESENT_WAIT");
-            return !value || value[0] != '0';
+            return value && value[0] == '0' ? 0 : value && value[0] == '2' ? 2 : 1;
         }();
+        if (!gone())
+            context_.poll(false); // runs the completion callbacks of the frames that finished
         if (presentWait && havePresent_ && !gone()) {
-            wgpuDevicePoll(device_, true, &presentSubmission_);
+            const uint64_t pending = presentsSubmitted_ - presentsDone_->load();
+            if (presentWait == 2 || computeThisFrame_ || computeLastFrame_ || pending >= 2)
+                wgpuDevicePoll(device_, true, &presentSubmission_);
             havePresent_ = false;
         }
         if (!gone())
@@ -394,6 +401,20 @@ public:
 #if defined(DRAKAN_WGPU_NATIVE)
         presentSubmission_ = lastSubmission_; // the last work that wrote this frame's window image
         havePresent_ = haveSubmission_;
+        computeLastFrame_ = computeThisFrame_;
+        computeThisFrame_ = false;
+        if (haveSubmission_ && !gone()) { // count the frames whose work the GPU has not finished
+            ++presentsSubmitted_;
+            auto done = WGPU_QUEUE_WORK_DONE_CALLBACK_INFO_INIT;
+            done.mode = WGPUCallbackMode_AllowSpontaneous;
+            done.userdata1 = new std::shared_ptr<std::atomic<uint64_t>>(presentsDone_);
+            done.callback = [](WGPUQueueWorkDoneStatus, WGPUStringView, void* user, void*) {
+                std::unique_ptr<std::shared_ptr<std::atomic<uint64_t>>> counter(
+                    static_cast<std::shared_ptr<std::atomic<uint64_t>>*>(user));
+                ++**counter;
+            };
+            wgpuQueueOnSubmittedWorkDone(queue_, done);
+        }
 #endif
     }
     bool dualSourceBlending() const override { return context_.dualSourceBlending(); }
@@ -818,6 +839,9 @@ public:
     void dispatch(uint32_t x, uint32_t y, uint32_t z) override {
         if (gone())
             return;
+#if defined(DRAKAN_WGPU_NATIVE)
+        computeThisFrame_ = true; // see acquireSurface
+#endif
         if (!program_ || !program_->compute || !x || !y || !z)
             return;
         WGPUBindGroup group = bindGroup();
@@ -1235,6 +1259,10 @@ struct U { origin: vec4u }
 #if defined(DRAKAN_WGPU_NATIVE)
     WGPUSubmissionIndex lastSubmission_ = 0, presentSubmission_ = 0;
     bool haveSubmission_ = false, havePresent_ = false;
+    bool computeThisFrame_ = false, computeLastFrame_ = false;
+    uint64_t presentsSubmitted_ = 0;
+    // Presented frames the GPU has finished; shared with the completion callbacks, which may outlive this object.
+    std::shared_ptr<std::atomic<uint64_t>> presentsDone_ = std::make_shared<std::atomic<uint64_t>>(0);
 #endif
     std::unique_ptr<drakan::gpu::Context> ownedContext_; // devices from open()
     TexturePtr backBuffer_;                              // browser: the frame before it is copied to the canvas
