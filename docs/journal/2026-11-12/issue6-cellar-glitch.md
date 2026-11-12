@@ -225,6 +225,40 @@ refused 1 to 38 rewinds per run outside placements. The one run of the ten that 
 frame 19558) did so in a placement: x went 461003, 463293, 465299 in three frames, past the 2048-unit window, and the
 search from -1 gave 195.
 
+## Root cause (after the guard was stopped)
+
+The question was why her centre gets past a layer edge at a wall at all. Measured per spot, on the original exe and on
+an experiment that only keeps the layer for a lookup miss within 32 units of the layer's own rectangle (actors) and
+384 units (the camera), with no other rule (v16, source kept in `build/review/issue6-1/v16src`, not committed):
+
+* **Stair head, east side of 453 (x = 462848, z 456704 to 458752): a hole in the walls.** The tiles of the room are
+  `Alcove PS2` (z 454656 to 456704) and `Corner PS2` (z 458752 to 460800) at x 460800 to 462848; the cell between them
+  has no tile at all (object list of LEVEL1NA, `tools/cellar_mesh.ts`: 29 objects there, all with models, none
+  covering it), so nothing collides on its east side. Nothing but the layer edge stops her, and the engine's answer to
+  the miss there is the search over all layers, which returns 195. With the layer kept she simply walked on, 120 units
+  past the edge (`runs/v16-l4east-r1`), and was handed to 195 as soon as the margin ran out: keeping the layer does
+  not help where there is no wall. The picture at the hand-over shows the open side (`evidence/baseline_hit_s5.png`,
+  first frame: the camera stands in the void east of the room). This is the stair-head fault, from walking, on the
+  original data; fixing it needs collision there (a wall added by a resource override, or a rule that makes that
+  layer edge stop her). Not done.
+* **West wall at the stair foot: a harness artefact.** The stairs of 452 (`Catacombs Stairs PS2`, id 15312) fill the
+  corridor from x 460800 to 462848 between z 460800 and 462848, treads from y 159164 down to 157900. The `westwall`,
+  `pintest` and `barrel` placements at y 158400 for z below 462848 put Rynn inside that block, under the treads (the
+  earlier screenshots show the underside of the steps above her). From there she reached the side of the stairs, whose
+  wall faces start several hundred units above her, and crossed the edge. Placed on the treads instead
+  (`ISSUE6_PIN_SPOT=stairside`, 48 drives each), she lost her layer in 0 drives on the original exe and 1 on v16, and
+  was never handed outdoors. The "video's spot" reproduction of the earlier sections, `runs/base-westwall-cf0-s1`, was
+  made from inside the stairs and does not show a fault a player can reach.
+* **The corridor beyond the stairs** (z 462848 to 464896): its walls (`Straight PS2`) stand 0 to 86 units inside the
+  layer edge, so the centre never reaches it; no drive ever lost the layer there.
+* **The camera.** On the treads the view still went outdoors on the original exe (1314 samples in 48 drives,
+  `runs/base-stairside-s1`) and on v16 (821, `runs/v16-stairside-s1`): the camera point goes deeper into the walls
+  than 384 units. That is the view-only form of the picture break and is a camera fault, not the actor's.
+
+So the fault a player can reach is the hole at the stair head (actor and picture) and the camera point inside the
+walls on the stairs (picture only). The "pin" was the harness idling after a lost layer; the long moves were the
+engine's rewind, inflated by harness placements.
+
 ## Fix (superseded: the guard is off by default)
 
 The owner and the coordinator stopped the guard approach after three revisions in one day (v13 undid placements,
