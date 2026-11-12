@@ -33,6 +33,8 @@ struct BackendCaps {
     bool terrainDetail = false;
     // Motion vectors: a velocity pass after every colour pass of a draw inside an object motion scope.
     bool motionVectors = false;
+    // Vertex-program draws (vertex_program_draw.h): records drawn by an exact vertex shader.
+    bool vertexPrograms = false;
     // A temporal upscaler that renders the world at a reduced resolution (DLSS); also its diagnostics.
     bool temporalUpscaler = false;
     // Readback prefetch: a staged copy of a scratch target the game stopped drawing, started without waiting.

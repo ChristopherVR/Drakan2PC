@@ -1,6 +1,7 @@
 // GS front end: GIF tag parsing, register file, vertex queue / primitive assembly, local memory transfers,
 // CLUT buffer, privileged registers. Draw calls are batched and handed to the D3D11 backend.
 #include "gs_internal.h"
+#include "vertex_program_draw.h"
 #include "runtime_flags.h"
 #include "gs_texup.h"
 #include "gs_image_upload.h"
@@ -389,6 +390,8 @@ struct Renderer::Impl {
     std::vector<vp::Constants> programConstants;
     std::vector<VertexProgramVertex> programVertices;
     std::vector<uint32_t> programIndices;
+    std::vector<VertexProgramRecord> programRecords;
+    motion::Deferred programNotes; // scope notes that arrived while the program batch was open (position: records)
     GsDrawState programState{};
     bool programActive = false;
 
@@ -402,9 +405,18 @@ struct Renderer::Impl {
             b.vertexCount = (uint32_t)programVertices.size();
             b.indices = programIndices.data();
             b.indexCount = (uint32_t)programIndices.size();
+            b.records = programRecords.data();
+            b.recordCount = (uint32_t)programRecords.size();
+            b.notes = programNotes.data();
+            b.noteCount = programNotes.size();
             backend->drawVertexProgram(programState, clut, b);
             stats.programDraws++;
+        } else {
+            for (uint32_t i = 0; i < programNotes.size(); ++i)
+                backend->noteObjectMotion(programNotes.data()[i].scope);
         }
+        programNotes.clear();
+        programRecords.clear();
         programConstants.clear();
         programVertices.clear();
         programIndices.clear();
@@ -421,10 +433,9 @@ struct Renderer::Impl {
             return false;
         }
         state = buildState(3);
-        // Flat shading takes the last vertex's colour of each triangle, and FST would read UV registers the record
-        // does not have: both are evaluated here. So is a run whose fog lane could set a vertex's skip bit.
-        const bool lit = rec.header.program != vp::StripsFlat;
-        if ((state.flags & DF_FST) || (lit && !(state.flags & DF_IIP))) {
+        // Flat shading, UV coordinates and small targets are evaluated here (program_draw::stateTakes). So is a run
+        // whose fog lane could set a vertex's skip bit.
+        if (!program_draw::stateTakes(state.flags, state.frame, rec.header.program, rec.header.prim)) {
             vpath::countFallback(vpath::Fallback::DrawState);
             return false;
         }
@@ -477,6 +488,18 @@ struct Renderer::Impl {
         }
         const uint32_t constants = (uint32_t)programConstants.size();
         programConstants.push_back(*rec.constants);
+        {
+            VertexProgramRecord r;
+            r.firstVertex = (uint32_t)programVertices.size();
+            r.vertexCount = h.vertexCount;
+            r.constants = constants;
+            r.program = h.program;
+            uint64_t shape = 1469598103934665603ull ^ h.program;
+            for (uint32_t s = 0; s < h.stripCount; ++s)
+                shape = (shape ^ rec.strips[s]) * 1099511628211ull;
+            r.shape = shape;
+            programRecords.push_back(r);
+        }
         const vp::Vertex* v = rec.vertices;
         for (uint32_t s = 0; s < h.stripCount; ++s) {
             const uint32_t n = rec.strips[s];
@@ -2318,8 +2341,13 @@ void Renderer::noteObjectMotion(const ObjectMotionScope& scope) {
     // The scope does not end the batch when the backend tracks motion per segment: objects that share every GS
     // register stay one draw call (motion_segments.h).
     if (m_impl->programActive && !(m_impl->batchActive && !m_impl->batch.empty())) {
-        // A vertex-program batch is only open while no consumer of object motion is on (Backend::vertexPrograms):
-        // the scope is recorded without ending the batch.
+        // An open vertex-program batch: the note travels with the batch, placed between its records, and the backend
+        // tracks each record under the scope in force for it (vertex_program_draw.h).
+        if (m_impl->backend->deferObjectMotion()) {
+            m_impl->programNotes.add((uint32_t)m_impl->programRecords.size(), scope);
+            return;
+        }
+        m_impl->flushProgram();
         m_impl->backend->noteObjectMotion(scope);
         return;
     }

@@ -32,6 +32,13 @@ struct VertexProgramVertex {
     uint32_t pad[2];
 };
 static_assert(sizeof(VertexProgramVertex) == 64, "vertex layout");
+// One record of a batch: its vertices, and what identifies it between two worlds (motion vectors).
+struct VertexProgramRecord {
+    uint32_t firstVertex = 0, vertexCount = 0;
+    uint32_t constants = 0; // index into the batch's constants
+    uint32_t program = 0;
+    uint64_t shape = 0; // hash of the program and the strip lengths
+};
 struct VertexProgramBatch {
     const vp::Constants* constants = nullptr;
     uint32_t constantCount = 0;
@@ -39,6 +46,12 @@ struct VertexProgramBatch {
     uint32_t vertexCount = 0;
     const uint32_t* indices = nullptr; // triangle list
     uint32_t indexCount = 0;
+    const VertexProgramRecord* records = nullptr; // in stream order; their vertex ranges partition `vertices`
+    uint32_t recordCount = 0;
+    // Object-motion scope notes that arrived while the batch was open: Note::vertex is the number of RECORDS queued
+    // before the note. The backend applies every one of them (vertex_program_draw.h).
+    const motion::Note* notes = nullptr;
+    uint32_t noteCount = 0;
 };
 
 // Everything a draw needs from the register file (POD, memcmp-comparable).

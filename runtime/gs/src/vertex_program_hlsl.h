@@ -21,7 +21,7 @@ inline const char* kHlslVertexProgramHead = R"HLSL(
 // ---------------------------------------------------------------- vertex programs
 cbuffer CBProgram : register(b5)
 {
-    int4 vp_offset; // xy = XYOFFSET (12.4 fixed point)
+    int4 vp_offset; // xy = XYOFFSET (12.4 fixed point), z = first row of this draw's constants in VpConstants
 };
 Buffer<uint4> VpConstants : register(t8);
 struct VpIn
@@ -37,7 +37,17 @@ struct VpRaw
     uint4 colour; // r g b a (0..255)
     uint4 stq;    // float bits of s, t, q
 };
-uint4 vpConstant(uint row) { return VpConstants.Load((int)row); }
+uint4 vpConstant(uint row) { return VpConstants.Load((int)row + vp_offset.z); }
+// The GS depth as the float the CPU path queues: the nearest float, ties to even. Written in integers because an
+// adapter's own conversion is not that for every value (WARP rounds differently from 2^31 up).
+float vpDepth(uint z)
+{
+    if (z < 0x1000000u) return (float)(int)z;
+    uint shift = firstbithigh(z) - 23u;
+    uint mant = z >> shift, rest = z & ((1u << shift) - 1u), half = 1u << (shift - 1u);
+    uint up = (rest > half || (rest == half && (mant & 1u) != 0u)) ? 1u : 0u;
+    return asfloat(((150u + shift) << 23) + (mant & 0x7FFFFFu) + up);
+}
 )HLSL";
 
 inline const char* kHlslVertexProgramEntry = R"HLSL(
@@ -72,19 +82,120 @@ VSOut VSProgram(VpIn i)
     VSIn o;
     o.pf.x = (float)((int)r.place.x - vp_offset.x) * (1.0 / 16.0);
     o.pf.y = (float)((int)r.place.y - vp_offset.y) * (1.0 / 16.0);
-    o.pf.z = (float)r.place.z;
+    o.pf.z = vpDepth(r.place.z);
     o.pf.w = (float)((r.place.w >> 4) & 0xFFu);
     o.col = float4(r.colour);
     o.stq = float3(asfloat(r.stq.x), asfloat(r.stq.y), asfloat(r.stq.z));
     return VSMain(o);
 }
 #endif
+#ifdef VP_MOTION
+// Motion vectors of a vertex-program draw. The second vertex stream carries what motion::ProgramHistory kept of the
+// reference world: the raw position and where its constants are. The position part of the stage runs again on them,
+// and `history` is computed from the two processed positions exactly as motion::History::track does on the CPU
+// (program_draw::historyOf, vertex_program_draw.h, is the same list of operations): every float operation below is
+// `precise`, one IEEE operation each, in that order, and the one division is done in integers (vpDivideNearest).
+cbuffer CBProgramMotion : register(b6)
+{
+    float4 vp_raster; // xy = render pixels per native pixel
+};
+struct VpPrevIn
+{
+    uint4 pos : VPPREVPOS; // previous raw position
+    uint4 sel : VPPREVSEL; // x = constants index of the previous world, y = 1 when there is a previous state
+};
+float3 vpNative(uint4 place)
+{
+    return float3((float)((int)place.x - vp_offset.x) * (1.0 / 16.0),
+                  (float)((int)place.y - vp_offset.y) * (1.0 / 16.0), vpDepth(place.z));
+}
+// a / b for two positive normal floats, rounded to nearest even like the CPU's division. Direct3D allows a GPU one
+// unit in the last place on a float division (measured: the quotient differed from the CPU's on 30 % of the vertex
+// pairs on an RTX 5080 and on 1.4 % on WARP), so the quotient is formed in integers: a long division of the
+// significands, eight bits per step, then the rounding.
+float vpDivideNearest(float a, float b)
+{
+    uint ua = asuint(a), ub = asuint(b);
+    uint ma = (ua & 0x7FFFFFu) | 0x800000u, mb = (ub & 0x7FFFFFu) | 0x800000u;
+    int e = (int)(ua >> 23) - (int)(ub >> 23) + 127;
+    if (ma < mb) { ma <<= 1; e -= 1; }
+    uint rem = ma - mb; // the leading quotient bit is 1
+    uint q = 1u;
+    for (int step = 0; step < 3; ++step)
+    {
+        uint t = rem << 8;
+        uint d = t / mb;
+        rem = t - d * mb;
+        q = (q << 8) | d;
+    }
+    rem <<= 1;
+    uint last = rem >= mb ? 1u : 0u;
+    rem -= last * mb;
+    q = (q << 1) | last; // 1 + 25 fraction bits, rem != 0: more below
+    uint mant = q >> 2, low = q & 3u;
+    if (low == 3u || (low == 2u && (rem != 0u || (mant & 1u) != 0u))) mant += 1u;
+    if (mant == 0x1000000u) { mant = 0x800000u; e += 1; }
+    return asfloat(((uint)e << 23) | (mant & 0x7FFFFFu));
+}
+float4 vpHistory(VpIn i, VpPrevIn p, float3 now)
+{
+    VpIn before = i;
+    before.pos = p.pos;
+    precise float3 old = vpNative(vpEvaluateAtPrevious(before, p.sel.x).place);
+    bool depths = now.z > 0.0 && old.z > 0.0;
+    precise float ratio = depths ? vpDivideNearest(now.z, old.z) : 1.0;
+    precise float dx = old.x - now.x;
+    precise float dy = old.y - now.y;
+    bool valid = p.sel.y != 0u && depths && ratio >= 0.01 && ratio <= 100.0 &&
+                 abs(dx) <= 4096.0 && abs(dy) <= 4096.0;
+    precise float hx = old.x * vp_raster.x;
+    precise float hy = old.y * vp_raster.y;
+    hx = hx * ratio;
+    hy = hy * ratio;
+    return valid ? float4(hx, hy, ratio, 1.0) : float4(0.0, 0.0, 1.0, 0.0);
+}
+#ifdef VP_RAW_ONLY
+struct VpHistoryOut
+{
+    uint4 history : RAWHISTORY; // float bits
+    float4 pos : SV_Position;
+};
+VpHistoryOut VSProgramHistoryRaw(VpIn i, VpPrevIn p)
+{
+    VpHistoryOut o;
+    o.history = asuint(vpHistory(i, p, vpNative(vpEvaluate(i).place)));
+    o.pos = float4(0, 0, 0, 1);
+    return o;
+}
+#else
+MotionOut VSProgramMotion(VpIn i, VpPrevIn p)
+{
+    VpRaw r = vpEvaluate(i);
+    VSIn o;
+    o.pf.x = (float)((int)r.place.x - vp_offset.x) * (1.0 / 16.0);
+    o.pf.y = (float)((int)r.place.y - vp_offset.y) * (1.0 / 16.0);
+    o.pf.z = vpDepth(r.place.z);
+    o.pf.w = (float)((r.place.w >> 4) & 0xFFu);
+    o.col = float4(r.colour);
+    o.stq = float3(asfloat(r.stq.x), asfloat(r.stq.y), asfloat(r.stq.z));
+    VSOut v = VSMain(o);
+    MotionOut m;
+    m.pos = v.pos;
+    m.col = v.col;
+    m.stq = v.stq;
+    m.fog = v.fog;
+    m.history = vpHistory(i, p, o.pf.xyz);
+    return m;
+}
+#endif
+#endif
 )HLSL";
 
 // The whole text for one arithmetic library and the given stages (the game's when none are given); empty for
 // Arithmetic::None. `previousPosition` adds vpEvaluateAtPrevious, the position fields alone, for a second
 // evaluation with the previous frame's constants (the motion-vector twin; compile with VP_PREVIOUS defined to have
-// VSProgramRaw return it).
+// VSProgramRaw return it). With `previousPosition`, compiling with VP_MOTION defined adds the velocity entry point
+// VSProgramMotion (after gs_shaders.h's kHlslMain) or, with VP_RAW_ONLY, the test's VSProgramHistoryRaw.
 inline std::string vertexProgramHlsl(vp::Arithmetic arithmetic,
                                      const std::vector<vp::StageEntry>& stages = vp::gameStages(),
                                      bool previousPosition = false)

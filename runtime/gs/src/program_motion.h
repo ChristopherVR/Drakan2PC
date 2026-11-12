@@ -74,7 +74,8 @@ public:
 
     // A value for `topology` from what must not change between two worlds of one record: the program, the strip
     // lengths and the raw texture coordinate rows.
-    static uint64_t shapeOf(const vp::Header& header, const uint32_t* strips, const vp::Vertex* vertices) {
+    static uint64_t shapeOf(const vp::Header& header, const uint32_t* strips, const vp::Vertex* vertices,
+                            size_t stride = sizeof(vp::Vertex)) {
         uint64_t h = 1469598103934665603ull;
         const auto mix = [&h](uint64_t value) { h = (h ^ value) * 1099511628211ull; };
         mix(header.program);
@@ -84,7 +85,7 @@ public:
             mix(strips[i]);
         for (uint32_t i = 0; i < header.vertexCount; ++i) {
             uint64_t st[2];
-            std::memcpy(st, vertices[i].st, 16);
+            std::memcpy(st, at(vertices, i, stride).st, 16);
             mix(st[0]);
             mix(st[1]);
         }
@@ -94,10 +95,11 @@ public:
     // Tracks one record. Writes `count` entries to `out`: the previous raw positions with `previousConstants` as
     // their constants index when the record has a history (the caller then appends *previous to its array at that
     // index), zeroed entries otherwise. `known`: the scope certifies the object (Valid, TopologyStable, none of the
-    // rejecting flags), as for History::track.
+    // rejecting flags), as for History::track. `stride`: bytes from one vertex to the next (a batch keeps each
+    // vp::Vertex inside a wider element).
     bool track(const Key& key, uint64_t topology, const vp::Constants& constants, const vp::Vertex* vertices,
                uint32_t count, bool known, uint32_t previousConstants, ProgramPrevious* out,
-               const vp::Constants** previous) {
+               const vp::Constants** previous, size_t stride = sizeof(vp::Vertex)) {
         for (uint32_t i = 0; i < count; ++i)
             out[i] = ProgramPrevious{};
         *previous = nullptr;
@@ -133,7 +135,7 @@ public:
             e.constants = constants;
             e.positions.resize(size_t(count) * 4u);
             for (uint32_t i = 0; i < count; ++i)
-                std::memcpy(e.positions.data() + size_t(i) * 4u, vertices[i].pos, 16);
+                std::memcpy(e.positions.data() + size_t(i) * 4u, at(vertices, i, stride).pos, 16);
             current_.emplace(key, std::move(e));
             bytes_ += size;
         }
@@ -141,6 +143,9 @@ public:
     }
 
 private:
+    static const vp::Vertex& at(const vp::Vertex* vertices, uint32_t i, size_t stride) {
+        return *reinterpret_cast<const vp::Vertex*>(reinterpret_cast<const uint8_t*>(vertices) + size_t(i) * stride);
+    }
     struct Entry {
         uint64_t epoch = 0, topology = 0;
         vp::Constants constants{};
@@ -158,6 +163,38 @@ private:
     std::unordered_set<Key, KeyHash> ambiguous_;
     uint64_t epoch_ = 0, referenceEpoch_ = 0, bytes_ = 0, budget_;
     bool manual_ = false;
+};
+
+// The history a backend keeps: motion::History for ordinary draws and, driven by the very same calls,
+// ProgramHistory for vertex-program draws with the ordinal of each record under its scope key. A backend declares
+// its history as this type, so no call site of beginFrame / commitFrame / reset can forget the second one.
+class PairedHistory : public History {
+public:
+    explicit PairedHistory(uint64_t budgetBytes = 64ull * 1024 * 1024, bool manualReference = false)
+        : History(budgetBytes, manualReference), program(budgetBytes, manualReference) {}
+    void beginFrame(uint64_t epoch, bool cut = false) {
+        History::beginFrame(epoch, cut);
+        program.beginFrame(epoch, cut);
+        if (epoch != programEpoch_ || cut) {
+            programOrdinals.clear();
+            programEpoch_ = epoch;
+        }
+    }
+    void commitFrame() {
+        History::commitFrame();
+        program.commitFrame();
+    }
+    void reset() {
+        History::reset();
+        program.reset();
+        programOrdinals.clear();
+        programEpoch_ = 0;
+    }
+    ProgramHistory program;
+    std::unordered_map<Key, uint32_t, KeyHash> programOrdinals; // records met under a key in this world
+
+private:
+    uint64_t programEpoch_ = 0;
 };
 
 } // namespace gsr::motion

@@ -18,6 +18,7 @@
 // missing, so start captures at boot (or accept missing textures).
 #include "gsr/gsr.h"
 #include "gsr/renderer_choice.h"
+#include "gsr/vertex_path.h"
 
 #include <algorithm>
 #include <chrono>
@@ -162,6 +163,17 @@ int main(int argc, char** argv) {
         return 2;
     }
     std::printf("replaying %s on %s (scale %u)\n", in.c_str(), gs->adapterName().c_str(), cfg.scale);
+    {
+        // The replay has no host: it applies the vertex path switches itself (gsr/vertex_path.h). Records of a capture
+        // are honoured under every setting; these decide whether a backend's vertex shader draws them
+        // (DRAKAN_VERTEX_EVAL=gpu) and whether the path alternates inside the run (DRAKAN_VERTEX_TOGGLE=<frames>).
+        vpath::Choice choice = vpath::Choice::Cpu;
+        vpath::parseChoice(std::getenv("DRAKAN_VERTEX_PROCESSING"), choice);
+        const char* toggle = std::getenv("DRAKAN_VERTEX_TOGGLE");
+        vpath::configure(vpath::configuredWord(choice, gs->vertexPathCapability(), std::getenv("DRAKAN_VERTEX_EVAL"),
+                                               std::getenv("DRAKAN_VERTEX_STAGES")),
+                         toggle ? (uint32_t)std::strtoul(toggle, nullptr, 10) : 0u);
+    }
 
     static const uint32_t privOff[20] = {0x00, 0x10, 0x20, 0x30, 0x40, 0x50,       0x60,       0x70,   0x80,   0x90,
                                          0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xFFFFFFFF, 0xFFFFFFFF, 0x1010, 0x1040, 0x1080};
@@ -308,5 +320,21 @@ int main(int argc, char** argv) {
                 (unsigned long long)s.texUpscaled, s.texUpscaleUs / 1000.0,
                 s.texUpscaled ? s.texUpscaleUs / 1000.0 / s.texUpscaled : 0.0, s.texUpscaleBytes / 1048576.0,
                 (unsigned long long)s.texReplaced, (unsigned long long)s.texDumped, s.texCacheBytes / 1048576.0);
+    {
+        const vpath::Counters& c = vpath::state().counters;
+        std::printf("vertex path %s: records %llu, program draws %llu, vertices by shader %llu, by CPU evaluation "
+                    "%llu, switches %llu; fallbacks:",
+                    vpath::evalName(vpath::evalOf(vpath::state().baseWord.load())),
+                    (unsigned long long)s.programRecords, (unsigned long long)s.programDraws,
+                    (unsigned long long)c.gpuVertices.load(), (unsigned long long)c.cpuVertices.load(),
+                    (unsigned long long)c.switches.load());
+        bool any = false;
+        for (uint32_t i = 0; i < vpath::kFallbackCount; ++i)
+            if (const uint64_t n = c.fallback[i].load()) {
+                std::printf(" %s %llu", vpath::kFallbackNames[i], (unsigned long long)n);
+                any = true;
+            }
+        std::printf(any ? "\n" : " none\n");
+    }
     return 0;
 }

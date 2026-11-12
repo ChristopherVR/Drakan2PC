@@ -66,6 +66,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
   target_include_directories(gsr_test_program_motion PRIVATE src)
   target_link_libraries(gsr_test_program_motion PRIVATE drakan::gs_headers)
   add_test(NAME program_motion COMMAND gsr_test_program_motion)
+  # The backend-neutral rules of vertex-program draws (src/vertex_program_draw.h).
+  add_executable(gsr_test_vertex_program_draw tests/test_vertex_program_draw.cpp src/motion_history.cpp)
+  target_include_directories(gsr_test_vertex_program_draw PRIVATE src)
+  target_link_libraries(gsr_test_vertex_program_draw PRIVATE drakan::gs_headers)
+  add_test(NAME vertex_program_draw COMMAND gsr_test_vertex_program_draw)
   add_executable(gsr_test_renderer_session tests/test_renderer_session.cpp)
   target_link_libraries(gsr_test_renderer_session PRIVATE drakan::gs_headers)
   add_test(NAME renderer_session COMMAND gsr_test_renderer_session)
@@ -271,7 +276,7 @@ target_link_libraries(gsr_shader_compile PUBLIC gsr_shader_cache d3dcompiler PRI
 
 add_library(gsr_d3d11_backend STATIC
   src/d3d11_backend.cpp src/d3d11_backend_impl.h src/gs_backend_shared.h src/gs_texture_cache.inl src/gs_draw.inl src/gs_targets.inl src/gs_pipeline_state.h
-  src/d3d11_device.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp src/d3d11_terrain.cpp src/d3d11_material.cpp
+  src/d3d11_device.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp src/d3d11_terrain.cpp src/d3d11_material.cpp src/d3d11_vertex_program.cpp
   src/d3d11_draw.cpp src/d3d11_present.cpp src/d3d11_capture.cpp src/d3d11_movie.cpp
   src/temporal.cpp src/temporal.h
   src/nr_guides.cpp src/nr_guides.h src/sr_combined.cpp src/sr_combined.h
@@ -440,6 +445,11 @@ if(GSR_BUILD_TESTS)
   target_include_directories(gsr_test_vertex_program PRIVATE src include)
   target_compile_definitions(gsr_test_vertex_program PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
   target_link_libraries(gsr_test_vertex_program PRIVATE d3d11 d3dcompiler)
+  # The motion-vector history value of a vertex-program draw, shader against CPU (stream output).
+  add_executable(gsr_test_vertex_program_history tests/test_vertex_program_history.cpp)
+  target_include_directories(gsr_test_vertex_program_history PRIVATE src include tests)
+  target_compile_definitions(gsr_test_vertex_program_history PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_link_libraries(gsr_test_vertex_program_history PRIVATE d3d11 d3dcompiler dxgi)
   add_executable(gsr_test_sr_sharpness tests/test_sr_sharpness.cpp src/sr_combined.cpp)
   target_include_directories(gsr_test_sr_sharpness PRIVATE src)
   target_compile_definitions(gsr_test_sr_sharpness PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -546,6 +556,10 @@ if(GSR_BUILD_TESTS)
   add_test(NAME material_detail COMMAND gsr_test_material_detail)
   add_test(NAME rt_upload_gpu COMMAND gsr_test_rt_upload_gpu)
   add_test(NAME vertex_program COMMAND gsr_test_vertex_program)
+  add_test(NAME vertex_program_history COMMAND gsr_test_vertex_program_history)
+  set_tests_properties(vertex_program_history PROPERTIES TIMEOUT 600)
+  add_test(NAME vertex_program_history_warp COMMAND gsr_test_vertex_program_history)
+  set_tests_properties(vertex_program_history_warp PROPERTIES TIMEOUT 900 ENVIRONMENT "GSR_VP_WARP=1")
   add_test(NAME motion_segments COMMAND gsr_test_motion_segments)
   add_test(NAME upscale_render_size COMMAND gsr_test_upscale_render_size)
   add_test(NAME gpu_pass_stats COMMAND gsr_test_gpu_pass_stats)

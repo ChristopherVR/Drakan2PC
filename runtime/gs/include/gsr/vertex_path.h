@@ -60,12 +60,13 @@ enum class Fallback : uint32_t {
     DeviceLost,       // the graphics device was lost
     Internal,         // a failed allocation, shader or buffer: the path is off for the session
     StaleInput,       // the run reads VU memory whose content an earlier run that was not executed would have set
+    NotReady,         // the backend's vertex shader is still being compiled in the background
     Count
 };
 inline constexpr uint32_t kFallbackCount = static_cast<uint32_t>(Fallback::Count);
 inline constexpr const char* kFallbackNames[kFallbackCount] = {
-    "stage off",  "engine pending", "not recognised", "clipper",     "backend",  "adapter",
-    "draw state", "skip bit",       "feature",        "device lost", "internal", "stale input"};
+    "stage off", "engine pending", "not recognised", "clipper",  "backend",     "adapter",  "draw state",
+    "skip bit",  "feature",        "device lost",    "internal", "stale input", "not ready"};
 
 // What the renderer can do with a record, reported once it has a device.
 struct Capability {

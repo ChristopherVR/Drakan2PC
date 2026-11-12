@@ -215,6 +215,13 @@ struct WgpuBackend::Impl {
     // Behind kCaps.motionVectors / temporalUpscaler / readbackPrefetch / readbackVerify: declared, never called.
     bool prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count, float sx,
                              float sy);
+    // Vertex-program draws (kCaps.vertexPrograms, vertex_program_draw.h): not implemented on this backend yet.
+    const VertexProgramBatch* programBatch = nullptr;
+    bool prepareProgramMotion(RT& rt, const GsDrawState& s, const VertexProgramBatch& batch, float sx, float sy);
+    void bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch);
+    void drawProgramVertices(const VertexProgramBatch& batch);
+    void drawProgramVelocity(RT& rt, DepthBuf& db, const VertexProgramBatch& batch, rhi::Compare depthCompare,
+                             bool restore, bool materialDraw, bool useHw);
     void drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi::Compare depthCompare, bool restore, bool materialDraw,
                       bool useHw);
     bool upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool depthGE, uint32_t zbp, float zmax, int sx1, int sy1);

@@ -32,6 +32,7 @@
 #include "sprite_footprint.h"
 #include "temporal.h"
 #include "motion_history.h"
+#include "vertex_program_draw.h"
 #include "model_motion.h"
 #include "nr_guides.h"
 #include "sr_combined.h"
@@ -230,6 +231,9 @@ public:
     void noteSceneCamera(const SceneGuideCamera& camera) override;
     void noteObjectMotion(const ObjectMotionScope& scope) override;
     bool deferObjectMotion() const override;
+    bool vertexPrograms(vpath::Fallback* why) const override;
+    vpath::Capability vertexPathCapability() const override;
+    void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch) override;
     void setMotionNotes(const motion::Note* notes, uint32_t count) override;
     void noteSceneGeometry(const SceneGeometry& geometry) override;
     void noteSceneModels(std::shared_ptr<const SceneModels> models) override;
@@ -255,6 +259,7 @@ struct D3D11Backend::Impl {
                                        .materialDetail = true,
                                        .terrainDetail = true,
                                        .motionVectors = true,
+                                       .vertexPrograms = true,
                                        .temporalUpscaler = true,
                                        .readbackPrefetch = true,
                                        .cleanRowRefresh = true,
@@ -297,7 +302,7 @@ struct D3D11Backend::Impl {
     hud::TutorialBandRows tutorialBandRows;
     bool neuralWorldClosed = true;
     ObjectMotionScope objectScope;
-    motion::History motionHistory{64ull * 1024 * 1024, true};
+    motion::PairedHistory motionHistory{64ull * 1024 * 1024, true}; // ordinary draws and vertex-program records
     motion::Models modelMotion;
     motion::Models::Frame modelFrame; // reused every frame (capacity kept)
     // Model motion prepared on the surface builder when the scene models arrive (world start); used by
@@ -501,6 +506,19 @@ struct D3D11Backend::Impl {
         terrain::Settings timedSettings;
         uint64_t timedDraws = 0, timedFrames = 0, timedFrame = ~0ull, timedLost = 0;
     } terrainGpu;
+    // ---- vertex-program draws (d3d11_vertex_program.cpp; the shared rules are in vertex_program_draw.h) ----
+    struct ProgramGpu;                      // shaders (compiled in the background), buffers, the previous stream
+    std::shared_ptr<ProgramGpu> programGpu; // made at the first request
+    const VertexProgramBatch* programBatch = nullptr; // set around the draw() of a batch
+    ProgramGpu& programState();
+    bool programTakes(vpath::Fallback* why);
+    void programFailed(const char* what);
+    bool prepareProgramMotion(RT& rt, const GsDrawState& s, const VertexProgramBatch& batch, float sx, float sy);
+    void bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch);
+    void drawProgramVertices(const VertexProgramBatch& batch);
+    void drawProgramVelocity(RT& rt, DepthBuf& db, const VertexProgramBatch& batch, rhi::Compare depthCompare,
+                             bool restore, bool materialDraw, bool useHw);
+    bool ensureMotionTarget(RT& rt); // the velocity target of a world target, cleared once per world
     void initTerrain();
     void beginTerrainTiming();
     void endTerrainTiming(); // after the last Draw of a draw() whose prepareTerrain opened a timing

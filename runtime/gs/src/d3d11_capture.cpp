@@ -63,15 +63,35 @@ void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* t
     const char* requested = cstr(runtimeFlags().temporalDumpFrame);
     const char* epoch = cstr(runtimeFlags().temporalDumpEpoch);
     static uint64_t selected = UINT64_MAX;
-    if (!directory || !*directory || ((!requested || !*requested) && (!epoch || !*epoch)) || !texture)
-        return;
-    const uint64_t target = std::strtoull(epoch ? epoch : requested, nullptr, 10);
-    if (epoch ? motionEpoch != target : frame < target)
-        return;
-    if (selected == UINT64_MAX)
-        selected = frame;
-    if (frame != selected)
-        return;
+    // GSR_TEMPORAL_DUMP_EPOCHS=<first>:<step>:<count>: the same dump for several worlds of one run (matched inputs of
+    // the upscaler under two vertex paths, DRAKAN_VERTEX_TOGGLE), with one log line per world naming the path.
+    static const char* const series = std::getenv("GSR_TEMPORAL_DUMP_EPOCHS");
+    if (series && *series) {
+        if (!directory || !*directory || !texture)
+            return;
+        unsigned long long first = 0, step = 1, count = 1;
+        if (std::sscanf(series, "%llu:%llu:%llu", &first, &step, &count) < 1 || !step || motionEpoch < first ||
+            (motionEpoch - first) % step != 0 || (motionEpoch - first) / step >= count)
+            return;
+        static uint64_t logged = 0;
+        if (logged != motionEpoch) {
+            logged = motionEpoch;
+            std::fprintf(stderr, "[temporal-dump] epoch %llu frame %llu vertex path %s, shader vertices so far %llu\n",
+                         (unsigned long long)motionEpoch, (unsigned long long)frame,
+                         vpath::evalName(vpath::evalOf(vpath::controlWord())),
+                         (unsigned long long)vpath::state().counters.gpuVertices.load(std::memory_order_relaxed));
+        }
+    } else {
+        if (!directory || !*directory || ((!requested || !*requested) && (!epoch || !*epoch)) || !texture)
+            return;
+        const uint64_t target = std::strtoull(epoch ? epoch : requested, nullptr, 10);
+        if (epoch ? motionEpoch != target : frame < target)
+            return;
+        if (selected == UINT64_MAX)
+            selected = frame;
+        if (frame != selected)
+            return;
+    }
     D3D11_TEXTURE2D_DESC desc{};
     texture->GetDesc(&desc);
     unsigned bytes = 0;
@@ -83,6 +103,9 @@ void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* t
         case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R8G8B8A8_UNORM:
             bytes = 4;
+            break;
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+            bytes = 16;
             break;
         default:
             return;

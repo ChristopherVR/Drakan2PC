@@ -17,6 +17,9 @@
 //   kCaps.terrainDetail      prepareTerrain
 //   kCaps.materialDetail     prepareMaterial
 //   kCaps.motionVectors      prepareObjectMotion, drawVelocity
+//   kCaps.vertexPrograms     programBatch (set by the backend around the draw() of a vertex-program batch, whose
+//                            vertices are three stand-ins: vertex_program_draw.h), prepareProgramMotion,
+//                            bindProgramDraw, drawProgramVertices, drawProgramVelocity
 //   kCaps.temporalUpscaler   upscalePhase (the dormant per-object world detection), logTemporalDraw
 //   kCaps.readbackPrefetch   prefetchReadback
 //   kCaps.readbackVerify     verifyRTBlocks
@@ -771,7 +774,14 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     bool drawMotion = false;
     if constexpr (kCaps.motionVectors) {
         CpuProfile::Scope motionProfile(cpuProfile, CpuProfile::DrawObjectMotion);
-        drawMotion = prepareObjectMotion(*rt, s, v, count, dsx, dsy);
+        // [vertex programs] a batch of records has its own history and previous stream
+        const VertexProgramBatch* records = nullptr;
+        if constexpr (kCaps.vertexPrograms)
+            records = programBatch;
+        if (!records)
+            drawMotion = prepareObjectMotion(*rt, s, v, count, dsx, dsy);
+        else if constexpr (kCaps.vertexPrograms)
+            drawMotion = prepareProgramMotion(*rt, s, *records, dsx, dsy);
     }
     if (haveTex && tb.isRT) {
         k.src[0] = tb.ox;
@@ -1171,6 +1181,19 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         materialDraw = haveTex && tb.materialSrv &&
                        prepareMaterial(s, tb.materialSrv, tb.materialClass, haveTex, tb.isRT, *rt, zte && ztst >= 2,
                                        k.a[0], dsx, dsy, useHw);
+    // [vertex programs] the batch's own vertices and vertex program replace the stand-ins bindDraw has bound
+    const VertexProgramBatch* records = nullptr;
+    if constexpr (kCaps.vertexPrograms) {
+        records = programBatch;
+        if (records)
+            bindProgramDraw(s, *records);
+    }
+    const auto drawPass = [&] {
+        if (!records)
+            drawVertices(count);
+        else if constexpr (kCaps.vertexPrograms)
+            drawProgramVertices(*records);
+    };
 
     // The motion vectors of the pass just drawn (kCaps.motionVectors). restore: another color pass of this draw
     // follows and needs the color pipeline back.
@@ -1182,7 +1205,10 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             // not assert object correspondence for those pixels.
             k.h[3] = (wm & 7) == 7 && !(zw && zf == rhi::Compare::Greater) ? 1.0f : 0.0f;
             setup(passMode, wm, zw);
-            drawVelocity(*rt, *db, count, zw ? rhi::Compare::Equal : zf, restore, materialDraw, useHw);
+            if (!records)
+                drawVelocity(*rt, *db, count, zw ? rhi::Compare::Equal : zf, restore, materialDraw, useHw);
+            else if constexpr (kCaps.vertexPrograms) // [vertex programs]
+                drawProgramVelocity(*rt, *db, *records, zw ? rhi::Compare::Equal : zf, restore, materialDraw, useHw);
             // The next pass's setup() uploads its constants and blend/depth state.
         }
     };
@@ -1190,12 +1216,12 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     // pass 0
     const bool failPass = ate && afail != 0 && atst != 1;
     setup(0, writeMask, !zmsk);
-    drawVertices(count);
+    drawPass();
     velocityPass(0, writeMask, !zmsk, failPass);
     if (failPass) {
         const auto fail = alpha::failurePass(afail, writeMask, !zmsk);
         setup(1, fail.colorMask, fail.depthWrite);
-        drawVertices(count);
+        drawPass();
         velocityPass(1, fail.colorMask, fail.depthWrite, false);
     }
     endDraw();

@@ -178,7 +178,13 @@ void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, ui
         return;
     }
     rt.wgeom = geometry;
-    sr_combined::Pipeline::jitter(motionGuideSerial + 1, config, rt.wjx, rt.wjy);
+    {
+        // GSR_TEMPORAL_JITTER_INDEX=<n>: every world takes sample n of the jitter sequence (matched upscaler inputs of
+        // two worlds, GSR_TEMPORAL_DUMP_EPOCHS). Diagnosis only: a fixed sample gives the upscaler nothing to resolve.
+        static const char* const fixed = std::getenv("GSR_TEMPORAL_JITTER_INDEX");
+        sr_combined::Pipeline::jitter(fixed && *fixed ? std::strtoull(fixed, nullptr, 10) : motionGuideSerial + 1,
+                                      config, rt.wjx, rt.wjy);
+    }
     if (hud::frozenWorld(sceneCamera.guiScreen, nativeMenu, nativeMenuScreen))
         rt.wjx = rt.wjy = 0; // a still world under the pause menu must not be resampled (hud_page.h)
     if (geometry.renderW != geometry.outW || geometry.renderH != geometry.outH) {
@@ -271,11 +277,7 @@ TemporalPipeline::Geom D3D11Backend::Impl::worldGeometry(uint32_t fw, uint32_t f
     return tp->geometry(fw, fh, scale, upMode, view.displayW, view.displayH, view.windowW, view.windowH);
 }
 
-bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
-                                             float sx, float sy) {
-    const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;
-    if (!active)
-        return false;
+bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
     D3D11_TEXTURE2D_DESC desc{};
     if (rt.motionTex)
         rt.motionTex->GetDesc(&desc);
@@ -300,6 +302,16 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         ctx->ClearRenderTargetView(rt.motionRtv.Get(), clear);
         rt.motionEpoch = motionEpoch;
     }
+    return true;
+}
+
+bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
+                                             float sx, float sy) {
+    const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;
+    if (!active)
+        return false;
+    if (!ensureMotionTarget(rt))
+        return false;
     auto invalidateMotion = [&]() {
         const float clear[4]{};
         ctx->ClearRenderTargetView(rt.motionRtv.Get(), clear);
@@ -466,6 +478,8 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     auto textures = neuralGuides->textures();
     if (success) {
         dumpTemporalStage("world-color", rt.tex.Get());
+        if (rt.motionEpoch == motionEpoch) // what the velocity passes of this world's draws wrote
+            dumpTemporalStage("object-motion", rt.motionTex.Get());
         dumpTemporalStage("prepared-color", textures.color.texture);
         dumpTemporalStage("prepared-depth", textures.depth.texture);
         dumpTemporalStage("prepared-motion", textures.motion.texture);
