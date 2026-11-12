@@ -346,6 +346,79 @@ const std::string* CampaignCreditsOverride::current() const {
     return it == texts_.end() ? nullptr : &it->second;
 }
 
+// ---- CharacterLodFixOverride
+// --------------------------------------------------------------------------------------------------------
+namespace {
+// One LOD table entry of a 0x0208 record: u16 1, f32 distance, u32 usage, u32 node, u32 firstVertex, u32 vertexCount,
+// u32 firstPoly, u32 polyCount (30 bytes, unaligned).
+constexpr size_t kLodEntry = 30;
+struct BrokenLodModel {
+    u32 lods;
+    u32 vertices[3];
+    u32 polygons[3];
+    float distances[3];
+    u32 firstBad; // this LOD and the ones after it are never selected
+};
+// BigBrownGuy and BigBlueGuy share one mesh, so one row covers both.
+constexpr BrokenLodModel kBrokenLods[] = {
+    {3, {996, 452, 220}, {1928, 882, 440}, {0.0f, 6000.0f, 12000.0f}, 2},
+};
+u32 lodU32(const std::vector<u8>& d, size_t o) {
+    u32 v;
+    memcpy(&v, &d[o], 4);
+    return v;
+}
+float lodF32(const std::vector<u8>& d, size_t o) {
+    float v;
+    memcpy(&v, &d[o], 4);
+    return v;
+}
+bool lodTableAt(const std::vector<u8>& d, size_t o, const BrokenLodModel& m) {
+    u32 firstVertex = 0, firstPoly = 0;
+    for (u32 l = 0; l < m.lods; ++l) {
+        const size_t q = o + l * kLodEntry;
+        if (d[q] != 1 || d[q + 1] != 0 || lodF32(d, q + 2) != m.distances[l] || lodU32(d, q + 14) != firstVertex ||
+            lodU32(d, q + 18) != m.vertices[l] || lodU32(d, q + 22) != firstPoly || lodU32(d, q + 26) != m.polygons[l])
+            return false;
+        firstVertex += m.vertices[l];
+        firstPoly += m.polygons[l];
+    }
+    return true;
+}
+} // namespace
+
+bool CharacterLodFixOverride::wants(const ResourceId& id) {
+    return id.type == kType && id.file == "NPCS.MOD";
+}
+
+bool CharacterLodFixOverride::apply(const ResourceId& id, std::vector<u8>& data) {
+    return id.type == kType && patch(data);
+}
+
+bool CharacterLodFixOverride::patch(std::vector<u8>& data) {
+    // 64 bytes of bounds, then the u16 LOD count; the table itself sits after the variable-size skeleton.
+    if (data.size() < 66)
+        return false;
+    const u32 count = data[64] | (data[65] << 8);
+    for (const BrokenLodModel& m : kBrokenLods) {
+        if (count != m.lods || data.size() < 66 + m.lods * kLodEntry)
+            continue;
+        size_t found = 0, hits = 0;
+        for (size_t o = 66; o + m.lods * kLodEntry <= data.size(); ++o) {
+            if (lodTableAt(data, o, m)) {
+                found = o;
+                ++hits;
+            }
+        }
+        if (hits != 1)
+            continue;
+        for (u32 l = m.firstBad; l < m.lods; ++l)
+            memcpy(&data[found + l * kLodEntry + 2], &kNever, 4);
+        return true;
+    }
+    return false;
+}
+
 bool CampaignCreditsOverride::wants(const ResourceId& id) {
     return id.type == kType && (id.id == kFirstId || id.id == kSecondId) && id.file == "DRAKAN2.RRC" && current();
 }

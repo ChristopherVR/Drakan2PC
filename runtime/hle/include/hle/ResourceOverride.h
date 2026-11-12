@@ -68,6 +68,25 @@ private:
     const std::string* find(const ResourceId& id) const;
 };
 
+// ---- broken character LODs on the disc
+// ----------------------------------------------------------------------------------------------------------------
+// Two NPC models of NPCS.MOD ("BigBrownGuy" and "BigBlueGuy", the fat male villagers) have a last LOD whose polygons
+// all name the torso texture with UVs that fit none of the model's sheets, in the 0x0204 polygons and in the 0x0211
+// strips alike, so beyond 12000 units they draw as a brown or blue smear. This raises the switch distance of that LOD
+// in the model's character record (0x0208) so the engine keeps the previous, correctly mapped LOD. The models are
+// recognised by the shape of their LOD table, not by entry id, and any other record is left alone. Evidence:
+// docs/journal/2026-11-10/issue6-distant-npc-textures.md.
+class CharacterLodFixOverride final : public IResourceOverride {
+public:
+    static constexpr u16 kType = 0x0208;
+    // Distance written for a disabled LOD (the engine squares it; far beyond any draw distance).
+    static constexpr float kNever = 1.0e8f;
+    bool wants(const ResourceId& id) override;
+    bool apply(const ResourceId& id, std::vector<u8>& data) override;
+    // The patch itself: true when `data` is one of the known broken records and was changed.
+    static bool patch(std::vector<u8>& data);
+};
+
 // ---- campaign credits
 // ----------------------------------------------------------------------------------------------------------------
 // The end credits are two plain text entries of DRAKAN2.RRC (type 0x401, ids 8807 and 8808; "=Heading" lines, names, a

@@ -345,6 +345,77 @@ int main() {
         cc.patchRead(rrc, node, at + 10, part.data(), part.size());
         CHECK(part == std::vector<u8>(all.begin() + at + 10, all.begin() + at + 30));
     }
+    // --- character LOD fix: the fat villagers' last LOD is never selected, other records stay as they are -------
+    {
+        // A 0x0208 record as far as the fix reads it: 64 bytes of bounds, the LOD count, filler standing in for the
+        // skeleton, then `count` 30-byte LOD entries.
+        auto record = [](const std::vector<std::array<u32, 2>>& lods, const std::vector<float>& dist, size_t filler) {
+            std::vector<u8> d(66 + filler, 0xEE);
+            d[64] = (u8)lods.size();
+            d[65] = 0;
+            u32 fv = 0, fp = 0;
+            for (size_t l = 0; l < lods.size(); ++l) {
+                u8 e[30] = {1, 0};
+                const u32 usage = 0, node = (u32)l;
+                memcpy(e + 2, &dist[l], 4);
+                memcpy(e + 6, &usage, 4);
+                memcpy(e + 10, &node, 4);
+                memcpy(e + 14, &fv, 4);
+                memcpy(e + 18, &lods[l][0], 4);
+                memcpy(e + 22, &fp, 4);
+                memcpy(e + 26, &lods[l][1], 4);
+                d.insert(d.end(), e, e + 30);
+                fv += lods[l][0];
+                fp += lods[l][1];
+            }
+            d.insert(d.end(), 40, 0x77); // clip list and spheres follow the table
+            return d;
+        };
+        auto distance = [](const std::vector<u8>& d, size_t table, int lod) {
+            float f;
+            memcpy(&f, &d[table + lod * 30 + 2], 4);
+            return f;
+        };
+        CharacterLodFixOverride fix;
+        ResourceId rid;
+        rid.file = "NPCS.MOD";
+        rid.type = 0x0208;
+        rid.id = 4893;
+        CHECK(fix.wants(rid));
+        ResourceId other = rid;
+        other.file = "SYSTEM.MOD";
+        CHECK(!fix.wants(other));
+        other = rid;
+        other.type = 0x0204;
+        CHECK(!fix.wants(other));
+
+        // the broken mesh (odd filler: the table is unaligned on the disc)
+        std::vector<u8> big = record({{996, 1928}, {452, 882}, {220, 440}}, {0.0f, 6000.0f, 12000.0f}, 123);
+        const std::vector<u8> bigOrig = big;
+        CHECK(fix.apply(rid, big));
+        CHECK(big.size() == bigOrig.size());
+        CHECK(distance(big, 66 + 123, 0) == 0.0f && distance(big, 66 + 123, 1) == 6000.0f);
+        CHECK(distance(big, 66 + 123, 2) == CharacterLodFixOverride::kNever);
+        {
+            std::vector<u8> expect = bigOrig; // only the four distance bytes of LOD 2 differ
+            memcpy(&expect[66 + 123 + 2 * 30 + 2], &CharacterLodFixOverride::kNever, 4);
+            CHECK(big == expect);
+        }
+        CHECK(!fix.apply(rid, big)); // already patched (or patched by a mod pack): left alone
+
+        // a healthy three-LOD villager, a two-LOD model and a truncated record are not touched
+        std::vector<u8> medium = record({{1056, 2048}, {424, 842}, {108, 198}}, {0.0f, 6000.0f, 12000.0f}, 77);
+        const std::vector<u8> mediumOrig = medium;
+        CHECK(!fix.apply(rid, medium) && medium == mediumOrig);
+        std::vector<u8> two = record({{996, 1928}, {452, 882}}, {0.0f, 6000.0f}, 50);
+        const std::vector<u8> twoOrig = two;
+        CHECK(!fix.apply(rid, two) && two == twoOrig);
+        std::vector<u8> cut(bigOrig.begin(), bigOrig.begin() + 66 + 123 + 45);
+        const std::vector<u8> cutOrig = cut;
+        CHECK(!fix.apply(rid, cut) && cut == cutOrig);
+        std::vector<u8> tiny(10, 0);
+        CHECK(!fix.apply(rid, tiny));
+    }
     printf("override_test: %d checks passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
