@@ -150,10 +150,10 @@ Tests and builds, as they ran:
 
 ## 7. Not verified, or only inferred
 
-* The stair was not entered the way a player does: the floor needs the book, so Rynn was placed at the exit at the foot of
-  the stair after a real walk to the altar. The altar scene "Book 1A" and the floor sliding off were not played.
-* The PC `ExitSequence` "Book 1B" (Rynn walking down the stair) and `Entrance Sequence` are not converted. If the owner
-  meant that scene, it does not exist in the pack yet.
+* In this first pass the stair was not entered the way a player does: the floor needs the book, so Rynn was placed at the
+  exit at the foot of the stair after a real walk to the altar. Section 9 plays the altar, the floor and the stair.
+* (Done later the same day, section 9.) The PC `ExitSequence` "Book 1B" (Rynn walking down the stair) and `Entrance
+  Sequence` were not played by the pack of this first pass.
 * How the PC original looks was computed from the camera keys, the painting models and the level's field of view; the PC
   game was not run. A few shots still show a painting's edge inside the 4:3 frame, which the keys predict for 4:3 too.
 * Subtitle text is machine transcription of the English voices, not checked line by line: names can be misspelled, and a
@@ -170,3 +170,142 @@ Tests and builds, as they ran:
 * The installed pack in `dist/DrakanPC` is unchanged; it needs a regenerated pack and the new exe.
 * The owner's Book save (`BESCES-50006Slot1/OotF 02 - Ruined Village .rsg`) was refused by the native Load screen in one
   harness run (message box 0x105); not investigated here.
+
+## 8. Follow-up: can the Book fill a wide screen?
+
+Owner: "Can the converter rebuild the book frames to support wide screen so we can avoid the black pillar boxes. If not
+all good." Three candidates were built on the real scene (frames of `after-4k` and `before1`, 104 frames each, and real
+runs for the first), all in `build/review/ootf-church/evidence/` (`wide_crop_all.png`, `wide_ambient_all.png`,
+`wide_mirror_all.png`: every 2.5 s of the scene; `wide/sNNN_compare.png`: the pillar box beside the three candidates at
+3840 x 2160 for nine paintings; `wide/sNNN_<candidate>.png`: the full-size pictures).
+
+| Candidate | What it does | What the pictures show | Verdict |
+| --- | --- | --- | --- |
+| 1. Fill by cutting (`level_aspect = "... = 4:3 fill"`) | The 4:3 authored width fills the window; a quarter of the height (an eighth at the top and at the bottom) is cut at 16:9 | Real runs at 16:9, 21:9, 32:9 (`wide/fill_real_169_219_329.png`). No painting edge comes into frame that the 4:3 picture does not show (the width is unchanged). Cut: the top of the rider's head on the first painting, the hood tops of the two hooded men, the top of the mage's hood and spikes, the dragon's head on the first pan; faces stay. The subtitle band lies over the lower picture | Works, costs picture. Shipped as an opt-in pack setting, not the default |
+| 2. Side fill from the picture | The 4:3 picture as authored; the bars show a blurred, darkened, enlarged copy of the same frame | Mock-ups only. Nothing is cut; the bars stop being black but stay quiet (the paintings are dark, so the fill is a faint brown haze) | The best looking one, cannot be landed now: it is a present pass in the renderer backends, which are being restructured |
+| 3. Mirrored painting edges | The black beside the painting in the old 16:9 view filled with the painting mirrored at its edge | Clear seams and doubled figures: two riders back to back, mirrored skulls, twin dragon heads | Worse than the pillar box. Rejected |
+
+A fourth idea came out of the pictures: the old 16:9 view shows more of the real painting whenever the camera is close (a
+second dragon head, a boar-headed knight), and black only where it runs past the edge. Widening each shot as far as its
+painting allows would need the painting bounds at run time or camera keys rebuilt per aspect; not built.
+
+Recommendation: keep the pillar box as the default. Nothing of the authored pictures is lost and the bars are steady. The
+fill mode is there for players or packs that prefer a full screen (`OOTF_PICTURE_FILL=1` at conversion, or the manifest
+entry by hand). The side fill would be the better default once the backend work has landed.
+
+Hook needed for candidate 2 (not landed, no backend file touched): in the present pass of both backends, when the
+presenter is given a forced aspect narrower than the window and a new flag `ambientBars` (set from `drakan_ws::hostTick`
+beside `setAspect`, policy in `drakan_widescreen_policy.h`), draw the frame first as a full-window quad scaled to cover
+(the existing present shader with a 1/8 resolution intermediate, a 9 tap blur and a 0.35 gain), then the normal
+pillarboxed quad over it.
+
+What landed: `detail::levelFraming` (policy, unit tested at 4:3, 3:2, 16:9, 21:9, 32:9: zoom, shown aspect, the authored
+width kept, never more than a quarter cut, a 4:3 window unchanged), the `fill` word in `parseLevelAspect`, the zoom in
+`hookRenderWorld`, `LEVEL_ASPECT_PATTERN` in the editor. Real captures: 16:9 full screen, 21:9 (3440 x 1440) and 32:9
+(3840 x 1080) show a 16:9 picture with bars (`[ws] push ... present aspect 1.778`).
+
+## 9. Follow-up: the walk down the stair ("Book 1B") and exit / entrance sequences in general
+
+Every Level Transition of the 13 campaign levels was read (`pcTransitionSequences`, object parameter or class default):
+
+| Level | Transition | Field | Sequence | Length | Now |
+| --- | --- | --- | --- | --- | --- |
+| Ruined Village | 2467 (to the Book) | ExitSequence | "Book 1B" | 19.7 s, no voice | plays before the exit (seen, below) |
+| Ruined Village | 2467 | Entrance Sequence | "Entrance Stomp" | 0.0 s (a timer message that ends the fade, Rynn released and shown) | plays right after the exit scene, before the save (see below) |
+| Ruined Village Book | 2420 (back) | ExitSequence (class default) | "backstory" | 250.5 s, 19 voice clips | already played at the load by the 2026-11-09 work; left as it is |
+| Volcanic | 1237 (to Rift World) | ExitSequence | "9.9" | 31.4 s, no voice | not played: relayed, it stalled the game at the rift box (below); left out of the relay |
+
+The other 17 transitions (Wartok Canyons 2, Grimstone Mines 3, Grotto 2, Islands 3, Alwarren 1, Rift Crystal 1, Islands
+Night 1, Succubus Lair 2, Ruined Village 1077) name no sequence. The sequences themselves were already in the pack (the
+resource scan sees the two fields); what was missing is anything that plays them.
+
+Why not the PS2 exit's own `ExitSequence` / `Entrance Sequence` fields: the converted exits are of a class in SYSTEM,
+whose database has no SSD and does not list the level's, so a ref cannot resolve (the converter says so if asked to), and
+the PS2 engine opens its save box the moment an exit fires. So the scenes are relayed (formats `ootfexitseq.ts`
+`relayExitSequences`), as detector scenes already are:
+
+* whatever fired the exit by link (in Ruined Village: Timer 2847 behind the stair-top detector 3161, and the converter's
+  own walk-in columns under the exit) now starts a Stomp Player with the exit scene and then the entrance scene, and a
+  Timer of their length (plus 0.25 s) that sends the exit its On;
+* the exit's touch volume is shrunk to a point: the PC transition leaves only on a message, while a PS2 exit also fires on
+  touch, and the scene walks Rynn onto it (a first run without this showed the save box as soon as she reached the foot
+  of the stair, with no scene);
+* the entrance scene cannot wait for the way back: the PS2 saves at the exit and that save is what the Book hands back, so
+  whatever the exit scene left (the fader, the held player) has to be undone before the save. On the way back the level
+  is the restored save: Rynn at the foot of the stair with the HUD.
+
+The Book level is left out of the relay (its exit scene is the scene it already plays).
+
+The book pickup is not a bug: at its real place in the priest's house Rynn takes "Atimar's Book" by walking to it (no E),
+and it is in the inventory. The 2026-11-12 attempt failed because the test pack had moved the book 370 units above the
+ground outside the church, out of her reach.
+
+**The chain, played** (run `chain-4k`: exe of the working tree, pack `packs/fix6` = formats `db1a9c3` plus this change with
+the subtitle files, owner's ini, 3840 x 2160 borderless, audio on, god mode; 204 frames, a position trace five times a
+second in `pos.jsonl`; contact sheets `evidence/chain/sheet_1_book_altar_walkdown.png`,
+`sheet_2_transition_book_return.png`):
+
+| Step | Played or placed | What the frames and the trace show |
+| --- | --- | --- |
+| New Game, Intro, Ruined Village | played by the harness (Start taps skip the opening) | control in Ruined Village |
+| The book | **placed** inside the locked priest's house beside the table (the Priest's Key from the cave and the door lock were skipped); the pickup itself is real: she walks to the table and has "Atimar's Book" | `a00a`, `a00b`, the inventory frame |
+| To the church | **placed** on the grass outside the door, then walked through both doors to the altar by key input | `a00` to `a03_altar` |
+| Book on the altar | real: inventory (Tab, Right, Enter equips the book), E at the altar | "Book 1A" plays for about 3 s (scene camera, HUD off, the floor sliding), then control returns |
+| Onto the stair | real: walked along the altar front and back onto the stair's top landing (the floor is gone; she drops onto it) | detector 3161 fires at 87.7 s; control is taken |
+| Walk-down "Book 1B" | the game's own | 20.7 s: the stairwell with the pedestal, Rynn at the book, the book's pages, fade to black; framed 16:9 full screen like any 3D scene; it has no voice, so no subtitles |
+| "Entrance Stomp" and the exit | the game's own | Rynn released at 108.4 s at the exit; the save message box 0.2 s later (over the still dark picture), the modern Save screen, the load |
+| The Book | the game's own | 4:3 pillar box, 19 clips and 55 pages of subtitles logged, the exit 305 s after its start (the machine ran four other game instances; 250 s unloaded) |
+| Back | the game's own | Ruined Village from the save: Rynn on the pedestal at the foot of the stair, HUD, `gameplay=1`; nothing re-triggers in 40 s; W walks her off into the passage below |
+
+Earlier fixes on this path, seen again in this run: the Book full screen and on by default (`09ff9e11`), ended by its own
+timer (`f63cbc34`), Rynn and the camera released at its end (formats `48f6c92`); the level-exit hold (`aca2cbfc`) does not
+swallow either transition: the Ruined Village exit is fired by the relay's timer long after Rynn left her arrival spot,
+and in the Book the log shows the hold ignoring one touch at the arrival (`exit ... touched before the player walked off
+her arrival spot: ignored`) and the Book's own timer message taking the exit at the end (`got its touch message 317 units
+from the player: taking it`).
+
+**Volcanic.** With the relay in Volcanic too (pack `fix5`), the route harness played the level up to the remount with the
+Runeblade (`runs/volc1`, every step passed) and the game then stalled right after Arokh was placed in the rift box
+(`[stall] guest input boundary silent`, the main thread at `0x80000080`), where packs without the relay give the message
+box. So the Volcanic exit scene "9.9" (31.4 s, Arokh into the rift with Rynn mounted) is **not converted**: the level is
+excluded (`EXIT_SCENE_SKIP`, `OOTF_EXIT_SCENES=all` relays it for a test), the converter says so in its log, and the
+Volcanic level file of the final pack is byte-identical to the one of a pack without any relay. Why the scene stalls was
+not looked into.
+
+Not verified in this follow-up: the Priest's Key and the priest's door (skipped by the placement); the walk from the
+priest's house to the church; a player who jumps into the open stairwell instead of taking the stair (the converter's
+walk-in columns under the exit then start the same relay; not played); the same chain in a 4:3 window; a save made during
+the walk-down scene; a second visit of the stair after the Book (the relay's Stomp Player plays once and is gone, so the
+exit should stay shut, as on the PC where the transition is one way; not played). The first seconds of "Book 1B" show
+the stairwell with Rynn hard to make out in the frames; whether she is seen walking down as on the PC was not checked
+against the PC game.
+
+
+## 10. Follow-up: subtitle review list, corrected files, speech models
+
+* **Review list.** The text is game text, so the list itself is private: `build/review/ootf-church/subtitles/review.txt`
+  (152 lines of text: the Book's 19 clips with their 53 pages, and the 35 lines the model was unsure of). By clip (sound
+  bank, id), confidence = the model's mean log probability:
+  * Book (`ruin book`): ids 9 to 27, confidence -0.13 to -0.27, all to be read once against the voice. Known: id 14 has
+    "bloody decision", most likely "bloody deception"; corrected in the private `corrections.json` used for the proof pack
+    (by reading, not by ear).
+  * Unsure (confidence below -0.45): `islands` 258, 259, 279, 304, 312, 315, 327, 354, 365, 367, 371; `grimstone mines`
+    269, 280, 281, 282, 287, 289, 299; `riftworld` 10, 12, 13, 15, 42; `volcano` 26, 28, 35, 53; `alwarren` 228, 251;
+    `islands night` 394; `ruined village` 334; `wartok canyons` 306; `fx` 891; `npcs` 313; `system` 331.
+* **A corrected file wins.** The converter takes several files (`--subtitles "fresh.json;corrected.json"`,
+  `mergeSubtitleFiles`: a later file's line replaces an earlier one's, an emptied line removes the subtitle), and the tool
+  keeps the lines of an existing output file and only transcribes clips it does not hold (`--retranscribe` starts over).
+  A second transcription of all 451 clips gave the same 298 lines as the first.
+* **Speech models.** The earlier report did not list them. Both were already in the user's Hugging Face cache
+  (`~/.cache/huggingface/hub`, folder dates 2026-10-17, from the October narration work); this task downloaded no model.
+  It did install Python packages into a scratch venv without listing them first
+  (`build/review/ootf-church/venv`, 292 MiB: faster-whisper 1.2.1, ctranslate2 4.9.0, onnxruntime 1.31.1, av 19.0.2,
+  tokenizers 0.23.3, huggingface_hub 2.4.0, numpy 2.5.4 and their dependencies, from PyPI).
+
+  | Model | Source | Licence | Size | Used here |
+  | --- | --- | --- | --- | --- |
+  | faster-whisper-small.en | `https://huggingface.co/Systran/faster-whisper-small.en` (CTranslate2 conversion of OpenAI Whisper small.en) | MIT | 464 MiB | yes: the transcription and the timing check |
+  | faster-whisper-base.en | `https://huggingface.co/Systran/faster-whisper-base.en` | MIT | 141 MiB | no (present in the cache) |
+
+  The tool now names a missing model with source, licence and size and stops; it downloads only with `--allow-download`
+  (`BUILDING.md` has the table).

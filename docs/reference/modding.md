@@ -90,6 +90,10 @@ my_mod/
   between 1 and 4). While that level is loaded the game renders and shows its world at that aspect instead of the
   window's (pillarboxed when the window is wider; never wider than the player's own setting). For levels whose cut scenes
   frame flat pictures; the OotF converter writes it for the "Ruined Village Book" (`reference/widescreen.md`).
+  `"Level title = 4:3 fill"` fills a wider window instead of leaving bars: the level's authored width fills the window and
+  the top and bottom of the authored picture are cut, at most down to a 16:9 picture (a quarter of a 4:3 level's height);
+  a 21:9 or 32:9 window shows that 16:9 picture with bars. A 4:3 window is the same either way. The OotF converter writes
+  plain `4:3` unless it runs with `OOTF_PICTURE_FILL=1`.
 * **Pointing an exit at a copy**: an exit's destination is a level XDB string, `Levels\<name>\<name>.lvl`; override it with
   `overrides/LEVEL1ON.XDB/0400_<id>_1.bin` (text in all language slots) and the game's own transition loads the copy by that
   path, no runtime table involved. The string is shared by every exit that uses it; the editor's exit picker therefore
@@ -783,6 +787,12 @@ exports the clips the PC sequences play (`editor/scripts/ootf-speech.ts`), trans
   "lines": [ { "bank": "<pc sound bank, lower case, no extension>", "id": 9, "name": "...", "duration": 10.7,
                "cues": [ { "start": 0.0, "end": 4.9, "text": "..." } ] } ] }
 ```
+
+Several files can be given, separated by `;`: a later file's lines replace an earlier one's (an emptied line removes that
+clip's subtitle), so a file corrected by the player or a pack author wins over a fresh transcription. The tool keeps the
+lines of an existing output file, stores each line's `confidence`, flags unsure ones with `review: true` and writes them to
+`--review <txt>`. The speech model it needs is listed in `BUILDING.md`; the tool names it and its size and stops instead of
+downloading it unless `--allow-download` is given.
 
 The file is engine-neutral (keyed by the PC sound bank and id, times relative to the clip) and can be corrected by hand; the
 pack carries the lines it used as `story/subtitles.json` beside the engine's copy in the descriptors. It is game text made

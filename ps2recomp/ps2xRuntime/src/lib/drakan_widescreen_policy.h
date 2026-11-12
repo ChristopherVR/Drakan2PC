@@ -66,7 +66,9 @@ inline bool correctFrustumWidth(const ProjectionScope& scope, int thread, uint32
 
 // A mod pack's `level_aspect` entry, "Level title = 4:3" (also "16:9", or a number such as 1.333): the level title
 // and the aspect its world is shown at. False when the entry has no '=', no title or no usable aspect (1.0 .. 4.0).
-inline bool parseLevelAspect(const std::string& entry, std::string& level, float& aspect) {
+// A trailing word "fill" ("Level = 4:3 fill") asks for the picture to fill a wider window instead of a pillar box
+// (levelFraming below); `fill` may be null.
+inline bool parseLevelAspect(const std::string& entry, std::string& level, float& aspect, bool* fill = nullptr) {
     const size_t eq = entry.rfind('=');
     if (eq == std::string::npos)
         return false;
@@ -75,7 +77,15 @@ inline bool parseLevelAspect(const std::string& entry, std::string& level, float
         return a == std::string::npos ? std::string() : t.substr(a, b - a + 1);
     };
     level = trim(entry.substr(0, eq));
-    const std::string value = trim(entry.substr(eq + 1));
+    std::string value = trim(entry.substr(eq + 1));
+    bool wantsFill = false;
+    if (value.size() > 5 && value.compare(value.size() - 4, 4, "fill") == 0 &&
+        (value[value.size() - 5] == ' ' || value[value.size() - 5] == '\t')) {
+        wantsFill = true;
+        value = trim(value.substr(0, value.size() - 4));
+    }
+    if (fill)
+        *fill = wantsFill;
     float w = 0.0f, h = 0.0f;
     if (std::sscanf(value.c_str(), "%f:%f", &w, &h) == 2 && h > 0.0f)
         aspect = w / h;
@@ -90,6 +100,27 @@ inline bool parseLevelAspect(const std::string& entry, std::string& level, float
 // wider than the level's own (`levelAspect`, 0 = the level has none). A level never widens the player's choice.
 inline float levelWorldAspect(float target, float levelAspect) {
     return levelAspect > 0.0f && levelAspect < target ? levelAspect : target;
+}
+
+// How a level with its own aspect is shown in a window of aspect `target`.
+//   pillar box (fill = false): rendered and presented at the level's aspect, bars beside it.
+//   fill: the level's authored width fills the window, so the top and the bottom of the authored picture are cut
+//         (zoom multiplies both projection axes). The cut is limited to a 16:9 picture (a quarter of a 4:3 level's
+//         height); a wider window shows that 16:9 picture with bars instead of cutting more.
+// A window no wider than the level, or a level without an aspect, is left alone (zoom 1).
+struct LevelFraming {
+    float worldAspect = nativeAspect; // the aspect the world is rendered and presented at
+    float zoom = 1.0f;                // projection scale on both axes
+};
+inline constexpr float levelFillMaxAspect = 16.0f / 9.0f;
+inline LevelFraming levelFraming(float target, float levelAspect, bool fill) {
+    if (!(levelAspect > 0.0f) || levelAspect >= target)
+        return {target, 1.0f};
+    if (!fill)
+        return {levelAspect, 1.0f};
+    const float shown =
+        target < levelFillMaxAspect ? target : (levelAspect > levelFillMaxAspect ? levelAspect : levelFillMaxAspect);
+    return {shown, shown / levelAspect};
 }
 
 inline bool frontEndScreen(int id) {

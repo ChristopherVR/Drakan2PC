@@ -342,6 +342,38 @@ int main() {
         check(levelWorldAspect(wide, nativeAspect) == nativeAspect,
               "a 4:3 picture level is shown 4:3 in a wide window");
         check(levelWorldAspect(nativeAspect, wide) == nativeAspect, "a level aspect never widens a 4:3 choice");
+        {
+            // "fill": the level's width fills the window; the cut stops at a 16:9 picture.
+            bool fill = false;
+            check(parseLevelAspect("L = 4:3 fill", level, aspect, &fill) && fill && level == "L" &&
+                      std::fabs(aspect - nativeAspect) < 1e-5f,
+                  "level aspect entry: fill word");
+            check(parseLevelAspect("L = 4:3", level, aspect, &fill) && !fill, "level aspect entry: no fill word");
+            check(!parseLevelAspect("L = fill", level, aspect, &fill), "fill needs an aspect");
+            const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+            LevelFraming f = levelFraming(wide, nativeAspect, false);
+            check(f.worldAspect == nativeAspect && f.zoom == 1.0f, "pillar box: level aspect, no zoom");
+            f = levelFraming(wide, nativeAspect, true);
+            check(f.worldAspect == wide && near(f.zoom, 4.0f / 3.0f), "fill at 16:9: window aspect, zoom 4/3");
+            // the horizontal projection of the filled level equals the stock 4:3 one: the authored width, nothing more
+            check(near(projectionX(76.27f, 64.0f, f.worldAspect) * f.zoom, projectionX(76.27f, 64.0f, nativeAspect)),
+                  "fill keeps the authored width");
+            f = levelFraming(nativeAspect, nativeAspect, true);
+            check(f.worldAspect == nativeAspect && f.zoom == 1.0f, "fill in a 4:3 window changes nothing");
+            f = levelFraming(1.5f, nativeAspect, true);
+            check(f.worldAspect == 1.5f && near(f.zoom, 1.125f), "fill between 4:3 and 16:9 follows the window");
+            for (float ultra : {21.0f / 9.0f, 32.0f / 9.0f}) {
+                f = levelFraming(ultra, nativeAspect, true);
+                check(near(f.worldAspect, wide) && near(f.zoom, 4.0f / 3.0f),
+                      "fill at 21:9 and 32:9: a 16:9 picture with bars, never more than a quarter cut");
+                f = levelFraming(ultra, nativeAspect, false);
+                check(f.worldAspect == nativeAspect && f.zoom == 1.0f, "pillar box at 21:9 and 32:9");
+            }
+            f = levelFraming(wide, 0.0f, true);
+            check(f.worldAspect == wide && f.zoom == 1.0f, "no level aspect: the window's");
+            f = levelFraming(32.0f / 9.0f, 2.0f, true);
+            check(f.worldAspect == 2.0f && f.zoom == 1.0f, "a level wider than 16:9 is not cut at all");
+        }
         // 4:3 is below the wide threshold: the layout is the pillarboxed, unstretched world with a native projection
         const auto layout = layoutPolicy(-1, true, true, levelWorldAspect(wide, nativeAspect), false);
         check(!layout.presentWide && layout.projection == nativeAspect && layout.foregroundScale == 1.0f,

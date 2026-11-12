@@ -69,6 +69,7 @@ void* g_hwnd = nullptr;
 std::atomic<float> g_projAspect{k43}; // read by the EE hooks: aspect the 3D world is rendered for
 std::atomic<float> g_fovScale{1.0f};
 std::map<std::string, float> g_levelAspects;  // lower-case level title -> aspect of its scenes (guarded by g_mu)
+std::atomic<float> g_levelZoom{1.0f};         // projection zoom of a "fill" level in a wider window (hostTick)
 std::atomic<float> g_levelAspect{0.0f};       // of the loaded level, 0 = none
 std::atomic<float> g_worldProjX{0.0f};        // sc+0x40 * sc+0x48 at the last world camera update (worldProjectionX)
 std::atomic<float> g_inventoryHudScale{1.0f}; // exact foreground compression sent to GSR
@@ -202,7 +203,8 @@ void hookRenderWorld(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         inner = handle ? read(handle + 0xfc) : 0;
         camera = inner ? read(inner + 0x10) : 0;
         mode = camera ? read(camera + 0x14c) : 0;
-        const float fov = !scripted && mode == 6 ? g_fovScale.load(std::memory_order_relaxed) : 1.0f;
+        const float fov = (!scripted && mode == 6 ? g_fovScale.load(std::memory_order_relaxed) : 1.0f) *
+                          g_levelZoom.load(std::memory_order_relaxed);
         g_projectionScope.begin(thread, GPR_U32(c, 31), g_projAspect.load(std::memory_order_relaxed), fov);
         applyProjection(g_projectionScope.aspect, true, g_projectionScope.fovScale);
         if (g_wsLog.load() > 0) {
@@ -424,12 +426,13 @@ void setHudCorrect(bool on) {
 bool registerLevelAspect(const std::string& entry) {
     std::string level;
     float aspect = 0.0f;
-    if (!detail::parseLevelAspect(entry, level, aspect))
+    bool fill = false;
+    if (!detail::parseLevelAspect(entry, level, aspect, &fill))
         return false;
     for (char& ch : level)
         ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     std::lock_guard<std::mutex> l(g_mu);
-    g_levelAspects[level] = aspect;
+    g_levelAspects[level] = fill ? -aspect : aspect; // negative: fill a wider window instead of a pillar box
     return true;
 }
 
@@ -596,10 +599,14 @@ void hostTick() {
     const float winAspect = (mode == Mode::Auto || mode == Mode::Stretch) ? target : 0.0f;
     target = std::min(target, kMaxAspect); // sane bounds: beyond 32:9 the picture is pillarboxed instead of stretched
     // A level whose scenes are framed for a narrower picture (a pack's level_aspect) is rendered and pillarboxed at it.
+    // "fill" levels are cut to the window instead (zoom, applied to the projection by hookRenderWorld).
     const float levelAspect = g_levelAspect.load(std::memory_order_relaxed);
-    const bool levelFramed = mode != Mode::Native && detail::levelWorldAspect(target, levelAspect) != target;
-    if (levelFramed)
-        target = levelAspect;
+    const detail::LevelFraming framing = mode == Mode::Native
+                                             ? detail::LevelFraming{target, 1.0f}
+                                             : detail::levelFraming(target, std::fabs(levelAspect), levelAspect < 0.0f);
+    const bool levelFramed = framing.worldAspect != target;
+    target = framing.worldAspect;
+    g_levelZoom.store(framing.zoom, std::memory_order_relaxed);
     const int layoutScr = g_worldPolicy.layoutScreen(scr);
     const auto layout = detail::layoutPolicy(layoutScr, g_stateWide, mode != Mode::Native, target, hud);
     const bool wide = layout.presentWide || layout.stretchImage;

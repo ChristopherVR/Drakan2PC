@@ -12,6 +12,16 @@ converter reads it with `ootf-convert.ts --subtitles <file>` and stores the text
 The result is game text made from game audio: it must stay out of the repository (write it under build/ or local/).
 Review it before a release build: names are spelled by ear. The file is plain JSON and can be corrected by hand; a line
 whose cues are emptied gets no subtitle.
+
+A corrected file wins over a fresh transcription: when --out already exists its lines are kept as they are (also the
+emptied ones) and only clips it does not hold are transcribed; --retranscribe starts over. Every transcribed line carries
+`confidence` (the model's mean log probability, 0 = certain) and `review: true` when it is below --review-below, and
+--review writes the lines to check as a text file.
+
+Speech model: the tool uses a faster-whisper conversion of an OpenAI Whisper model from the Hugging Face hub
+(https://huggingface.co/Systran/faster-whisper-<model>, MIT licence), kept in the user's Hugging Face cache
+(~/.cache/huggingface/hub). If the model is not in the cache the tool names it and its size and stops; run it again with
+--allow-download to fetch it.
 """
 
 from __future__ import annotations
@@ -118,6 +128,56 @@ def is_speech(text: str, duration: float, no_speech: float, logprob: float, name
     return True
 
 
+# name -> approximate download size in MiB (model.bin plus tokenizer files)
+MODEL_SIZES = {
+    "tiny.en": 75,
+    "tiny": 75,
+    "base.en": 141,
+    "base": 141,
+    "small.en": 464,
+    "small": 464,
+    "medium.en": 1460,
+    "medium": 1460,
+    "large-v3": 2950,
+}
+
+
+def model_notice(name: str, cache: Path | None = None) -> str | None:
+    """None when the model is already in the Hugging Face cache (or `name` is a local folder), else the text that says
+    what would be downloaded."""
+    if Path(name).is_dir():
+        return None
+    cache = cache or Path.home() / ".cache" / "huggingface" / "hub"
+    if any((cache / f"models--Systran--faster-whisper-{name}" / "snapshots").glob("*/model.bin")):
+        return None
+    size = MODEL_SIZES.get(name)
+    return (
+        f"speech model 'faster-whisper-{name}' is not in {cache}.\n"
+        f"  source:  https://huggingface.co/Systran/faster-whisper-{name} (a CTranslate2 conversion of OpenAI Whisper)\n"
+        f"  licence: MIT\n"
+        f"  size:    {'about ' + str(size) + ' MiB' if size else 'not known for this model name'}"
+    )
+
+
+def merge_reviewed(existing: list[dict], fresh: list[dict]) -> list[dict]:
+    """Lines of an existing (possibly hand-corrected) file win; fresh lines only fill clips it does not hold."""
+    have = {(line["bank"], line["id"]) for line in existing}
+    return [*existing, *[line for line in fresh if (line["bank"], line["id"]) not in have]]
+
+
+def review_text(lines: list[dict], always: str = "") -> str:
+    """The lines to check by ear: those flagged `review` and every line of a bank whose name contains `always`."""
+    out = []
+    for line in lines:
+        if not (line.get("review") or (always and always in line["bank"])):
+            continue
+        conf = line.get("confidence")
+        head = f"{line['bank']} #{line['id']} ({line.get('name', '')}, {line.get('duration', 0):.1f} s"
+        out.append(head + (f", confidence {conf:.2f})" if conf is not None else ")"))
+        out.extend(f"    {cue['start']:6.2f}  {cue['text']}" for cue in line["cues"])
+    return "\n".join(out) + "\n"
+
+
 def read_wav(path: Path):
     import numpy as np
 
@@ -130,10 +190,20 @@ def read_wav(path: Path):
     return pcm
 
 
-def transcribe(work: Path, model_name: str, language: str | None, min_seconds: float) -> list[dict]:
+def transcribe(
+    work: Path,
+    model_name: str,
+    language: str | None,
+    min_seconds: float,
+    skip: frozenset[tuple[str, int]] = frozenset(),
+    review_below: float = -0.45,
+) -> list[dict]:
     from faster_whisper import WhisperModel
 
     clips = json.loads((work / "manifest.json").read_text(encoding="utf-8"))["clips"]
+    clips = [c for c in clips if (c["bank"], c["id"]) not in skip]
+    if not clips:
+        return []
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
     lines: list[dict] = []
     for i, clip in enumerate(clips):
@@ -166,6 +236,8 @@ def transcribe(work: Path, model_name: str, language: str | None, min_seconds: f
                     "id": clip["id"],
                     "name": clip["name"],
                     "duration": clip["duration"],
+                    "confidence": round(float(logprob), 3),
+                    **({"review": True} if logprob < review_below else {}),
                     "cues": cues,
                 }
             )
@@ -185,6 +257,11 @@ def main() -> int:
     ap.add_argument("--language", default="english", help="language name stored in the file (drakan.ini spelling)")
     ap.add_argument("--min-seconds", type=float, default=0.6, help="shorter clips are effects, not lines")
     ap.add_argument("--refilter", type=Path, help="apply the speech filter to an existing subtitle file instead")
+    ap.add_argument("--retranscribe", action="store_true", help="ignore an existing --out file and start over")
+    ap.add_argument("--allow-download", action="store_true", help="fetch the speech model when it is not cached")
+    ap.add_argument("--review", type=Path, help="also write the lines to check by ear to this text file")
+    ap.add_argument("--review-all", default="", help="with --review: list every line of banks containing this text")
+    ap.add_argument("--review-below", type=float, default=-0.45, help="confidence below which a line is flagged")
     a = ap.parse_args()
     if a.refilter:
         doc = json.loads(a.refilter.read_text(encoding="utf-8"))
@@ -208,7 +285,24 @@ def main() -> int:
     if not (work / "manifest.json").is_file():
         raise SystemExit(f"{work}/manifest.json not found: pass --ootf <install folder>")
     codes = {"english": "en", "german": "de", "french": "fr", "italian": "it", "spanish": "es"}
-    lines = transcribe(work, a.model, codes.get(a.language), a.min_seconds)
+    kept: list[dict] = []
+    if a.out.is_file() and not a.retranscribe:
+        kept = json.loads(a.out.read_text(encoding="utf-8"))["lines"]
+        print(
+            f"{a.out} exists: its {len(kept)} line(s) are kept; only other clips are transcribed (--retranscribe to redo)"
+        )
+    notice = model_notice(a.model)
+    if notice:
+        print(notice)
+        if not a.allow_download:
+            raise SystemExit("nothing was downloaded; run again with --allow-download to fetch the model")
+        print("downloading it now (--allow-download)")
+    skip = frozenset((line["bank"], line["id"]) for line in kept)
+    lines = merge_reviewed(kept, transcribe(work, a.model, codes.get(a.language), a.min_seconds, skip, a.review_below))
+    if a.review:
+        a.review.parent.mkdir(parents=True, exist_ok=True)
+        a.review.write_text(review_text(lines, a.review_all), encoding="utf-8")
+        print(f"wrote the lines to check to {a.review}")
     a.out.parent.mkdir(parents=True, exist_ok=True)
     doc = {"format": FORMAT, "version": VERSION, "language": a.language, "lines": lines}
     a.out.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")

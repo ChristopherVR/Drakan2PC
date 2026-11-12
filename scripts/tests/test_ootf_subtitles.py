@@ -111,5 +111,96 @@ class Refilter(unittest.TestCase):
         self.assertEqual([line["id"] for line in got["lines"]], [1])
 
 
+class ReviewedFiles(unittest.TestCase):
+    def test_existing_lines_win_over_a_fresh_transcription(self):
+        kept = [
+            {"bank": "a/b", "id": 1, "cues": [{"start": 0, "end": 1, "text": "corrected"}]},
+            {"bank": "a/b", "id": 2, "cues": []},
+        ]
+        fresh = [
+            {"bank": "a/b", "id": 1, "cues": [{"start": 0, "end": 1, "text": "misheard"}]},
+            {"bank": "a/b", "id": 2, "cues": [{"start": 0, "end": 1, "text": "noise"}]},
+            {"bank": "a/b", "id": 3, "cues": [{"start": 0, "end": 1, "text": "new"}]},
+        ]
+        merged = SUB.merge_reviewed(kept, fresh)
+        self.assertEqual(
+            [(m["id"], [c["text"] for c in m["cues"]]) for m in merged], [(1, ["corrected"]), (2, []), (3, ["new"])]
+        )
+
+    def test_review_text_lists_flagged_lines_and_whole_banks(self):
+        lines = [
+            {
+                "bank": "a/sure",
+                "id": 1,
+                "name": "one",
+                "duration": 2.0,
+                "confidence": -0.2,
+                "cues": [{"start": 0.0, "end": 2.0, "text": "A sure line."}],
+            },
+            {
+                "bank": "a/sure",
+                "id": 2,
+                "name": "two",
+                "duration": 2.0,
+                "confidence": -0.7,
+                "review": True,
+                "cues": [{"start": 0.5, "end": 2.0, "text": "An unsure line."}],
+            },
+            {
+                "bank": "a/story",
+                "id": 3,
+                "name": "three",
+                "duration": 2.0,
+                "confidence": -0.1,
+                "cues": [{"start": 0.0, "end": 2.0, "text": "A story line."}],
+            },
+        ]
+        text = SUB.review_text(lines, always="story")
+        self.assertNotIn("A sure line.", text)
+        self.assertIn("a/sure #2 (two, 2.0 s, confidence -0.70)", text)
+        self.assertIn("  0.50  An unsure line.", text)
+        self.assertIn("A story line.", text)
+
+
+class ModelNotice(unittest.TestCase):
+    def test_a_missing_model_is_named_with_source_licence_and_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            notice = SUB.model_notice("small.en", pathlib.Path(tmp))
+            self.assertIn("faster-whisper-small.en", notice)
+            self.assertIn("https://huggingface.co/Systran/faster-whisper-small.en", notice)
+            self.assertIn("MIT", notice)
+            self.assertIn("464 MiB", notice)
+            snap = pathlib.Path(tmp) / "models--Systran--faster-whisper-small.en" / "snapshots" / "abc"
+            snap.mkdir(parents=True)
+            (snap / "model.bin").write_bytes(b"x")
+            self.assertIsNone(SUB.model_notice("small.en", pathlib.Path(tmp)))
+            self.assertIsNone(SUB.model_notice(tmp, pathlib.Path(tmp)))  # a local model folder
+
+    def test_nothing_is_downloaded_without_the_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            work = pathlib.Path(tmp) / "speech"
+            work.mkdir()
+            (work / "manifest.json").write_text('{"clips": []}', encoding="utf-8")
+            done = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    str(TOOL),
+                    "--work",
+                    str(work),
+                    "--out",
+                    str(pathlib.Path(tmp) / "o.json"),
+                    "--model",
+                    "no-such-model-name",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(done.returncode, 0)
+            self.assertIn("is not in", done.stdout)
+            self.assertIn("nothing was downloaded", done.stderr + done.stdout)
+            self.assertFalse((pathlib.Path(tmp) / "o.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

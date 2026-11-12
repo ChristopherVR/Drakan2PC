@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -20,7 +20,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, re
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { Iso9660, SrscReader, SubtitleTable, parseSubtitleFile, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { Iso9660, SrscReader, SubtitleTable, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -190,8 +190,17 @@ const prefix = opt['prefix'] ?? 'OotF - ';
 const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
 // --subtitles <json>: the subtitle lines of the PC voice clips (analysis/scripts/ootf_subtitles.py makes the file on this
 // machine from the install's own audio; the PC game has no subtitle text). Without it the pack has no scene subtitles.
+// Several files separated by `;`: a later file's lines replace an earlier one's, so a hand-corrected file (the player's or a pack
+// author's) listed last wins over a fresh transcription.
 const subtitles = opt['subtitles']
-    ? new SubtitleTable(parseSubtitleFile(JSON.parse(readFileSync(opt['subtitles'], 'utf8'))))
+    ? new SubtitleTable(
+          mergeSubtitleFiles(
+              opt['subtitles']
+                  .split(';')
+                  .filter(Boolean)
+                  .map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8')))),
+          ),
+      )
     : undefined;
 const res = await convertOotfLevels(
     src,

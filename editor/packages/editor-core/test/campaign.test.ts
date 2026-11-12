@@ -58,6 +58,9 @@ describe('campaign manifest keys', () => {
         expect(toml).toContain('level_aspect = ["Picture Level = 4:3", "Other = 1.5"]');
         expect(toml.indexOf('level_aspect')).toBeLessThan(toml.indexOf('[target]'));
         expect(buildManifestToml(meta)).not.toContain('level_aspect');
+        expect(buildManifestToml({ ...meta, levelAspect: { 'Picture Level': '4:3 fill' } })).toContain(
+            'level_aspect = ["Picture Level = 4:3 fill"]',
+        );
         for (const bad of ['wide', '9:16', '8', '4:0', ''])
             expect(() => validateModMeta({ ...meta, levelAspect: { 'Picture Level': bad } })).toThrow();
         expect(() => validateModMeta({ ...meta, levelAspect: { 'A = B': '4:3' } })).toThrow();

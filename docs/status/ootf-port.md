@@ -374,6 +374,20 @@ of the stair: the floor needs the book), and in the Ruined Village opening. Open
 converted, the text is unreviewed machine transcription, the builder does not run the tool yet. Needs a regenerated pack
 and the new exe. See [church stair scene](../journal/2026-11-12/ootf-church-cinematic.md).
 
+**November 12 church stair, follow-up: the walk-down, wide screen, subtitle review.** The PC exit scene "Book 1B" (Rynn
+walking down the stair to the book) and the entrance scene now play: what fires such an exit starts a Stomp Player with
+both scenes and a Timer that fires the exit when they are over, and the exit can no longer be touched (formats
+`ootfexitseq.ts`). Played at 3840 x 2160 as one chain: the book taken in the priest's house (Rynn placed inside; the
+pickup needs no key press and was never broken), placed outside the church, walked in, the book on the altar ("Book 1A",
+the floor slides off), onto the stair, the walk-down, the save, the Book with subtitles, back at the foot of the stair with
+the HUD. Only three transitions of the campaign name such scenes: this one, the Book's own (its backstory, already played)
+and Volcanic's rift exit, whose scene "9.9" stalled the game when relayed and is left out (the Volcanic level file is
+unchanged). Wide screen for the Book: a `4:3 fill` level setting now exists (the authored width fills the window, a
+quarter of the height is cut, 21:9 and 32:9 get a 16:9 picture with bars) but stays off: it cuts heads in several
+paintings; a side fill from the picture itself looks best and needs a present pass in the renderer backends; mirrored
+edges look wrong. The subtitle tool keeps a corrected file, writes a review list with confidences and names the speech
+model before any download. Same journal note, sections 8 to 10.
+
 **November 12 the tomb's push puzzle (issue 5):** the owner's "cannot push the objects in the lair" is the tomb of the Soul
 Crystal in Ruined Village: a block (Rigid Body, Push Mode Slide) is pushed onto one of three pressure plates, then the plate
 beside the statue is pressed and the Rising Floor Ring bridges the pit to the crystal. In the pack the block lay under the pit

@@ -222,6 +222,23 @@ on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers th
   `--cover`, so the pack ships `previews/campaign-ootf.png` and `background-ootf.png`. A rebuild converts again only when the source, the ISO, the cover, the converter
   code (`KIT-VERSION.txt` or the Git revision) or the need for HD sources changed (`build/ootf/convert-state.json`). A
   failed conversion is reported and the game build goes on without it.
+* **Subtitles of the Order of the Flame scenes** (a manual step for now; the guided builder does not run it): the PC game
+  has no subtitle text, so the text is made on your machine from the install's own voice clips and handed to the converter:
+  `python analysis/scripts/ootf_subtitles.py --ootf <install> --out build/ootf-subtitles/english.json --review build/ootf-subtitles/review.txt`,
+  then `ootf-convert.ts ... --subtitles "build/ootf-subtitles/english.json;<corrected file>"` (a later file's lines replace an
+  earlier one's, so a corrected file from you or a pack author wins; the tool also keeps the lines of an existing `--out`
+  file and only transcribes clips it does not hold). The tool needs `pip install faster-whisper numpy` (a venv is enough)
+  and one speech model in the Hugging Face cache (`~/.cache/huggingface/hub`). It never downloads silently: when the model
+  is missing it prints the name, source, licence and size and stops until it is run with `--allow-download`.
+
+  | Model (`--model`) | Source | Licence | Size on disk |
+  | --- | --- | --- | --- |
+  | `small.en` (default, English installs) | `https://huggingface.co/Systran/faster-whisper-small.en`, a CTranslate2 conversion of OpenAI Whisper small.en | MIT | 464 MiB |
+  | `base.en` (faster, less accurate) | `https://huggingface.co/Systran/faster-whisper-base.en` | MIT | 141 MiB |
+  | `small` (other languages, with `--language german` ...) | `https://huggingface.co/Systran/faster-whisper-small` | MIT | about 464 MiB |
+
+  The subtitle file is game text made from game audio: keep it under `build/` or `local/`, never commit it. See
+  `docs/reference/modding.md` ("Subtitles of a pack's voice clips").
 * **HD textures** (`-HdTextures on`): after the game build `analysis/scripts/hd_pack.py` decodes every disc texture and
   every texture of the converted pack, then Real-ESRGAN (`realesrgan-ncnn-vulkan`, any Vulkan GPU) upscales them 4x into
   `<play folder>/textures`; two passes (disc, then the pack), both resumable. For the pack it upscales the lossless sources

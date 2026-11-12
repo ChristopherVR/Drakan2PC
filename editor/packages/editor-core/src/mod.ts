@@ -64,12 +64,13 @@ export interface ModMeta {
      * Levels whose cut scenes are framed for one picture shape: level title -> aspect (`4:3`, `16:9` or a number).
      * While such a level is loaded the game renders and shows its world at that aspect instead of the window's
      * (manifest `level_aspect`; the OotF converter marks the "Ruined Village Book", whose paintings fill a 4:3 screen).
+     * `4:3 fill` makes the level's width fill a wider window instead (top and bottom are cut, at most to 16:9).
      */
     levelAspect?: Record<string, string>;
 }
 
 /** An aspect a manifest accepts: `W:H` or a number, between 1 and 4. */
-export const LEVEL_ASPECT_PATTERN = /^(\d+(\.\d+)?:\d+(\.\d+)?|\d+(\.\d+)?)$/;
+export const LEVEL_ASPECT_PATTERN = /^(\d+(\.\d+)?:\d+(\.\d+)?|\d+(\.\d+)?)( fill)?$/;
 
 /** A campaign id: 1-32 of a-z 0-9 _ -, starting with a letter or digit. */
 export const CAMPAIGN_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -136,7 +137,7 @@ export function validateModMeta(m: ModMeta): void {
         if (why) throw new ModError(`level "${level}": ${why}`);
     }
     for (const [level, aspect] of Object.entries(m.levelAspect ?? {})) {
-        const [w, h] = aspect.split(':').map(Number);
+        const [w, h] = aspect.replace(/ fill$/, '').split(':').map(Number);
         const value = h === undefined ? w! : w! / h;
         if (!LEVEL_ASPECT_PATTERN.test(aspect) || !(value >= 1 && value <= 4))
             throw new ModError(`levelAspect of "${level}" must be like 4:3 (between 1 and 4)`);
