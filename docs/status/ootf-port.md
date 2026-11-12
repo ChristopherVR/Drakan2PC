@@ -402,6 +402,22 @@ Body does not move on terrain either (the Islands crate is most likely fixed), n
 other plate puzzles (Islands, Rift Crystal) do not enforce their order, old saves keep the old objects. Needs a regenerated
 pack and a new game. See [tomb push puzzle](../journal/2026-11-12/ootf-lair-push-puzzle.md).
 
+**November 12 the tomb's push puzzle, second pass (issue 5):** the stand-in above is gone; the block is a Rigid Body Rynn
+pushes by walking into it and the plates are native Pressure Plates (formats `21128e2`). The three open points had these
+causes. A converted Rigid Body never moved because the first pass gave its model a solid box: with box bounds the engine
+sets no contact sphere (0x458d88), the body's contact query never clears its "just woken" bit and the tick never takes the
+push velocity; the PC sphere bounds are kept now. Native plates "did not sense Rynn" because the first pass looked for the
+tiles a quarter turn away: a placed model turns by the stored Y degrees minus 90, so plate 992 lies north beside the block,
+991 west and 988 east; the plates also need a box with height. The block rests on an invisible terrain layer at floor
+height that is named right after the room's layers in every layer list, so Rynn is filed on it too (the layer lookup
+0x14b6b8 walks a list upward and never reached a layer appended at its end). Played on a full pack without god mode from
+one placement inside the room (`evidence/proof3`): wrong steps make the plates chase each other back to the start, a short
+push stops with Rynn, the block is pulled onto plate 992 and sinks with it, F5 / F8 restores block and plates, 991 then 988
+raises the ring, over it to the casket platform. All 42 plates of the campaign are native now; a press was seen in Rift
+Crystal, Islands (with the next plate rising) and Wartok Canyons, not in Grotto. The Islands crate is pushable (829 units in
+one push). Not done: the walk in from the village and on to the lair, the crystal pickup seen, sound heard. Needs a
+regenerated pack and a new game. Same journal note, section 7.
+
 **November 12 white squares in the tomb (issue 5):** the "white squares floating looking like trigger points" in the same
 room are not trigger detectors. They are the room's three dynamic lights: a PC dynamic light keeps the visible object flag,
 and its converted class is a clone of the System light class, whose small white marker cube has a draw list. On the disc no
