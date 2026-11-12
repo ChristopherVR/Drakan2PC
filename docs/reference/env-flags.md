@@ -79,7 +79,7 @@ Fresh settings now default reflections off because they can run on opaque scenes
 | `GSR_ANISO` | atoi | config | Anisotropy (clamped to 16). |
 | `GSR_MIPBIAS` | `auto` or atof | config | Mip bias. |
 | `GSR_TEXDUMP`, `GSR_TEXREPLACE`, `GSR_TEXUP_SYNC` | atoi | config | Dump / replace / synchronous upscaling. |
-| `GSR_TERRAIN_DETAIL`, `GSR_TERRAIN_CLIFFS` | first char `1` = on, else off | config (`[video] terrain_detail` 1, `terrain_cliffs` 0) | Terrain detail and the side projection of steep terrain faces ([graphics.md](graphics.md), "Terrain detail"). Direct3D 11 only. |
+| `GSR_TERRAIN_DETAIL`, `GSR_TERRAIN_CLIFFS` | first char `1` = on, else off | config (`[video] terrain_detail` 0, `terrain_cliffs` 0) | Terrain detail and the side projection of steep terrain faces ([graphics.md](graphics.md), "Terrain detail"). Direct3D 11 only. |
 | `GSR_TERRAIN_STRENGTH` | atof, clamped to 0..2 | config (`terrain_detail_strength`, 1) | Strength of the terrain detail. |
 | `GSR_TERRAIN_DEBUG` | atoi | 0 | `1` tints terrain layers (green: mapped from above only, red: side projection allowed); `2` shows the projection weights (blue from above, red plane x, green plane z, grey: no side projection). |
 | `GSR_TERRAIN_AUDIT` | presence | off | Every 600 frames, `[terrain-audit]` lines: per GS state signature, how many world triangles have all three vertices on the 2048 unit grid (the geometric ground truth for terrain), and which layer textures took the side projection (size, cells per tile). |

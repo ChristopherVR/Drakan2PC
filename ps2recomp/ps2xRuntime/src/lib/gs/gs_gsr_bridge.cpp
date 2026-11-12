@@ -835,7 +835,7 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
                                  ? drakan_cfg::getBool("video", "hd_textures", nullptr, true)
                                  : drakan_cfg::getBool("video", "texture_replace", nullptr, true);
         cfg.textureDump = drakan_cfg::getBool("video", "texture_dump", nullptr, false);
-        cfg.terrainDetail = drakan_cfg::getBool("video", "terrain_detail", nullptr, true);
+        cfg.terrainDetail = drakan_cfg::getBool("video", "terrain_detail", nullptr, false);
         cfg.terrainCliffs = drakan_cfg::getBool("video", "terrain_cliffs", nullptr, false);
         cfg.terrainDetailStrength =
             (float)std::clamp(drakan_cfg::getFloat("video", "terrain_detail_strength", nullptr, 1.0), 0.0, 2.0);

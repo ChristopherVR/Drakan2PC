@@ -35,7 +35,7 @@ Use F11 or Alt+Enter for borderless fullscreen on Windows. Increase render scale
 | Texture filtering and anisotropic filtering | Improve texture sampling | Windows renderer settings |
 | Live texture upscaling | Scale decoded textures at runtime | Select the filter/factor; disable for native textures |
 | HD texture replacement | Use locally generated replacement images | A texture pack and the HD textures setting |
-| Terrain detail | Fine surface detail and large-scale variation on the ground and mountains, fixed in the world | Direct3D 11 renderer; `terrain_detail` (on by default) and `terrain_detail_strength` (0.25 to 2) in the Textures section; off shows the terrain as before |
+| Terrain detail | Fine surface detail and large-scale variation on the ground and mountains, fixed in the world | Direct3D 11 renderer; `terrain_detail` (off by default) and `terrain_detail_strength` (0.25 to 2) in the Textures section; off shows the terrain as before |
 | Cliff textures | Steep mountain faces take their texture from the side so it is no longer stretched into streaks; patches of grass and rock on such faces move | Direct3D 11 renderer; `terrain_cliffs`, off by default |
 | Material detail | Shade the relief inside HD textures (stones, planks, rock) from the level's light; Off, Hard surfaces or All | The Direct3D 11 renderer, the HD texture pack and its material maps (made by the same build step) |
 | DLSS Super Resolution / DLAA | Reconstruction or anti-aliasing | Compatible NVIDIA RTX GPU and a DLSS-enabled Windows build |

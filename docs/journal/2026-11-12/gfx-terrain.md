@@ -228,3 +228,8 @@ test of `gs_terrain.inc` against `detailFactor` / `smoothNormal`.
   was not traced.
 * GPU time is measured with timestamp queries around the terrain draws on a GPU shared with other game instances.
 * Which guest routine composes the 32 bit composite and when a chunk switches passes.
+
+## 11. Later the same day: detail off by default
+
+`terrain_detail` now defaults to 0. The missing shadow in `tundra_n2_hill_near` (section 10) is a visible fault in a
+picture of this note and has no explanation yet, so the feature stays opt-in until the cause is found.

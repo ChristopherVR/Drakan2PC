@@ -843,10 +843,10 @@ int main(int argc, char** argv) {
         CHECK(!next.loaded().video.foliageWind && next.loaded().video.foliageWindStrength == 0.5f);
     }
     {
-        // Terrain detail is on by default, cliff textures (a change of look) off; the strength is a float.
+        // Terrain detail and cliff textures are off by default; the strength is a float.
         SettingsStore st;
         st.loadFromText("", "");
-        CHECK(st.loaded().video.terrainDetail && !st.loaded().video.terrainCliffs &&
+        CHECK(!st.loaded().video.terrainDetail && !st.loaded().video.terrainCliffs &&
               st.loaded().video.terrainDetailStrength == 1.0f);
         st.loadFromText("[video]\nterrain_detail=0\nterrain_cliffs=1\nterrain_detail_strength=1.5\n", "");
         CHECK(!st.loaded().video.terrainDetail && st.loaded().video.terrainCliffs &&

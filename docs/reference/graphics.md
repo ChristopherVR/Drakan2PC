@@ -424,8 +424,8 @@ which have no pack image and therefore no material map; measurements, pictures a
 ## Terrain detail: world-space detail and side projection on the GS path (2026-11-12)
 
 Two player settings for the height-field terrain (ground, hillsides, mountains), both exact no-ops when off:
-`terrain_detail` (default on, with `terrain_detail_strength`) and `terrain_cliffs` (default off: it changes the look
-of steep faces). Direct3D 11 only so far. Facts, pictures, cost and limits:
+`terrain_detail` (with `terrain_detail_strength`) and `terrain_cliffs`, both off by default (cliffs changes the look
+of steep faces; detail is off until the missing shadow of the 2026-11-12 Tundra picture is explained). Direct3D 11 only so far. Facts, pictures, cost and limits:
 [gfx-terrain](../journal/2026-11-12/gfx-terrain.md).
 
 **How terrain reaches the renderer.** Every chunk of a terrain layer (up to 12 x 12 cells of 2048 units) is drawn

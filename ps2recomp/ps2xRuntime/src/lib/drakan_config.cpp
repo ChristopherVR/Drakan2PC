@@ -152,7 +152,7 @@ const Entry kEntries[] = {
      "DRAKAN_POLY_NEAR_CLIP)"},
     {"video", "hd_textures", "1",
      "1 = use replacement textures from texture_dir (also accepted: texture_replace) (env GSR_TEXREPLACE)"},
-    {"video", "terrain_detail", "1",
+    {"video", "terrain_detail", "0",
      "1 = fine surface detail and large-scale variation on the ground and mountains, fixed in the world (Direct3D 11 "
      "renderer); 0 = the terrain exactly as before (env GSR_TERRAIN_DETAIL)"},
     {"video", "terrain_detail_strength", "1.00",

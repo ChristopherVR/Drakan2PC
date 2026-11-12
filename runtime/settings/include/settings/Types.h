@@ -47,7 +47,7 @@ struct VideoSettings {
     bool mipBiasAuto = true;                      // mip_bias = auto: renderer follows the internal resolution
     bool hdTextures = true;                       // hd_textures: use replacement textures from overrides/
     bool textureDump = false;                     // texture_dump: write decoded textures to disk
-    bool terrainDetail = true;           // terrain_detail: world-space detail and breakup on the ground and mountains
+    bool terrainDetail = false;          // terrain_detail: world-space detail and breakup on the ground and mountains
     bool terrainCliffs = false;          // terrain_cliffs: steep terrain faces sample their texture from the side
     float terrainDetailStrength = 1.0f;  // terrain_detail_strength: 0.25 .. 2 (1 = default)
     std::string materialDetail = "off";  // material_detail: off | hard | all (relief from the material maps)
