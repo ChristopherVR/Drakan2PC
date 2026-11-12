@@ -356,6 +356,9 @@ std::string getString(const char*, const char*, const char* env, const char* fal
 int getInt(const char*, const char*, const char*, int fallback) {
     return fallback;
 }
+double getFloat(const char*, const char*, const char*, double fallback) {
+    return fallback;
+}
 bool getBool(const char*, const char*, const char*, bool fallback) {
     return fallback;
 }
