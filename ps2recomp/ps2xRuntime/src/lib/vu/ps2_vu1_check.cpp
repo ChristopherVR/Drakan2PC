@@ -454,6 +454,12 @@ struct BatchBench {
                         axes.set(pass);
                     const uint16_t wr = writeLanes(kind);
                     ++stageProofByKind[kind];
+                    if (kind == gsr::vp::PassGridFlat) {
+                        // the flat grid also stores the zero quadword it reads its heights from (a live game's first
+                        // such run finds something else there; a recording usually starts after it)
+                        const uint32_t zero[4] = {0u, 0u, 0u, gsr::vp::vu::kOne};
+                        std::memcpy(evalMem.data() + size_t(47u) * 16u, zero, 16);
+                    }
                     for (uint32_t sl = pass.first; sl < pass.first + pass.count; ++sl) {
                         gsr::vp::Row row;
                         loadRow(evalMem.data(), sl, row);
@@ -858,11 +864,110 @@ void noteVifWrite(uint32_t qw, uint32_t lanes) {
         g_vifWrites.push_back((qw & 0xFFFFu) | ((lanes & 15u) << 16));
 }
 
-bool gpuProgramsEnabled() {
-    return gsr::vpath::evalOf(gsr::vpath::controlWord()) != gsr::vpath::Eval::Microprogram;
+// ---- DRAKAN_VERTEX_SHADOW: the batch proof of the replay (BatchBench) on the runs of a live game ----
+// The game's own VU1 executes every run and draws as always. A second tracker decides, as it would under `records`,
+// on a memory of its own that receives only what the VIF reports as written and what the tracker and the runs it lets
+// through write; a second engine executes those runs on that memory, with its packets dropped. Checked per run, with
+// the counters of BatchBench: every record against the packets the game's VU1 sent for the run, every executed run's
+// packets against them, the tracker's memory against the game's before an executed run, the stages of every vertex
+// run against the memory the microprogram leaves, and that no lane of the game's VU memory changed between two runs
+// without a reported write (which proves the VIF's reports, fast path included, on real play).
+namespace {
+struct Shadow {
+    BatchBench bench;
+    VU1Interpreter engine{VU1Interpreter::Unit::VU1};
+    std::vector<uint32_t> writes; // since the last run: quadword | lanes << 16
+    BatchPackets sent;
+    uint64_t runs = 0, lastReport = 0;
+    bool ready = false;
+};
+Shadow& shadow() {
+    static Shadow* s = new Shadow; // never destroyed: the VU1 worker may outlive static destruction
+    return *s;
 }
-bool gpuProgramIntercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory) {
-    return vu1gpu::intercept(vu, data, dataSize, memory);
+void shadowReport(Shadow& s) {
+    const BatchBench& b = s.bench;
+    const vu1gpu::batch::Counters& c = b.tracker.counters;
+    using U = unsigned long long;
+    std::fprintf(stderr,
+                 "[vertex-shadow] runs %llu; records %llu, vertices compared %llu, differing %llu, records of another "
+                 "shape %llu, taken without a record but the microprogram sent packets %llu; vertex runs evaluated "
+                 "%llu, differing %llu (%llu lanes); runs executed on the shadow memory %llu, with other packets "
+                 "%llu, memory before them other than the game's in %llu runs (%llu lanes); lanes changed without a "
+                 "reported write %llu; runs drawing an unknown lane %llu; declined:",
+                 U(s.runs), U(b.recordRuns), U(b.recVertices), U(b.recBadVertices), U(b.recBadShape),
+                 U(b.emptyTakenBad), U(b.stageProofRuns), U(b.stageProofBadRuns), U(b.stageProofBadLanes),
+                 U(b.execRuns), U(b.execBadPackets), U(b.memBadRuns), U(b.memBadLanes), U(b.unreportedLanes),
+                 U(c.staleDraws));
+    for (uint32_t r = 1; r < static_cast<uint32_t>(vu1gpu::batch::Reason::Count); ++r)
+        if (c.declined[r])
+            std::fprintf(stderr, " %s %llu", vu1gpu::batch::reasonName(static_cast<vu1gpu::batch::Reason>(r)),
+                         U(c.declined[r]));
+    std::fprintf(stderr, "; taken: vertex runs %llu of %llu, index lists %llu of %llu, with clip codes %llu of %llu\n",
+                 U(c.taken[1]), U(c.runs[1]), U(c.taken[2]), U(c.runs[2]), U(c.taken[3]), U(c.runs[3]));
+}
+} // namespace
+
+bool shadowRequested() {
+    static const bool on = [] {
+        const char* e = std::getenv("DRAKAN_VERTEX_SHADOW");
+        return e && e[0] && e[0] != '0';
+    }();
+    return on;
+}
+void shadowWrite(uint32_t qw, uint32_t lanes) {
+    if ((lanes & 15u) != 0u)
+        shadow().writes.push_back((qw & 0xFFFFu) | ((lanes & 15u) << 16));
+}
+void shadowBefore(bool resume, uint32_t startPc, VU1Interpreter& vu, uint8_t* code, uint8_t* data, GS& gs,
+                  PS2Memory* memory, uint32_t top, uint32_t itop, uint32_t families) {
+    Shadow& s = shadow();
+    BatchBench& b = s.bench;
+    if (!s.ready) {
+        s.ready = true;
+        b.on = true;
+        b.exactWrites = true;
+        b.mine.resize(kDataSize);
+        b.postPrev.resize(kDataSize);
+        b.evalMem.resize(kDataSize);
+        b.writes.resize(2);
+        b.vifWrites.resize(2);
+        b.runStage.assign(2, 0);
+        b.runTaken.assign(2, 0);
+        b.runReason.assign(2, 0);
+        s.engine.reset();
+        Vu1Fast::spare(s.engine).sinkNone = 1; // its packets are compared, never drawn
+        std::fprintf(stderr, "[vertex-shadow] on: the microprogram draws, records are built and compared beside it\n");
+    }
+    b.families = families;
+    b.vifWrites[1].swap(s.writes);
+    s.writes.clear();
+    b.writes[1].clear();
+    const bool dEn = vu.state().dBitEnabled, tEn = vu.state().tBitEnabled;
+    b.before(1, resume, startPc, data, vu, s.engine, [&](VU1Interpreter& v, uint8_t* d) {
+        v.state().dBitEnabled = dEn;
+        v.state().tBitEnabled = tEn;
+        if (resume)
+            v.resume(code, PS2_VU1_CODE_SIZE, d, kDataSize, gs, memory, top, itop, 65536);
+        else
+            v.execute(code, PS2_VU1_CODE_SIZE, d, kDataSize, gs, memory, startPc, top, itop, 65536);
+    });
+    s.sent.clear();
+    vu.setPacketTap(&s.sent);
+}
+void shadowAfter(VU1Interpreter& vu, const uint8_t* data) {
+    Shadow& s = shadow();
+    vu.setPacketTap(nullptr);
+    s.bench.after(1, s.sent, data);
+    ++s.runs;
+    if (s.runs - s.lastReport >= 250000u) {
+        s.lastReport = s.runs;
+        shadowReport(s);
+    }
+}
+void shadowFinish() {
+    if (shadowRequested() && shadow().ready)
+        shadowReport(shadow());
 }
 
 bool benchRequested() {

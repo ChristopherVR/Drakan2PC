@@ -9,6 +9,10 @@
 // Two renderers of the same backend and scale run side by side, one fed A and one fed B, and after every frame the
 // complete picture of both is compared; a second frame makes the depth buffer visible (a ladder of depth-tested
 // sprites, and the runs drawn again as packets under "greater or equal" and under "greater") and is compared too.
+// Runs of the batch path travel the same two ways: as the packets vp::batchToGif makes of a batch record
+// (gsr/vertex_batch.h), or as that record. Scenes "batch" and "batchmix" hold every pass kind, chains of up to 24
+// passes, records with one vertex per index and with shared vertices, the closing empty tag, and batch records
+// between strip records and ordinary packets; malformed batch records must be ignored.
 // B runs under every evaluation mode of the control word and with the mode flipping at frame boundaries; the
 // counters of the path are checked for every frame. Negative controls prove that a difference of one unit in one
 // constant is seen. When a backend gains the shader path, the `gpu` runs here become its proof without a change.
@@ -17,6 +21,7 @@
 // Exit 77: no hardware adapter (or not the graphics API asked for).
 #include "gsr/gsr.h"
 #include "gsr/renderer_choice.h"
+#include "gsr/vertex_batch.h"
 #include "gsr/vertex_path.h"
 #include "gsr/vertex_program.h"
 #include "vertex_program_cases.h"
@@ -177,11 +182,23 @@ struct Run {
     std::vector<vp::Vertex> vertices;
 };
 
+// One index-list run of the batch path (gsr/vertex_batch.h).
+struct BatchRun {
+    uint32_t prim = kStrip;
+    std::vector<vp::Pass> passes;
+    std::vector<uint32_t> strips;  // lengths in indices
+    std::vector<uint16_t> indices; // into the vertices
+    std::vector<vp::BatchVertex> vertices;
+    bool emptyTag = false;
+};
+
 struct Item {
     bool isRun = false;
     GifPath path = GifPath::Path3;
     std::vector<uint8_t> raw;
     Run run;
+    bool isBatch = false;
+    BatchRun batch;
 };
 
 struct Scene {
@@ -190,7 +207,10 @@ struct Scene {
     uint32_t zLimit = 1u << 28; // depth values lie below this
     void raw(GifPath path, Gif&& g) { items.push_back(Item{false, path, std::move(g.d), {}}); }
     void run(Run&& r) { items.push_back(Item{true, GifPath::Path1, {}, std::move(r)}); }
+    void batch(BatchRun&& b) { items.push_back(Item{false, GifPath::Path1, {}, {}, true, std::move(b)}); }
 };
+void sendBatch(Renderer& gs, const BatchRun& r, bool asRecord);
+void batchDepthPackets(Gif& g, const BatchRun& r, const uint8_t* colour);
 
 // Stream B: the wrapped record, exactly as vu1gpu::buildStrips writes it (payload quadwords, end of packet, FLG = 3,
 // the magic in the upper half; header, constants, strip lengths padded to four words, vertex rows).
@@ -253,6 +273,8 @@ void sendScene(Renderer& gs, const Scene& s, bool asRecords) {
     for (const Item& it : s.items) {
         if (it.isRun)
             sendRun(gs, it.run, asRecords);
+        else if (it.isBatch)
+            sendBatch(gs, it.batch, asRecords);
         else
             gs.submitGifPacket(it.path, it.raw.data(), static_cast<uint32_t>(it.raw.size()));
     }
@@ -288,6 +310,8 @@ std::vector<uint8_t> depthPicture(const Scene& s, uint32_t rungs) {
         g.ad({{kRegFrame, (static_cast<uint64_t>(kFbw) << 16) | (0xFF00FFFFull << 32)},
               {kRegTest, testReg(0, 0, 0, 0, pass ? kZGreater : kZGreaterEqual)}});
         for (const Item& it : s.items) {
+            if (it.isBatch)
+                batchDepthPackets(g, it.batch, colour);
             if (!it.isRun)
                 continue;
             const vp::Vertex* v = it.run.vertices.data();
@@ -719,6 +743,570 @@ Scene generatedScene(uint32_t frame) {
     return s;
 }
 
+// ------------------------------------------------------------------------------------------------ batch records
+// A batch record (gsr/vertex_batch.h) is one index-list run of the batch path: raw vertex rows, the passes they still
+// need and strips as indices into the vertices. Stream A sends what the microprogram sends for the run (the packets
+// vp::batchToGif makes, one kick per strip, and the closing empty tag of a run with clip codes); stream B sends the
+// record as vu1gpu::batch::Tracker wraps it.
+std::vector<uint8_t> wrapBatch(const BatchRun& r) {
+    vp::BatchHeader h{};
+    h.program = vp::Batch;
+    h.prim = r.prim;
+    h.stripCount = static_cast<uint32_t>(r.strips.size());
+    h.indexCount = static_cast<uint32_t>(r.indices.size());
+    h.vertexCount = static_cast<uint32_t>(r.vertices.size());
+    h.passCount = static_cast<uint32_t>(r.passes.size());
+    h.flags = r.emptyTag ? vp::kBatchEmptyTag : 0u;
+    const uint32_t payload = vp::batchRecordBytes(h.passCount, h.stripCount, h.indexCount, h.vertexCount);
+    std::vector<uint8_t> packet(16u + payload, 0);
+    const uint64_t wrapLo = uint64_t(payload / 16u) | (1ull << 15) | (3ull << 58);
+    std::memcpy(packet.data(), &wrapLo, 8);
+    std::memcpy(packet.data() + 8, &vp::kTagMagic, 8);
+    uint8_t* out = packet.data() + 16;
+    std::memcpy(out, &h, sizeof(h));
+    out += sizeof(h);
+    if (h.passCount)
+        std::memcpy(out, r.passes.data(), size_t(h.passCount) * sizeof(vp::Pass));
+    out += size_t(h.passCount) * sizeof(vp::Pass);
+    if (h.stripCount)
+        std::memcpy(out, r.strips.data(), size_t(h.stripCount) * 4u);
+    out += vp::batchStripBytes(h.stripCount);
+    if (h.indexCount)
+        std::memcpy(out, r.indices.data(), size_t(h.indexCount) * 2u);
+    out += vp::batchIndexBytes(h.indexCount);
+    if (h.vertexCount)
+        std::memcpy(out, r.vertices.data(), size_t(h.vertexCount) * sizeof(vp::BatchVertex));
+    return packet;
+}
+
+// The packets of the run (stream A). False: the record does not parse (a test bug).
+bool batchPackets(const BatchRun& r, std::vector<std::vector<uint8_t>>& packets) {
+    static std::vector<uint64_t> aligned; // parseBatch hands out pointers into the payload
+    const std::vector<uint8_t> wrapped = wrapBatch(r);
+    aligned.assign((wrapped.size() + 7u) / 8u, 0);
+    std::memcpy(aligned.data(), wrapped.data(), wrapped.size());
+    const uint8_t* payload = reinterpret_cast<const uint8_t*>(aligned.data()) + 16;
+    vp::BatchView view;
+    if (!vp::parseBatch(payload, static_cast<uint32_t>(wrapped.size() - 16u), view))
+        return false;
+    vp::batchToGif(view, packets);
+    return true;
+}
+
+void sendBatch(Renderer& gs, const BatchRun& r, bool asRecord) {
+    if (asRecord) {
+        const std::vector<uint8_t> packet = wrapBatch(r);
+        gs.submitGifPacket(GifPath::Path1, packet.data(), static_cast<uint32_t>(packet.size()));
+        return;
+    }
+    std::vector<std::vector<uint8_t>> packets;
+    if (!batchPackets(r, packets))
+        return;
+    for (const auto& pk : packets) // one kick per strip, then the empty tag
+        gs.submitGifPacket(GifPath::Path1, pk.data(), static_cast<uint32_t>(pk.size()));
+}
+
+// The strips of a batch run once more as plain strips in one colour (the depth picture).
+void batchDepthPackets(Gif& g, const BatchRun& r, const uint8_t* colour) {
+    std::vector<std::vector<uint8_t>> packets;
+    if (!batchPackets(r, packets))
+        return;
+    for (const auto& pk : packets) {
+        const uint32_t n = static_cast<uint32_t>((pk.size() - 16u) / 64u);
+        if (!n)
+            continue;
+        g.tag(n, true, kStrip, 0, 4, kTagRegisters);
+        for (uint32_t i = 0; i < n; ++i) {
+            uint64_t q[8];
+            std::memcpy(q, pk.data() + 16u + size_t(i) * 64u, 64);
+            g.qw(q[0], q[1]);
+            g.qw(rgLo(colour[0], colour[1]), baHi(colour[2], colour[3]));
+            g.qw(q[4], q[5]);
+            g.qw(q[6], q[7]);
+        }
+    }
+}
+
+// ---- passes from the constants of a strip run ----
+vp::Pass transformPass(const vp::Constants& k, uint32_t kind = vp::PassTransform) {
+    vp::Pass p{};
+    p.kind = kind;
+    std::memcpy(p.k[0], k.mvp, 64);
+    std::memcpy(p.k[4], k.fog, 16);
+    std::memcpy(p.k[5], k.offset, 16);
+    std::memcpy(p.k[6], k.scale, 16);
+    return p;
+}
+vp::Pass lightPass(const vp::Constants& k) {
+    vp::Pass p{};
+    p.kind = vp::PassLight;
+    std::memcpy(p.k[0], k.colour, 16);
+    std::memcpy(p.k[1], k.lightDir, 64);
+    std::memcpy(p.k[5], k.lightColour, 64);
+    return p;
+}
+vp::Pass fadePass(float slope) {
+    vp::Pass p{};
+    p.kind = vp::PassFade;
+    p.k[0][3] = bitsOf(slope);
+    return p;
+}
+vp::Pass texMatrixPass(float a, float b, float c, float d, float tx, float ty) {
+    vp::Pass p{};
+    p.kind = vp::PassTexMatrix;
+    p.k[0][0] = bitsOf(a);
+    p.k[0][1] = bitsOf(b);
+    p.k[1][0] = bitsOf(c);
+    p.k[1][1] = bitsOf(d);
+    p.k[2][0] = bitsOf(tx);
+    p.k[2][1] = bitsOf(ty);
+    return p;
+}
+// Texture coordinates as a plane over two components of a vector (the position, or the integers of the colour row).
+vp::Pass texGenPass(uint32_t kind, float sx, float sz, float tx, float tz, float s0, float t0) {
+    vp::Pass p{};
+    p.kind = kind;
+    p.k[0][0] = bitsOf(sx);
+    p.k[0][1] = bitsOf(tx);
+    p.k[2][0] = bitsOf(sz);
+    p.k[2][1] = bitsOf(tz);
+    p.k[3][0] = bitsOf(s0);
+    p.k[3][1] = bitsOf(t0);
+    return p;
+}
+
+// One strip run as a batch record with one vertex per index (world geometry: a texture coordinate per corner).
+// lit: the colour row holds the integer normal and a Light pass comes before the Transform; else it holds `colour`.
+BatchRun cornerBatch(const Run& r, bool lit, const uint32_t colour[4]) {
+    BatchRun b;
+    b.prim = r.prim;
+    if (lit)
+        b.passes.push_back(lightPass(r.k));
+    b.passes.push_back(transformPass(r.k));
+    b.strips = r.strips;
+    for (size_t i = 0; i < r.vertices.size(); ++i) {
+        vp::BatchVertex v{};
+        std::memcpy(v.row.pos, r.vertices[i].pos, 16);
+        std::memcpy(v.row.st, r.vertices[i].st, 16);
+        if (lit)
+            std::memcpy(v.row.col, r.vertices[i].normal, 16);
+        else
+            std::memcpy(v.row.col, colour, 16);
+        v.passMask = (1u << b.passes.size()) - 1u;
+        v.slot = static_cast<uint32_t>(i);
+        b.indices.push_back(static_cast<uint16_t>(i));
+        b.vertices.push_back(v);
+    }
+    return b;
+}
+
+// The same run with every pass already applied: the "processed rows" form (a record without passes).
+BatchRun processedBatch(const BatchRun& from) {
+    BatchRun b = from;
+    for (vp::BatchVertex& v : b.vertices) {
+        for (size_t p = 0; p < from.passes.size(); ++p)
+            if ((v.passMask >> p) & 1u)
+                vp::applyPass(from.passes[p], v.row, v.gridX, v.gridZ);
+        v.passMask = 0;
+    }
+    b.passes.clear();
+    return b;
+}
+
+// The same run with clip-space positions and the Project pass, ending with the empty tag (a run of a batch with clip
+// codes whose vertices are all inside).
+BatchRun projectedBatch(const Run& r, const uint32_t colour[4]) {
+    BatchRun b = cornerBatch(r, false, colour);
+    for (vp::BatchVertex& v : b.vertices) {
+        uint32_t p[4], clip[4];
+        for (int l = 0; l < 4; ++l)
+            p[l] = vp::vu::operand(v.row.pos[l]);
+        for (int l = 0; l < 4; ++l) {
+            uint32_t acc = vp::vu::mul(vp::vu::operand(r.k.mvp[0][l]), p[0]);
+            acc = vp::vu::madd(acc, vp::vu::operand(r.k.mvp[1][l]), p[1]);
+            acc = vp::vu::madd(acc, vp::vu::operand(r.k.mvp[2][l]), p[2]);
+            clip[l] = vp::vu::madd(acc, vp::vu::operand(r.k.mvp[3][l]), p[3]);
+        }
+        std::memcpy(v.row.pos, clip, 16);
+    }
+    b.passes.clear();
+    b.passes.push_back(transformPass(r.k, vp::PassProject));
+    b.emptyTag = true;
+    return b;
+}
+
+// A terrain grid of cols x rows cells in object space as records of at most 64 indices: per record up to four strips
+// along the columns over neighbouring rows, with shared vertices. Passes: the grid generator (flat: no heights),
+// optionally the point light, texture coordinates from the positions, the transform, then `layers` texture matrix
+// passes and optionally a fade that leaves the first `unfaded` vertices of each record out.
+struct GridSpec {
+    uint32_t cols = 8, rows = 9;
+    float size = 420.0f, height = 30.0f;
+    bool flat = false, pointLight = false, fade = false;
+    uint32_t layers = 0, exponent = 3, unfaded = 0;
+    uint32_t colour[4] = {96, 104, 88, 0x80};
+};
+void addGrid(Scene& s, const GridSpec& g, const vp::Constants& k, uint32_t prim, float phase) {
+    vp::Pass grid{};
+    grid.kind = g.flat ? vp::PassGridFlat : vp::PassGrid;
+    grid.param = g.cols;
+    const float origin[4] = {-0.5f * g.size, 0.0f, -0.5f * g.size, 1.0f};
+    const float step[4] = {g.size / static_cast<float>(g.cols - 1u), 0.0f, g.size / static_cast<float>(g.rows - 1u),
+                           0.0f};
+    for (int l = 0; l < 4; ++l) {
+        grid.k[0][l] = bitsOf(origin[l]);
+        grid.k[1][l] = bitsOf(step[l]);
+    }
+    std::vector<uint32_t> axisX(g.cols), axisZ(g.rows);
+    vp::gridAxis(grid.k[0][0], grid.k[1][0], g.cols, axisX.data());
+    vp::gridAxis(grid.k[0][2], grid.k[1][2], g.rows, axisZ.data());
+    std::vector<vp::Pass> passes;
+    passes.push_back(grid);
+    if (g.pointLight) {
+        vp::Pass p{};
+        p.kind = vp::PassPointLight;
+        p.param = g.exponent;
+        const float at[4] = {0.15f * g.size, 90.0f, -0.1f * g.size, 0.0f}, axis[4] = {0.1f, 1.0f, -0.2f, 0.0f};
+        const float limits[4] = {0.0f, 10.0f, 120.0f, 30.0f};
+        for (int l = 0; l < 4; ++l) {
+            p.k[0][l] = bitsOf(at[l]);
+            p.k[1][l] = bitsOf(axis[l]);
+            p.k[3][l] = bitsOf(limits[l]);
+        }
+        p.k[2][0] = 70;
+        p.k[2][1] = 60;
+        p.k[2][2] = 25;
+        p.k[4][3] = bitsOf(0.4f);
+        passes.push_back(p);
+    }
+    passes.push_back(texGenPass(vp::PassTexGenPos, 2.0f / g.size, 0.0f, 0.0f, 2.0f / g.size, 1.0f, 1.0f));
+    passes.push_back(transformPass(k));
+    for (uint32_t layer = 0; layer < g.layers; ++layer)
+        passes.push_back(texMatrixPass(1.3f, 0.2f * static_cast<float>(layer), -0.15f, 1.2f,
+                                       0.1f + 0.05f * static_cast<float>(layer), 0.07f));
+    const uint32_t fadeBit = g.fade ? 1u << passes.size() : 0u;
+    if (g.fade)
+        passes.push_back(fadePass(0.00045f));
+    const uint32_t all = (1u << passes.size()) - 1u;
+    for (uint32_t row0 = 0; row0 + 1u < g.rows;) {
+        BatchRun b;
+        b.prim = prim;
+        b.passes = passes;
+        // as many strips (rows of quads) as fit 64 indices
+        const uint32_t perStrip = g.cols * 2u;
+        const uint32_t stripsHere = std::min<uint32_t>(vp::kBatchMaxIndices / perStrip, g.rows - 1u - row0);
+        for (uint32_t r = row0; r <= row0 + stripsHere; ++r)
+            for (uint32_t c = 0; c < g.cols; ++c) {
+                vp::BatchVertex v{};
+                const float wave =
+                    std::sin(0.9f * static_cast<float>(c) + phase) * std::cos(0.7f * static_cast<float>(r));
+                v.row.pos[0] = 0x7FC00000u; // the generator overwrites x, z and w: anything may stand here
+                v.row.pos[1] = static_cast<uint32_t>(32768 + static_cast<int32_t>(0.5f * g.height * wave));
+                v.row.pos[2] = 0x00000001u;
+                v.row.pos[3] = 0xFFFFFFFFu;
+                std::memcpy(v.row.col, g.colour, 16);
+                v.row.st[2] = bitsOf(1.0f);
+                v.gridX = axisX[c];
+                v.gridZ = axisZ[r];
+                v.slot = r * g.cols + c;
+                const uint32_t index = static_cast<uint32_t>(b.vertices.size());
+                v.passMask = index < g.unfaded ? all & ~fadeBit : all;
+                b.vertices.push_back(v);
+            }
+        for (uint32_t st = 0; st < stripsHere; ++st) {
+            b.strips.push_back(perStrip);
+            for (uint32_t c = 0; c < g.cols; ++c) {
+                b.indices.push_back(static_cast<uint16_t>(st * g.cols + c));
+                b.indices.push_back(static_cast<uint16_t>((st + 1u) * g.cols + c));
+            }
+        }
+        row0 += stripsHere;
+        s.batch(std::move(b));
+    }
+}
+
+// A patch as a run for the batch builders (addPatch splits it into strips of at most 64 vertices in all).
+Run patchForBatch(std::mt19937& rng, const Variant& v, const Place& at, uint32_t rows, uint32_t cols, float size,
+                  float phase) {
+    Run r;
+    r.prim = v.prim;
+    r.program = v.program;
+    r.k = worldConstants(rng, at, 8388608.0f, v.alpha);
+    addPatch(r, rows, cols, size, 22.0f, 2.5f, phase);
+    return r;
+}
+
+// Scene "batch": every pass kind and chains of several passes, through all draw states.
+Scene batchScene(uint32_t frame) {
+    Scene s;
+    beginFrame(s, frame, frame == 0);
+    std::mt19937 rng(5005);
+    std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
+    const float turn = 0.04f * static_cast<float>(frame);
+    const uint32_t plain[4] = {150, 120, 90, 0x80};
+    for (uint32_t i = 0; i < 40; ++i) {
+        const Variant v = setVariant(s, i);
+        const Place at{unit(rng) * 3.0f + turn, -0.9f + 0.5f * unit(rng), unit(rng) * 420.0f, unit(rng) * 260.0f,
+                       350.0f + 1400.0f * std::fabs(unit(rng))};
+        const float phase = unit(rng) * 3.0f + turn;
+        switch (i % 10u) {
+            case 0: // the transform alone, a vertex per index
+                s.batch(cornerBatch(patchForBatch(rng, v, at, 3, 8, 260.0f, phase), false, plain));
+                break;
+            case 1: // directional lights and the transform
+                s.batch(cornerBatch(patchForBatch(rng, v, at, 4, 8, 300.0f, phase), true, plain));
+                break;
+            case 2: // processed rows: no pass at all
+                s.batch(processedBatch(cornerBatch(patchForBatch(rng, v, at, 2, 10, 240.0f, phase), true, plain)));
+                break;
+            case 3: { // texture coordinates from the integers of the colour row, then lights and the transform
+                BatchRun b = cornerBatch(patchForBatch(rng, v, at, 3, 9, 280.0f, phase), true, plain);
+                b.passes.insert(b.passes.begin(),
+                                texGenPass(vp::PassTexGenInt, 1.0f / 90.0f, 0.0f, 0.0f, 1.0f / 90.0f, 0.5f, 0.5f));
+                for (vp::BatchVertex& vx : b.vertices) {
+                    vx.row.col[3] = 1; // the generator multiplies its fourth row by the fourth integer
+                    vx.passMask = 7u;
+                }
+                s.batch(std::move(b));
+                break;
+            }
+            case 4: { // terrain: grid, texture coordinates from positions, transform
+                GridSpec g;
+                g.cols = 6u + rng() % 5u;
+                g.rows = 7u + rng() % 6u;
+                addGrid(s, g, worldConstants(rng, at, 8388608.0f, v.alpha), v.prim, phase);
+                break;
+            }
+            case 5: { // terrain layers: three texture matrix passes on top of each other and the depth fade
+                GridSpec g;
+                g.layers = 3;
+                g.fade = true;
+                g.unfaded = 5;
+                addGrid(s, g, worldConstants(rng, at, 8388608.0f, v.alpha), v.prim, phase);
+                break;
+            }
+            case 6: { // water: flat grid, point light, texture matrix
+                GridSpec g;
+                g.flat = true;
+                g.pointLight = true;
+                g.exponent = 1u + i % 5u;
+                g.layers = 1;
+                addGrid(s, g, worldConstants(rng, at, 8388608.0f, v.alpha), v.prim, phase);
+                break;
+            }
+            case 7: { // the longest chain a record holds: 24 passes
+                GridSpec g;
+                g.cols = 8;
+                g.rows = 5;
+                g.pointLight = true;
+                g.exponent = 0; // no light term
+                g.layers = 19;
+                g.fade = true;
+                addGrid(s, g, worldConstants(rng, at, 8388608.0f, v.alpha), v.prim, phase);
+                break;
+            }
+            case 8: // clip-space positions projected by the run itself, with the closing empty tag
+                s.batch(projectedBatch(patchForBatch(rng, v, at, 3, 8, 260.0f, phase), plain));
+                break;
+            default: { // a faded, lit run: lights, transform, fade (the fade reads the transform's 1 / w)
+                BatchRun b = cornerBatch(patchForBatch(rng, v, at, 4, 7, 320.0f, phase), true, plain);
+                b.passes.push_back(fadePass(0.0006f));
+                for (size_t n = 0; n < b.vertices.size(); ++n)
+                    b.vertices[n].passMask = (n % 5u) ? 7u : 3u; // one vertex in five is outside the fade's range
+                s.batch(std::move(b));
+                break;
+            }
+        }
+    }
+    return s;
+}
+
+// Scene "batchmix": batch records between strip records and ordinary packets, the registers and the vertex queue a
+// batch record leaves behind, records that send nothing, and strips of one and two vertices.
+Scene batchMixScene(uint32_t frame) {
+    Scene s;
+    beginFrame(s, frame, frame == 0);
+    std::mt19937 rng(6006);
+    std::uniform_real_distribution<float> unit(-1.0f, 1.0f);
+    const float turn = 0.05f * static_cast<float>(frame);
+    const uint32_t plain[4] = {130, 150, 110, 0x80};
+    const auto patch = [&](const Variant& v, const Place& at, uint32_t rows, uint32_t cols, float size) {
+        return patchForBatch(rng, v, at, rows, cols, size, turn);
+    };
+    // a strip record, a batch record over it, an ordinary blended sprite, a strip record again
+    s.run(patch(setVariant(s, 0), Place{0.3f + turn, -1.1f, -60, 20, 700}, 6, 12, 420));
+    s.batch(cornerBatch(patch(setVariant(s, 6), Place{-0.4f - turn, -1.3f, 40, -10, 620}, 4, 8, 380), true, plain));
+    {
+        Gif g;
+        g.ad({{kRegTest, testReg(0, 0, 0, 0, kZAlways)}, {kRegAlpha, alphaReg(0, 1, 0, 1)}});
+        g.tag(2, true, kSprite | kAbe, 0, 2, 0x51);
+        g.qw(rgLo(40, 250), baHi(30, 0x48));
+        g.qw(screenXy(220, 140), 0);
+        g.qw(rgLo(40, 250), baHi(30, 0x48));
+        g.qw(screenXy(450, 310), 0);
+        s.raw(GifPath::Path2, std::move(g));
+    }
+    s.run(patch(setVariant(s, 4), Place{1.2f, -0.7f, -330, -150, 900}, 4, 8, 300));
+    {
+        GridSpec g;
+        g.layers = 2;
+        g.fade = true;
+        addGrid(s, g, worldConstants(rng, Place{0.8f + turn, -1.0f, 300, 120, 800}, 8388608.0f, 0x80),
+                setVariant(s, 0).prim, turn);
+    }
+    // the texture uploaded again between two batch records that sample it
+    s.batch(cornerBatch(patch(setVariant(s, 0), Place{1.2f, -0.7f, 330, -150, 900}, 4, 8, 300), false, plain));
+    {
+        Gif g;
+        upload(g, kTexA, texture(3, frame + 1u));
+        s.raw(GifPath::Path3, std::move(g));
+    }
+    s.batch(cornerBatch(patch(setVariant(s, 0), Place{1.2f, -0.7f, -330, 150, 900}, 4, 8, 300), false, plain));
+    {
+        Gif g;
+        upload(g, kTexA, texture(0, 0));
+        s.raw(GifPath::Path3, std::move(g));
+    }
+    // strips of one and two vertices between real ones, with shared vertices
+    {
+        BatchRun b = cornerBatch(patch(setVariant(s, 3), Place{0.5f, -1.0f, -250, 60, 760}, 2, 5, 200), true, plain);
+        b.strips = {1, 10, 2, 10, 1, 2};
+        b.indices = {3, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 5, 6, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 19, 7, 8};
+        s.batch(std::move(b));
+    }
+    // a run whose far vertices carry the "do not draw" bit (the fog lane goes below zero)
+    {
+        Run r = patch(setVariant(s, 0), Place{0.2f, -1.35f, 150, 120, 520}, 4, 8, 560);
+        r.k.fog[3] = bitsOf(0.5f);
+        r.k.offset[3] = bitsOf(255.0f);
+        s.batch(cornerBatch(r, true, plain));
+    }
+    // vertices behind the eye and coordinates that wrap, inside a smaller scissor and without depth writes
+    {
+        Gif g;
+        g.ad({{kRegZbuf, s.zbuf | (1ull << 32)},
+              {kRegScissor, 330ull | (629ull << 16) | (150ull << 32) | (370ull << 48)}});
+        s.raw(GifPath::Path2, std::move(g));
+        s.batch(cornerBatch(patch(setVariant(s, 4), Place{turn, -1.45f, 0, -70, 60}, 4, 8, 900), true, plain));
+        s.batch(cornerBatch(patch(setVariant(s, 0), Place{0.9f, -0.2f, 30, -40, -120}, 4, 8, 700), false, plain));
+        Gif h;
+        h.ad({{kRegZbuf, s.zbuf},
+              {kRegScissor, (static_cast<uint64_t>(kWidth - 1) << 16) | (static_cast<uint64_t>(kHeight - 1) << 48)}});
+        s.raw(GifPath::Path2, std::move(h));
+    }
+    // ---- the registers after a batch record ----
+    const auto twoMore = [&s](float x) { // a tag without PRIM: two more vertices for whatever strip is open
+        Gif g;
+        g.tag(2, false, 0, 0, 4, kTagRegisters);
+        for (uint32_t i = 0; i < 2; ++i) {
+            g.qw(bitsOf(0.25f) | (static_cast<uint64_t>(bitsOf(0.5f)) << 32), bitsOf(1.0f));
+            g.qw(rgLo(40 + 150 * i, 220), baHi(90, 0x80));
+            g.qw(0, 200ull << 36);
+            g.qw(screenXy(x + 30.0f * static_cast<float>(i), 440.0f - 60.0f * static_cast<float>(i)), 0x0F000000ull);
+        }
+        s.raw(GifPath::Path1, std::move(g));
+    };
+    // 1. the vertex queue: after a run without the empty tag the last strip stays open ...
+    s.batch(cornerBatch(patch(setVariant(s, 2), Place{0.1f, -1.2f, -230, -120, 640}, 3, 6, 220), true, plain));
+    twoMore(8.0f);
+    // ... and the closing empty tag writes PRIM again, which starts a new primitive: two vertices draw nothing
+    s.batch(projectedBatch(patch(setVariant(s, 2), Place{0.1f, -1.2f, 230, -120, 640}, 3, 6, 220), plain));
+    twoMore(300.0f);
+    // 2. a record that sends no vertex but the empty tag still sets PRIM: the triangle below has no PRIM of its own
+    {
+        Gif g;
+        g.tag(1, true, kSprite, 0, 1, 0x5); // leave another primitive type behind first
+        g.qw(screenXy(0, 0), 0);
+        s.raw(GifPath::Path1, std::move(g));
+        BatchRun empty;
+        empty.prim = kTriangle | kIip;
+        empty.emptyTag = true;
+        s.batch(std::move(empty));
+        Gif t;
+        t.tag(3, false, 0, 0, 2, 0x51);
+        const float xs[3] = {420, 500, 455}, ys[3] = {20, 30, 90};
+        for (uint32_t i = 0; i < 3; ++i) {
+            t.qw(rgLo(240 - 90 * i, 60 + 80 * i), baHi(40 + 100 * i, 0x80));
+            t.qw(screenXy(xs[i], ys[i]), 0x0F000000ull);
+        }
+        s.raw(GifPath::Path1, std::move(t));
+    }
+    // 3. colour, texture coordinate, Q and fog of the last vertex: a textured, fogged triangle that sends only places
+    s.batch(cornerBatch(patch(setVariant(s, 0), Place{-0.6f, -1.0f, 250, -130, 680}, 3, 6, 200), true, plain));
+    {
+        Gif g;
+        g.tag(3, true, kTriangle | kTme | kFge, 0, 1, 0x5);
+        g.qw(screenXy(560, 380), 0x0F000000ull);
+        g.qw(screenXy(630, 384), 0x0F000000ull);
+        g.qw(screenXy(600, 440), 0x0F000000ull);
+        s.raw(GifPath::Path1, std::move(g));
+    }
+    // 4. a sprite that sends only places takes the colour of the record's last vertex: a known colour here
+    {
+        Gif g;
+        g.ad({{kRegTest, testReg(0, 0, 0, 0, kZAlways)}});
+        s.raw(GifPath::Path2, std::move(g));
+        const uint32_t known[4] = {kInheritColour[0], kInheritColour[1], kInheritColour[2], 0x80};
+        Run quad = facingQuad(rng, 200.0f, 110.0f, 420.0f, 20.0f, kStrip | kIip, vp::StripsFlat);
+        s.batch(cornerBatch(quad, false, known));
+        Gif sprite;
+        sprite.tag(2, true, kSprite, 0, 1, 0x5);
+        sprite.qw(screenXy(kInheritX0, kInheritY0), 0);
+        sprite.qw(screenXy(kInheritX1, kInheritY1), 0);
+        s.raw(GifPath::Path1, std::move(sprite));
+    }
+    return s;
+}
+
+// Records a renderer has to ignore without reading outside them: each is a batch record with one field broken.
+std::vector<std::vector<uint8_t>> malformedBatches() {
+    std::mt19937 rng(7007);
+    const uint32_t plain[4] = {200, 40, 40, 0x80};
+    const Variant v{kStrip | kIip, vp::StripsLit, 0x80};
+    const BatchRun good =
+        cornerBatch(patchForBatch(rng, v, Place{0, -1.0f, 0, 0, 500}, 2, 6, 300.0f, 0.0f), true, plain);
+    std::vector<std::vector<uint8_t>> out;
+    const auto broken = [&](const std::function<void(BatchRun&, std::vector<uint8_t>&)>& change) {
+        BatchRun b = good;
+        std::vector<uint8_t> none;
+        change(b, none);
+        std::vector<uint8_t> packet = wrapBatch(b);
+        change(b, packet);
+        out.push_back(std::move(packet));
+    };
+    const auto header = [](std::vector<uint8_t>& packet, uint32_t field, uint32_t value) {
+        if (!packet.empty())
+            std::memcpy(packet.data() + 16 + field * 4u, &value, 4);
+    };
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.indices[5] = static_cast<uint16_t>(b.vertices.size()); });
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.indices[0] = 0xFFFF; });
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.strips[0] += 1; });
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.strips[1] = 0; });
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.passes[0].kind = 11; });
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.passes[1].kind = 0; });
+    broken([&](BatchRun& b, std::vector<uint8_t>&) { b.vertices[3].passMask = 4; }); // a pass the record has not
+    broken([&](BatchRun& b, std::vector<uint8_t>&) {
+        b.passes[0].kind = vp::PassPointLight;
+        b.passes[0].param = vp::kBatchMaxExponent + 1u;
+    });
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 2, 0x7FFFFFFFu); }); // strip count
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 3, 65u); });         // index count
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 3, 0xFFFFFFF0u); }); // index count that wraps sizes
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 4, 0xFFFFFFFFu); }); // vertex count
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 5, 25u); });         // pass count
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 5, 0x10000000u); }); // pass count that wraps sizes
+    broken([&](BatchRun&, std::vector<uint8_t>& p) { header(p, 4, 3u); }); // fewer vertices than the size holds
+    {
+        // a record cut short: the wrapping tag announces only the header
+        std::vector<uint8_t> packet = wrapBatch(good);
+        packet.resize(16u + sizeof(vp::BatchHeader));
+        const uint64_t wrapLo = uint64_t(sizeof(vp::BatchHeader) / 16u) | (1ull << 15) | (3ull << 58);
+        std::memcpy(packet.data(), &wrapLo, 8);
+        out.push_back(std::move(packet));
+    }
+    return out;
+}
+
 // ------------------------------------------------------------------------------------------------ comparing
 int g_failures = 0;
 uint64_t g_checks = 0;
@@ -777,6 +1365,7 @@ CounterShot counters() {
 struct Totals {
     uint64_t scenes = 0, sequences = 0, runsAsRecords = 0, runsAsPackets = 0, verticesAsRecords = 0;
     uint64_t verticesAsPackets = 0, backendFallbacks = 0, cpuVertices = 0, gpuVertices = 0;
+    uint64_t batchRecords = 0, batchVertices = 0;
     Tally colour, depth;
     Tally controlColour, controlDepth; // the negative controls: these are meant to differ
 } g_totals;
@@ -862,11 +1451,15 @@ Result runSequence(const Config& cfg, const Sequence& q) {
         const vpath::Eval eval = vpath::evalOf(vpath::controlWord());
         const bool records =
             q.stream == Stream::Records || (q.stream == Stream::FollowWord && eval != vpath::Eval::Microprogram);
-        uint64_t runCount = 0, vertexCount = 0;
+        uint64_t runCount = 0, vertexCount = 0, batchCount = 0;
         for (const Item& it : sceneB.items)
             if (it.isRun) {
                 ++runCount;
                 vertexCount += it.run.vertices.size();
+            } else if (it.isBatch) { // a batch record counts the vertices it sends: its indices
+                ++runCount;
+                ++batchCount;
+                vertexCount += it.batch.indices.size();
             }
 
         const CounterShot before = counters();
@@ -894,8 +1487,9 @@ Result runSequence(const Config& cfg, const Sequence& q) {
             expectEqual(gpu, 0, "vertices drawn by a shader on a backend without the path");
             expectEqual(otherFallbacks, 0, "other fallback reasons on a backend without the path");
         } else {
-            // every record either drawn by the shader or declined with exactly one reason
-            expect(noPath == 0, "\"backend has no path\" counted on a backend with the path");
+            // every strip record either drawn by the shader or declined with exactly one reason; no backend has
+            // a shader for batch records yet, so each of those counts as "backend has no path"
+            expectEqual(noPath, batchCount, "\"backend has no path\" counted once per batch record");
             expect(noPath + otherFallbacks <= runCount, "at most one fallback reason per record");
         }
 
@@ -918,6 +1512,10 @@ Result runSequence(const Config& cfg, const Sequence& q) {
             res.vertices += vertexCount;
             g_totals.runsAsRecords += runCount;
             g_totals.verticesAsRecords += vertexCount;
+            g_totals.batchRecords += batchCount;
+            for (const Item& it : sceneB.items)
+                if (it.isBatch)
+                    g_totals.batchVertices += it.batch.indices.size();
         } else {
             g_totals.runsAsPackets += runCount;
             g_totals.verticesAsPackets += vertexCount;
@@ -955,8 +1553,8 @@ struct NamedScene {
     const char* name;
     Scene (*build)(uint32_t);
 };
-const NamedScene kScenes[] = {
-    {"world", worldScene}, {"many", manyScene}, {"interleaved", interleavedScene}, {"generated", generatedScene}};
+const NamedScene kScenes[] = {{"world", worldScene},         {"many", manyScene},   {"interleaved", interleavedScene},
+                              {"generated", generatedScene}, {"batch", batchScene}, {"batchmix", batchMixScene}};
 
 void resetPath() {
     vpath::configure(vpath::pack(vpath::Eval::Microprogram, vpath::kAllStages), 0);
@@ -1003,7 +1601,7 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
             const std::string what = std::string("records, mode ") + vpath::evalName(mode);
             report(what.c_str(), q, r);
             expectIdentical(r, what.c_str());
-            if (ns.build == interleavedScene && r.ran) {
+            if ((ns.build == interleavedScene || ns.build == batchMixScene) && r.ran) {
                 expectInheritedColour(r.lastA, scale,
                                       "packets: a sprite without a colour takes the last strip vertex's");
                 expectInheritedColour(r.lastB, scale,
@@ -1019,8 +1617,9 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
         vpath::Eval mode;
         uint32_t every;
     };
-    const Toggle kToggles[] = {
-        {2, vpath::Eval::Records, 1}, {0, vpath::Eval::Gpu, 3}, {1, vpath::Eval::Records, 5}, {3, vpath::Eval::Gpu, 2}};
+    const Toggle kToggles[] = {{2, vpath::Eval::Records, 1}, {0, vpath::Eval::Gpu, 3},     {1, vpath::Eval::Records, 5},
+                               {3, vpath::Eval::Gpu, 2},     {4, vpath::Eval::Records, 2}, {5, vpath::Eval::Gpu, 1},
+                               {5, vpath::Eval::Records, 3}};
     for (const Toggle& t : kToggles) {
         vpath::configure(vpath::pack(t.mode, vpath::kAllStages), t.every);
         const uint64_t switchesBefore = vpath::state().counters.switches.load();
@@ -1099,6 +1698,97 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
         const Result r = runSequence(cfg, q);
         report("CONTROL matrix + 1 ulp (info)", q, r);
     }
+    // ---- batch records: malformed ones are ignored, and the controls ----
+    {
+        // every malformed record in front of every batch record of the second renderer: nothing may change
+        Sequence q{"batchmix",
+                   batchMixScene,
+                   [](Scene& s) {
+                       static const std::vector<std::vector<uint8_t>> bad = malformedBatches();
+                       std::vector<Item> items;
+                       for (Item& it : s.items) {
+                           if (it.isBatch)
+                               for (const auto& record : bad)
+                                   items.push_back(Item{false, GifPath::Path1, record, {}});
+                           items.push_back(std::move(it));
+                       }
+                       s.items = std::move(items);
+                   },
+                   2,
+                   1,
+                   rungs,
+                   Stream::Records,
+                   false};
+        const Result r = runSequence(cfg, q);
+        report("malformed batch records", q, r);
+        expectIdentical(r, "malformed batch records are ignored");
+        ++g_totals.scenes;
+    }
+    const auto firstBatchWith = [](Scene& s, uint32_t kind) -> BatchRun* {
+        for (Item& it : s.items)
+            if (it.isBatch)
+                for (const vp::Pass& p : it.batch.passes)
+                    if (p.kind == kind)
+                        return &it.batch;
+        return nullptr;
+    };
+    {
+        // the viewport offset of every batch record one pixel down
+        Sequence q{"batch",
+                   batchScene,
+                   [](Scene& s) {
+                       for (Item& it : s.items)
+                           if (it.isBatch)
+                               for (vp::Pass& p : it.batch.passes)
+                                   if (p.kind == vp::PassTransform || p.kind == vp::PassProject)
+                                       p.k[5][1] = bitsOf(2049.0f);
+                   },
+                   1,
+                   1,
+                   rungs,
+                   Stream::Records,
+                   true};
+        const Result r = runSequence(cfg, q);
+        report("CONTROL batch offset + 1 pixel", q, r);
+        expect(r.colour.pixelsDiffering != 0, "control: batch records moved by one pixel change the picture");
+    }
+    {
+        // the closing empty tag dropped from the records that have one: the two vertices after one of them then
+        // continue its last strip, and the triangle without a PRIM is drawn as a sprite
+        Sequence q{"batchmix",
+                   batchMixScene,
+                   [](Scene& s) {
+                       for (Item& it : s.items)
+                           if (it.isBatch)
+                               it.batch.emptyTag = false;
+                   },
+                   1,
+                   1,
+                   rungs,
+                   Stream::Records,
+                   true};
+        const Result r = runSequence(cfg, q);
+        report("CONTROL no empty tag", q, r);
+        expect(r.colour.pixelsDiffering != 0, "control: without the closing empty tags the picture changes");
+    }
+    {
+        // a pass switched off for one vertex of the first faded record (its pass mask)
+        Sequence q{"batch",
+                   batchScene,
+                   [&](Scene& s) {
+                       if (BatchRun* b = firstBatchWith(s, vp::PassFade))
+                           for (vp::BatchVertex& v : b->vertices)
+                               v.passMask &= (1u << (b->passes.size() - 1u)) - 1u;
+                   },
+                   1,
+                   1,
+                   rungs,
+                   Stream::Records,
+                   true};
+        const Result r = runSequence(cfg, q);
+        report("CONTROL batch fade off", q, r);
+        expect(r.colour.pixelsDiffering != 0, "control: a batch record without its fade pass changes pixels");
+    }
     resetPath();
 }
 
@@ -1159,6 +1849,8 @@ int main(int argc, char** argv) {
     std::printf("runs sent as records: %llu (%llu vertices); as packets to the second renderer: %llu (%llu vertices)\n",
                 static_cast<unsigned long long>(t.runsAsRecords), static_cast<unsigned long long>(t.verticesAsRecords),
                 static_cast<unsigned long long>(t.runsAsPackets), static_cast<unsigned long long>(t.verticesAsPackets));
+    std::printf("of the records, batch records: %llu (%llu vertices sent)\n",
+                static_cast<unsigned long long>(t.batchRecords), static_cast<unsigned long long>(t.batchVertices));
     std::printf("record vertices evaluated on the CPU: %llu, drawn by a shader: %llu, records counted as \"backend has "
                 "no path\": %llu\n",
                 static_cast<unsigned long long>(t.cpuVertices), static_cast<unsigned long long>(t.gpuVertices),

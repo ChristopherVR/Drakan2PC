@@ -5,6 +5,7 @@
 #include "ps2_vif_unpack.h"
 #include "ps2_vu1_batch_capture.h"
 #include "vu/ps2_vu1_check.h"
+#include "vu/ps2_vu1_gpu_live.h"
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
@@ -650,11 +651,24 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                 const char* e = std::getenv("PS2X_VIF_FAST_UNPACK");
                 return !e || std::atoi(e) != 0;
             }();
-            if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes &&
-                !(fastUnpack && !vu1check::recording() && (!vu1batch::captureActive || !vu1batch::trackVif(this)) &&
-                  vif_unpack::fast(m_vu1Data, data + pos, vuAddr, writeVectorCount, cl, wl, vn, vl, zeroExtend,
-                                   maskEnable, vif1_regs.mode, cameraFirst, cameraEnd, vif1_regs.mask, vif1_regs.row,
-                                   vif1_regs.col))) {
+            // The mask and mode the fast path is about to use (difference mode changes ROW, never these).
+            const uint32_t unpackMask = vif1_regs.mask, unpackMode = vif1_regs.mode;
+            // The vertex path follows VU memory lane by lane (vu/ps2_vu1_gpu_live.h); off: this one flag test. While
+            // it follows, the time of the unpack and of the report are counted apart (DRAKAN_VERTEX_LOG).
+            const bool vertexPathFollows = vu1gpu::live::following();
+            const uint64_t unpackStart = vertexPathFollows ? vu1gpu::live::ticks() : 0u;
+            if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes && fastUnpack && !vu1check::recording() &&
+                (!vu1batch::captureActive || !vu1batch::trackVif(this)) &&
+                vif_unpack::fast(m_vu1Data, data + pos, vuAddr, writeVectorCount, cl, wl, vn, vl, zeroExtend,
+                                 maskEnable, vif1_regs.mode, cameraFirst, cameraEnd, vif1_regs.mask, vif1_regs.row,
+                                 vif1_regs.col)) {
+                if (vertexPathFollows) {
+                    const uint64_t written = vu1gpu::live::ticks();
+                    vu1gpu::live::noteUnpack(m_vu1Data, vuAddr, writeVectorCount, cl, wl, vn, maskEnable, unpackMask,
+                                             unpackMode);
+                    vu1gpu::live::unpackTimes(written - unpackStart, vu1gpu::live::ticks() - written, false);
+                }
+            } else if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes) {
                 const uint8_t* srcBase = data + pos;
                 uint32_t srcIndex = 0u;
                 for (uint32_t writeIndex = 0; writeIndex < writeVectorCount; ++writeIndex) {
@@ -772,6 +786,9 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                         std::memcpy(m_vu1Data + destOff, srcVec, copyBytes);
                         if (vu1check::recording())
                             vu1check::noteVifWrite(destVec, (1u << ((copyBytes + 3u) / 4u)) - 1u);
+                        if (vertexPathFollows) // whole lanes are the EE's data; a lane written in part is not known
+                            vu1gpu::live::noteWrite(m_vu1Data, destVec, (1u << (copyBytes / 4u)) - 1u,
+                                                    (copyBytes % 4u) ? 1u << (copyBytes / 4u) : 0u);
                         if (vu1batch::captureActive) {
                             if (copyBytes % 4u)
                                 vu1batch::unsupportedTrace();
@@ -823,7 +840,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                     }
 
                     std::memcpy(m_vu1Data + destOff, lanes, sizeof(lanes));
-                    if (vu1check::recording()) {
+                    if (vu1check::recording() || vertexPathFollows) {
                         // a lane the format has no data for keeps its value: not a write
                         uint32_t noted = writtenLanes;
                         const uint32_t sourced =
@@ -832,11 +849,18 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                             if (decoded &&
                                 (!maskEnable || ((vif1_regs.mask >> ((maskCycle * 4u + field) * 2u)) & 3u) == 0u))
                                 noted &= ~(1u << field);
-                        vu1check::noteVifWrite(destVec, noted);
+                        if (vu1check::recording())
+                            vu1check::noteVifWrite(destVec, noted);
+                        // ... unless an adding mode put its old value plus ROW there: content no longer known
+                        if (vertexPathFollows)
+                            vu1gpu::live::noteWrite(m_vu1Data, destVec, noted,
+                                                    canAdd && (mode == 1u || mode == 2u) ? writtenLanes & ~noted : 0u);
                     }
                     if (vu1batch::captureActive)
                         vu1batch::memoryWrite(this, destOff, writtenLanes);
                 }
+                if (vertexPathFollows) // the slow path reports quadword by quadword: one time for both
+                    vu1gpu::live::unpackTimes(vu1gpu::live::ticks() - unpackStart, 0u, true);
             }
             if (auto hook = drakan_vu1::g_uploadHook.load(std::memory_order_acquire); hook && cameraEnd > cameraFirst)
                 if (!vu1batch::captureActive ||

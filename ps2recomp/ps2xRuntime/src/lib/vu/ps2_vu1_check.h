@@ -26,9 +26,14 @@ void noteVifWrite(uint32_t qw, uint32_t lanes);
 bool benchRequested();
 void bench(PS2Memory& memory, GS& gs);
 
-// Vertex-program draws (vu/ps2_vu1_gpu_program.h, prototype, DRAKAN_GPU_VERTEX): the MSCNT hook, defined here because
-// this file already sees the engine's internals. True from gpuProgramIntercept: the run went to the renderer as a
-// record and must not be executed.
-bool gpuProgramsEnabled();
-bool gpuProgramIntercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory);
+// DRAKAN_VERTEX_SHADOW=1 (diagnosis, vu/ps2_vu1_gpu_live.h): the game's VU1 executes every run; beside it the batch
+// tracker decides on a memory of its own, and its records and the runs it lets through are compared with what the
+// microprogram sent, like the replay's batch proof but on live play. shadowWrite: a lane the VIF or the EE wrote.
+// One `[vertex-shadow]` line every 250,000 runs and from shadowFinish().
+bool shadowRequested();
+void shadowWrite(uint32_t qw, uint32_t lanes);
+void shadowBefore(bool resume, uint32_t startPc, VU1Interpreter& vu, uint8_t* code, uint8_t* data, GS& gs,
+                  PS2Memory* memory, uint32_t top, uint32_t itop, uint32_t families);
+void shadowAfter(VU1Interpreter& vu, const uint8_t* data);
+void shadowFinish();
 } // namespace vu1check

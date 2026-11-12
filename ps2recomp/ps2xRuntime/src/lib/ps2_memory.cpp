@@ -4,6 +4,7 @@
 #include "runtime/ps2_chain_buffers.h"
 #include "drakan_object_motion.h"
 #include "ps2_vu1_batch_capture.h"
+#include "vu/ps2_vu1_gpu_live.h"
 #include "runtime/ps2_address.h"
 #include "runtime/gs/gs_frontend.h"
 #include "runtime/gs/gs_capture.h"
@@ -626,7 +627,13 @@ bool PS2Memory::isScratchpad(uint32_t address) const {
 }
 
 uint8_t* PS2Memory::mapVuMemory(uint32_t physAddr, uint32_t size, uint32_t& offset, uint32_t& limit) {
-    return const_cast<uint8_t*>(static_cast<const PS2Memory*>(this)->mapVuMemory(physAddr, size, offset, limit));
+    uint8_t* const mapped =
+        const_cast<uint8_t*>(static_cast<const PS2Memory*>(this)->mapVuMemory(physAddr, size, offset, limit));
+    // The EE reaches into VU1 data memory itself (the VU1 worker is idle here): the vertex path, while it follows
+    // that memory, first writes what it deferred (vu/ps2_vu1_gpu_live.h). Off: one flag test.
+    if (mapped && mapped == m_vu1Data && vu1gpu::live::following())
+        vu1gpu::live::directAccess(mapped);
+    return mapped;
 }
 
 const uint8_t* PS2Memory::mapVuMemory(uint32_t physAddr, uint32_t size, uint32_t& offset, uint32_t& limit) const {
@@ -940,6 +947,8 @@ void PS2Memory::write8(uint32_t address, uint8_t value) {
                 markVU0CodeModified();
             else if (vuMem == m_vu1Code)
                 markVU1CodeModified();
+            else if (vuMem == m_vu1Data && vu1gpu::live::following())
+                vu1gpu::live::directWrite(vuMem, vuOffset, sizeof(uint8_t));
             return;
         }
     }
@@ -974,6 +983,8 @@ void PS2Memory::write16(uint32_t address, uint16_t value) {
                 markVU0CodeModified();
             else if (vuMem == m_vu1Code)
                 markVU1CodeModified();
+            else if (vuMem == m_vu1Data && vu1gpu::live::following())
+                vu1gpu::live::directWrite(vuMem, vuOffset, sizeof(uint16_t));
             return;
         }
     }
@@ -1029,6 +1040,8 @@ void PS2Memory::write32(uint32_t address, uint32_t value) {
                 markVU0CodeModified();
             else if (vuMem == m_vu1Code)
                 markVU1CodeModified();
+            else if (vuMem == m_vu1Data && vu1gpu::live::following())
+                vu1gpu::live::directWrite(vuMem, vuOffset, sizeof(uint32_t));
             return;
         }
     }
@@ -1075,6 +1088,8 @@ void PS2Memory::write64(uint32_t address, uint64_t value) {
                 markVU0CodeModified();
             else if (vuMem == m_vu1Code)
                 markVU1CodeModified();
+            else if (vuMem == m_vu1Data && vu1gpu::live::following())
+                vu1gpu::live::directWrite(vuMem, vuOffset, sizeof(uint64_t));
             return;
         }
     }
@@ -1131,6 +1146,8 @@ void PS2Memory::write128(uint32_t address, __m128i value) {
                 markVU0CodeModified();
             else if (vuMem == m_vu1Code)
                 markVU1CodeModified();
+            else if (vuMem == m_vu1Data && vu1gpu::live::following())
+                vu1gpu::live::directWrite(vuMem, vuOffset, sizeof(__m128i));
             return;
         }
     }

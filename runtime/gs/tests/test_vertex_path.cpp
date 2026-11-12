@@ -17,9 +17,9 @@ void expect(bool ok, const char* what) {
 int main() {
     using namespace gsr::vpath;
     const Capability none{};
-    const Capability unproven{true, true, false};
-    const Capability proven{true, true, true};
-    const Capability noAdapter{true, false, false};
+    const Capability unproven{true, true, false, kStrips};
+    const Capability proven{true, true, true, kStrips};
+    const Capability noAdapter{true, false, false, kStrips};
 
     // the setting: cpu never leaves the microprogram, gpu needs a backend path and an exact adapter, auto also needs
     // the combination to be proven
@@ -47,6 +47,9 @@ int main() {
     expect(parseStages("none", stages) && stages == 0u, "no stages");
     expect(parseStages("strips", stages) && stages == kStrips, "one stage");
     expect(parseStages("strips,prims,light", stages) && stages == (kStrips | kPrimitives | kLightTransform), "a list");
+    expect(parseStages("texgen,clipinside", stages) && stages == (kTextureGen | kClipInside), "the later stages");
+    expect(parseStages("-clipinside", stages) && stages == (kAllStages & ~kClipInside), "everything but one");
+    expect(kAllStages == (1u << kStageCount) - 1u, "one bit per stage name");
     expect(parseStages("-texmatrix,-grid", stages) && stages == (kAllStages & ~(kTextureMatrix | kGridLights)),
            "everything but two");
     expect(parseStages("5", stages) && stages == 5u, "a mask");
@@ -71,7 +74,13 @@ int main() {
            "records override");
     expect(configuredWord(Choice::Gpu, proven, "microprogram", "strips") == pack(Eval::Microprogram, kStrips),
            "microprogram override");
-    expect(configuredWord(Choice::Gpu, proven, "nonsense", "nonsense") == pack(Eval::Gpu, kAllStages),
+    expect(configuredWord(Choice::Gpu, proven, nullptr, "strips,prims") == pack(Eval::Gpu, kStrips | kPrimitives),
+           "an explicit stage list is taken as given under gpu");
+    expect(configuredWord(Choice::Cpu, none, "gpu", nullptr) == pack(Eval::Gpu, 0),
+           "gpu forced on a backend without shaders hands nothing over");
+    expect(configuredWord(Choice::Gpu, proven, "records", nullptr) == pack(Eval::Records, kAllStages),
+           "records hands every stage over");
+    expect(configuredWord(Choice::Gpu, proven, "nonsense", "nonsense") == pack(Eval::Gpu, kStrips),
            "unparsable overrides are ignored");
 
     // the toggle: even periods keep the configured word, odd ones run the microprogram
@@ -114,6 +123,40 @@ int main() {
     countTaken(kPrimitives, 30);
     expect(s.counters.taken[0].load() == 1 && s.counters.taken[6].load() == 1, "taken per stage");
     expect(s.counters.takenVertices.load() == 150, "taken vertices");
+    countTakenStages(kGridLights | kTextureGen | kLightTransform, 0);
+    countTakenStages(kClipInside, 7);
+    expect(s.counters.taken[3].load() == 1 && s.counters.taken[7].load() == 1 && s.counters.taken[5].load() == 1 &&
+               s.counters.taken[8].load() == 1 && s.counters.takenVertices.load() == 157,
+           "a run of several stage families counts once per family");
+    countFallback(Fallback::StaleInput);
+    expect(s.counters.fallback[static_cast<uint32_t>(Fallback::StaleInput)].load() == 1 &&
+               !std::strcmp(kFallbackNames[static_cast<uint32_t>(Fallback::StaleInput)], "stale input"),
+           "the stale input counter");
+
+    // the VU1 worker's flag: set by every word that is not `microprogram`, cleared only by the worker when the word
+    // allows it
+    configure(pack(Eval::Microprogram, kAllStages));
+    vuRest();
+    expect(!vuAttention(), "at rest under the microprogram");
+    configure(pack(Eval::Microprogram, kStrips));
+    expect(!vuAttention(), "another microprogram word does not wake the worker");
+    configure(pack(Eval::Records, kAllStages));
+    expect(vuAttention(), "records wake the worker");
+    vuRest();
+    expect(vuAttention(), "the worker cannot rest while the word is not the microprogram");
+    configure(pack(Eval::Microprogram, kAllStages));
+    expect(vuAttention(), "the flag stays until the worker has nothing left to follow");
+    vuRest();
+    expect(!vuAttention(), "and is cleared by the worker");
+    configure(pack(Eval::Gpu, kAllStages), 2);
+    expect(!vuAttention(), "a toggle that starts on the microprogram does not wake the worker yet");
+    frameBoundary(4);
+    expect(vuAttention(), "the toggled word wakes it");
+    configure(pack(Eval::Microprogram, kAllStages));
+    vuRest();
+    requestVuAttention();
+    expect(vuAttention(), "a request wakes it");
+    vuRest();
 
     if (g_failures)
         std::printf("%d failure(s)\n", g_failures);

@@ -12,6 +12,7 @@
 #include "gsr/vertex_path.h"
 #include "gsr/vertex_program.h"
 #include "ps2_vu1_fast.h"
+#include "ps2_vu1_gpu_batch.h"
 #include "ps2_vu1_func.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_vu1.h"
@@ -124,8 +125,10 @@ inline bool buildStrips(const VU1State& state, const uint8_t* data, uint32_t dat
 
 // The MSCNT hook: true when the run was handed to the renderer and must not be executed. Which runs may leave the
 // microprogram is read from the path control word for every run (gsr/vertex_path.h), so the setting can change while
-// the game runs; under Eval::Microprogram nothing here acts.
-inline bool intercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory) {
+// the game runs; under Eval::Microprogram nothing here acts. `tracker`: the batch tracker that follows this VU
+// memory, if one does (it has already brought the memory up to date for this run).
+inline bool intercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory,
+                      const batch::Tracker* tracker = nullptr) {
     namespace vpath = gsr::vpath;
     if (vu.state().pc != kStagePc)
         return false;
@@ -146,6 +149,10 @@ inline bool intercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize
     uint32_t exitPc = 0;
     if (!buildStrips(vu.state(), data, dataSize, packet, exitPc)) {
         vpath::countFallback(vpath::Fallback::NotRecognised);
+        return false;
+    }
+    if (tracker && !batch::stripInputsKnown(*tracker, packet.data() + 16)) {
+        vpath::countFallback(vpath::Fallback::StaleInput);
         return false;
     }
     memory.submitGifPacket(GifPathId::Path1, packet.data(), static_cast<uint32_t>(packet.size()));

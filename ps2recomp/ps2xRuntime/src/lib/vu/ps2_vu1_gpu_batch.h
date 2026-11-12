@@ -17,7 +17,8 @@
 //     pending passes that read a lane the EE has replaced are dropped with their results;
 //   * at the next set-up, lanes that are still virtual are marked stale: VU memory does not hold what the microprogram
 //     would have left there. Stale lanes are cleared by the next write to them. A run that would draw from a stale
-//     lane cannot be reproduced; it is counted (staleDraws) and has not been observed.
+//     lane cannot be reproduced; it is counted (staleDraws) and has not been observed. The last slot is the exception:
+//     it is brought up to date instead, because a clip-code index list reads its alpha lane whatever the batch drew.
 //
 // Every decision is taken per run from the `families` mask of that call, every decline has a Reason and a counter.
 #include "gsr/vertex_batch.h"
@@ -471,6 +472,48 @@ public:
         writeSlot(slot, static_cast<uint16_t>((lanes & 15u) << (array * 4u)));
     }
 
+    // A run of whole quadwords [first, first + count) written with the same lanes (the VIF's fast unpack path).
+    void noteWrites(uint32_t first, uint32_t count, uint32_t lanes) {
+        const uint32_t end = first + count;
+        for (uint32_t array = 0; array < 3u; ++array) { // the part of the range in each of the three arrays
+            const uint32_t base = kPos + array * kSlots;
+            const uint32_t from = first > base ? first : base, to = end < base + kSlots ? end : base + kSlots;
+            const uint16_t mask = static_cast<uint16_t>((lanes & 15u) << (array * 4u));
+            for (uint32_t qw = from; qw < to; ++qw) {
+                const uint32_t slot = qw - base;
+                if (m_chainLength[slot] == 0u)
+                    m_stale[slot] &= static_cast<uint16_t>(~mask);
+                else
+                    writeSlot(slot, mask);
+            }
+        }
+    }
+
+    // A write whose value is not the EE's own data (an unpack mode that adds to what the lane held): the lanes'
+    // content is not known any more.
+    void noteUnknown(uint32_t qw, uint32_t lanes) {
+        if (qw < kPos || qw >= kSt + kSlots)
+            return;
+        const uint32_t array = (qw - kPos) / kSlots, slot = (qw - kPos) % kSlots;
+        const uint16_t mask = static_cast<uint16_t>((lanes & 15u) << (array * 4u));
+        writeSlot(slot, mask);
+        m_stale[slot] |= mask;
+    }
+
+    // True when VU memory is the microprogram's in every lane: nothing pending, nothing stale. Only then may the
+    // tracker stop following the runs and the EE's writes (and start again later from this same state).
+    bool clean() const {
+        if (m_anyPending)
+            return false;
+        uint32_t any = 0;
+        for (uint32_t s = 0; s < kSlots; ++s)
+            any |= m_stale[s] | m_virtual[s];
+        return any == 0u;
+    }
+
+    // Stage families of the run the last step() decided on (a vertex run: one bit per stage it executes).
+    uint32_t lastFamilies() const { return m_lastFamilies; }
+
     // Called before a run starts. resume: MSCNT; pc: the start address or the address the run resumes at; vf: the
     // float registers; data: VU data memory (written when pending passes are materialised); engineOk: the engine can
     // be entered at this boundary. Sets `pc` and returns Skip when the run must not be executed.
@@ -543,6 +586,7 @@ private:
         z = m_axes[static_cast<size_t>(m_passAxes[id])].z[cell / p.param];
     }
     Stage m_lastStage = Stage::Other;
+    uint32_t m_lastFamilies = 0;
 
     void materialiseSlot(uint32_t s, uint8_t* data) {
         Row r;
@@ -683,6 +727,7 @@ private:
 
     Action decide(bool resume, uint32_t& pc, const float (*vf)[4], uint8_t* data, uint32_t families, bool engineOk,
                   std::vector<uint8_t>& packet, Reason& reason) {
+        m_lastFamilies = 0;
         const auto count = [this](Stage s, bool taken) {
             m_lastStage = s;
             ++counters.runs[static_cast<uint32_t>(s)];
@@ -690,7 +735,12 @@ private:
                 ++counters.taken[static_cast<uint32_t>(s)];
         };
         if (!resume) {
-            // A new microprogram call ends the batch. What its pending passes would have left is not in memory.
+            // A new microprogram call ends the batch. What its pending passes would have left is not in memory,
+            // with one exception: the last slot is brought up to date first. The index-list run of a batch with clip
+            // codes reads the alpha lane of that slot's colour row as the "code" of an end index (index 0), also in
+            // batches that never filled the slot, so that lane must always be what the microprogram left there.
+            if (m_chainLength[kSlots - 1u] != 0u)
+                materialiseSlot(kSlots - 1u, data);
             endBatch();
             if (pc == kPcSetup) {
                 count(Stage::Setup, false);
@@ -710,6 +760,7 @@ private:
         if (word16(data, kQwHeader, 2) > 0) {
             const IndexRun list = walkIndexList(data);
             const Stage stage = list.clip ? Stage::ClipList : Stage::List;
+            m_lastFamilies = list.clip ? FamClipInside : FamPrimitive;
             Reason r = list.why;
             if (r == Reason::None && (families & (list.clip ? FamClipInside : FamPrimitive)) == 0u)
                 r = Reason::Disabled;
@@ -724,8 +775,18 @@ private:
             if (r != Reason::None) {
                 reason = r;
                 count(stage, false);
-                // The run is executed: every vertex it copies must be real.
-                if (list.why == Reason::None || list.why == Reason::Clipper)
+                // The run is executed: every vertex it copies must be real, and so must the lanes the end indices
+                // of a clip-code list contribute as codes (they decide which strips are dropped or clipped).
+                bool staleSeed = false;
+                for (uint32_t e = 0; e < list.entryCount; ++e) {
+                    const uint32_t qw = list.seedQw[e];
+                    if (qw >= kPos && qw < kSt + kSlots &&
+                        ((m_stale[(qw - kPos) % kSlots] >> (((qw - kPos) / kSlots) * 4u + 3u)) & 1u) != 0u)
+                        staleSeed = true;
+                }
+                if (staleSeed)
+                    ++counters.staleDraws;
+                else if (list.why == Reason::None || list.why == Reason::Clipper)
                     for (uint32_t i = 0; i < list.cornerCount; ++i)
                         if ((m_stale[list.corners[i].slot] & (kLanePos | kLaneStZ)) != 0u ||
                             (m_stale[list.corners[i].stSlot] & kLaneStXy) != 0u ||
@@ -748,6 +809,7 @@ private:
             return Action::Skip;
         }
         const VertexRun run = classifyVertexRun(data);
+        m_lastFamilies = run.families;
         Reason r = run.why;
         if (r == Reason::None && (run.families & ~families) != 0u)
             r = Reason::Disabled;
@@ -997,4 +1059,32 @@ private:
     std::vector<BatchVertex> m_vertices; // scratch of buildRecord
     bool m_recordBuilt = false;
 };
+
+// True when every lane a strip record (gsr/vertex_program.h; `record` is its payload as vu1gpu::buildStrips wrote it)
+// takes from VU memory holds what the microprogram would find there. The strip stage of the object path shares VU
+// memory with the batch path: header slots from quadword 54, each followed by its vertices, with the strip length or
+// the integer normal 240 quadwords higher and the texture coordinate 480 higher, so its rows overlap the three batch
+// arrays. A batch whose runs were not executed leaves lanes behind that the tracker marks; the EE's upload of the
+// strip table clears the marks of what it writes. Lanes the evaluation of the record does not read (the fourth lane
+// of a texture coordinate, the normals of a constant-colour run) do not count.
+inline bool stripInputsKnown(const Tracker& tracker, const uint8_t* record) {
+    constexpr uint32_t kFirstSlot = 54, kAux = 240, kStripSt = 480;
+    gsr::vp::Header header;
+    std::memcpy(&header, record, sizeof(header));
+    const uint8_t* table = record + sizeof(header) + sizeof(gsr::vp::Constants);
+    const bool lit = header.program != gsr::vp::StripsFlat;
+    uint32_t slot = kFirstSlot, unknown = 0;
+    for (uint32_t s = 0; s < header.stripCount; ++s) {
+        uint32_t n;
+        std::memcpy(&n, table + size_t(s) * 4u, 4);
+        unknown |= tracker.lanesOf(slot + kAux, 1u); // the strip's length
+        for (uint32_t i = 1; i <= n; ++i) {
+            unknown |= tracker.lanesOf(slot + i, 15u) | tracker.lanesOf(slot + i + kStripSt, 7u);
+            if (lit)
+                unknown |= tracker.lanesOf(slot + i + kAux, 15u);
+        }
+        slot += n + 1u;
+    }
+    return (unknown | tracker.lanesOf(slot + kAux, 1u)) == 0u; // and the length that ends the table
+}
 } // namespace vu1gpu::batch

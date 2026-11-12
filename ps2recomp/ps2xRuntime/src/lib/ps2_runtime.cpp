@@ -22,6 +22,8 @@ void ps2PollHostPad();      // Window thread snapshot for the portable libpad ba
 #include <cstdio>
 #include "ps2_perf.h"
 #include "vu/ps2_vu1_check.h"
+#include "vu/ps2_vu1_gpu_live.h"
+#include "gsr/vertex_path.h"
 #include "runtime/ps2_readback.h"
 #include "runtime/ps2_render_queue.h"
 #include "runtime/ps2_vu1_async.h"
@@ -737,12 +739,24 @@ bool PS2Runtime::syncCoreSubsystems() {
         if (vu1check::recording())
             vu1check::record(false, startPC, top, itop, m_vu1.state().dBitEnabled, m_vu1.state().tBitEnabled, m_vu1,
                              m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE);
-        if (vu1check::enabled())
+        // The vertex path (vu/ps2_vu1_gpu_live.h): one flag test under the player's `cpu`.
+        const auto vertexRun = [&] {
+            return vu1gpu::live::Run{
+                false, startPC, top, itop, m_vu1, m_memory.getVU1Code(), m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
+                m_gs,  m_memory};
+        };
+        const vu1gpu::live::Before vertexPath =
+            gsr::vpath::vuAttention() ? vu1gpu::live::beforeRun(vertexRun()) : vu1gpu::live::Before::Execute;
+        if (vertexPath == vu1gpu::live::Before::Skipped) {
+            // never for an MSCAL today: the set-up stages always execute
+        } else if (vu1check::enabled())
             vu1check::run(false, m_vu1, m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(),
                           PS2_VU1_DATA_SIZE, m_gs, &m_memory, startPC, top, itop, 65536);
         else
             m_vu1.execute(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE, m_gs,
                           &m_memory, startPC, top, itop, 65536);
+        if (vertexPath == vu1gpu::live::Before::Shadow)
+            vu1gpu::live::afterRun(vertexRun());
         ps2perf::g_vu1Cycles.fetch_add(m_vu1.totalCycles() - vuCyclesBefore, std::memory_order_relaxed);
         ps2perf::g_vu1Runs.fetch_add(1, std::memory_order_relaxed);
         m_vu1VpuStatBits.store((m_vu1.state().stoppedByD ? 0x0200u : 0u) | (m_vu1.state().stoppedByT ? 0x0400u : 0u),
@@ -767,15 +781,23 @@ bool PS2Runtime::syncCoreSubsystems() {
         if (vu1check::recording())
             vu1check::record(true, 0, top, itop, m_vu1.state().dBitEnabled, m_vu1.state().tBitEnabled, m_vu1,
                              m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE);
-        if (vu1check::gpuProgramsEnabled() && !vu1check::enabled() &&
-            vu1check::gpuProgramIntercept(m_vu1, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE, m_memory)) {
-            // the strip stage went to the renderer as a vertex-program draw (vu/ps2_vu1_gpu_program.h)
+        const auto vertexRun = [&] {
+            return vu1gpu::live::Run{
+                true, 0,       top, itop, m_vu1, m_memory.getVU1Code(), m_memory.getVU1Data(), PS2_VU1_DATA_SIZE,
+                m_gs, m_memory};
+        };
+        const vu1gpu::live::Before vertexPath =
+            gsr::vpath::vuAttention() ? vu1gpu::live::beforeRun(vertexRun()) : vu1gpu::live::Before::Execute;
+        if (vertexPath == vu1gpu::live::Before::Skipped) {
+            // the run left the microprogram: a strip stage or a batch run (vu/ps2_vu1_gpu_live.h)
         } else if (vu1check::enabled())
             vu1check::run(true, m_vu1, m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(),
                           PS2_VU1_DATA_SIZE, m_gs, &m_memory, 0, top, itop, 65536);
         else
             m_vu1.resume(m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE, m_gs,
                          &m_memory, top, itop, 65536);
+        if (vertexPath == vu1gpu::live::Before::Shadow)
+            vu1gpu::live::afterRun(vertexRun());
         ps2perf::g_vu1Cycles.fetch_add(m_vu1.totalCycles() - vuCyclesBefore, std::memory_order_relaxed);
         ps2perf::g_vu1Runs.fetch_add(1, std::memory_order_relaxed);
         m_vu1VpuStatBits.store((m_vu1.state().stoppedByD ? 0x0200u : 0u) | (m_vu1.state().stoppedByT ? 0x0400u : 0u),
@@ -2923,6 +2945,10 @@ void PS2Runtime::run() {
 #endif
         CloseWindow();
 
+    if (vu1check::shadowRequested()) { // DRAKAN_VERTEX_SHADOW: the totals of the comparison
+        vu1async::sync();
+        vu1check::shadowFinish();
+    }
     if (const char* batch = std::getenv("DRAKAN_VU_BATCH"); batch && batch[0] && batch[0] != '0') {
         vu1async::sync();
         vu1async::printStats();

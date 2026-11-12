@@ -3,6 +3,8 @@
 //     rounding mode toward zero and denormals flushed, vu/ps2_vu1_simd.h);
 //   * the tracker's policy on synthetic VU memory: which stages a flag word selects, the per-family switches, every
 //     decline reason, pending passes against passes applied to memory, EE writes, stale lanes, index lists.
+//   * the policy of the run-time hook (vu/ps2_vu1_gpu_live.h): the family mask changing at any run boundary, leaving
+//     and re-entering the mode, when the tracker may stop following, and the strip stage's question about its inputs.
 // No game data: every input is generated here.
 #include "vu/ps2_vu1_gpu_batch.h"
 #include "vu/ps2_vu1_simd.h"
@@ -10,6 +12,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <random>
 #include <vector>
 
@@ -656,6 +659,454 @@ void trackerTests() {
         CHECK(t.counters.runs[static_cast<uint32_t>(Stage::Other)] == 1);
     }
 }
+
+// ---- the run-time policy: the family mask of every run comes from a control word that can change at any time -------
+// One VU memory with its tracker, and the packets of every index-list run it saw.
+struct Follow {
+    Machine m;
+    Tracker t;
+    std::vector<std::vector<uint8_t>> packets;
+    uint64_t staleDeclines = 0;
+};
+
+// The set-up stage executes always: with flag 8 it fills the colour rows with the constant colour.
+void executeSetup(Machine& m) {
+    if (m.word(kQwFlags, 0) & 8u)
+        for (uint32_t s = 0; s < kSlots; ++s)
+            for (uint32_t l = 0; l < 4u; ++l)
+                m.word(kCol + s, l, m.word(kQwColour, l));
+}
+
+// One run the way the hook drives the tracker. mask == kMicroprogram stands for the evaluation mode `microprogram`:
+// what was deferred is written before the run and nothing is taken.
+constexpr uint32_t kMicroprogram = 0x80000000u;
+void hookRun(Follow& f, bool resume, uint32_t startPc, uint32_t mask) {
+    const bool micro = mask == kMicroprogram;
+    if (micro)
+        f.t.materialiseAll(f.m.data.data());
+    const uint32_t families = micro ? 0u : mask;
+    Stepped s;
+    uint32_t pc = resume ? f.m.pc : startPc;
+    const bool list = resume && static_cast<int16_t>(f.m.word(kQwHeader, 2)) > 0;
+    s.action = f.t.step(resume, pc, f.m.vf, f.m.data.data(), families, true, s.packet, &s.why);
+    CHECK(!micro || s.action == Action::Run);
+    f.staleDeclines += s.why == Reason::StaleInput;
+    if (!resume) {
+        CHECK(s.action == Action::Run);
+        if (startPc == kPcSetup) {
+            executeSetup(f.m);
+            f.m.pc = kPcAfterSetup;
+        } else {
+            f.m.pc = 0x2A60; // another program: it stops somewhere outside the batch dispatcher
+        }
+        return;
+    }
+    if (f.m.pc == 0x2A60) { // a run of another program (the strip stage): executed, the tracker follows nothing
+        CHECK(s.action == Action::Run);
+        return;
+    }
+    if (s.action == Action::Skip) {
+        f.m.pc = pc;
+        if (list)
+            for (auto& pk : packetsOf(s.packet))
+                f.packets.push_back(pk);
+        else
+            CHECK(s.packet.empty());
+        return;
+    }
+    if (list) {
+        // executed: what the microprogram sends from this memory is the record of the processed rows
+        Tracker plain;
+        std::vector<uint8_t> packet;
+        uint32_t at = kPcAfterVertex;
+        CHECK(plain.step(true, at, f.m.vf, f.m.data.data(), FamPrimitive, true, packet) == Action::Skip);
+        for (auto& pk : packetsOf(packet))
+            f.packets.push_back(pk);
+        f.m.pc = kPcAfterList;
+    } else {
+        executeVertexRun(f.m);
+        f.m.pc = kPcAfterVertex;
+    }
+}
+
+// An EE write: the same in both memories, reported to both trackers.
+void eeWrite(Follow& a, Follow& b, uint32_t qw, uint32_t lanes, const uint32_t value[4]) {
+    for (Follow* f : {&a, &b}) {
+        for (uint32_t l = 0; l < 4u; ++l)
+            if ((lanes >> l) & 1u)
+                f->m.word(qw, l, value[l]);
+        f->t.noteWrite(qw, lanes);
+    }
+}
+
+// Wherever the tracker of `test` says VU memory is real, it is the memory of `ref`, in which every run executed.
+void expectSameMemory(const Follow& test, const Follow& ref) {
+    uint64_t differing = 0;
+    for (uint32_t qw = 0; qw < kBuffer; ++qw) {
+        const uint32_t marked = test.t.lanesOf(qw, 15u);
+        for (uint32_t l = 0; l < 4u; ++l)
+            if (((marked >> l) & 1u) == 0u && test.m.word(qw, l) != ref.m.word(qw, l))
+                ++differing;
+    }
+    CHECK(differing == 0);
+    CHECK(ref.t.clean());
+}
+
+// Terrain-like batches (grid, texture coordinates from positions, transform; per layer a texture matrix run over all
+// slots, new alphas and a depth fade; index lists after each) with a run of another program between them, through
+// two memories side by side: in `ref` every run executes, in `test` the mask of each run comes from `mask(run)`.
+void switchingSequence(const std::function<uint32_t(uint32_t)>& mask, uint32_t batches, Follow& test, Follow& ref) {
+    std::mt19937 rng(99u);
+    uint32_t run = 0;
+    const auto both = [&](bool resume, uint32_t startPc) {
+        hookRun(ref, resume, startPc, kMicroprogram);
+        hookRun(test, resume, startPc, mask(run++));
+        expectSameMemory(test, ref);
+    };
+    const auto set = [&](uint32_t qw, uint32_t lane, uint32_t value) {
+        for (Follow* f : {&test, &ref})
+            f->m.word(qw, lane, value);
+    };
+    const auto draw = [&](const std::vector<int>& list, uint32_t at, int z) {
+        for (size_t i = 0; i < list.size(); ++i)
+            set(at + static_cast<uint32_t>(i / 4), static_cast<uint32_t>(i & 3),
+                static_cast<uint32_t>(list[i]) & 0xFFFFu);
+        set(kQwFlags, 0, 0x106C);
+        for (Follow* f : {&test, &ref})
+            f->m.header(static_cast<int>(at), 4, z, 0);
+        both(true, 0);
+    };
+    test.m.constants();
+    ref.m.constants();
+    const std::vector<int> listA = {1, 11, 2, 12, 3, 13, 0, 21, 31, 22, 32, 0, 0, 5, 6, 7};
+    const std::vector<int> listB = {41, 51, 42, 52, 43, 0, 61, 62, 63, 64, 0, 9, 9, 0, 0, 0};
+    for (uint32_t batch = 0; batch < batches; ++batch) {
+        // another program between two batches: a call and a continuation (the object path with its strip stage)
+        if (batch % 3u == 1u) {
+            both(false, 0x26E0);
+            both(true, 0);
+        }
+        const uint32_t cols = 8u + rng() % 5u, rows = 9u + rng() % 4u, n = cols * rows;
+        set(kQwFlags, 0, 0x106C);
+        for (uint32_t l = 0; l < 4u; ++l)
+            set(kQwColour, l, 30u + batch + l);
+        both(false, kPcSetup);
+        set(kQwGrid, 0, cols);
+        set(kQwGrid, 1, rows);
+        set(kQwGrid, 2, 66);
+        for (Follow* f : {&test, &ref}) {
+            f->m.floats(kQwGrid + 1, -500.0f + static_cast<float>(batch), 30.0f, 200.0f, 1.0f);
+            f->m.floats(kQwGrid + 2, 100.0f, 0.0f, 250.0f, 0.0f);
+        }
+        for (uint32_t s = 0; s < n; ++s) { // the heights, as whole quadwords
+            const uint32_t value[4] = {rng(), 32768u + rng() % 200u, rng(), rng()};
+            eeWrite(test, ref, kPos + s, 15u, value);
+        }
+        for (Follow* f : {&test, &ref})
+            f->m.header(66, static_cast<int>(n), 0, 0);
+        both(true, 0);
+        draw(listA, 741, 1);
+        draw(listB, 757, 65);
+        const uint32_t layers = 1u + rng() % 3u;
+        for (uint32_t layer = 0; layer < layers; ++layer) {
+            for (Follow* f : {&test, &ref}) {
+                f->m.floats(kQwTexMatrix, 0.5f + static_cast<float>(layer), 0.1f, 0.0f, 0.0f);
+                f->m.floats(kQwTexMatrix + 1, -0.1f, 0.5f + static_cast<float>(batch % 4u), 0.0f, 0.0f);
+                f->m.floats(kQwTexMatrix + 3, 0.25f, 0.75f, 0.0f, 0.0f);
+                f->m.header(516, 225, 0, 0);
+            }
+            set(kQwFlags, 0, 0x126C);
+            both(true, 0);
+            for (uint32_t s = 0; s < n; ++s) { // only the alpha lane before a fade
+                const uint32_t value[4] = {0, 0, 0, 60u + (rng() % 60u)};
+                eeWrite(test, ref, kCol + s, 8u, value);
+            }
+            set(kQwFade, 3, b(0.002f * static_cast<float>(layer + 1u)));
+            set(kQwFlags, 0, 0x10EC);
+            for (Follow* f : {&test, &ref})
+                f->m.header(70, static_cast<int>(n - 4u), 0, 0);
+            both(true, 0);
+            draw(listA, 741, 1);
+            draw(listB, 757, 65);
+        }
+    }
+}
+
+void modeSwitchTests() {
+    struct Schedule {
+        const char* name;
+        std::function<uint32_t(uint32_t)> mask;
+    };
+    std::mt19937 rng(4242u);
+    std::vector<uint32_t> random(4096);
+    for (uint32_t& r : random)
+        r = rng();
+    std::vector<Schedule> schedules;
+    schedules.push_back({"records", [](uint32_t) { return static_cast<uint32_t>(FamAll); }});
+    schedules.push_back({"microprogram", [](uint32_t) { return kMicroprogram; }});
+    for (uint32_t period : {1u, 2u, 3u, 7u, 13u, 64u})
+        schedules.push_back({"toggle", [period](uint32_t run) {
+                                 return ((run / period) & 1u) ? kMicroprogram : static_cast<uint32_t>(FamAll);
+                             }});
+    // the mode at random, held for a random number of runs
+    schedules.push_back({"random mode", [&random](uint32_t run) {
+                             return (random[(run / (1u + random[run / 16u % 4096u] % 5u)) % 4096u] & 1u)
+                                        ? kMicroprogram
+                                        : static_cast<uint32_t>(FamAll);
+                         }});
+    // any stage families at random under `records`, with the microprogram now and then
+    schedules.push_back({"random families", [&random](uint32_t run) {
+                             const uint32_t r = random[run % 4096u];
+                             return (r % 7u) == 0u ? kMicroprogram : (r >> 8) & FamAll;
+                         }});
+    uint64_t switchesSeen = 0, takenUnderSwitching = 0;
+    for (const Schedule& q : schedules) {
+        Follow test, ref;
+        uint32_t last = 0, switches = 0;
+        const auto mask = [&](uint32_t run) {
+            const uint32_t now = q.mask(run);
+            switches += run != 0u && (now == kMicroprogram) != (last == kMicroprogram);
+            last = now;
+            return now;
+        };
+        switchingSequence(mask, 24, test, ref);
+        // the same vertices reach the renderer, in the same packets, whatever the mode was at each run
+        CHECK(!ref.packets.empty() && test.packets == ref.packets);
+        // every draw found its inputs: nothing had to be refused, nothing was drawn from an unknown lane
+        CHECK(test.staleDeclines == 0 && test.t.counters.staleDraws == 0);
+        CHECK(test.t.counters.declined[static_cast<uint32_t>(Reason::StaleInput)] == 0);
+        const Counters& c = test.t.counters;
+        const uint64_t taken =
+            c.taken[static_cast<uint32_t>(Stage::Vertex)] + c.taken[static_cast<uint32_t>(Stage::List)];
+        if (std::strcmp(q.name, "microprogram") == 0) {
+            CHECK(taken == 0 && c.passesDeferred == 0 && c.records == 0 && test.t.clean());
+        } else {
+            CHECK(taken != 0);
+        }
+        if (switches) {
+            switchesSeen += switches;
+            takenUnderSwitching += taken;
+        }
+    }
+    CHECK(switchesSeen > 500 && takenUnderSwitching > 1000);
+
+    // Leaving in the middle of a batch: the deferred stages are written, memory is the microprogram's from then on.
+    {
+        Follow test, ref;
+        uint32_t leaveAt = 0;
+        uint64_t written = 0;
+        const auto mask = [&](uint32_t run) { return run >= leaveAt ? kMicroprogram : static_cast<uint32_t>(FamAll); };
+        for (leaveAt = 1; leaveAt < 40; leaveAt += 3) {
+            test = Follow();
+            ref = Follow();
+            switchingSequence(mask, 6, test, ref);
+            CHECK(test.packets == ref.packets);
+            written += test.t.counters.slotsMaterialised;
+        }
+        CHECK(written != 0);
+    }
+
+    // When the tracker may stop following: only when no lane is pending or unknown.
+    {
+        Follow test, ref;
+        CHECK(test.t.clean());
+        switchingSequence([](uint32_t) { return static_cast<uint32_t>(FamAll); }, 2, test, ref);
+        CHECK(!test.t.clean()); // the last batch's deferred stages
+        hookRun(test, false, kPcSetup, kMicroprogram);
+        hookRun(ref, false, kPcSetup, kMicroprogram);
+        CHECK(!test.t.clean()); // lanes earlier batches left unknown stay unknown ...
+        expectSameMemory(test, ref);
+        uint32_t unknownSlots = 0;
+        for (uint32_t s = 0; s < kSlots; ++s)
+            unknownSlots += test.t.staleLanes(s) != 0u;
+        CHECK(unknownSlots != 0);
+        // ... until the EE has written them again: a whole upload of the three arrays
+        std::mt19937 fill(5u);
+        for (uint32_t qw = kPos; qw < kSt + kSlots; ++qw) {
+            const uint32_t value[4] = {fill(), fill(), fill(), fill()};
+            eeWrite(test, ref, qw, 15u, value);
+        }
+        CHECK(test.t.clean());
+        // from the clean state the next entry into `records` is the initial state again
+        Follow again, againRef;
+        switchingSequence([](uint32_t) { return static_cast<uint32_t>(FamAll); }, 3, again, againRef);
+        CHECK(again.packets == againRef.packets);
+    }
+}
+
+void writeNoteTests() {
+    // noteWrites over a range is noteWrite per quadword.
+    for (uint32_t lanes : {15u, 7u, 8u, 3u}) {
+        Follow a, b, ref;
+        switchingSequence([](uint32_t) { return static_cast<uint32_t>(FamAll); }, 2, a, ref);
+        ref = Follow();
+        switchingSequence([](uint32_t) { return static_cast<uint32_t>(FamAll); }, 2, b, ref);
+        // start a third batch so that lanes are pending as well as unknown
+        for (Follow* f : {&a, &b}) {
+            f->m.flags(0x000C);
+            hookRun(*f, false, kPcSetup, FamAll);
+            f->m.header(66, 150, 0, 0);
+            hookRun(*f, true, 0, FamAll);
+        }
+        a.t.noteWrites(40, 720, lanes); // from below the arrays to the index lists
+        for (uint32_t qw = 40; qw < 760; ++qw)
+            b.t.noteWrite(qw, lanes);
+        bool same = true;
+        for (uint32_t s = 0; s < kSlots; ++s)
+            same = same && a.t.virtualLanes(s) == b.t.virtualLanes(s) && a.t.staleLanes(s) == b.t.staleLanes(s) &&
+                   a.t.pendingPasses(s) == b.t.pendingPasses(s);
+        CHECK(same);
+        CHECK(a.t.counters.passesDropped == b.t.counters.passesDropped);
+    }
+    // A lane written with a value made from its old content is unknown, and what was pending on it is dropped.
+    {
+        Machine m;
+        m.constants();
+        m.vertices(0, 20);
+        Tracker t;
+        m.flags(0x000C);
+        CHECK(stepRun(t, m, false, FamAll).action == Action::Run);
+        m.header(66, 20, 0, 0);
+        CHECK(stepRun(t, m, true, FamAll).action == Action::Skip);
+        CHECK(t.lastFamilies() == FamLightTransform);
+        CHECK(t.pendingPasses(3) == 1 && t.virtualLanes(3) == (kLanePos | kLaneStZ));
+        t.noteUnknown(kPos + 3, 1u);
+        CHECK(t.pendingPasses(3) == 0 && (t.staleLanes(3) & 1u) != 0u && !t.unknownLanes(0, kPos));
+        CHECK(t.unknownLanes(kPos + 3, 1) && t.lanesOf(kPos + 3, 15u) != 0u);
+        m.indexList(741, {1, 2, 3, 4, 0, 0, 0, 0});
+        m.header(741, 2, 1, 0);
+        m.flags(0x002C);
+        const Stepped s = stepRun(t, m, true, FamAll);
+        CHECK(s.action == Action::Run && s.why == Reason::StaleInput);
+        CHECK(t.lastFamilies() == FamPrimitive);
+        t.noteUnknown(20, 15u); // outside the arrays: nothing to mark
+        t.noteUnknown(900, 15u);
+    }
+}
+
+// The alpha lane of the last colour slot is read by every clip-code index list as the "code" of an end index: the
+// tracker keeps that slot what the microprogram would have left, whatever was deferred on it.
+void lastSlotTests() {
+    Machine test, ref;
+    Tracker t;
+    for (Machine* m : {&test, &ref}) {
+        m->constants();
+        m->vertices(0, 225);
+        // a water batch over the whole window: flat grid, point light (which replaces alpha), texture coordinates
+        // from positions, transform
+        m->word(kQwGrid, 0, 15);
+        m->word(kQwGrid, 1, 15);
+        m->word(kQwGrid, 2, 66);
+        m->floats(kQwGrid + 1, -700.0f, 10.0f, 300.0f, 1.0f);
+        m->floats(kQwGrid + 2, 100.0f, 0.0f, 100.0f, 0.0f);
+        m->word(20, 0, 3);
+        m->floats(13, 0.0f, 200.0f, 900.0f, 0.0f);
+        m->floats(14, 0.0f, 1.0f, 0.0f, 0.0f);
+        m->floats(18, 0.0f, 20.0f, 150.0f, 25.0f);
+        m->floats(19, 0.0f, 0.0f, 0.0f, 0.3f);
+        m->flags(0x7064);
+        m->header(66, 225, 0, 0);
+    }
+    CHECK(stepRun(t, test, false, FamAll).action == Action::Run);
+    CHECK(stepRun(t, test, true, FamAll).action == Action::Skip);
+    executeVertexRun(ref);
+    CHECK(t.pendingPasses(224) == 4 && (t.virtualLanes(224) & kLaneAlpha) != 0u);
+    CHECK(test.word(kCol + 224, 3) != ref.word(kCol + 224, 3)); // deferred: memory still holds the old alpha
+    // the next call: the batch ends; slot 224 is written, the other slots are left unknown
+    test.flags(0x0001);
+    CHECK(stepRun(t, test, false, FamAll).action == Action::Run);
+    CHECK(t.pendingPasses(224) == 0 && t.virtualLanes(224) == 0 && t.staleLanes(224) == 0);
+    CHECK(t.staleLanes(223) != 0 && t.staleLanes(0) != 0);
+    bool same = true;
+    for (uint32_t l = 0; l < 4u; ++l)
+        same = same && test.word(kPos + 224, l) == ref.word(kPos + 224, l) &&
+               test.word(kCol + 224, l) == ref.word(kCol + 224, l) && test.word(kSt + 224, l) == ref.word(kSt + 224, l);
+    CHECK(same);
+    CHECK(t.counters.slotsMaterialised == 1);
+    // A clip-code list that is executed with a code lane of unknown content is counted like a draw from one.
+    test.vertices(0, 8);
+    for (uint32_t s = 0; s < 8; ++s) {
+        t.noteWrite(kPos + s, 15u);
+        t.noteWrite(kCol + s, 15u);
+        t.noteWrite(kSt + s, 15u);
+        test.word(kSt + s, 3, s == 2 ? 4u : 0u); // one vertex outside: the clipper
+    }
+    test.indexList(741, {1, 2, 3, 4, 0, 5, 6, 7, 0, 0, 0, 0});
+    for (uint32_t q = 0; q < 3; ++q)
+        t.noteWrite(741 + q, 15u);
+    test.flags(0x0025);
+    test.header(741, 3, 1, 0);
+    Stepped s = stepRun(t, test, true, FamAll);
+    CHECK(s.action == Action::Run && s.why == Reason::Clipper && t.counters.staleDraws == 0);
+    t.noteUnknown(kCol + 224, 8u);
+    test.pc = kPcAfterClipList;
+    s = stepRun(t, test, true, FamAll);
+    CHECK(s.action == Action::Run && s.why == Reason::Clipper && t.counters.staleDraws == 1);
+}
+
+// The strip stage's question before it builds a record from VU memory.
+void stripInputTests() {
+    // a strip record's payload: header, constants, strip lengths (the vertices are not looked at)
+    const auto record = [](uint32_t program, const std::vector<uint32_t>& strips) {
+        std::vector<uint8_t> r(sizeof(Header) + sizeof(Constants) + ((strips.size() + 3u) / 4u) * 16u, 0);
+        uint32_t vertices = 0;
+        for (uint32_t n : strips)
+            vertices += n;
+        const Header h{program, 0x0Cu, static_cast<uint32_t>(strips.size()), vertices};
+        std::memcpy(r.data(), &h, sizeof(h));
+        std::memcpy(r.data() + sizeof(Header) + sizeof(Constants), strips.data(), strips.size() * 4u);
+        return r;
+    };
+    constexpr uint32_t kFirst = 54, kAux = 240, kStripSt = 480;
+    Tracker fresh;
+    CHECK(stripInputsKnown(fresh, record(StripsLit, {3, 31, 31}).data()));
+
+    // A lit batch over slots 0..59, then the next set-up: positions, colours and the 1 / w of those slots are unknown.
+    Machine m;
+    m.constants();
+    m.vertices(0, 60);
+    Tracker t;
+    m.flags(0x0010);
+    CHECK(stepRun(t, m, false, FamAll).action == Action::Run);
+    m.header(66, 60, 0, 0);
+    CHECK(stepRun(t, m, true, FamAll).action == Action::Skip);
+    CHECK(stepRun(t, m, false, FamAll).action == Action::Run);
+    CHECK(t.unknownLanes(54, 719) && t.staleLanes(0) == (kLanePos | kLaneCol | kLaneStZ));
+    // strip table {3}: header slot 54, vertices in slots 55..57, their normals 240 higher (colour rows of the batch
+    // slots 4..6), their texture coordinates 480 higher (texture rows of the batch slots 19..21, of which the third
+    // lane is unknown), the end of the table in the length word of slot 58
+    const std::vector<uint8_t> lit = record(StripsLit, {3}), flat = record(StripsFlat, {3});
+    CHECK(!stripInputsKnown(t, lit.data()) && !stripInputsKnown(t, flat.data()));
+    t.noteWrites(kFirst + 1 + kStripSt, 3, 3u); // S and T only: the third lane is still unknown
+    CHECK(!stripInputsKnown(t, flat.data()));
+    t.noteWrites(kFirst + 1 + kStripSt, 3, 7u);
+    CHECK(!stripInputsKnown(t, flat.data())); // the two length words lie in colour rows
+    t.noteWrite(kFirst + kAux, 1u);
+    CHECK(!stripInputsKnown(t, flat.data()));
+    t.noteWrite(kFirst + 4 + kAux, 1u);
+    CHECK(stripInputsKnown(t, flat.data())); // a constant-colour run reads no normals
+    CHECK(!stripInputsKnown(t, lit.data()));
+    t.noteWrites(kFirst + 1 + kAux, 3, 7u);
+    CHECK(!stripInputsKnown(t, lit.data())); // the lit stage reads all four lanes of a normal
+    t.noteWrites(kFirst + 1 + kAux, 3, 15u);
+    CHECK(stripInputsKnown(t, lit.data()));
+    // a longer table reaches the batch positions (quadword 66 is the vertex of strip slot 66)
+    const std::vector<uint8_t> longer = record(StripsFlat, {3, 12});
+    CHECK(!stripInputsKnown(t, longer.data()));
+    t.noteWrites(kFirst, 20, 15u);           // positions of slots 54..73
+    t.noteWrites(kFirst + kStripSt, 20, 7u); // texture coordinates
+    t.noteWrite(kFirst + 4 + 13 + kAux, 1u); // the length word that ends the table
+    CHECK(stripInputsKnown(t, longer.data()));
+    // what was deferred and not yet written counts as unknown too
+    m.flags(0x000C);
+    m.header(66, 30, 0, 0);
+    for (uint32_t s = 0; s < 30; ++s)
+        t.noteWrite(kPos + s, 15u);
+    CHECK(stepRun(t, m, true, FamAll).action == Action::Skip);
+    CHECK(!stripInputsKnown(t, longer.data()));
+    t.materialiseAll(m.data.data());
+    CHECK(stripInputsKnown(t, longer.data()));
+}
 } // namespace
 
 int main() {
@@ -663,6 +1114,10 @@ int main() {
     classifyTests();
     deferralTests();
     trackerTests();
+    modeSwitchTests();
+    writeNoteTests();
+    lastSlotTests();
+    stripInputTests();
     std::printf("vu_gpu_batch_tests: %llu checks, %d failed\n", static_cast<unsigned long long>(g_checks), g_failed);
     return g_failed ? 1 : 0;
 }

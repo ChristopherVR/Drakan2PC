@@ -38,11 +38,13 @@ enum Stage : uint32_t {
     kPointLights = 1u << 4,    // batch: point lights
     kLightTransform = 1u << 5, // batch: directional lights, transform, fog
     kPrimitives = 1u << 6,     // batch: index lists to primitives
-    kAllStages = (1u << 7) - 1u,
+    kTextureGen = 1u << 7,     // batch: texture coordinates generated from positions or integers
+    kClipInside = 1u << 8,     // batch: index lists of a batch with clip codes whose vertices are all inside
+    kAllStages = (1u << 9) - 1u,
 };
-inline constexpr uint32_t kStageCount = 7;
-inline constexpr const char* kStageNames[kStageCount] = {"strips", "fade",  "texmatrix", "grid",
-                                                         "point",  "light", "prims"};
+inline constexpr uint32_t kStageCount = 9;
+inline constexpr const char* kStageNames[kStageCount] = {"strips", "fade",  "texmatrix", "grid",      "point",
+                                                         "light",  "prims", "texgen",    "clipinside"};
 
 // Why a run or record did not take the GPU path. One counter each.
 enum class Fallback : uint32_t {
@@ -57,18 +59,23 @@ enum class Fallback : uint32_t {
     Feature,          // a renderer feature that reads vertices on the CPU is on
     DeviceLost,       // the graphics device was lost
     Internal,         // a failed allocation, shader or buffer: the path is off for the session
+    StaleInput,       // the run reads VU memory whose content an earlier run that was not executed would have set
     Count
 };
 inline constexpr uint32_t kFallbackCount = static_cast<uint32_t>(Fallback::Count);
 inline constexpr const char* kFallbackNames[kFallbackCount] = {
-    "stage off",  "engine pending", "not recognised", "clipper",     "backend", "adapter",
-    "draw state", "skip bit",       "feature",        "device lost", "internal"};
+    "stage off",  "engine pending", "not recognised", "clipper",     "backend",  "adapter",
+    "draw state", "skip bit",       "feature",        "device lost", "internal", "stale input"};
 
 // What the renderer can do with a record, reported once it has a device.
 struct Capability {
     bool backendHasPath = false; // the backend implements vertex-program draws at all
     bool adapterExact = false;   // and this adapter passed the exactness requirements (arithmetic available)
     bool proven = false;         // and the combination is one the project has proven identical (what `auto` needs)
+    // The stage families the backend has a vertex shader for. Under Eval::Gpu only these leave the microprogram: a
+    // record no shader can draw would be evaluated on the CPU by the renderer, which is exact but much slower than
+    // the microprogram it replaced.
+    uint32_t shaderStages = 0;
 };
 
 // The setting to an evaluation mode. `gpu` asks for the GPU path wherever the backend has one (anything it cannot
@@ -192,12 +199,19 @@ struct Counters {
     std::atomic<uint64_t> cpuVertices{0};             // vertices of records evaluated on the CPU
     std::atomic<uint64_t> fallback[kFallbackCount]{}; // runs or records per reason
     std::atomic<uint64_t> switches{0};                // changes of the control word
+    // Executed runs that drew from VU memory an earlier run would have set had it been executed: a vertex that may
+    // differ from the microprogram's. The batch tracker detects it; it is not expected to happen.
+    std::atomic<uint64_t> staleDraws{0};
 };
 
 struct State {
     std::atomic<uint32_t> word{pack(Eval::Microprogram, kAllStages)};     // what runs and records obey right now
     std::atomic<uint32_t> baseWord{pack(Eval::Microprogram, kAllStages)}; // the configured word (before the toggle)
     std::atomic<uint32_t> toggleFrames{0};                                // DRAKAN_VERTEX_TOGGLE
+    // Not zero: the VU1 worker has to look at the control word before a run. Set by every change of the word; the
+    // worker clears it when the word says `microprogram` and it has nothing left to follow (vuRest), so that the
+    // player's `cpu` costs one load per run and nothing else.
+    std::atomic<uint32_t> vuAttention{0};
     Counters counters;
 };
 inline State& state() {
@@ -209,18 +223,36 @@ inline uint32_t controlWord() {
 }
 inline void setControlWord(uint32_t word) {
     State& s = state();
-    if (s.word.exchange(word, std::memory_order_relaxed) != word)
+    if (s.word.exchange(word, std::memory_order_seq_cst) != word)
         s.counters.switches.fetch_add(1, std::memory_order_relaxed);
+    if (evalOf(word) != Eval::Microprogram)
+        s.vuAttention.store(1, std::memory_order_seq_cst);
+}
+// The VU1 worker's test before every run.
+inline bool vuAttention() {
+    return state().vuAttention.load(std::memory_order_relaxed) != 0u;
+}
+inline void requestVuAttention() {
+    state().vuAttention.store(1, std::memory_order_seq_cst);
+}
+// The VU1 worker has nothing to do under the current word: clear the flag, unless the word changed meanwhile.
+inline void vuRest() {
+    State& s = state();
+    s.vuAttention.store(0, std::memory_order_seq_cst);
+    if (evalOf(s.word.load(std::memory_order_seq_cst)) != Eval::Microprogram)
+        s.vuAttention.store(1, std::memory_order_seq_cst);
 }
 // The configured word: the player's choice resolved against the renderer, then the diagnosis overrides. `evalOverride`
 // and `stagesOverride` are the texts of DRAKAN_VERTEX_EVAL and DRAKAN_VERTEX_STAGES (null or unparsable: none).
-// An override of the evaluation mode is taken as given: `gpu` on a backend without the path evaluates every record on
-// the CPU (and counts it), which is still exact.
+// An override of the evaluation mode is taken as given: `gpu` on a backend without the path hands nothing over
+// unless a stage list is given too (those records are then evaluated on the CPU and counted, which is still exact).
 inline uint32_t configuredWord(Choice choice, const Capability& cap, const char* evalOverride,
                                const char* stagesOverride) {
     Eval eval = resolve(choice, cap);
     parseEval(evalOverride, eval);
-    uint32_t stages = kAllStages;
+    // Under `gpu` the stages default to those the backend can draw; an explicit stage list is taken as given (a
+    // stage without a shader is then evaluated on the CPU by the renderer and counted).
+    uint32_t stages = eval == Eval::Gpu ? cap.shaderStages : static_cast<uint32_t>(kAllStages);
     parseStages(stagesOverride, stages);
     return pack(eval, stages);
 }
@@ -246,6 +278,14 @@ inline void countTaken(Stage stage, uint64_t vertices) {
     Counters& c = state().counters;
     for (uint32_t i = 0; i < kStageCount; ++i)
         if (stage == (1u << i))
+            c.taken[i].fetch_add(1, std::memory_order_relaxed);
+    c.takenVertices.fetch_add(vertices, std::memory_order_relaxed);
+}
+// A run that left the microprogram with several stage families at once (a batch vertex run): one count per family.
+inline void countTakenStages(uint32_t stages, uint64_t vertices) {
+    Counters& c = state().counters;
+    for (uint32_t i = 0; i < kStageCount; ++i)
+        if ((stages >> i) & 1u)
             c.taken[i].fetch_add(1, std::memory_order_relaxed);
     c.takenVertices.fetch_add(vertices, std::memory_order_relaxed);
 }

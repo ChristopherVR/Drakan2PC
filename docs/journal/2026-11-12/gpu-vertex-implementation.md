@@ -136,6 +136,35 @@ established are in [gpu-vertex-batch-stage.md](gpu-vertex-batch-stage.md).
 
 No renderer draws a batch record with a shader yet.
 
+## 6. Increment 5: the batch path at run time under `records` (no shader)
+
+Written by the `live` subagent; design, the list of writers of VU memory, the proof and the measurements are in
+[gpu-vertex-live-batch.md](gpu-vertex-live-batch.md).
+
+* Before every MSCAL and MSCNT the hook (`vu/ps2_vu1_gpu_live.h`) reads the control word and drives the batch tracker
+  with the stage families the word enables; taken vertex runs are deferred, index-list runs go to the renderer as
+  batch records, and `gsr_core` (`vertexBatch`) evaluates them on the CPU and draws them through the ordinary vertex
+  kick. Two more stage bits: `texgen`, `clipinside`; one more fallback counter: `stale input`.
+* Under `cpu` the cost is one atomic load per run (`vpath::vuAttention`) and one per UNPACK.
+* The mode can change at any run boundary. Leaving `records` writes what was deferred before the next run executes;
+  the tracker then keeps following runs and writes, taking nothing, until every lane of VU memory is the
+  microprogram's again, and only then stops (at once on foot in Surdana; not reached during a Ravenshold flight, so
+  a session that used `records` there keeps paying the tracker step per run).
+* The VIF reports every lane it writes (fast and scalar path), and so does the EE's direct access to VU memory.
+  The report costs 0.3 to 0.6 ms per frame on the VU1 worker as written, more than the unpack itself; halving it
+  with an inline range test is not done.
+* `DRAKAN_VERTEX_SHADOW=1` builds the records beside a game that runs unchanged and compares them with the packets
+  the microprogram sends, live. It found one fault the 16 recordings could not show (every clip-code index list
+  reads the alpha lane of the last colour slot as a code, whether or not the batch filled it); fixed.
+* `records` is a diagnosis mode and slow by construction: the CPU evaluation in double arithmetic runs on the GS
+  worker, 220 to 330 ns per record vertex, which is 23 to 26 ms per world frame in Surdana and 7 to 8 ms in the Order
+  of the Flame Ruined Village. The VU1 worker itself changes by minus 37 % (Surdana), minus 10 % (Ravenshold) and
+  plus 14 % (Order of the Flame Ruined Village: 19,034 UNPACK reports and 1,856 record builds per frame). So the
+  batch path only pays with a shader, and the per-frame bookkeeping of the hand-over is itself a cost to bring down.
+* Decision taken by the orchestrator: `vpath::Capability::shaderStages` names the stage families a backend has a
+  shader for, and `gpu` hands over only those by default. A record no shader can draw would be exact but much slower
+  than the microprogram it replaced. An explicit `DRAKAN_VERTEX_STAGES` list is still taken as given.
+
 ## Proof log
 
 | Date | What | Result |
@@ -152,8 +181,23 @@ No renderer draws a batch record with a shader yet.
 | 2026-11-12 | Increment 3, re-run by the orchestrator with a game build of the main tree: VU1 replay of 16 recordings of 8,000 runs with VIF write lists (`DRAKAN_VU_BENCH_BATCH=1 DRAKAN_VU_BENCH_GPUPROG=1`; Surdana, street, square, fight, arena, catacombs, mine, tundra, valley, stratos, two Isles scenes, Ravenshold and Shiverbane mounted, Order of the Flame Ruined Village and Volcanic) | 34,725 vertex runs evaluated against the microprogram's memory, 0 differ; 57,528 batch records, 2,604,739 vertices, 0 differ; 708,250 strip vertices, 0 differ; runs executed on the tracker's memory: 0 with other packets, 0 lanes other than recorded; 0 draws from a stale lane; declines: clip codes and clipper only |
 | 2026-11-12 | Records test, as reported by its author on Direct3D 11, Vulkan and Direct3D 12 (identical totals): 1,017,252 record vertices, 846 colour frames and 174 depth pictures compared | 0 pixels differ of 5,983,272,960 and 1,230,602,240; controls detect a colour step and a depth step |
 | 2026-11-12 | Increment 4, re-run by the orchestrator in the main tree with the 16 record dumps: `gsr_test_vertex_batch_stage` (description against `vp::evaluateVertex` and `vp::batchToGif`, both arithmetics), `gsr_test_vertex_batch_program` (Direct3D 11, RTX 5080, doubles and limbs), `gsr_test_vertex_batch_webgpu` on Vulkan and Direct3D 12: 2,451,056 vertices per path (120,240 generated, 2,330,816 recorded in 57,528 records; chains up to 24 passes), packet, previous position and row | 0 differ on every path |
+| 2026-11-12 | Increment 5, as reported by its author (commands: gpu-vertex-live-batch.md section 6): shadow comparison over 33,762,388 runs (Surdana with fight, quick save and load; a level change; Ravenshold flight; Order of the Flame Ruined Village; the intro cut scene and the Isles) | 12,619,604 records, 559,825,390 vertices compared, 0 differ; 12,949,714 runs executed on the shadow memory, 0 with other packets, 0 lanes; 0 unreported writes |
+| 2026-11-12 | Increment 5, same author: paused toggles microprogram against records, 24 shots each, in Surdana, the fight spot, Ravenshold in flight, the Lair arena, Order of the Flame Ruined Village and Volcanic; twelve stage masks in Surdana; three captures under `records` replayed on Direct3D 11 at scale 3 | every scene one picture (Catacombs only with an animated torch flame masked); captures 1,657 + 1,505 + 1,796 frames replay without error |
+| 2026-11-13 | Increment 5, re-run by the orchestrator on a game build of the main tree: VU1 replay of the 16 recordings; shadow comparison, Surdana 60 s walk (4,028,012 runs); paused toggle over Ravenshold, 24 shots (5 microprogram, 19 records) | replay: 2,604,739 batch and 708,250 strip vertices, 0 differ, 0 other packets, 0 lanes; shadow: 1,344,549 records, 67,767,301 vertices, 0 differ, 0 other packets, 0 lanes; toggle: 24 of 24 identical |
+| 2026-11-13 | Increment 5 on the main tree: `runtime-tests` preset (178 tests, 0 failed), Python tests, and "`cpu` equals before": five captures on Direct3D 11, Vulkan and Direct3D 12 at scales 1, 3, 8 without HD textures against the reference | 45 comparisons, 162,585 frames, 0 differ |
 
 ## Not verified (running list)
 
 * No shader path exists in the tree yet; `gpu` and `auto` resolve to the microprogram on every backend.
 * `records` evaluates with double arithmetic on the GS worker and is slow; it is a diagnosis mode.
+* The DLSS CPU overhead is not removed by this path yet. With DLSS Super Resolution on, the scene-model motion pass
+  (`finalizeNeuralWorld`, `Guides::modelMotion`) draws model triangles over the same motion target, so for
+  characters, which are the strip objects, the upscaler mostly gets the model path's vectors and the EE-side
+  scene-model capture has to keep running. Removing it needs a link per instance between an object-motion scope and
+  a scene-model instance (`ObjectMotionScope.objectId / generation` to `SceneModelInstance.object / generation`), a
+  rule that the model pass leaves out instances fully drawn by records, and a proof per pixel that the vectors made
+  by the vertex shader equal the model pass's for those instances. Not built.
+* Reference hashes with HD textures: the shared HD pack was regenerated on 12 November and staged into play folders
+  by later builds, so HD-on references made before about 21:10 that day match no build any more. References here
+  are HD off from increment 5 on; HD-on coverage returns with the frozen pack `build/review/gs-share/textures_frozen`
+  and its re-taken baseline.

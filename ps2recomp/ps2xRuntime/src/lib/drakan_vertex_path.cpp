@@ -3,6 +3,8 @@
 #include "drakan_config.h"
 #include "gsr/gsr.h"
 #include "gsr/vertex_path.h"
+#include "vu/ps2_vu1_check.h"
+#include "vu/ps2_vu1_gpu_live.h"
 
 #include <atomic>
 #include <chrono>
@@ -28,6 +30,8 @@ void applyLocked() {
         vpath::configuredWord(g_choice, cap, std::getenv("DRAKAN_VERTEX_EVAL"), std::getenv("DRAKAN_VERTEX_STAGES"));
     const uint32_t before = vpath::state().baseWord.load(std::memory_order_relaxed);
     vpath::configure(word, toggle);
+    if (vu1check::shadowRequested()) // DRAKAN_VERTEX_SHADOW: the VU1 worker compares records beside the microprogram
+        vpath::requestVuAttention();
     if (word != before || toggle)
         std::fprintf(stderr,
                      "[vertex-path] vertex_processing = %s: %s (renderer path %d, adapter exact %d, proven %d), "
@@ -92,8 +96,14 @@ std::string countersLine() {
     std::snprintf(text, sizeof(text), "; vertices: shader %llu, cpu %llu",
                   static_cast<unsigned long long>(c.gpuVertices.load(std::memory_order_relaxed)),
                   static_cast<unsigned long long>(c.cpuVertices.load(std::memory_order_relaxed)));
-    return std::string("path ") + activePath() + "; runs handed over:" + (line.empty() ? " none" : line) + text +
-           "; fallbacks:" + (fallbacks.empty() ? " none" : fallbacks);
+    std::string out = std::string("path ") + activePath() + "; runs handed over:" + (line.empty() ? " none" : line) +
+                      text + "; fallbacks:" + (fallbacks.empty() ? " none" : fallbacks);
+    if (const uint64_t stale = c.staleDraws.load(std::memory_order_relaxed)) {
+        std::snprintf(text, sizeof(text), "; RUNS THAT DREW FROM UNKNOWN VU MEMORY: %llu",
+                      static_cast<unsigned long long>(stale));
+        out += text;
+    }
+    return out;
 }
 
 void frameTick() {
@@ -109,6 +119,10 @@ void frameTick() {
     const std::string line = countersLine();
     if (!line.empty())
         std::fprintf(stderr, "[vertex-path] %s\n", line.c_str());
+    char tracker[1280]; // read without a lock from the VU1 worker's counters: a diagnosis line, not a measurement
+    vu1gpu::live::countersText(tracker, sizeof(tracker));
+    if (tracker[0])
+        std::fprintf(stderr, "[vertex-path] %s\n", tracker);
 }
 
 } // namespace drakan_vertex_path

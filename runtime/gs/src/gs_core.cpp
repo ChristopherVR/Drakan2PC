@@ -7,6 +7,7 @@
 #include "title_backdrop.h"
 #include <gsr/scene_guide_camera.h>
 #include <gsr/scene_models.h>
+#include <gsr/vertex_batch.h>
 
 #include <algorithm>
 #include <memory>
@@ -528,6 +529,55 @@ struct Renderer::Impl {
         }
         if (programDebug & 1)
             flushProgram();
+    }
+
+    // A batch record (gsr/vertex_batch.h): one index-list run of the microprogram's batch path with the passes its
+    // vertices still need. No backend draws it with a shader yet, so under every evaluation mode it is evaluated
+    // here with the VU's arithmetic and sent through the ordinary vertex kick, as the packets of the run would be:
+    // per strip a tag that writes PRIM (PRE = 1) and four registers per vertex (ST, RGBAQ, FOG, XYZ2), then, for a
+    // run of a batch with clip codes, the empty tag that writes PRIM once more. The registers and the vertex queue
+    // are therefore left exactly as the packets leave them. True: the data was a record of this kind (a malformed
+    // one is ignored; parseBatch reads nothing outside `size`).
+    bool vertexBatch(const uint8_t* data, uint32_t size) {
+        uint32_t program = 0;
+        if (size >= 4)
+            std::memcpy(&program, data, 4);
+        if (program != vp::Batch)
+            return false;
+        vp::BatchView rec;
+        if (!vp::parseBatch(data, size, rec))
+            return true;
+        const vp::BatchHeader& h = rec.header;
+        stats.programRecords++;
+        if (vpath::evalOf(vpath::controlWord()) == vpath::Eval::Gpu)
+            vpath::countFallback(vpath::Fallback::BackendNoPath);
+        vp::Output out[vp::kBatchMaxIndices]; // every vertex once, however many strips share it
+        for (uint32_t i = 0; i < h.vertexCount; ++i) {
+            vp::BatchVertex v; // the record is a byte stream: no alignment to rely on
+            std::memcpy(&v, reinterpret_cast<const uint8_t*>(rec.vertices) + size_t(i) * sizeof(v), sizeof(v));
+            out[i] = vp::evaluateVertex(rec.passes, h.passCount, v);
+        }
+        const uint16_t* index = rec.indices;
+        for (uint32_t s = 0; s < h.stripCount; ++s) {
+            writeReg(R_PRIM, h.prim);
+            for (uint32_t i = 0; i < rec.strips[s]; ++i, ++index) {
+                const vp::Output& o = out[*index];
+                cs = asFloat(o.s);
+                ct = asFloat(o.t);
+                cq = asFloat(o.q);
+                cr = o.r;
+                cg = o.g;
+                cb = o.b;
+                ca = o.a;
+                cfog = o.fog;
+                kick(o.x, o.y, o.z, -1, !o.adc);
+            }
+        }
+        if (h.flags & vp::kBatchEmptyTag)
+            writeReg(R_PRIM, h.prim);
+        stats.programCpuVertices += h.indexCount;
+        vpath::state().counters.cpuVertices.fetch_add(h.indexCount, std::memory_order_relaxed);
+        return true;
     }
 
     void flushBatch() {
@@ -1623,7 +1673,8 @@ struct Renderer::Impl {
                 ps.regIdx = 0;
                 if (ps.flg == 3 && hi == vp::kTagMagic && nloop != 0 && size >= nloop * 16u) {
                     // a vertex-program record wrapped in a tag whose data a GS ignores (gsr/vertex_program.h)
-                    vertexProgram(data, nloop * 16u);
+                    if (!vertexBatch(data, nloop * 16u))
+                        vertexProgram(data, nloop * 16u);
                     data += nloop * 16u;
                     size -= nloop * 16u;
                     continue;

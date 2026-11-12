@@ -427,6 +427,7 @@ add_library(ps2_runtime STATIC
     src/lib/vu/ps2_vu1_upper.cpp
     src/lib/vu/ps2_vu1_lower.cpp
     src/lib/vu/ps2_vu1_check.cpp
+    src/lib/vu/ps2_vu1_gpu_live.cpp
     src/lib/vu/ps2_vu1_async.cpp
     src/lib/vu/ps2_vu1_batch.cpp
     src/lib/vu/ps2_vu1_native_kernels.cpp
