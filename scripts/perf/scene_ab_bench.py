@@ -71,6 +71,8 @@ THREAD = re.compile(r" t(\d+)(?:\(([^)]*)\))?:(\d+)%")
 PROFILE = re.compile(r"^\[gsr-profile\] ([\d.]+)s root=([\d.]+)ms .*?: (.*)$")
 SCOPE = re.compile(r"(\w+)=(\d+)/([\d.]+)/([\d.]+)/([\d.]+)")
 GPU = re.compile(r"^\[gpu-pass\] (.*)$")
+PER_WORLD = ("rb/s", "finish_polls/s", "rb_wait_ms/s", "rb_eager/s", "rb_late/s", "rb_verified/s", "rb_diff/s",
+             "vu1_syncs/s", "vu1_sync_ms/s", "dma_chains/s")  # fmt: skip
 CPU_SCOPES = ("presentCall", "draw", "drawObjectMotion", "syncRT", "readbackMap", "surfaceWait")
 GPU_PASSES = ("world", "worldEntry", "guides", "modelMotion", "evaluate", "compose", "display", "presentBlit", "overlay", "total")  # fmt: skip
 
@@ -226,6 +228,8 @@ def measure(log: Path) -> dict:
                 for name, v in p["threads"].items():
                     names[name] = names.get(name, 0.0) + v
             r["thread_ms_per_world"] = {name: 10.0 * v / worlds for name, v in names.items()}
+            # counters of the perf line that are rates per second: per world frame (load-independent counts)
+            r["per_world"] = {key: sum(p.get(key, 0.0) for p in perf) / worlds for key in PER_WORLD}
         if prof:
             seconds = sum(p["seconds"] for p in prof)
             presents = sum(p.get("presentCall", (0, 0, 0))[0] for p in prof)
@@ -257,6 +261,12 @@ COLUMNS = [
     ("other_ms_per_world", "all other cpu ms", "{:.2f}"),
     ("presents_per_s", "presents/s", "{:.0f}"),
     ("present_ms_per_call", "Present ms", "{:.2f}"),
+    ("pw:rb/s", "read-backs", "{:.3f}"),
+    ("pw:finish_polls/s", "FINISH polls", "{:.0f}"),
+    ("pw:rb_wait_ms/s", "read wait ms", "{:.2f}"),
+    ("pw:vu1_sync_ms/s", "VU1 sync wait ms", "{:.2f}"),
+    ("pw:rb_late/s", "late reads", "{:.3f}"),
+    ("pw:rb_diff/s", "late reads that differ", "{:.4f}"),
     ("gpu:world", "GPU world ms", "{:.2f}"),
     ("gpu:total", "GPU total ms", "{:.2f}"),
 ]
@@ -265,6 +275,8 @@ COLUMNS = [
 def value(result: dict, key: str) -> float | None:
     if key.startswith("thread:"):
         return result.get("thread_ms_per_world", {}).get(key[7:])
+    if key.startswith("pw:"):
+        return result.get("per_world", {}).get(key[3:])
     if key.startswith("gpu:"):
         return result.get("gpu_ms_per_world", {}).get(key[4:])
     return result.get(key)
