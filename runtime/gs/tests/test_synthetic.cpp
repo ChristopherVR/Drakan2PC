@@ -1663,19 +1663,15 @@ static void partialUploadTest(Config cfg) {
             else
                 g.image(std::vector<uint8_t>(bytes.begin() + 16, bytes.end()));
             gs->submitGifPacket(GifPath::Path3, g.d.data(), uint32_t(g.d.size()));
-#if !defined(GSR_TEST_WEBGPU)
             expectTrue(gs->stats().rtReadbacks == readbacksBefore, "partial image upload avoids a GPU readback");
-#endif
             Gif read;
             read.ad({{BITBLTBUF, uint64_t(bp) | 1ull << 16 | uint64_t(format) << 24},
                      {TRXPOS, x | uint64_t(y) << 16},
                      {TRXREG, w | uint64_t(h) << 32},
                      {TRXDIR, 1}});
             gs->submitGifPacket(GifPath::Path3, read.d.data(), uint32_t(read.d.size()));
-#if !defined(GSR_TEST_WEBGPU)
             expectTrue(gs->stats().rtReadbacks == readbacksBefore + (abandon ? 1 : 0),
                        "exact reads skip uploaded bits but read back untouched bits of an abandoned upload");
-#endif
             gsr::LocalMemory reference;
             for (uint32_t yy = 0; yy < 128; ++yy)
                 for (uint32_t xx = 0; xx < 128; ++xx)
@@ -1740,10 +1736,8 @@ static void partialUploadTest(Config cfg) {
     Gif paletteRead;
     paletteRead.ad({{BITBLTBUF, base | 2ull << 16}, {TRXPOS, 0}, {TRXREG, 16ull | 16ull << 32}, {TRXDIR, 1}});
     gs->submitGifPacket(GifPath::Path3, paletteRead.d.data(), uint32_t(paletteRead.d.size()));
-#if !defined(GSR_TEST_WEBGPU)
     expectTrue(gs->stats().rtReadbacks == beforeRead,
                "refreshing a disjoint CPU row retains the proof that uploaded palette blocks are current");
-#endif
     expectTrue(gs->readVram(gsr::PSM_CT32, base, 2, 0, 0) == 0x5b5b5b5b &&
                    gs->readVram(gsr::PSM_CT32, base, 2, 0, 96) == 0x44444444,
                "palette and disjoint row refresh keep their exact CPU values");

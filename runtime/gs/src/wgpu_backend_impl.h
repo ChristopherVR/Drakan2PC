@@ -193,11 +193,11 @@ struct WgpuBackend::Impl {
     // What this backend can do beyond the common interface (gs_backend_shared.h). Textures are created on the render
     // thread (rhi::Device::writeTexture is ordered with the draws); the material and terrain shader fragments exist
     // in HLSL only; there is no velocity program, readback prefetch or GSR_RB_VERIFY reader yet.
-    // Clean-block retention and exact partial uploads are implemented here (preparePartialPatch, patchTargetBlock)
-    // and switched off: with them a skipped readback keeps the target's GPU content where the path through GS memory
-    // rewrites it, and replays differ from this backend's pictures without them (by 2 of 255 in the frame measured;
-    // Direct3D 11, where both are on, shows the same dependence). Set both flags to true to match Direct3D 11.
-    static constexpr BackendCaps kCaps{.cleanRowRefresh = false, .partialUploads = false};
+    // Clean-block retention and exact partial uploads (preparePartialPatch, patchTargetBlock) are on, as on Direct3D
+    // 11: a read of blocks an upload or a row refresh proved equal skips the readback. The skips are exact for GS
+    // memory; with automatic texture upscaling a texture in memory a still-dirty target occupies stays at native
+    // resolution where the readback path would have upscaled it (docs/journal/2026-11-12/renderer-shared-code.md).
+    static constexpr BackendCaps kCaps{.cleanRowRefresh = true, .partialUploads = true};
     // Behind kCaps.terrainDetail / kCaps.materialDetail: declared for the shared code, never called.
     void initTerrain();
     void initMaterial();
