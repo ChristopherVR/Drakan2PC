@@ -12,6 +12,7 @@
 #include "../drakan_settings_host.h"
 #include "../drakan_widescreen.h"
 #include "../drakan_dlss.h"
+#include "../drakan_vertex_path.h"
 #include "../drakan_present_clock.h"
 #include "gs_vblank_handoff.h"
 #include "gs_frame_activity.h"
@@ -944,6 +945,7 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
             static_cast<GsrBridge::Impl*>(c)->presentationFieldMode.update(mode, flicker, mask);
         };
         drakan_dlss::attach(b.get(), s.gs.get());
+        drakan_vertex_path::attach(s.gs.get());
         drakan_settings_host::attachRenderer(s.gs.get(), s.parent, ops);
     }
     drakan_ws::attachRenderer(s.gs.get(), s.parent);
@@ -1427,6 +1429,7 @@ void GsrBridge::Impl::tickWindow() {
         const auto presentStart =
             frameTraceEnabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         gs->presentLatched();
+        drakan_vertex_path::frameTick();
         if (frameTraceEnabled()) {
             const auto us = [](auto d) {
                 return (long long)std::chrono::duration_cast<std::chrono::microseconds>(d).count();

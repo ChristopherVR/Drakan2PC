@@ -2,6 +2,7 @@
 // Public API. See README.md for integration notes.
 #pragma once
 #include "gsr/movie_frames.h"
+#include "gsr/vertex_path.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -137,6 +138,8 @@ struct Config {
 
 struct Stats {
     uint64_t gifPackets = 0, gifTags = 0, vertices = 0, primitives = 0, drawCalls = 0, triangles = 0;
+    // vertex-program records (gsr/vertex_program.h): records seen, batches drawn by a backend, vertices by path
+    uint64_t programRecords = 0, programDraws = 0, programGpuVertices = 0, programCpuVertices = 0;
     uint64_t textureDecodes = 0, textureCacheHits = 0, rtSamples = 0;
     uint64_t textureRevalidated = 0; // re-uploaded with identical bytes: decoded texture kept
     uint64_t targetUploads = 0;      // image uploads applied to a GPU-owned render target (no readback)
@@ -386,6 +389,9 @@ public:
     // The renderer lost its graphics device (driver reset or time-out, out of video memory, adapter removed) and
     // draws nothing more; *reason gets the driver's text. The host should tell the player and end the session.
     bool deviceLost(std::string* reason = nullptr) const;
+    // What this renderer can do with vertex-program records (gsr/vertex_path.h): what the player's
+    // `vertex_processing` setting is resolved against.
+    vpath::Capability vertexPathCapability() const;
     bool valid() const;
 
     struct Impl;

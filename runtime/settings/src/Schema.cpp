@@ -773,6 +773,23 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
             r.currentLabel = "Custom (" + r.currentValue + ")";
     }
 
+    {
+        std::string help =
+            "Where the 3D shapes of the game are worked out before they are drawn. Processor: on the processor, as "
+            "the game always did. Graphics card: on the graphics card, which takes work off the processor and can "
+            "raise the frame rate in busy scenes. Automatic: the graphics card where it has been checked to give "
+            "exactly the same picture, the processor everywhere else. The picture is the same either way and you can "
+            "switch back at any time; no restart is needed.";
+        SettingRow& r = b.choice("video.vertex_processing", "Vertex processing", std::move(help),
+                                 {{"cpu", "Processor (original)"}, {"gpu", "Graphics card"}, {"auto", "Automatic"}});
+        if (r.current < 0)
+            r.current = 0;
+        if (!caps.vertexProcessingGpu)
+            r.needs = "This renderer or graphics card cannot do it yet: the processor is used whatever is chosen.";
+        else if (!caps.vertexProcessingStatus.empty())
+            r.needs = caps.vertexProcessingStatus;
+    }
+
     pg.sections.push_back({"Developer", {}});
     b.sec = &pg.sections.back();
     b.toggle("general.debug_menu", "Developer debug menu",

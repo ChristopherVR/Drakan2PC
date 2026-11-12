@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdlib>
 #include "gsr/gsr.h"
+#include "gsr/vertex_path.h"
+#include "gsr/vertex_program.h"
 #include "gs_mem.h"
 #include "motion_segments.h"
 
@@ -21,6 +23,23 @@ struct DrawVertex {
     float s, t, q;    // ST/Q, or UV in texels (q = 1) when FST
 };
 static_assert(sizeof(DrawVertex) == 44, "vertex layout");
+
+// One vertex of a vertex-program batch: the program's inputs, which program and which constants (index).
+struct VertexProgramVertex {
+    vp::Vertex in;
+    uint32_t constants;
+    uint32_t program;
+    uint32_t pad[2];
+};
+static_assert(sizeof(VertexProgramVertex) == 64, "vertex layout");
+struct VertexProgramBatch {
+    const vp::Constants* constants = nullptr;
+    uint32_t constantCount = 0;
+    const VertexProgramVertex* vertices = nullptr;
+    uint32_t vertexCount = 0;
+    const uint32_t* indices = nullptr; // triangle list
+    uint32_t indexCount = 0;
+};
 
 // Everything a draw needs from the register file (POD, memcmp-comparable).
 struct GsDrawState {
@@ -153,6 +172,18 @@ public:
     // Object-motion notes inside a batch (motion_segments.h). A backend that returns true from deferObjectMotion
     // gets the notes of an open batch through setMotionNotes right before that batch's draw() (valid for that one
     // call, which must apply every one of them); otherwise the core ends the batch at each note as before.
+    // Vertex-program draws (gsr/vertex_program.h): an indexed triangle list of program inputs with the constants
+    // each vertex names. A backend that returns false from vertexPrograms() (with the reason) does not get one; the
+    // core then evaluates the records on the CPU and draws them through draw(). vertexPathCapability() is what the
+    // player's setting is resolved against (gsr/vertex_path.h).
+    virtual bool vertexPrograms(vpath::Fallback* why) const {
+        if (why)
+            *why = vpath::Fallback::BackendNoPath;
+        return false;
+    }
+    virtual vpath::Capability vertexPathCapability() const { return {}; }
+    virtual void drawVertexProgram(const GsDrawState& /*st*/, const ClutBuf& /*clut*/,
+                                   const VertexProgramBatch& /*batch*/) {}
     virtual bool deferObjectMotion() const { return false; }
     virtual void setMotionNotes(const motion::Note* /*notes*/, uint32_t /*count*/) {}
     virtual void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) = 0;
@@ -232,6 +263,9 @@ public:
 
     // draw a triangle list
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
+    bool vertexPrograms(vpath::Fallback* why) const;
+    vpath::Capability vertexPathCapability() const;
+    void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch);
     // make local memory reflect GPU render targets overlapping blocks [first,last]
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock);
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr);

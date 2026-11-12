@@ -474,6 +474,15 @@ const std::vector<Field>& fields() {
                  s.video.fpsPosition = u;
          },
          "corner of the FPS counter: top-left | top-right | bottom-left | bottom-right"},
+        {"video", "vertex_processing", false, GETS(video.vertexProcessing),
+         [](Settings& s, const std::string& v) {
+             std::string u = lower(trim(v));
+             if (u == "cpu" || u == "gpu" || u == "auto")
+                 s.video.vertexProcessing = u;
+         },
+         "where the 3D shapes of the game are worked out: cpu = on the processor, as the game always did | gpu = on "
+         "the graphics card | auto = the graphics card where it is proven to give the same picture, the processor "
+         "elsewhere. Both give the same picture; applies while the game runs"},
         {"video", "dlss", false, GETS(video.dlss),
          [](Settings& s, const std::string& v) {
              std::string u = lower(trim(v));
@@ -843,6 +852,7 @@ std::string settingLabel(const std::string& key) {
         {"video.foliage_wind", "Living foliage"},
         {"video.foliage_wind_strength", "Foliage wind strength"},
         {"video.lod_distance", "Character detail distance"},
+        {"video.vertex_processing", "Vertex processing"},
         {"video.draw_distance", "Object draw distance"},
         {"video.dlss", "DLSS"},
         {"video.dlss_preset", "DLSS model"},

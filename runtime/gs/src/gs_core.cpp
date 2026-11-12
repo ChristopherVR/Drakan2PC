@@ -375,7 +375,146 @@ struct Renderer::Impl {
     // Object-motion notes that arrived while the batch was open (Renderer::noteObjectMotion).
     motion::Deferred motionNotes;
 
+    // ---- vertex-program draws (gsr/vertex_program.h; which path a record takes: gsr/vertex_path.h) ----
+    // A record is a VU1 run's inputs. Under vpath::Eval::Gpu a backend with an exact vertex shader draws it;
+    // otherwise, and for every record a backend cannot draw exactly, the record is evaluated here with the VU's
+    // arithmetic and drawn like the packets the microprogram would have sent. A record is honoured whatever the
+    // control word says (a capture replays the same under every setting).
+    // GSR_VERTEX_PROGRAM_DEBUG (bits): 1 = one draw per record
+    int programDebug = [] {
+        const char* e = std::getenv("GSR_VERTEX_PROGRAM_DEBUG");
+        return e ? std::atoi(e) : 0;
+    }();
+    std::vector<vp::Constants> programConstants;
+    std::vector<VertexProgramVertex> programVertices;
+    std::vector<uint32_t> programIndices;
+    GsDrawState programState{};
+    bool programActive = false;
+
+    void flushProgram() {
+        if (programActive && !programIndices.empty()) {
+            applyMovieFrames();
+            VertexProgramBatch b;
+            b.constants = programConstants.data();
+            b.constantCount = (uint32_t)programConstants.size();
+            b.vertices = programVertices.data();
+            b.vertexCount = (uint32_t)programVertices.size();
+            b.indices = programIndices.data();
+            b.indexCount = (uint32_t)programIndices.size();
+            backend->drawVertexProgram(programState, clut, b);
+            stats.programDraws++;
+        }
+        programConstants.clear();
+        programVertices.clear();
+        programIndices.clear();
+        programActive = false;
+    }
+
+    // Whether the backend draws this record. Counts the reason when it does not.
+    bool programOnGpu(const vp::View& rec, GsDrawState& state) {
+        if (vpath::evalOf(vpath::controlWord()) != vpath::Eval::Gpu)
+            return false;
+        vpath::Fallback why = vpath::Fallback::BackendNoPath;
+        if (!backend->vertexPrograms(&why)) {
+            vpath::countFallback(why);
+            return false;
+        }
+        state = buildState(3);
+        // Flat shading takes the last vertex's colour of each triangle, and FST would read UV registers the record
+        // does not have: both are evaluated here. So is a run whose fog lane could set a vertex's skip bit.
+        const bool lit = rec.header.program != vp::StripsFlat;
+        if ((state.flags & DF_FST) || (lit && !(state.flags & DF_IIP))) {
+            vpath::countFallback(vpath::Fallback::DrawState);
+            return false;
+        }
+        if (!vp::neverSkipsVertices(*rec.constants)) {
+            vpath::countFallback(vpath::Fallback::SkipBit);
+            return false;
+        }
+        return true;
+    }
+
+    void vertexProgram(const uint8_t* data, uint32_t size) {
+        vp::View rec;
+        if (!vp::parse(data, size, rec))
+            return;
+        const vp::Header& h = rec.header;
+        stats.programRecords++;
+        // The strip tag carries PRIM (PRE = 1): the same write the tag of every strip would have made.
+        writeReg(R_PRIM, h.prim);
+        GsDrawState state{};
+        if (!programOnGpu(rec, state)) {
+            const vp::Vertex* v = rec.vertices;
+            for (uint32_t s = 0; s < h.stripCount; ++s) {
+                writeReg(R_PRIM, h.prim);
+                for (uint32_t i = 0; i < rec.strips[s]; ++i, ++v) {
+                    const vp::Output o = vp::evaluate(h.program, *rec.constants, *v);
+                    cs = asFloat(o.s);
+                    ct = asFloat(o.t);
+                    cq = asFloat(o.q);
+                    cr = o.r;
+                    cg = o.g;
+                    cb = o.b;
+                    ca = o.a;
+                    cfog = o.fog;
+                    kick(o.x, o.y, o.z, -1, !o.adc);
+                }
+            }
+            stats.programCpuVertices += h.vertexCount;
+            vpath::state().counters.cpuVertices.fetch_add(h.vertexCount, std::memory_order_relaxed);
+            return;
+        }
+        if (batchActive && !batch.empty())
+            flushBatch(); // earlier packets draw first
+        if (programActive && std::memcmp(&state, &programState, sizeof(state)) != 0)
+            flushProgram();
+        if (programIndices.size() + size_t(h.vertexCount) * 3 > kMaxBatchVerts || programConstants.size() >= 4096)
+            flushProgram();
+        if (!programActive) {
+            programState = state;
+            programActive = true;
+        }
+        const uint32_t constants = (uint32_t)programConstants.size();
+        programConstants.push_back(*rec.constants);
+        const vp::Vertex* v = rec.vertices;
+        for (uint32_t s = 0; s < h.stripCount; ++s) {
+            const uint32_t n = rec.strips[s];
+            const uint32_t first = (uint32_t)programVertices.size();
+            for (uint32_t i = 0; i < n; ++i)
+                programVertices.push_back(VertexProgramVertex{v[i], constants, h.program, {0, 0}});
+            // every triangle in strip order (i, i + 1, i + 2): the order the CPU path's triangle list has
+            for (uint32_t i = 0; i + 2 < n; ++i)
+                for (uint32_t c = 0; c < 3; ++c)
+                    programIndices.push_back(first + i + c);
+            v += n;
+            if (n >= 3) {
+                stats.triangles += n - 2;
+                stats.primitives += n - 2;
+            }
+        }
+        stats.vertices += h.vertexCount;
+        stats.programGpuVertices += h.vertexCount;
+        vpath::state().counters.gpuVertices.fetch_add(h.vertexCount, std::memory_order_relaxed);
+        // The registers and the vertex queue as the last strip leaves them.
+        if (h.vertexCount) {
+            const vp::Output o = vp::evaluate(h.program, *rec.constants, rec.vertices[h.vertexCount - 1]);
+            cs = asFloat(o.s);
+            ct = asFloat(o.t);
+            cq = asFloat(o.q);
+            cr = o.r;
+            cg = o.g;
+            cb = o.b;
+            ca = o.a;
+            cfog = o.fog;
+        }
+        qn = 0;
+        if (programDebug & 1)
+            flushProgram();
+    }
+
     void flushBatch() {
+        if (programActive)
+            flushProgram();
         if (!batchActive || batch.empty()) {
             batch.clear();
             batchActive = false;
@@ -408,6 +547,15 @@ struct Renderer::Impl {
             backend->presentLatched();
         backend->endFrame();
         ++stats.frames;
+        {
+            // DRAKAN_VERTEX_TOGGLE: one line at each change, so pictures of a run can be matched to the path in use
+            const uint32_t before = vpath::controlWord();
+            vpath::frameBoundary(stats.frames);
+            const uint32_t now = vpath::controlWord();
+            if (now != before && vpath::state().toggleFrames.load(std::memory_order_relaxed) != 0u)
+                std::fprintf(stderr, "[vertex-path] frame %llu: now %s\n", (unsigned long long)stats.frames,
+                             vpath::evalName(vpath::evalOf(now)));
+        }
     }
 
     GsDrawState makeState(uint32_t primType) const {
@@ -498,6 +646,8 @@ struct Renderer::Impl {
     void invalidateState() { stateCachePrim = ~0u; }
 
     void beginDraw(uint32_t primType) {
+        if (programActive)
+            flushProgram(); // vertex-program draws queued before this primitive
         if (primType != 6)
             lastSpr.valid = false;
         if (primType != stateCachePrim) {
@@ -1453,6 +1603,13 @@ struct Renderer::Impl {
                     ps.nreg = 16;
                 ps.regs = hi;
                 ps.regIdx = 0;
+                if (ps.flg == 3 && hi == vp::kTagMagic && nloop != 0 && size >= nloop * 16u) {
+                    // a vertex-program record wrapped in a tag whose data a GS ignores (gsr/vertex_program.h)
+                    vertexProgram(data, nloop * 16u);
+                    data += nloop * 16u;
+                    size -= nloop * 16u;
+                    continue;
+                }
                 if (pre && ps.flg == 0)
                     writeReg(R_PRIM, (lo >> 47) & 0x7FF);
                 if (nloop == 0)
@@ -1603,6 +1760,9 @@ std::string Renderer::adapterName() const {
 }
 bool Renderer::deviceLost(std::string* reason) const {
     return m_impl->backend->deviceLost(reason);
+}
+vpath::Capability Renderer::vertexPathCapability() const {
+    return m_impl->backend->vertexPathCapability();
 }
 Config::Api Renderer::api() const {
     return m_impl->backend->api();
@@ -2088,6 +2248,12 @@ void Renderer::noteObjectMotion(const ObjectMotionScope& scope) {
     std::lock_guard<std::recursive_mutex> lock(m_impl->mtx);
     // The scope does not end the batch when the backend tracks motion per segment: objects that share every GS
     // register stay one draw call (motion_segments.h).
+    if (m_impl->programActive && !(m_impl->batchActive && !m_impl->batch.empty())) {
+        // A vertex-program batch is only open while no consumer of object motion is on (Backend::vertexPrograms):
+        // the scope is recorded without ending the batch.
+        m_impl->backend->noteObjectMotion(scope);
+        return;
+    }
     if (m_impl->batchActive && !m_impl->batch.empty() && m_impl->backend->deferObjectMotion()) {
         m_impl->motionNotes.add((uint32_t)m_impl->batch.size(), scope);
         return;

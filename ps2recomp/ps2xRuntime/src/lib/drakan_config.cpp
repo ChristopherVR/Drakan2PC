@@ -140,6 +140,11 @@ const Entry kEntries[] = {
      "the player; render only, nothing is saved (PAL only; env DRAKAN_FOLIAGE_WIND)"},
     {"video", "foliage_wind_strength", "1.0",
      "how far foliage leans and how hard the gusts blow, 0.25 .. 2 (env DRAKAN_FOLIAGE_STRENGTH)"},
+    {"video", "vertex_processing", "cpu",
+     "where the 3D shapes of the game are worked out: cpu = on the processor, as the game always did | gpu = on the "
+     "graphics card (takes work off the processor) | auto = the graphics card where it is proven to give the same "
+     "picture, the processor elsewhere. Both give the same picture and the setting applies while the game runs (env "
+     "DRAKAN_VERTEX_PROCESSING)"},
     {"video", "lod_distance", "4.0",
      "characters and creatures keep their detailed model this many times further out, 1 (original PS2 distances) .. 8; "
      "above 1 a simplified model that changes a character's look is never used (PAL only; env DRAKAN_LOD_DISTANCE)"},

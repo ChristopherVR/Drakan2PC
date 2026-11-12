@@ -767,7 +767,10 @@ bool PS2Runtime::syncCoreSubsystems() {
         if (vu1check::recording())
             vu1check::record(true, 0, top, itop, m_vu1.state().dBitEnabled, m_vu1.state().tBitEnabled, m_vu1,
                              m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE);
-        if (vu1check::enabled())
+        if (vu1check::gpuProgramsEnabled() && !vu1check::enabled() &&
+            vu1check::gpuProgramIntercept(m_vu1, m_memory.getVU1Data(), PS2_VU1_DATA_SIZE, m_memory)) {
+            // the strip stage went to the renderer as a vertex-program draw (vu/ps2_vu1_gpu_program.h)
+        } else if (vu1check::enabled())
             vu1check::run(true, m_vu1, m_memory.getVU1Code(), PS2_VU1_CODE_SIZE, m_memory.getVU1Data(),
                           PS2_VU1_DATA_SIZE, m_gs, &m_memory, 0, top, itop, 65536);
         else

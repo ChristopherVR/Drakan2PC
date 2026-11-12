@@ -1,0 +1,114 @@
+#include "drakan_vertex_path.h"
+
+#include "drakan_config.h"
+#include "gsr/gsr.h"
+#include "gsr/vertex_path.h"
+
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <mutex>
+
+namespace drakan_vertex_path {
+namespace {
+namespace vpath = gsr::vpath;
+
+std::mutex g_mutex;
+gsr::Renderer* g_renderer = nullptr;
+vpath::Choice g_choice = vpath::Choice::Cpu;
+std::atomic<bool> g_gpuAvailable{false};
+
+void applyLocked() {
+    const vpath::Capability cap = g_renderer ? g_renderer->vertexPathCapability() : vpath::Capability{};
+    g_gpuAvailable.store(cap.backendHasPath && cap.adapterExact, std::memory_order_relaxed);
+    const char* toggleText = std::getenv("DRAKAN_VERTEX_TOGGLE");
+    const uint32_t toggle = toggleText ? static_cast<uint32_t>(std::strtoul(toggleText, nullptr, 10)) : 0u;
+    const uint32_t word =
+        vpath::configuredWord(g_choice, cap, std::getenv("DRAKAN_VERTEX_EVAL"), std::getenv("DRAKAN_VERTEX_STAGES"));
+    const uint32_t before = vpath::state().baseWord.load(std::memory_order_relaxed);
+    vpath::configure(word, toggle);
+    if (word != before || toggle)
+        std::fprintf(stderr,
+                     "[vertex-path] vertex_processing = %s: %s (renderer path %d, adapter exact %d, proven %d), "
+                     "stages 0x%02x%s\n",
+                     vpath::choiceName(g_choice), vpath::evalName(vpath::evalOf(word)), int(cap.backendHasPath),
+                     int(cap.adapterExact), int(cap.proven), vpath::stagesOf(word), toggle ? ", toggling" : "");
+}
+} // namespace
+
+void attach(gsr::Renderer* renderer) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_renderer = renderer;
+    const std::string text = drakan_cfg::getString("video", "vertex_processing", "DRAKAN_VERTEX_PROCESSING", "cpu");
+    if (!vpath::parseChoice(text.c_str(), g_choice)) {
+        std::fprintf(stderr, "[vertex-path] unknown vertex_processing \"%s\", using cpu\n", text.c_str());
+        g_choice = vpath::Choice::Cpu;
+    }
+    applyLocked();
+}
+
+void configure(const std::string& choice) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    vpath::Choice parsed = vpath::Choice::Cpu;
+    vpath::parseChoice(choice.c_str(), parsed);
+    g_choice = parsed;
+    applyLocked();
+}
+
+const char* activePath() {
+    const vpath::Eval eval = vpath::evalOf(vpath::controlWord());
+    return eval == vpath::Eval::Gpu ? "gpu" : eval == vpath::Eval::Records ? "records" : "cpu";
+}
+
+bool gpuAvailable() {
+    return g_gpuAvailable.load(std::memory_order_relaxed);
+}
+
+std::string countersLine() {
+    const vpath::Counters& c = vpath::state().counters;
+    std::string line;
+    char text[96];
+    uint64_t any = 0;
+    for (uint32_t i = 0; i < vpath::kStageCount; ++i) {
+        const uint64_t n = c.taken[i].load(std::memory_order_relaxed);
+        any += n;
+        if (n) {
+            std::snprintf(text, sizeof(text), " %s %llu", vpath::kStageNames[i], static_cast<unsigned long long>(n));
+            line += text;
+        }
+    }
+    std::string fallbacks;
+    for (uint32_t i = 0; i < vpath::kFallbackCount; ++i) {
+        const uint64_t n = c.fallback[i].load(std::memory_order_relaxed);
+        any += n;
+        if (n) {
+            std::snprintf(text, sizeof(text), " %s %llu", vpath::kFallbackNames[i], static_cast<unsigned long long>(n));
+            fallbacks += text;
+        }
+    }
+    if (!any)
+        return {};
+    std::snprintf(text, sizeof(text), "; vertices: shader %llu, cpu %llu",
+                  static_cast<unsigned long long>(c.gpuVertices.load(std::memory_order_relaxed)),
+                  static_cast<unsigned long long>(c.cpuVertices.load(std::memory_order_relaxed)));
+    return std::string("path ") + activePath() + "; runs handed over:" + (line.empty() ? " none" : line) + text +
+           "; fallbacks:" + (fallbacks.empty() ? " none" : fallbacks);
+}
+
+void frameTick() {
+    static const bool log = std::getenv("DRAKAN_VERTEX_LOG") != nullptr;
+    if (!log)
+        return;
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point last = Clock::now();
+    const Clock::time_point now = Clock::now();
+    if (now - last < std::chrono::seconds(5))
+        return;
+    last = now;
+    const std::string line = countersLine();
+    if (!line.empty())
+        std::fprintf(stderr, "[vertex-path] %s\n", line.c_str());
+}
+
+} // namespace drakan_vertex_path

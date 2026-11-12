@@ -10,6 +10,7 @@
 #include "drakan_foliage.h"
 #include "drakan_model_detail.h"
 #include "drakan_terrain_distance.h"
+#include "drakan_vertex_path.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_subtitles.h"
 #include "drakan_tab_screen.h"
@@ -34,6 +35,11 @@ public:
         c.hdTextures = true;
         c.foliageWind = drakan_foliage::available();
         c.modelDetail = drakan_model_detail::available();
+        c.vertexProcessingGpu = drakan_vertex_path::gpuAvailable();
+        if (c.vertexProcessingGpu)
+            c.vertexProcessingStatus =
+                std::string("In use now: ") +
+                (std::string(drakan_vertex_path::activePath()) == "cpu" ? "the processor." : "the graphics card.");
         c.terrainDistance = drakan_terrain_distance::available();
         c.polyNearClip = drakan_polyclip::available();
         using drakan_region::Feature;
@@ -134,6 +140,8 @@ protected:
             drakan_foliage::configure(n.foliageWind, n.foliageWindStrength);
         if (n.lodDistance != p.lodDistance || n.drawDistance != p.drawDistance)
             drakan_model_detail::configure(n.lodDistance, n.drawDistance);
+        if (n.vertexProcessing != p.vertexProcessing)
+            drakan_vertex_path::configure(n.vertexProcessing);
         if (n.terrainDistance != p.terrainDistance)
             drakan_terrain_distance::configure(n.terrainDistance);
     }

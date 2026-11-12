@@ -1,22 +1,21 @@
 #pragma once
-// Vertex-program draws from VU1 runs (prototype, off by default; gsr/vertex_program.h,
-// docs/journal/2026-11-12/gpu-vertex-feasibility.md). Header only.
+// Vertex-program draws from VU1 runs (gsr/vertex_program.h; which runs take this path: gsr/vertex_path.h and
+// docs/journal/2026-11-12/gpu-vertex-implementation.md). Header only.
 //
-// The strip stage of the game's microprogram (an MSCNT that resumes at kStagePc after the object set-up found the
-// object inside the view volume) is recognised from the VU state, and its inputs are packed into one record: the
-// matrix the set-up stage left in the registers, the constants and the vertex arrays in VU memory. buildStrips() does
-// that; the VU1 replay uses it to prove the record's CPU evaluation equal to the packets the microprogram sends
-// (DRAKAN_VU_BENCH_GPUPROG, ps2_vu1_check.cpp). intercept() is the run-time hook (DRAKAN_GPU_VERTEX=1): the run is
-// not executed and the record goes to the renderer in the PATH1 stream, at the place of the packets the stage would
-// have kicked. Anything the recogniser is not sure about runs on the CPU as before.
+// The strip stage of the microprogram (an MSCNT that resumes at kStagePc after the object set-up found the object
+// inside the view volume) is recognised from the VU state, and its inputs are packed into one record: the matrix the
+// set-up stage left in the registers, the constants and the vertex arrays in VU memory. buildStrips() does that; the
+// VU1 replay uses it to prove the CPU evaluation of the record equal to the packets the microprogram sends
+// (DRAKAN_VU_BENCH_GPUPROG, ps2_vu1_check.cpp). intercept() is the run-time hook: the run is not executed and the
+// record goes to the renderer in the PATH1 stream, at the place of the packets the stage would have kicked. Anything
+// the recogniser is not sure about runs in the microprogram as before.
+#include "gsr/vertex_path.h"
 #include "gsr/vertex_program.h"
 #include "ps2_vu1_fast.h"
 #include "ps2_vu1_func.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_vu1.h"
 
-#include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -37,29 +36,6 @@ inline constexpr uint32_t kFlagFlat = 8;      // flag word bit: constant colour
 inline constexpr uint32_t kQwTag = 11, kQwFog = 4, kQwOffset = 5, kQwScale = 6, kQwColour = 8, kQwLights = 13;
 
 enum class Decline : uint32_t { None, NotTheStage, TagTemplate, FirstLength, StripLength, Window };
-
-struct Counters {
-    std::atomic<uint64_t> taken{0}, vertices{0}, declined{0};
-};
-inline Counters& counters() {
-    static Counters c;
-    return c;
-}
-
-// DRAKAN_GPU_VERTEX: unset or 0 = off; 1 = on; alt = one second on, one second off with a log line at each change
-// (matched pictures of a paused scene against the microprogram itself).
-inline int mode() {
-    static const int value = [] {
-        const char* e = std::getenv("DRAKAN_GPU_VERTEX");
-        if (!e || !e[0] || e[0] == '0')
-            return 0;
-        return e[0] == 'a' ? 2 : 1;
-    }();
-    return value;
-}
-inline bool enabled() {
-    return mode() != 0;
-}
 
 // Builds the wrapped record (GIF tag + payload) of the strip stage about to resume from `state` over `data` (VU data
 // memory). False: not this stage, not the data layout the stage's packets assume, or a shape the stage handles in a
@@ -146,42 +122,37 @@ inline bool buildStrips(const VU1State& state, const uint8_t* data, uint32_t dat
     return true;
 }
 
-// The MSCNT hook: true when the run was handed to the renderer and must not be executed.
+// The MSCNT hook: true when the run was handed to the renderer and must not be executed. Which runs may leave the
+// microprogram is read from the path control word for every run (gsr/vertex_path.h), so the setting can change while
+// the game runs; under Eval::Microprogram nothing here acts.
 inline bool intercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory) {
+    namespace vpath = gsr::vpath;
     if (vu.state().pc != kStagePc)
         return false;
-    if (mode() == 2) {
-        static bool on = false;
-        const bool now =
-            (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now().time_since_epoch())
-                 .count() &
-             1) != 0;
-        if (now != on) {
-            on = now;
-            std::fprintf(stderr, "[vu1gpu] strip runs now %s\n", on ? "sent as records" : "run by the microprogram");
-        }
-        if (!on)
-            return false;
+    const uint32_t word = vpath::controlWord();
+    if (vpath::evalOf(word) == vpath::Eval::Microprogram)
+        return false;
+    if (!vpath::takes(word, vpath::kStrips)) {
+        vpath::countFallback(vpath::Fallback::StageOff);
+        return false;
     }
-    Counters& count = counters();
     // Only while the microcode is the compiled image and no exact-engine pipeline is pending: then a run leaves
     // nothing behind but its registers, and the next MSCAL reloads every register this stage wrote.
     if (Vu1Fast::spare(vu).aotValid == 0u || !Vu1Func::enabled() || !Vu1Func::canEnter(vu)) {
-        count.declined.fetch_add(1, std::memory_order_relaxed);
+        vpath::countFallback(vpath::Fallback::EnginePending);
         return false;
     }
     thread_local std::vector<uint8_t> packet;
     uint32_t exitPc = 0;
     if (!buildStrips(vu.state(), data, dataSize, packet, exitPc)) {
-        count.declined.fetch_add(1, std::memory_order_relaxed);
+        vpath::countFallback(vpath::Fallback::NotRecognised);
         return false;
     }
     memory.submitGifPacket(GifPathId::Path1, packet.data(), static_cast<uint32_t>(packet.size()));
     vu.state().pc = exitPc;
-    count.taken.fetch_add(1, std::memory_order_relaxed);
     uint32_t vertices;
     std::memcpy(&vertices, packet.data() + 16 + 12, 4);
-    count.vertices.fetch_add(vertices, std::memory_order_relaxed);
+    vpath::countTaken(vpath::kStrips, vertices);
     return true;
 }
 } // namespace vu1gpu

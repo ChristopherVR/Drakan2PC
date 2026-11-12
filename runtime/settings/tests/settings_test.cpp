@@ -866,6 +866,30 @@ int main(int argc, char** argv) {
               next.loaded().video.terrainDetailStrength == 0.5f);
     }
     {
+        // Vertex processing: cpu by default, the three values round-trip, anything else keeps the value, and the
+        // change is applied live (no restart).
+        SettingsStore st;
+        st.loadFromText("", "");
+        CHECK(st.loaded().video.vertexProcessing == "cpu");
+        st.loadFromText("[video]\nvertex_processing = GPU\n", "");
+        CHECK(st.loaded().video.vertexProcessing == "gpu");
+        st.loadFromText("[video]\nvertex_processing = auto\n", "");
+        CHECK(st.loaded().video.vertexProcessing == "auto");
+        st.loadFromText("[video]\nvertex_processing = fastest\n", "");
+        CHECK(st.loaded().video.vertexProcessing == "cpu");
+        auto n = st.loaded();
+        n.video.vertexProcessing = "gpu";
+        auto keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "video.vertex_processing") != keys.end());
+        std::string a, b;
+        st.render(n, a, b);
+        CHECK(a.find("vertex_processing") != std::string::npos);
+        SettingsStore next;
+        next.loadFromText(a, b);
+        CHECK(next.loaded().video.vertexProcessing == "gpu");
+        CHECK(HostCaps{}.restartKeys.count("video.vertex_processing") == 0);
+    }
+    {
         // Model detail: defaults, floats round-trip through the ini, 1 is the original.
         SettingsStore st;
         st.loadFromText("", "");

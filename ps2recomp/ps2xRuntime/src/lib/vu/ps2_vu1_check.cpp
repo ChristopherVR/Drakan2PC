@@ -293,7 +293,7 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
 }
 
 bool gpuProgramsEnabled() {
-    return vu1gpu::enabled();
+    return gsr::vpath::evalOf(gsr::vpath::controlWord()) != gsr::vpath::Eval::Microprogram;
 }
 bool gpuProgramIntercept(VU1Interpreter& vu, const uint8_t* data, uint32_t dataSize, PS2Memory& memory) {
     return vu1gpu::intercept(vu, data, dataSize, memory);

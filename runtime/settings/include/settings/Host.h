@@ -54,6 +54,9 @@ struct HostCaps {
     bool terrainDistance = false; // ground texture distance hook installed (PAL addresses): terrain_distance
     bool modelDetail = false;     // model detail hooks installed (PAL addresses): lod_distance / draw_distance
     bool rendererChoice = false;  // the build has both GS renderers (Windows: WebGPU and Direct3D 11): video.renderer
+    // vertex_processing: the renderer and graphics card can do the vertex work (gpu / auto do something)
+    bool vertexProcessingGpu = false;
+    std::string vertexProcessingStatus; // one line under the row: what is in use, or why gpu is not available
     std::string rayTracingStatus;
     std::vector<std::string> textureUpscaleFilters; // e.g. {"default","bicubic","xbrz"}
     // Setting keys ("section.key", lower case) that cannot be applied while the game runs. A change to one of these

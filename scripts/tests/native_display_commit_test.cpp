@@ -264,6 +264,10 @@ void hostTick() {}
 void configure(gsr::Config&) {}
 void attach(GsrBridge*, gsr::Renderer*) {}
 } // namespace drakan_dlss
+namespace drakan_vertex_path {
+void attach(gsr::Renderer*) {}
+void frameTick() {}
+} // namespace drakan_vertex_path
 namespace drakan_ws {
 void attachRenderer(gsr::Renderer*, void*) {}
 void hostTick() {}

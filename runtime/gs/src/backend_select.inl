@@ -86,6 +86,22 @@ void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex*
         return;
     m_api->draw(st, clut, v, count);
 }
+bool Backend::vertexPrograms(vpath::Fallback* why) const {
+    if (m_dead) {
+        if (why)
+            *why = vpath::Fallback::DeviceLost;
+        return false;
+    }
+    return m_api->vertexPrograms(why);
+}
+vpath::Capability Backend::vertexPathCapability() const {
+    return m_dead ? vpath::Capability{} : m_api->vertexPathCapability();
+}
+void Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch) {
+    if (m_dead)
+        return;
+    m_api->drawVertexProgram(st, clut, batch);
+}
 bool Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
                         uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
     if (m_dead)
