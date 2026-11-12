@@ -1,6 +1,6 @@
 # Order of the Flame in the PS2 engine: status
 
-Living tracker (reviewed 2026-11-06). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
+Living tracker (reviewed 2026-11-06; Volcanic updated 2026-11-12). Drakan 1 (Order of the Flame, PC) levels are converted from the player's own install into mod
 packs that the recompiled PS2 engine plays; nothing from either game is committed. Detail lives in the dated notes under
 `docs/journal/2026-10-31/` and `docs/journal/2026-11-01/` (`ootf-*.md`, `arena-*.md`, `game-select-ootf-boot.md`); formats are in the
 `editor/packages/formats` submodule, pack rules in `reference/modding.md` ("Campaign packs").
@@ -69,7 +69,7 @@ the converter drops "Maintain Player Position" on exits whose destination has no
 | Rift Crystal | yes (`v1`, from the Islands box on Arokh: on foot at the start, W, F5, S, F8 back at the exact saved position, D) | to Islands Night: placed on the WhirlpoolSteps, two jumps over the rim, Rynn slides onto the invisible basin floor into the PC box: prompt, save, load (`r08-09d`). Fixed: the box was cloned from a model-less PS2 trigger class and never placed (2026-11-06 progression 2) | yes: exact saved position after F8 (`v1`) | none found |
 | Islands Night | yes (`r08-09d`, from the whirlpool) | to Succubus Lair: real walk into PC detector 4928, prompt, save, load (`n09-10`) | yes: exact saved position after F8 (`r08-09d`) | none found |
 | Succubus Lair | yes (`n09-10`) | to Volcanic: standing on the ship's deck box runs the PC chain (counter, `ship2`, fade), the ship sends ON to the exit, prompt, save, load (`s10-11`) | yes: exact saved position after F8 (`n09-10`) | none found; the Drakan 2 quest line shown on arrival was the converter's shared marker class, fixed: it now reads "Get Arokh" ([quest marker text](../journal/2026-11-06/issue-5-quest-marker-text.md)) |
-| Volcanic | yes (`s10-11`) | to Rift World: walked (`vr14`): with the Runeblade taken, mounted in the PC rift box 2318: message box, save, load, Rift World with control | yes: exact saved position after F8 (`s10-11`, and after mounting in `v-mount2`) | Whole route played on a pack of the committed converter with tick-based recipes and test-aid placements (`vr11`, `vr14`, [Volcanic route](../journal/2026-11-06/ootf-volcanic-route.md)): key, scene 9.6a frees Arokh, mount, breath on the catching fire object, cave-mouth dismount, the Succ Switch pressed twice turns the platform so the Arrow Detect Object stands in front of the ice, the arrow hits it, the ice Morph Plug melts (Morph Plugs fixed, formats `918de7e`), Rynn on the central pillar takes the Runeblade with E, remount, rift exit. The "no floor under the blade" was a placement artifact. November 7 (`full2`, `rift1`, [landing and stair](../journal/2026-11-07/ootf-volcanic-landing-and-stair.md)): the route now drains the lava first (Lava Rune into Key Lock 2229 / 2939, as on the PC), Arokh is flown onto the cave-mouth apron and lands 5 of 5 (`landD`), the platform bridges have a floor (formats `f5d3c6b`), and the whole route to Rift World plays on one pack. With the closed-loop driver the spiral stair is walked on foot and the Runeblade taken in 5 of 5 runs (`st1` to `st6`), and the remount from behind is engine geometry, not a converter defect: his body holds Rynn at 1,440 to 1,490 units against the 1,448 mount radius (2 of 5 from behind, at once from his side; [closed-loop driver](../journal/2026-11-07/ootf-closed-loop-driver.md)). Once Rynn has dismounted him in the session (also after F5 / F8) he turns toward her like Drakan 2's Arokh and the remount from behind works 5 of 5 (`vr1` to `vr5`); his `Initial Mode` is the PS2 default 1 as in Northern Tundra, so nothing to map ([break-away floors, Arokh facing](../journal/2026-11-07/ootf-breakaway-floors.md)). Earlier fixes: cage key class ref (`6332a2b`), model-less launcher (`8605c83`), Stomp Player order and scene 9.2 (`vol-a`) |
+| Volcanic | yes (`s10-11`) | to Rift World: walked (`vr14`): with the Runeblade taken, mounted in the PC rift box 2318: message box, save, load, Rift World with control | yes: exact saved position after F8 (`s10-11`, and after mounting in `v-mount2`) | Whole route played on a pack of the committed converter with tick-based recipes and test-aid placements (`vr11`, `vr14`, [Volcanic route](../journal/2026-11-06/ootf-volcanic-route.md)): key, scene 9.6a frees Arokh, mount, breath on the catching fire object, cave-mouth dismount, the Succ Switch pressed twice turns the platform so the Arrow Detect Object stands in front of the ice, the arrow hits it, the ice Morph Plug melts (Morph Plugs fixed, formats `918de7e`), Rynn on the central pillar takes the Runeblade with E, remount, rift exit. The "no floor under the blade" was a placement artifact. November 7 (`full2`, `rift1`, [landing and stair](../journal/2026-11-07/ootf-volcanic-landing-and-stair.md)): the route now drains the lava first (Lava Rune into Key Lock 2229 / 2939, as on the PC), Arokh is flown onto the cave-mouth apron and lands 5 of 5 (`landD`), the platform bridges have a floor (formats `f5d3c6b`), and the whole route to Rift World plays on one pack. With the closed-loop driver the spiral stair is walked on foot and the Runeblade taken in 5 of 5 runs (`st1` to `st6`), and the remount from behind is engine geometry, not a converter defect: his body holds Rynn at 1,440 to 1,490 units against the 1,448 mount radius (2 of 5 from behind, at once from his side; [closed-loop driver](../journal/2026-11-07/ootf-closed-loop-driver.md)). Once Rynn has dismounted him in the session (also after F5 / F8) he turns toward her like Drakan 2's Arokh and the remount from behind works 5 of 5 (`vr1` to `vr5`); his `Initial Mode` is the PS2 default 1 as in Northern Tundra, so nothing to map ([break-away floors, Arokh facing](../journal/2026-11-07/ootf-breakaway-floors.md)). Earlier fixes: cage key class ref (`6332a2b`), model-less launcher (`8605c83`), Stomp Player order and scene 9.2 (`vol-a`). Packs from formats `ac234e9` (2026-11-09) to the 2026-11-12 fix crash Volcanic at load; fixed (scene orc lookup), gate and exit replayed (`proof4`, [Volcanic rift](../journal/2026-11-12/ootf-volcanic-rift.md)) |
 | Rift World | yes (`vr14`, walked from Volcanic, mounted; Cross lands Rynn on foot, W walks her) | ending | yes: F5, walk, F8 back at the exact saved spot on foot in 8 of 8 runs (`fx-1`..`fx-8`, formats `5dfe29a`). The old hang was a converted layer with no drawn cell written with empty chunks: its draw object stayed in the terrain draw-data LRU after it was freed ([quick-load LRU](../journal/2026-11-07/ootf-quickload-lru.md)) | Dr. Evil (isolated proof only); its Morph Plugs (RibDoor, gate eyes) exist (10); a direct start loads with no scene waiting and 12.1 MiB guest heap in use (`idle-12`) |
 
 See [progression journal](../journal/2026-11-06/ootf-progression.md), [part 2](../journal/2026-11-06/ootf-progression-2.md) and
@@ -213,6 +213,16 @@ fronds, pine trunk and log bark, old tree and oak bark (formats `1e12669`). Ruin
 the OotF ones without; the copies keep the Drakan 2 HD textures. Tree canopies, palms and terrain have no Drakan 2 counterpart.
 See [Drakan 2 textures](../journal/2026-11-08/ootf-ps2-texture-substitution.md) and `reference/modding.md`.
 
+**November 12 texture quality next to the PS2 art:** every converted texture already gets a Real-ESRGAN HD image like the
+disc's (all 3,645 pack textures are in the owner's `textures/`, and every converted texture drawn in Ruined Village, Grotto
+and Islands was replaced). The gap is the PC source: half the disc's texel density on terrain (64 against mostly 128 px per
+cell) and props (0.54), about 0.8 on characters; the converter loses only 34 to 47 dB of colour to 8 bpp. The HD images
+were made from the wrong picture: the 128 px smooth enlargement of the 64 px ground tiles, row-doubled copies of 50 squared
+textures (stair steps in the HD wings), and for 1,075 of 1,080 quantised textures the 8 bpp picture. With `--hd` the
+converter now hands the HD step the PC pixels before any resize, and `hd_pack.py` upscales a smaller ground tile twice
+to the guest size x4; pack files are unchanged. Needs the HD step rerun after a conversion with `--hd`. See
+[OotF texture quality](../journal/2026-11-12/ootf-texture-quality.md).
+
 **November 8 cage collision:** Rynn could walk into converted cages (shown on Volcanic's two; Wartok Canyons and
 Grimstone Mines use the same models). The PC collides them through one sphere or boxes listing the bar polygons; on the
 PS2 a prop's sphere does not stop her and she pushes 100 to 150 units past listed bars. Cage models now get one solid
@@ -309,6 +319,36 @@ The scene held Rynn and the camera to the level's end, which left her held (no H
 now releases them at the scene's end (formats). `OOTF_BOOK_SCENE=0` restores the 28 s empty Book. Verified on a full 23-level pack
 through the real path. See [Book backstory](../journal/2026-11-09/ootf-book-scene.md). Needs a regenerated pack and runtime.
 
+**November 12 Volcanic crash and the rift box (issue 5):** the issue's "the rift box does not open after the Runeblade,
+being bisected" was stale: the 2026-11-08 bisect had already shown those runs never took the blade (the box worked on 6, 7
+and 8 November). But every pack converted since 2026-11-09 09:12 (formats `ac234e9`, the scene orcs on the Drakan 2 orc model),
+the installed one included, crashes Volcanic at load in most runs (null call in object teardown at the first kill-list
+flush), so nothing in Volcanic could be played. Cause: the scene creature lookup in the sequence stage matched class
+objects by identity, which only hit in the level the class plan kept (Ruined Village); Volcanic's Heuge Purple props were
+driven by their PC clips on the 55-joint disc rig, and its Heuge Yellow actions were dropped. Fixed in formats
+(`sceneTockLookup`, matching by class signature); the pack changes only Volcanic's two sequences and Volcanic loads 6 of 6.
+Played on the fixed pack (own play folder copy, real `drakan.ini`, windowed, god mode, placements before each trigger):
+mounted in rift box 2318 without the blade nothing opens (also 200 s inside it); after the arrow melt Rynn takes the blade
+with E (Timer 2331 runs), remounts by walking into Arokh, and the box gives the message box, the save screen and Rift
+World. The same process went on through the tunnel, the four heads, the mirror scene and the campaign end card to the
+title (`proof4`, no crash), so the "Volcanic through Rift World to the credits in one process" item holds on the fixed pack
+(it had also passed on 2026-11-08, `full2`); still with placements and god mode, not a hand-played run. A level-change
+arrival into Volcanic crashed the installed pack about 2,200 level frames in (2 of 2) and runs on the fixed one. From the 2026-11-08
+notes, not replayed here: Delon was beaten on foot with the carried Volcanic blade without god mode (he hit Rynn twice for
+15, spell or melee not separated), and "E does not call Arokh" was the test tapping E (calling is E held past 0.5 s;
+flying off is his native follow distance). Needs a regenerated pack. See
+[Volcanic rift](../journal/2026-11-12/ootf-volcanic-rift.md).
+
+**November 12 Scavenger melee ("flesh eaters we cannot hit"), not reproduced:** the creature is the Scavenger (19 in
+Ruined Village, played by the disc Scavenger class since 2026-11-09; the installed pack and the owner's saves have it).
+On the owner's executable, pack and saves a shown Scavenger was hit and killed in every scripted condition tried
+(Atimar's Blade alone: 31 hits in 49 clicks in reach, 4 of 4 killed; the same at 15 and 30 Hz; with a 30 degree facing
+error; with a delayed, noisy aim; in a fresh New Game; ambush Scavengers after their trigger). 7 of the 19 start hidden
+until a trigger shows them and take no damage while hidden, but they are not drawn then. No combat or converter change.
+`DRAKAN_MELEE_TRACE=1` now logs each swing and contact as the engine runs it, to capture the case in real play. Open:
+what the owner did differently (hand play, full screen frame rates and co-op were not tested). Follow-up without god mode: against the hill Scavengers, which attack at once, Rynn with Atimar's Blade died in 5 of 5 fights from the owner's save and in 4 of 8 from a fresh game; their hits (5 points about every 2 s) cancel her swings (hit during 38 of 61 attack spans, 10 of those dealt damage) and the dagger needs eight hits. Carrying the PC health and flee limit onto the swapped class gave 6 kills in 9 fights against 4 in 8 and is not in the tree. Open: a proven fix. See
+[flesh eater combat](../journal/2026-11-12/flesh-eater-combat.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
@@ -366,8 +406,8 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   resources in the arena level (true for the air arenas, other maps untested) and is not wired to the campaign dragon. Dragon health
   regeneration lifts the bar between hits (`ootf-dragon-pvp.md`).
 * PC exit triggers: Islands Detector 4131 fires when Rynn is in it (the box stands under the bell tower's whirl doors, reached
-  by the bell route, `bell-h`), Succubus `ship2` runs (`s10-11`); Volcanic Detector 2318 (mount only) was only checked not to fire on
-  foot without the Runeblade.
+  by the bell route, `bell-h`), Succubus `ship2` runs (`s10-11`); Volcanic Detector 2318 (mount only) does not fire mounted
+  without the Runeblade and fires after the pickup (2026-11-12 `proof2`, `proof4`).
 * Volcanic runs at about 42 fps with the rift effect live (Vortex / Inner / Outer Rift movers).
 * The exit scan cannot resolve level-local destination strings of converted levels; use the exit index with `DRAKAN_LEVELCHANGE`.
 * The older separate packs share patched files (`RESOURES.MOD/.TXD`, `PROCTEES.TXD`, `WORLDCON.*`, `RESOURES.SDB` entries): the

@@ -67,6 +67,17 @@ class BladeStepTests(unittest.TestCase):
         self.assertFalse(VR.blade_step_passed([VR.RUNEBLADE_RES], [783], [783]))
         self.assertFalse(VR.blade_step_passed([VR.RUNEBLADE_RES], [], []))
 
+    def test_the_blade_resource_read_from_the_pack_counts_not_the_old_constant(self):
+        # 2026-11-12 proof2: the blade was carried as 0x346b2 and its timer had run; the fixed 0x346a3 called it a failure
+        self.assertTrue(VR.blade_step_passed([0x346B2], [1158], [], 0x346B2))
+        self.assertFalse(VR.blade_step_passed([0x346B2], [1158], []))
+        self.assertFalse(VR.blade_step_passed([0x346C3], [1158], [], 0x346B2))
+
+    def test_resource_of_reads_the_handle_through_the_class_records(self):
+        mem = LD.BytesMemory(SyntheticRynn([(0, 0, 0x346C3), (1, 0, 0x346B2)]).ram)
+        self.assertEqual(VR.resource_of(mem, 0x901000), 0x346B2)  # the second item handle
+        self.assertEqual(VR.resource_of(mem, 0x900000), 0x346C3)
+
 
 class GeometryTests(unittest.TestCase):
     def test_beside_faces_the_target(self):

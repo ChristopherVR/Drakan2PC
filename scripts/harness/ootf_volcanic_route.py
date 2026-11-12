@@ -29,7 +29,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import live_drive as LD
 
 STEPS = "rune lock key cage mount breath land switch button blade remount rift fly heads ending".split()
-RUNEBLADE_RES = 0x346A3  # resource of the converted Volcanic Runeblade 2239 (engine class 0x1000e)
+RUNEBLADE_RES = 0x346A3  # resource of the converted Volcanic Runeblade 2239 in the 2026-11-08 packs (fallback only)
+WEAPON_CLASS = 0x1000E  # engine class of the Runeblade
+BLADE_POS = (116736, 56901, 227328)  # the Runeblade on the sanctum's central pillar
 TIMER_CLASS = 0x1003E
 HEAD_CLASS = 0x1003B  # the four Dr. Evil heads of Rift World
 # Rift World: the dive, the left tunnel ramp, the hall, the shaft, over the spines, the altar (2026-11-08 tunnel note)
@@ -104,9 +106,20 @@ def carried(mem: LD.GuestMemory) -> list[int]:
     return [r for _, _, r in carry_cells(mem)]
 
 
-def blade_step_passed(items: Sequence[int], timer_before: Sequence[int], timer_after: Sequence[int]) -> bool:
-    """The Runeblade is carried and its Timer 2331 was in the registry before the pickup and is gone after it."""
-    return RUNEBLADE_RES in items and bool(timer_before) and not timer_after
+def resource_of(mem: LD.GuestMemory, handle: int) -> int | None:
+    """The resource of a world object or item handle (the class records' table, as `carry_cells` reads it)."""
+    res = mem.u32(mem.u32(LD.GAME_CTX) + 0x320)
+    table, count = mem.u32(res + 8), mem.u32(res + 0x10)
+    ix = mem.u16(handle + 0x10)
+    return mem.u32(table + ix * 0x24) if ix <= count else None
+
+
+def blade_step_passed(
+    items: Sequence[int], timer_before: Sequence[int], timer_after: Sequence[int], blade: int = RUNEBLADE_RES
+) -> bool:
+    """The Runeblade (`blade`: its resource, read from the pillar before the pickup) is carried and its Timer 2331 was
+    in the registry before the pickup and is gone after it."""
+    return blade in items and bool(timer_before) and not timer_after
 
 
 class Route:  # pragma: no cover - needs a running game
@@ -342,17 +355,22 @@ class Route:  # pragma: no cover - needs a running game
         """Runeblade 2239 on the pillar top, E: carried, and its Timer 2331 runs (and is destroyed)."""
         tpos = (118613, 65922, 241664)
         before = self.slots(tpos, 50, TIMER_CLASS)
+        # The blade's resource number moves with every pack (0x346a3 in the 2026-11-08 packs, 0x346b2 in those of
+        # 2026-11-09 on): read it from the weapon on the pillar top (registry slot 1104 in both).
+        on_pillar = [a for _, a in all_near(self.mem, BLADE_POS, 600) if a.cls == WEAPON_CLASS]
+        blade = (on_pillar and resource_of(self.mem, on_pillar[0].handle)) or RUNEBLADE_RES
         for y, z in [(57000, 227728), (57000, 227900), (57100, 227600)]:
             self.place(116736, y, z, 0.0, settle=120)
             self.tap("E", 2, 70)
-            if RUNEBLADE_RES in carried(self.mem):
+            if blade in carried(self.mem):
                 break
         self.link.wait_samples(150)
         after = self.slots(tpos, 50, TIMER_CLASS)
         items = carried(self.mem)
-        self.note("blade", carried=[hex(x) for x in items], timer2331_before=before, timer2331_after=after)
+        self.note("blade", blade=hex(blade), carried=[hex(x) for x in items], timer2331_before=before,
+                  timer2331_after=after)  # fmt: skip
         self.shot("blade")
-        return blade_step_passed(items, before, after)
+        return blade_step_passed(items, before, after, blade)
 
     def call(self) -> bool:
         """Call Arokh: E held past the 0.5 s Use window (a tap is Use only)."""

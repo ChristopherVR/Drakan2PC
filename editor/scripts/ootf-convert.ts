@@ -37,8 +37,9 @@ for (let i = 0; i < args.length; i++) {
 const need = (k: string): string => opt[k] ?? (console.error(`missing --${k}`), process.exit(2));
 
 const root = need('ootf');
-// --hd: keep the lossless pixels of every texture the converter had to quantise, next to the pack (<out>.hdsrc/<sha1 of the record>.rgba:
-// u32 w, u32 h, RGBA), so the HD pack upscales those instead of the 256-colour guest texture.
+// --hd: keep the HD source of every texture the converter had to quantise or resize, next to the pack (<out>.hdsrc/<sha1 of the
+// record>.rgba: u32 w, u32 h, RGBA), so the HD pack upscales those instead of the 256-colour guest texture. A resized texture (terrain
+// enlarged 64 -> 128 px, squared or rounded up) gives the PC pixels before the resize, which can be smaller than the record.
 if (hd) {
     const dir = `${need('out')}.hdsrc`;
     rmSync(dir, { recursive: true, force: true });
