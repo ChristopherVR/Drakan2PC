@@ -74,6 +74,48 @@ and the root cause of the jitter bit are in [gpu-vertex-stages.md](gpu-vertex-st
 
 No renderer uses the generated shaders yet.
 
+## 3. Increment 3: the batch path as recogniser and CPU evaluation (no shader, nothing acts at run time)
+
+Written by the `batch` subagent; the stage description, the record design and the estimate are in
+[gpu-vertex-batch-path.md](gpu-vertex-batch-path.md). What it changes in the plan:
+
+* Every batch stage without clip codes is a function of one vertex: depth fade, texture matrix, grid lights, point
+  light, texture generation, directional light and transform read and write only the lanes of their own slot, and
+  the index-list run only copies. The chain composes into one function from a raw row and per-stage constants to the
+  packet fields, so a vertex shader can do it. The chain length depends on the draw: the texture matrix accumulates
+  over terrain layers (1.1 to 6.7 passes per record on average, 13 at most in the new recordings), so the shader is a
+  loop over a pass list with a bound of 24.
+* A batch is several MSCNTs and the EE rewrites single lanes of VU memory between them. `vu1gpu::Tracker`
+  (`vu/ps2_vu1_gpu_batch.h`) follows that: a vertex run becomes pending passes per slot, an index-list run becomes
+  one self-contained record (`gsr::vp::Batch`, `gsr/vertex_batch.h`), a run that has to execute is preceded by the
+  exact evaluation of what was deferred, and lanes a skipped batch would have left behind are marked stale, never
+  guessed. It needs the EE's writes lane by lane from the VIF unpack.
+* Runs with clip codes and the clipper stay in the microprogram; the split is per run. A clip-code index-list run
+  whose vertices are all inside can be taken (few: 0 to 196 per recording).
+* The index-list run is 18 to 49 % of the VU1 engine time but already a plain copy in the compiled engine; building
+  a self-contained record for it costs about as much as running it. The saving of the batch path on the VU1 worker
+  comes from the vertex passes. A leaner hand-over for index lists (rows of a batch once, per run only indices) is
+  not built.
+* Share of the VU1 engine time in runs the recogniser takes (strips and batch together): 53 to 87 % on foot in
+  Drakan 2, 90 % and 57 % in the two flight recordings, 84 % and 80 % in the two Order of the Flame levels. What
+  stays: clip codes and clipper 9 to 42 %, set-up 1 to 12 %.
+* The strip runs the study saw declined ("outside the vertex window") were tables that fill the window exactly; the
+  recogniser now takes them.
+
+The record handling in `gsr_core`, the run-time hook (`Tracker::step` at the MSCNT, `noteWrite` from the fast VIF
+unpack path) and every shader are still to do.
+
+## 4. The records test
+
+`runtime/gs/tests/test_vertex_records.cpp` (ctest `vertex_records`, `vertex_records_webgpu_vulkan`,
+`vertex_records_webgpu_d3d12`), written by the `rectest` subagent: two renderers of one backend side by side, one
+fed the packets of the microprogram, the other the records, colour and a depth picture compared in full after every
+frame, at scales 1, 3 and 8, under every evaluation mode and with the mode switching inside a sequence, with the
+counters asserted and negative controls. It found one fault by reading: after a record handed to a backend the
+vertex queue was empty, where the packets leave the last two vertices of the last strip (a following tag without
+PRIM continues the strip); fixed in `gs_core.cpp`. Today it proves the `records` mode and the fallback; when a backend
+answers yes to `vertexPrograms()` the same test is the proof of its shader.
+
 ## Proof log
 
 | Date | What | Result |
@@ -87,6 +129,8 @@ No renderer uses the generated shaders yet.
 | 2026-11-12 | Increment 2: five captures on Direct3D 11 at scales 1, 3, 8 against the reference hashes (the `VSMain` change) | 15 comparisons, 54,195 frames, 0 differ |
 | 2026-11-12 | Increment 2: `runtime-tests` preset, two parallel jobs | 168 tests, 0 failed, 6 skipped (need game data) |
 | 2026-11-12 | Increment 2: live, Surdana, owner's ini (3840x2160, DLSS quality), two screenshots looked at | world, HUD and character as expected; no comparison possible across runs |
+| 2026-11-12 | Increment 3, re-run by the orchestrator with a game build of the main tree: VU1 replay of 16 recordings of 8,000 runs with VIF write lists (`DRAKAN_VU_BENCH_BATCH=1 DRAKAN_VU_BENCH_GPUPROG=1`; Surdana, street, square, fight, arena, catacombs, mine, tundra, valley, stratos, two Isles scenes, Ravenshold and Shiverbane mounted, Order of the Flame Ruined Village and Volcanic) | 34,725 vertex runs evaluated against the microprogram's memory, 0 differ; 57,528 batch records, 2,604,739 vertices, 0 differ; 708,250 strip vertices, 0 differ; runs executed on the tracker's memory: 0 with other packets, 0 lanes other than recorded; 0 draws from a stale lane; declines: clip codes and clipper only |
+| 2026-11-12 | Records test, as reported by its author on Direct3D 11, Vulkan and Direct3D 12 (identical totals): 1,017,252 record vertices, 846 colour frames and 174 depth pictures compared | 0 pixels differ of 5,983,272,960 and 1,230,602,240; controls detect a colour step and a depth step |
 
 ## Not verified (running list)
 

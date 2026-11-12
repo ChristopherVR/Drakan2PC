@@ -12,6 +12,7 @@
 // A record travels in the GIF stream as one tag with FLG = 3 (a GS ignores its data) whose upper half is kTagMagic,
 // so the stream order with every other packet is kept and a GS capture carries the record unchanged.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -23,6 +24,7 @@ constexpr uint32_t kMaxVertices = 238;                // slots of the program's 
 enum Program : uint32_t {
     StripsFlat = 1, // constant colour
     StripsLit = 2,  // ambient plus four directional terms from the normal, clamped at 200
+    Batch = 3,      // an index-list run of the batch path with its chain of vertex passes (gsr/vertex_batch.h)
 };
 
 // Per-run constants, as 16 rows of four 32-bit words (the layout a backend uploads as is).
@@ -137,6 +139,44 @@ inline int32_t toFixed(uint32_t v, uint32_t shift) {
 }
 inline bool less(uint32_t a, uint32_t b) {
     return asFloat(a) < asFloat(b);
+}
+// a - b; a multiply-subtract is sub(acc, mul(x, y)).
+inline uint32_t sub(uint32_t a, uint32_t b) {
+    return add(a, neg(b));
+}
+// The engine's float compare (denormals count as zero, a NaN compares false), on raw register bits.
+inline bool greater(uint32_t a, uint32_t b) {
+    const uint32_t ma = a & 0x7FFFFFFFu, mb = b & 0x7FFFFFFFu;
+    if (ma > 0x7F800000u || mb > 0x7F800000u)
+        return false;
+    const int64_t ka = ma <= 0x007FFFFFu ? 0 : ((a >> 31) != 0u ? -static_cast<int64_t>(ma) : static_cast<int64_t>(ma));
+    const int64_t kb = mb <= 0x007FFFFFu ? 0 : ((b >> 31) != 0u ? -static_cast<int64_t>(mb) : static_cast<int64_t>(mb));
+    return ka > kb;
+}
+// MAX and MINI pass one of their raw operands through: (a > b) ? a : b and (a < b) ? a : b.
+inline uint32_t maxRaw(uint32_t a, uint32_t b) {
+    return greater(a, b) ? a : b;
+}
+inline uint32_t minRaw(uint32_t a, uint32_t b) {
+    return greater(b, a) ? a : b;
+}
+inline uint32_t absRaw(uint32_t a) {
+    return a & 0x7FFFFFFFu;
+}
+// Square root toward zero of an operand that is zero or positive: the largest float whose square does not exceed it.
+inline uint32_t sqrtZero(uint32_t v) {
+    if ((v & 0x7FFFFFFFu) == 0u)
+        return v;
+    const double x = asFloat(v);
+    uint32_t s = asBits(static_cast<float>(std::sqrt(x)));
+    if (static_cast<double>(asFloat(s)) * static_cast<double>(asFloat(s)) > x)
+        --s;
+    return s;
+}
+// The reciprocal length of (x, y, z) as the E unit gives it: zero for a zero length.
+inline uint32_t reciprocalLength(uint32_t x, uint32_t y, uint32_t z) {
+    const uint32_t len = sqrtZero(add(add(mul(x, x), mul(y, y)), mul(z, z)));
+    return (len & 0x7FFFFFFFu) == 0u ? len : reciprocal(len);
 }
 } // namespace vu
 

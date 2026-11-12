@@ -19,6 +19,10 @@ void report();
 bool recording();
 void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn, bool tEn, const VU1Interpreter& vu,
             const uint8_t* code, uint32_t codeSize, const uint8_t* data, uint32_t dataSize);
+// While a recording is on, the VIF interpreter reports every lane an UNPACK writes into VU1 memory (bit 0..3 = x y
+// z w of quadword `qw`); the writes between two runs go to <file>.writes, one list per run. A replay needs them to
+// tell a rewritten lane from an untouched one when the value is the same.
+void noteVifWrite(uint32_t qw, uint32_t lanes);
 bool benchRequested();
 void bench(PS2Memory& memory, GS& gs);
 

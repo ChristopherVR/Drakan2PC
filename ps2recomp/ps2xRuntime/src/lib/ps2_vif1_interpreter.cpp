@@ -4,6 +4,7 @@
 #include "drakan_object_motion.h"
 #include "ps2_vif_unpack.h"
 #include "ps2_vu1_batch_capture.h"
+#include "vu/ps2_vu1_check.h"
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
@@ -650,7 +651,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                 return !e || std::atoi(e) != 0;
             }();
             if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes &&
-                !(fastUnpack && (!vu1batch::captureActive || !vu1batch::trackVif(this)) &&
+                !(fastUnpack && !vu1check::recording() && (!vu1batch::captureActive || !vu1batch::trackVif(this)) &&
                   vif_unpack::fast(m_vu1Data, data + pos, vuAddr, writeVectorCount, cl, wl, vn, vl, zeroExtend,
                                    maskEnable, vif1_regs.mode, cameraFirst, cameraEnd, vif1_regs.mask, vif1_regs.row,
                                    vif1_regs.col))) {
@@ -769,6 +770,8 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                     if (!handledFormat && decoded && !maskEnable && (vif1_regs.mode == 0u || vif1_regs.mode == 3u)) {
                         uint32_t copyBytes = (bytesPerVector < 16u) ? bytesPerVector : 16u;
                         std::memcpy(m_vu1Data + destOff, srcVec, copyBytes);
+                        if (vu1check::recording())
+                            vu1check::noteVifWrite(destVec, (1u << ((copyBytes + 3u) / 4u)) - 1u);
                         if (vu1batch::captureActive) {
                             if (copyBytes % 4u)
                                 vu1batch::unsupportedTrace();
@@ -820,6 +823,17 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                     }
 
                     std::memcpy(m_vu1Data + destOff, lanes, sizeof(lanes));
+                    if (vu1check::recording()) {
+                        // a lane the format has no data for keeps its value: not a write
+                        uint32_t noted = writtenLanes;
+                        const uint32_t sourced =
+                            (components == 1 || (vl == 3u && vn == 3u)) ? 4u : uint32_t(components);
+                        for (uint32_t field = sourced; field < 4u; ++field)
+                            if (decoded &&
+                                (!maskEnable || ((vif1_regs.mask >> ((maskCycle * 4u + field) * 2u)) & 3u) == 0u))
+                                noted &= ~(1u << field);
+                        vu1check::noteVifWrite(destVec, noted);
+                    }
                     if (vu1batch::captureActive)
                         vu1batch::memoryWrite(this, destOff, writtenLanes);
                 }

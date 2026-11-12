@@ -4,6 +4,11 @@ Input: the per-run CSV that the game's VU1 replay writes (docs/journal/2026-11-1
 
     DRAKAN_VU_BENCH=<recording.vur>,5 DRAKAN_VU_BENCH_RUNS=<runs.csv> <play>/drakan.exe
     python scripts/perf/vu_run_classes.py <runs.csv> [--by flags] [--top 30]
+    python scripts/perf/vu_run_classes.py <runs.csv> --taken     # with DRAKAN_VU_BENCH_GPUPROG / _BATCH in the replay
+
+`--taken` splits every stage into the runs a vertex-program recogniser took (columns strip_taken, batch_taken) and the
+runs it left to the microprogram, by the reason it gave (batch_reason), and prints the share of the engine time and
+of the vertices that the taken runs stand for.
 
 One run is one MSCAL or MSCNT. The stage of a run follows from the pc it starts at (and, for the indexed batch
 path, from the batch header and the flag word), see STAGES below. Times are the best of the replay's repetitions per
@@ -53,14 +58,40 @@ def stage(row: dict) -> str:
     return f"other (pc 0x{pc:04x} to 0x{out:04x})"
 
 
+def taken_report(rows: list[dict], top: int) -> None:
+    total_ns = sum(float(r["ns"]) for r in rows) or 1.0
+    total_v = sum(int(r["vertices"]) for r in rows) or 1
+    groups: dict[tuple, list[float]] = defaultdict(lambda: [0, 0.0, 0])
+    taken = [0, 0.0, 0]
+    for r in rows:
+        took = r.get("strip_taken") == "1" or r.get("batch_taken") == "1"
+        why = "taken" if took else (r.get("batch_reason") or "none")
+        if why == "none":
+            why = "not a stage a recogniser takes"
+        for g in (groups[(stage(r), why)], taken if took else [0, 0.0, 0]):
+            g[0] += 1
+            g[1] += float(r["ns"])
+            g[2] += int(r["vertices"])
+    print(f"{len(rows)} runs, {total_ns * 1e-6:.2f} ms, {total_v} vertices sent")
+    print(
+        f"taken: {taken[0]} runs, {100 * taken[1] / total_ns:.1f} % of the time, {100 * taken[2] / total_v:.1f} % of the vertices"
+    )
+    print(f"{'runs':>7} {'time %':>7} {'vert %':>7} {'vertices':>9}  stage / outcome")
+    for key, g in sorted(groups.items(), key=lambda kv: -kv[1][1])[:top]:
+        print(f"{g[0]:7d} {100 * g[1] / total_ns:7.1f} {100 * g[2] / total_v:7.1f} {g[2]:9d}  {key[0]} / {key[1]}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("csv", type=Path)
     ap.add_argument("--by", choices=["stage", "flags", "pc"], default="stage")
     ap.add_argument("--top", type=int, default=40)
+    ap.add_argument("--taken", action="store_true", help="split by what a vertex-program recogniser took")
     a = ap.parse_args()
 
     rows = list(csv.DictReader(a.csv.open()))
+    if a.taken:
+        return taken_report(rows, a.top)
     total_ns = sum(float(r["ns"]) for r in rows) or 1.0
     total_pairs = sum(int(r["pairs"]) for r in rows) or 1
     total_v = sum(int(r["vertices"]) for r in rows) or 1

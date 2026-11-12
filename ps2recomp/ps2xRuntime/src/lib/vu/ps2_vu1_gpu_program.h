@@ -78,9 +78,9 @@ inline bool buildStrips(const VU1State& state, const uint8_t* data, uint32_t dat
             return decline(Decline::Window);
         lengths[stripCount++] = static_cast<uint32_t>(n);
         vertexCount += static_cast<uint32_t>(n);
+        // The next header slot is at most kLastSlot + 1: its length word lies just below the texture coordinates,
+        // where the EE puts the end of a table that fills the window. Only vertices have to stay inside.
         slot += static_cast<uint32_t>(n) + 1u;
-        if (slot + 1u > kLastSlot)
-            return decline(Decline::Window); // the next header would lie outside the window
     }
 
     const bool flat = (static_cast<uint32_t>(state.vi[1]) & kFlagFlat) != 0u;

@@ -8,7 +8,9 @@
 #include "aot/ps2_vu1_aot.h"
 #include "ps2_vu1_func.h"
 #include "ps2_vu1_gpu_program.h"
+#include "ps2_vu1_gpu_batch.h"
 #include "gsr/vertex_program.h"
+#include "gsr/vertex_batch.h"
 #include "runtime/ps2_memory.h"
 #include "runtime/ps2_vu1.h"
 #include "ps2_perf.h"
@@ -159,9 +161,13 @@ struct RecEntry {
     uint32_t resume, startPC, top, itop, dEn, tEn;
 };
 
+// Lanes the VIF wrote since the previous run (quadword | lanes << 16), see noteVifWrite.
+std::vector<uint32_t> g_vifWrites;
+
 struct Recorder {
     bool on = false;
     FILE* f = nullptr;
+    FILE* writes = nullptr;
     uint32_t skip = 0, count = 0, seen = 0, written = 0;
     bool headerDone = false;
     Recorder() {
@@ -183,6 +189,8 @@ struct Recorder {
         f = std::fopen(path.c_str(), "wb");
         on = f != nullptr;
         if (on)
+            writes = std::fopen((path + ".writes").c_str(), "wb");
+        if (on)
             std::fprintf(stderr, "[vurec] recording %u VU1 runs after %u into %s\n", count, skip, path.c_str());
     }
 };
@@ -201,6 +209,7 @@ struct Ring {
     struct Slot {
         RecEntry e;
         std::vector<uint8_t> data;
+        std::vector<uint32_t> writes;
         VU1State state;
     };
     std::vector<Slot> slots;
@@ -226,6 +235,534 @@ Ring& ring() {
 }
 } // namespace
 
+// ---------------------------------------------------------------------------------------------------------------------------
+// DRAKAN_VU_BENCH_BATCH: proof of the batch path's vertex-program records (vu/ps2_vu1_gpu_batch.h) in the replay
+// ---------------------------------------------------------------------------------------------------------------------------
+// The replay restores the recorded VU memory before every run, which hides what a run that is not executed leaves
+// undone. This check therefore keeps a memory of its own ("mine") that only receives what the EE wrote between two
+// runs (the lanes in which a recorded snapshot differs from the memory the previous run left) and whatever the
+// tracker and the runs it lets through write, and a third interpreter that executes those runs on it. Proven per
+// recording:
+//   1. every vertex stage: the CPU evaluation applied to the snapshot writes the memory the microprogram writes;
+//   2. every run the tracker takes: the record's CPU evaluation equals the packets the microprogram sends;
+//   3. every run it lets through: executed on "mine", it sends the packets it sends from the recorded snapshot, and
+//      "mine" equals the snapshot in every lane below the packet buffer that is not marked stale.
+namespace {
+using BatchPackets = std::vector<std::vector<uint8_t>>;
+
+// The fields a GS reads from the packets of a run, in order. Packed tags of the microprogram's four registers per
+// vertex are reduced to those fields; anything else is kept byte for byte.
+void canonicalPackets(const BatchPackets& packets, std::vector<uint32_t>& out) {
+    out.clear();
+    for (const auto& pk : packets) {
+        size_t at = 0;
+        while (at + 16 <= pk.size()) {
+            uint64_t lo, hi;
+            std::memcpy(&lo, pk.data() + at, 8);
+            std::memcpy(&hi, pk.data() + at + 8, 8);
+            const uint32_t nloop = static_cast<uint32_t>(lo & 0x7FFFu);
+            const uint32_t nreg = static_cast<uint32_t>((lo >> 60) & 15u);
+            const bool known = ((lo >> 58) & 3u) == 0u && nreg == 4u && (hi & 0xFFFFu) == 0x5A12u &&
+                               at + 16 + size_t(nloop) * 64 <= pk.size();
+            if (!known) {
+                out.push_back(0xFFFFFFFFu);
+                for (size_t b = at; b < pk.size(); ++b)
+                    out.push_back(pk[b]);
+                break;
+            }
+            out.push_back(0xAAAA0000u | nloop);
+            out.push_back(static_cast<uint32_t>((lo >> 15) & 1u));     // EOP
+            out.push_back(static_cast<uint32_t>((lo >> 46) & 0xFFFu)); // PRE and PRIM
+            for (uint32_t v = 0; v < nloop; ++v) {
+                uint32_t w[16];
+                std::memcpy(w, pk.data() + at + 16 + size_t(v) * 64, 64);
+                const uint32_t fields[12] = {w[0],
+                                             w[1],
+                                             w[2],
+                                             w[4] & 0xFFu,
+                                             w[5] & 0xFFu,
+                                             w[6] & 0xFFu,
+                                             w[7] & 0xFFu,
+                                             (w[11] >> 4) & 0xFFu,
+                                             w[12] & 0xFFFFu,
+                                             w[13] & 0xFFFFu,
+                                             w[14],
+                                             (w[15] >> 15) & 1u};
+                out.insert(out.end(), fields, fields + 12);
+            }
+            at += 16 + size_t(nloop) * 64;
+            if ((lo >> 15) & 1u)
+                break;
+        }
+        out.push_back(0xEEEEEEEEu);
+    }
+}
+
+struct BatchBench {
+    using Tracker = vu1gpu::batch::Tracker;
+    using Reason = vu1gpu::batch::Reason;
+    using Stage = vu1gpu::batch::Stage;
+    using Action = vu1gpu::batch::Action;
+
+    bool on = false, timedSkip = false;
+    bool exactWrites = false;                     // the recording has the VIF's writes (<file>.writes)
+    std::vector<std::vector<uint32_t>> vifWrites; // per run: quadword | lanes << 16
+    uint64_t unreportedLanes = 0;                 // lanes that changed between two runs without a reported write
+    uint32_t families = vu1gpu::batch::FamAll;
+    Tracker tracker;
+    std::vector<uint8_t> mine, postPrev, evalMem, packet;
+    bool evalValid = false;
+    vu1gpu::batch::VertexRun evalRun;
+    Action action = Action::Run;
+    Reason why = Reason::None;
+    BatchPackets minePackets;
+    std::vector<uint32_t> canonA, canonB;
+    std::vector<std::vector<uint32_t>> writes; // per run: quadword | lanes << 16, then the four words
+    std::vector<uint8_t> runStage, runTaken, runReason;
+    FILE* dump = nullptr;
+
+    uint64_t stageProofRuns = 0, stageProofBadRuns = 0, stageProofBadLanes = 0;
+    uint64_t stageProofByKind[11] = {}, clipVertexRuns = 0;
+    uint64_t recordRuns = 0, emptyTakenBad = 0, recVertices = 0, recBadVertices = 0, recBadFields[5] = {};
+    uint64_t recBadShape = 0, recSkipBits = 0, recPerCorner = 0;
+    uint64_t recSkipPossible = 0, recProcessed = 0, recFlat = 0, recNotStrip = 0, recBytes = 0;
+    uint32_t recMaxPasses = 0;
+    uint64_t execRuns = 0, execBadPackets = 0, memBadLanes = 0, memBadRuns = 0, staleLanesExcluded = 0;
+    uint64_t eeLanes = 0;
+    uint32_t staleShown = 0;
+    bool started = false, waiting = true;
+    size_t firstRun = 0;
+    size_t unreportedRun = ~size_t(0);
+    uint32_t unreportedRuns = 0;
+
+    void init(size_t runCount) {
+        const char* e = std::getenv("DRAKAN_VU_BENCH_BATCH");
+        on = e && *e && e[0] != '0';
+        if (!on)
+            return;
+        timedSkip = e[0] == 's';
+        if (const char* f = std::getenv("DRAKAN_VU_BENCH_FAMILIES"); f && *f)
+            families = static_cast<uint32_t>(std::strtoul(f, nullptr, 0));
+        if (const char* d = std::getenv("DRAKAN_VU_BENCH_BATCH_DUMP"); d && *d)
+            dump = std::fopen(d, "wb");
+        mine.resize(kDataSize);
+        postPrev.resize(kDataSize);
+        evalMem.resize(kDataSize);
+        writes.resize(runCount);
+        runStage.assign(runCount, 0);
+        runTaken.assign(runCount, 0);
+        runReason.assign(runCount, 0);
+    }
+
+    // What the EE wrote between the previous run and this one, applied to `to` and reported to `t`.
+    static void applyWrites(const std::vector<uint32_t>& list, uint8_t* to, Tracker& t) {
+        for (size_t at = 0; at + 5 <= list.size(); at += 5) {
+            const uint32_t qw = list[at] & 0xFFFFu, lanes = list[at] >> 16;
+            for (uint32_t l = 0; l < 4u; ++l)
+                if ((lanes >> l) & 1u)
+                    std::memcpy(to + size_t(qw) * 16u + l * 4u, &list[at + 1 + l], 4);
+            t.noteWrite(qw, lanes);
+        }
+    }
+
+    template <typename RunOne>
+    void before(size_t i, bool resume, uint32_t startPc, const uint8_t* snapshot, const VU1Interpreter& nv,
+                VU1Interpreter& cv, RunOne&& runMine) {
+        using namespace vu1gpu::batch;
+        // The registers of the runs before the first microprogram call of the recording are not the recorded ones
+        // (the file holds the state at its end), so the proof starts at that call.
+        evalValid = false;
+        started = started || !resume;
+        if (!started) {
+            waiting = true;
+            return;
+        }
+        if (waiting) {
+            waiting = false;
+            firstRun = i;
+            std::memcpy(mine.data(), snapshot, kDataSize);
+            cv.state() = nv.state();
+        } else {
+            std::vector<uint32_t>& list = writes[i];
+            if (exactWrites) {
+                // the lanes the VIF wrote, with the values the snapshot holds
+                uint8_t written[kMemory] = {};
+                for (uint32_t entry : vifWrites[i])
+                    if ((entry & 0xFFFFu) < kMemory)
+                        written[entry & 0xFFFFu] |= static_cast<uint8_t>(entry >> 16);
+                for (uint32_t qw = 0; qw < kMemory; ++qw) {
+                    uint32_t a[4], b[4];
+                    std::memcpy(a, snapshot + size_t(qw) * 16u, 16);
+                    std::memcpy(b, postPrev.data() + size_t(qw) * 16u, 16);
+                    for (uint32_t l = 0; l < 4u; ++l)
+                        if (a[l] != b[l] && ((written[qw] >> l) & 1u) == 0u) {
+                            if (unreportedRun != i && unreportedRuns++ < 40 && (unreportedRun = i, true))
+                                std::fprintf(stderr,
+                                             "[vubench] batch WRITE run %zu quadword %u lane %u changed "
+                                             "without a reported write\n",
+                                             i, qw, l);
+                            ++unreportedLanes;
+                        }
+                    if (written[qw] == 0u)
+                        continue;
+                    for (uint32_t l = 0; l < 4u; ++l)
+                        eeLanes += (written[qw] >> l) & 1u;
+                    list.push_back(qw | (uint32_t(written[qw]) << 16));
+                    list.insert(list.end(), a, a + 4);
+                }
+            }
+            for (uint32_t qw = 0; qw < kMemory && !exactWrites; ++qw) {
+                if (std::memcmp(snapshot + size_t(qw) * 16u, postPrev.data() + size_t(qw) * 16u, 16) == 0)
+                    continue;
+                uint32_t a[4], b[4], lanes = 0;
+                std::memcpy(a, snapshot + size_t(qw) * 16u, 16);
+                std::memcpy(b, postPrev.data() + size_t(qw) * 16u, 16);
+                for (uint32_t l = 0; l < 4u; ++l)
+                    if (a[l] != b[l])
+                        lanes |= 1u << l;
+                // The recording does not hold the EE's writes, only their effect, and a written lane that happens
+                // to keep its value cannot be seen. The EE uploads positions and colours or normals as whole
+                // quadwords and texture coordinates as pairs, so a changed lane stands for its group.
+                if (qw >= kPos && qw < kSt)
+                    lanes = 15u;
+                else if (qw >= kSt && qw < kSt + kSlots && (lanes & 3u) != 0u)
+                    lanes |= 3u;
+                for (uint32_t l = 0; l < 4u; ++l)
+                    eeLanes += (lanes >> l) & 1u;
+                list.push_back(qw | (lanes << 16));
+                list.insert(list.end(), a, a + 4);
+            }
+            applyWrites(list, mine.data(), tracker);
+        }
+        // 1. the stages of a vertex run, evaluated on the snapshot
+        evalValid = false;
+        const uint32_t pcRef = resume ? nv.state().pc : startPc;
+        if (resume &&
+            (pcRef == kPcAfterSetup || pcRef == kPcAfterVertex || pcRef == kPcAfterList || pcRef == kPcAfterClipList) &&
+            word16(snapshot, kQwHeader, 2) <= 0) {
+            evalRun = classifyVertexRun(snapshot);
+            if (evalRun.why == Reason::ClipCodes)
+                ++clipVertexRuns;
+            if (evalRun.why == Reason::None) {
+                std::memcpy(evalMem.data(), snapshot, kDataSize);
+                for (uint32_t k = 0; k < evalRun.count; ++k) {
+                    const uint32_t kind = evalRun.kinds[k];
+                    const gsr::vp::Pass pass = makePass(kind, evalRun, snapshot, nv.state().vf);
+                    const bool grid = isGrid(kind);
+                    static GridAxes axes;
+                    if (grid)
+                        axes.set(pass);
+                    const uint16_t wr = writeLanes(kind);
+                    ++stageProofByKind[kind];
+                    for (uint32_t sl = pass.first; sl < pass.first + pass.count; ++sl) {
+                        gsr::vp::Row row;
+                        loadRow(evalMem.data(), sl, row);
+                        const uint32_t cell = sl - pass.first;
+                        gsr::vp::applyPass(pass, row, grid ? axes.x[cell % pass.param] : 0u,
+                                           grid ? axes.z[cell / pass.param] : 0u);
+                        const uint32_t* words[3] = {row.pos, row.col, row.st};
+                        const uint32_t base[3] = {kPos, kCol, kSt};
+                        for (uint32_t l = 0; l < 12u; ++l)
+                            if ((wr >> l) & 1u)
+                                std::memcpy(evalMem.data() + size_t(base[l / 4u] + sl) * 16u + size_t(l & 3u) * 4u,
+                                            &words[l / 4u][l & 3u], 4);
+                    }
+                }
+                evalValid = true;
+            }
+        }
+        // 2. and 3. the tracker's decision on its own memory
+        uint32_t pc = resume ? cv.state().pc : startPc;
+        // Not compared below: lanes that are stale before the decision (the run may be about to overwrite them, which
+        // the tracker notes at once), and lanes that are pending when a new call starts (they become stale).
+        uint16_t pendingAtCall[kSlots] = {};
+        for (uint32_t sl = 0; sl < kSlots; ++sl)
+            pendingAtCall[sl] = tracker.staleLanes(sl) | (resume ? 0u : tracker.virtualLanes(sl));
+        action = tracker.step(resume, pc, cv.state().vf, mine.data(), families, !resume || Vu1Func::canEnter(cv),
+                              packet, &why);
+        runStage[i] = static_cast<uint8_t>(tracker.lastStage());
+        runTaken[i] = action == Action::Skip ? 1 : 0;
+        runReason[i] = static_cast<uint8_t>(why);
+        minePackets.clear();
+        if (why == Reason::StaleInput && staleShown < 6) {
+            ++staleShown;
+            const IndexRun list = walkIndexList(mine.data());
+            std::fprintf(stderr, "[vubench] batch STALE run %zu flags %04x header %d %d %d %d:", i,
+                         static_cast<uint16_t>(word16(mine.data(), kQwFlags, 0)), word16(mine.data(), kQwHeader, 0),
+                         word16(mine.data(), kQwHeader, 1), word16(mine.data(), kQwHeader, 2),
+                         word16(mine.data(), kQwHeader, 3));
+            for (uint32_t c = 0; c < list.cornerCount; ++c) {
+                const Corner& k = list.corners[c];
+                if (tracker.staleLanes(k.slot) | (tracker.staleLanes(k.stSlot) & kLaneStXy) |
+                    (tracker.staleLanes(k.colSlot) & kLaneCol))
+                    std::fprintf(stderr, " [%u:%03x st %u:%03x col %u:%03x]", k.slot, tracker.staleLanes(k.slot),
+                                 k.stSlot, tracker.staleLanes(k.stSlot), k.colSlot, tracker.staleLanes(k.colSlot));
+            }
+            std::fprintf(stderr, "\n");
+        }
+        if (action == Action::Skip) {
+            cv.state().pc = pc;
+            return;
+        }
+        // the run is executed: "mine" must be the recorded memory wherever the microprogram's content is known
+        uint64_t badLanes = 0;
+        for (uint32_t qw = 0; qw < kBuffer; ++qw) {
+            if (std::memcmp(snapshot + size_t(qw) * 16u, mine.data() + size_t(qw) * 16u, 16) == 0)
+                continue;
+            uint32_t a[4], b[4], stale = 0;
+            std::memcpy(a, snapshot + size_t(qw) * 16u, 16);
+            std::memcpy(b, mine.data() + size_t(qw) * 16u, 16);
+            if (qw >= kPos && qw < kSt + kSlots)
+                stale = ((tracker.staleLanes((qw - kPos) % kSlots) | pendingAtCall[(qw - kPos) % kSlots]) >>
+                         (((qw - kPos) / kSlots) * 4u)) &
+                        15u;
+            for (uint32_t l = 0; l < 4u; ++l) {
+                if (a[l] == b[l])
+                    continue;
+                if ((stale >> l) & 1u)
+                    ++staleLanesExcluded;
+                else {
+                    if (memBadLanes + badLanes < 12)
+                        std::fprintf(stderr,
+                                     "[vubench] batch MEMORY run %zu quadword %u lane %u: recorded %08x mine %08x\n", i,
+                                     qw, l, a[l], b[l]);
+                    ++badLanes;
+                }
+            }
+        }
+        memBadLanes += badLanes;
+        if (badLanes)
+            ++memBadRuns;
+        cv.setPacketTap(&minePackets);
+        runMine(cv, mine.data());
+        cv.setPacketTap(nullptr);
+        ++execRuns;
+    }
+
+    void after(size_t i, const BatchPackets& ref, const uint8_t* post) {
+        using namespace vu1gpu::batch;
+        if (!started)
+            return;
+        if (evalValid) {
+            ++stageProofRuns;
+            uint64_t bad = 0;
+            for (uint32_t w = 0; w < kBuffer * 4u; ++w) {
+                uint32_t a, b;
+                std::memcpy(&a, post + size_t(w) * 4u, 4);
+                std::memcpy(&b, evalMem.data() + size_t(w) * 4u, 4);
+                if (a != b) {
+                    if (stageProofBadLanes + bad < 12)
+                        std::fprintf(stderr,
+                                     "[vubench] batch STAGE run %zu (first kind %u) quadword %u lane %u: microprogram "
+                                     "%08x evaluation %08x\n",
+                                     i, evalRun.kinds[0], w / 4u, w & 3u, a, b);
+                    ++bad;
+                }
+            }
+            stageProofBadLanes += bad;
+            if (bad)
+                ++stageProofBadRuns;
+        }
+        if (action == Action::Skip) {
+            if (packet.empty()) {
+                if (!ref.empty()) {
+                    if (emptyTakenBad < 6)
+                        std::fprintf(stderr,
+                                     "[vubench] batch RECORD run %zu: taken without a record, the "
+                                     "microprogram sent %zu packets\n",
+                                     i, ref.size());
+                    ++emptyTakenBad;
+                }
+            } else {
+                ++recordRuns;
+                gsr::vp::BatchView rec;
+                if (!gsr::vp::parseBatch(packet.data() + 16, static_cast<uint32_t>(packet.size() - 16), rec)) {
+                    ++recBadShape;
+                } else {
+                    if (dump) {
+                        const uint32_t size = static_cast<uint32_t>(packet.size() - 16);
+                        std::fwrite(&size, 4, 1, dump);
+                        std::fwrite(packet.data() + 16, 1, size, dump);
+                    }
+                    if (rec.header.vertexCount == rec.header.indexCount && rec.header.indexCount > 4)
+                        ++recPerCorner;
+                    // what a backend has to cope with: the skip bit not ruled out by the constants, flat shading,
+                    // a primitive other than a triangle strip, the longest chain of passes
+                    bool skipPossible = false, projects = false;
+                    for (uint32_t k = 0; k < rec.header.passCount; ++k)
+                        if (rec.passes[k].kind == gsr::vp::PassTransform ||
+                            rec.passes[k].kind == gsr::vp::PassProject) {
+                            projects = true;
+                            skipPossible = skipPossible || !gsr::vp::passNeverSkips(rec.passes[k]);
+                        }
+                    recSkipPossible += skipPossible;
+                    recProcessed += !projects && rec.header.indexCount != 0u;
+                    recFlat += (rec.header.prim & 8u) == 0u;
+                    recNotStrip += (rec.header.prim & 7u) != 4u;
+                    if (rec.header.passCount > recMaxPasses)
+                        recMaxPasses = rec.header.passCount;
+                    recBytes += packet.size();
+                    BatchPackets made;
+                    gsr::vp::batchToGif(rec, made);
+                    canonicalPackets(made, canonA);
+                    canonicalPackets(ref, canonB);
+                    recVertices += rec.header.indexCount;
+                    if (canonA != canonB) {
+                        // count by vertex and field where the shapes agree
+                        bool sameShape = made.size() == ref.size();
+                        for (size_t p = 0; sameShape && p < made.size(); ++p)
+                            sameShape = made[p].size() == ref[p].size();
+                        if (!sameShape) {
+                            ++recBadShape;
+                            if (recBadShape < 6)
+                                std::fprintf(stderr, "[vubench] batch RECORD run %zu: %zu packets against %zu\n", i,
+                                             made.size(), ref.size());
+                        } else {
+                            for (size_t at = 0; at + 12 <= canonA.size() && at + 12 <= canonB.size();) {
+                                if ((canonA[at] & 0xFFFF0000u) == 0xAAAA0000u || canonA[at] == 0xEEEEEEEEu) {
+                                    const size_t head = canonA[at] == 0xEEEEEEEEu ? 1 : 3;
+                                    for (size_t h = 0; h < head; ++h)
+                                        if (canonA[at + h] != canonB[at + h])
+                                            ++recBadShape;
+                                    at += head;
+                                    continue;
+                                }
+                                const uint32_t* a = &canonA[at];
+                                const uint32_t* b = &canonB[at];
+                                const bool st = a[0] != b[0] || a[1] != b[1] || a[2] != b[2];
+                                const bool colour = a[3] != b[3] || a[4] != b[4] || a[5] != b[5] || a[6] != b[6];
+                                const bool fog = a[7] != b[7] || a[11] != b[11];
+                                const bool position = a[8] != b[8] || a[9] != b[9];
+                                const bool depth = a[10] != b[10];
+                                if (st || colour || fog || position || depth) {
+                                    if (recBadVertices < 8)
+                                        std::fprintf(stderr,
+                                                     "[vubench] batch RECORD run %zu vertex differs:%s%s%s%s%s made "
+                                                     "%08x %08x %08x rgba %u %u %u %u fog %u xy %u %u z %08x adc %u, "
+                                                     "microprogram %08x %08x %08x rgba %u %u %u %u fog %u xy %u %u z "
+                                                     "%08x adc %u\n",
+                                                     i, st ? " st" : "", colour ? " colour" : "", fog ? " fog" : "",
+                                                     position ? " position" : "", depth ? " depth" : "", a[0], a[1],
+                                                     a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], b[0],
+                                                     b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10],
+                                                     b[11]);
+                                    ++recBadVertices;
+                                    recBadFields[0] += st;
+                                    recBadFields[1] += colour;
+                                    recBadFields[2] += fog;
+                                    recBadFields[3] += position;
+                                    recBadFields[4] += depth;
+                                }
+                                recSkipBits += b[11];
+                                at += 12;
+                            }
+                        }
+                    } else {
+                        for (size_t at = 0; at < canonB.size();) {
+                            if ((canonB[at] & 0xFFFF0000u) == 0xAAAA0000u) {
+                                at += 3;
+                                continue;
+                            }
+                            if (canonB[at] == 0xEEEEEEEEu) {
+                                ++at;
+                                continue;
+                            }
+                            recSkipBits += canonB[at + 11];
+                            at += 12;
+                        }
+                    }
+                }
+            }
+        } else {
+            canonicalPackets(minePackets, canonA);
+            canonicalPackets(ref, canonB);
+            if (canonA != canonB) {
+                if (execBadPackets < 8)
+                    std::fprintf(stderr,
+                                 "[vubench] batch EXECUTED run %zu: packets differ from the recording's "
+                                 "(%zu against %zu)\n",
+                                 i, minePackets.size(), ref.size());
+                ++execBadPackets;
+            }
+        }
+        std::memcpy(postPrev.data(), post, kDataSize);
+    }
+
+    void report(size_t runCount) {
+        using namespace vu1gpu::batch;
+        const Counters& c = tracker.counters;
+        std::fprintf(stderr,
+                     "[vubench] batch stages: %llu vertex runs evaluated against the microprogram's memory, %llu "
+                     "differ (%llu lanes); stages: grid %llu, flat grid %llu, point light %llu, texgen integers %llu, "
+                     "texgen positions %llu, light %llu, transform %llu, fade %llu, texture matrix %llu; %llu vertex "
+                     "runs with clip codes not evaluated\n",
+                     (unsigned long long)stageProofRuns, (unsigned long long)stageProofBadRuns,
+                     (unsigned long long)stageProofBadLanes, (unsigned long long)stageProofByKind[1],
+                     (unsigned long long)stageProofByKind[10], (unsigned long long)stageProofByKind[2],
+                     (unsigned long long)stageProofByKind[3], (unsigned long long)stageProofByKind[4],
+                     (unsigned long long)stageProofByKind[5], (unsigned long long)stageProofByKind[6],
+                     (unsigned long long)stageProofByKind[7], (unsigned long long)stageProofByKind[8],
+                     (unsigned long long)clipVertexRuns);
+        std::fprintf(stderr, "[vubench] batch: proof from run %zu (the first microprogram call) to %zu\n", firstRun,
+                     runCount);
+        static const char* const stageNames[] = {"set-up", "vertex", "index list", "index list with clip codes",
+                                                 "other"};
+        for (uint32_t st = 0; st < static_cast<uint32_t>(Stage::Count); ++st)
+            std::fprintf(stderr, "[vubench] batch runs, %s: %llu, taken %llu\n", stageNames[st],
+                         (unsigned long long)c.runs[st], (unsigned long long)c.taken[st]);
+        for (uint32_t r = 1; r < static_cast<uint32_t>(Reason::Count); ++r)
+            if (c.declined[r])
+                std::fprintf(stderr, "[vubench] batch declined, %s: %llu\n", reasonName(static_cast<Reason>(r)),
+                             (unsigned long long)c.declined[r]);
+        std::fprintf(stderr,
+                     "[vubench] batch records: %llu (%llu with one vertex per index), %llu vertices compared, %llu "
+                     "differ (texture coordinate %llu, colour %llu, fog or skip bit %llu, position %llu, depth "
+                     "%llu), %llu records or tags of another shape, %llu runs taken without a record although the "
+                     "microprogram sent packets, %llu vertices with the skip bit\n",
+                     (unsigned long long)recordRuns, (unsigned long long)recPerCorner, (unsigned long long)recVertices,
+                     (unsigned long long)recBadVertices, (unsigned long long)recBadFields[0],
+                     (unsigned long long)recBadFields[1], (unsigned long long)recBadFields[2],
+                     (unsigned long long)recBadFields[3], (unsigned long long)recBadFields[4],
+                     (unsigned long long)recBadShape, (unsigned long long)emptyTakenBad,
+                     (unsigned long long)recSkipBits);
+        std::fprintf(stderr,
+                     "[vubench] batch records, for a backend: %llu whose constants do not rule out the skip bit, "
+                     "%llu of processed rows only (no transform in the record), %llu flat shaded, %llu not a triangle "
+                     "strip, at most %u passes in a record, %llu bytes of records\n",
+                     (unsigned long long)recSkipPossible, (unsigned long long)recProcessed, (unsigned long long)recFlat,
+                     (unsigned long long)recNotStrip, recMaxPasses, (unsigned long long)recBytes);
+        std::fprintf(stderr,
+                     "[vubench] batch, runs executed on the tracker's memory: %llu of %zu, %llu sent packets other "
+                     "than the recording's; memory before them: %llu runs with a lane other than recorded (%llu "
+                     "lanes), %llu stale lanes left out\n",
+                     (unsigned long long)execRuns, runCount, (unsigned long long)execBadPackets,
+                     (unsigned long long)memBadRuns, (unsigned long long)memBadLanes,
+                     (unsigned long long)staleLanesExcluded);
+        std::fprintf(stderr,
+                     "[vubench] batch tracker: %llu stages deferred (%llu slot stages), %llu slots materialised (%llu "
+                     "slot stages), %llu slot stages dropped by EE writes, %llu lanes left stale at set-ups, %llu "
+                     "executed runs drawing a stale lane; records carry %llu vertices for %llu indices, %.2f passes "
+                     "per record; %llu lanes written by the EE (%s), %llu lanes changed without a reported write\n",
+                     (unsigned long long)c.passesDeferred, (unsigned long long)c.slotPassesDeferred,
+                     (unsigned long long)c.slotsMaterialised, (unsigned long long)c.slotPassesMaterialised,
+                     (unsigned long long)c.passesDropped, (unsigned long long)c.staleLanes,
+                     (unsigned long long)c.staleDraws, (unsigned long long)c.recordVertices,
+                     (unsigned long long)c.recordIndices, c.records ? double(c.recordPasses) / double(c.records) : 0.0,
+                     (unsigned long long)eeLanes,
+                     exactWrites ? "as the VIF reported them" : "inferred from the snapshots",
+                     (unsigned long long)unreportedLanes);
+        if (dump)
+            std::fclose(dump);
+        dump = nullptr;
+    }
+
+    bool failed() const {
+        return unreportedLanes || stageProofBadLanes || recBadVertices || recBadShape || emptyTakenBad ||
+               execBadPackets || memBadLanes || tracker.counters.staleDraws;
+    }
+};
+} // namespace
+
 namespace vu1check {
 bool recording() {
     return rec().on || ring().on;
@@ -238,6 +775,8 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
         sl.e = RecEntry{resume ? 1u : 0u, resume ? vu.state().pc : startPC, top, itop, dEn ? 1u : 0u, tEn ? 1u : 0u};
         sl.state = vu.state();
         sl.data.assign(data, data + dataSize);
+        sl.writes.swap(g_vifWrites);
+        g_vifWrites.clear();
         g.head = (g.head + 1) % g.cap;
         if (g.filled < g.cap)
             ++g.filled;
@@ -257,6 +796,15 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
                         std::fwrite(q.data.data(), 1, kDataSize, f);
                     }
                     std::fclose(f);
+                    if (FILE* fw = std::fopen((g.path + ".writes").c_str(), "wb")) {
+                        for (uint32_t i = 0; i < g.filled; ++i) {
+                            const Ring::Slot& q = g.slots[(first + i) % g.cap];
+                            const uint32_t n = static_cast<uint32_t>(q.writes.size());
+                            std::fwrite(&n, 4, 1, fw);
+                            std::fwrite(q.writes.data(), 4, n, fw);
+                        }
+                        std::fclose(fw);
+                    }
                     // entry register state of every run (VU1State), same order, for the offline scanner
                     if (FILE* fs = std::fopen((g.path + ".states").c_str(), "wb")) {
                         for (uint32_t i = 0; i < g.filled; ++i)
@@ -270,10 +818,20 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
         }
     }
     Recorder& r = rec();
-    if (!r.on || dataSize != kDataSize)
+    if (!r.on || dataSize != kDataSize) {
+        g_vifWrites.clear();
         return;
-    if (r.seen++ < r.skip)
+    }
+    if (r.seen++ < r.skip) {
+        g_vifWrites.clear();
         return;
+    }
+    if (r.writes) {
+        const uint32_t n = static_cast<uint32_t>(g_vifWrites.size());
+        std::fwrite(&n, 4, 1, r.writes);
+        std::fwrite(g_vifWrites.data(), 4, n, r.writes);
+    }
+    g_vifWrites.clear();
     if (!r.headerDone) {
         RecHeader h{kRecMagic, r.count, codeSize, static_cast<uint32_t>(sizeof(VU1State))};
         std::fwrite(&h, sizeof(h), 1, r.f);
@@ -285,11 +843,19 @@ void record(bool resume, uint32_t startPC, uint32_t top, uint32_t itop, bool dEn
     std::fwrite(&e, sizeof(e), 1, r.f);
     std::fwrite(data, 1, dataSize, r.f);
     if (++r.written >= r.count) {
+        if (r.writes)
+            std::fclose(r.writes);
+        r.writes = nullptr;
         std::fclose(r.f);
         r.f = nullptr;
         r.on = false;
         std::fprintf(stderr, "[vurec] done (%u runs)\n", r.written);
     }
+}
+
+void noteVifWrite(uint32_t qw, uint32_t lanes) {
+    if ((lanes & 15u) != 0u)
+        g_vifWrites.push_back((qw & 0xFFFFu) | ((lanes & 15u) << 16));
 }
 
 bool gpuProgramsEnabled() {
@@ -357,6 +923,28 @@ void bench(PS2Memory& memory, GS& gs) {
     VU1InterpreterRef& rv = ref();
     Vu1Fast::spare(nv).sinkNone = 0;
     std::vector<uint8_t> refData(kDataSize);
+    static VU1Interpreter cv(VU1Interpreter::Unit::VU1); // executes the runs the batch tracker lets through
+    Vu1Fast::spare(cv).sinkNone = 0;
+    static BatchBench batch;
+    batch.init(runs.size());
+    if (batch.on) {
+        if (FILE* fw = std::fopen((path + ".writes").c_str(), "rb")) {
+            batch.vifWrites.resize(runs.size());
+            size_t got = 0;
+            for (; got < runs.size(); ++got) {
+                uint32_t n = 0;
+                if (std::fread(&n, 4, 1, fw) != 1 || n > (1u << 20))
+                    break;
+                batch.vifWrites[got].resize(n);
+                if (n && std::fread(batch.vifWrites[got].data(), 4, n, fw) != n)
+                    break;
+            }
+            std::fclose(fw);
+            batch.exactWrites = got == runs.size();
+            std::fprintf(stderr, "[vubench] batch: VIF writes of %zu runs read%s\n", got,
+                         batch.exactWrites ? "" : " (incomplete, not used)");
+        }
+    }
 
     auto runOne = [&](VU1Interpreter& v, const Run& r, uint8_t* d) {
         v.state().dBitEnabled = r.e.dEn != 0;
@@ -409,6 +997,8 @@ void bench(PS2Memory& memory, GS& gs) {
         nv.state() = init;
         rv.reset();
         rv.state() = init;
+        cv.reset();
+        cv.state() = init;
         for (size_t i = 0; i < runs.size(); ++i) {
             const Run& r = runs[i];
             std::memcpy(vdata, r.data.data(), kDataSize);
@@ -437,8 +1027,13 @@ void bench(PS2Memory& memory, GS& gs) {
                                  vu1gpu::buildStrips(nv.state(), vdata, kDataSize, gpRecord, gpExit, &gpWhy);
             if (gpStage && !gpTaken)
                 ++gp.declined[static_cast<uint32_t>(gpWhy) < 6u ? static_cast<uint32_t>(gpWhy) : 0u];
+            if (batch.on)
+                batch.before(i, r.e.resume != 0, r.e.startPC, r.data.data(), nv, cv,
+                             [&](VU1Interpreter& v, uint8_t* d) { runOne(v, r, d); });
             runOne(nv, r, vdata);
             nv.setPacketTap(nullptr);
+            if (batch.on)
+                batch.after(i, pn, vdata);
             if (gpuProg)
                 packetHash[i] = hashPackets(pn);
             if (gpTaken) {
@@ -550,6 +1145,8 @@ void bench(PS2Memory& memory, GS& gs) {
         }
         std::fprintf(stderr, "[vubench] check: %zu runs, %llu mismatches\n", runs.size(),
                      static_cast<unsigned long long>(bad));
+        if (batch.on)
+            batch.report(runs.size());
     }
 
     if (gpDump)
@@ -634,6 +1231,39 @@ void bench(PS2Memory& memory, GS& gs) {
             std::memcpy(vdata, r.data.data(), kDataSize);
             const uint64_t runPairs0 = facts.empty() ? 0 : ps2perf::g_vu1Pairs.load();
             const auto t0 = std::chrono::steady_clock::now();
+            if (batch.on && batch.timedSkip) {
+                // the batch tracker decides on a memory of its own; the EE's writes are applied outside the timing
+                static BatchBench::Tracker timedTracker;
+                static std::vector<uint8_t> timedMemory(kDataSize);
+                static std::vector<uint8_t> timedPacket;
+                if (i == 0) {
+                    timedTracker = BatchBench::Tracker();
+                    std::memcpy(timedMemory.data(), r.data.data(), kDataSize);
+                } else {
+                    BatchBench::applyWrites(batch.writes[i], timedMemory.data(), timedTracker);
+                }
+                const auto t1 = std::chrono::steady_clock::now();
+                uint32_t pc = r.e.resume ? nv.state().pc : r.e.startPC;
+                thread_local std::vector<uint8_t> record;
+                uint32_t exitPc = 0;
+                if (gpuSkip && taken[i] &&
+                    vu1gpu::buildStrips(nv.state(), timedMemory.data(), kDataSize, record, exitPc))
+                    nv.state().pc = exitPc;
+                else if (timedTracker.step(r.e.resume != 0, pc, nv.state().vf, timedMemory.data(), batch.families,
+                                           !r.e.resume || Vu1Func::canEnter(nv),
+                                           timedPacket) == vu1gpu::batch::Action::Skip)
+                    nv.state().pc = pc;
+                else
+                    runOne(nv, r, timedMemory.data());
+                const double one =
+                    std::chrono::duration<double, std::nano>(std::chrono::steady_clock::now() - t1).count();
+                ns += one;
+                if (!facts.empty()) {
+                    facts[i].ns = std::min(facts[i].ns, one);
+                    facts[i].pairs = ps2perf::g_vu1Pairs.load() - runPairs0;
+                }
+                continue;
+            }
             if (gpuSkip && taken[i]) {
                 // what the hook costs instead of the run: building the record
                 thread_local std::vector<uint8_t> record;
@@ -683,12 +1313,16 @@ void bench(PS2Memory& memory, GS& gs) {
                  pairs * 1e3 / best);
     if (!facts.empty()) {
         if (FILE* out = std::fopen(runsCsv, "w")) {
-            std::fprintf(out, "run,resume,entry_pc,exit_pc,flags,h0,h1,h2,h3,packets,vertices,fan_vertices,pairs,ns\n");
+            std::fprintf(out, "run,resume,entry_pc,exit_pc,flags,h0,h1,h2,h3,packets,vertices,fan_vertices,pairs,ns,"
+                              "strip_taken,batch_taken,batch_reason\n");
             for (size_t i = 0; i < facts.size(); ++i) {
                 const RunFacts& ft = facts[i];
-                std::fprintf(out, "%zu,%u,0x%x,0x%x,0x%x,%u,%u,%u,%u,%u,%u,%u,%llu,%.0f\n", i, runs[i].e.resume,
-                             ft.entryPc, ft.exitPc, ft.flags, ft.header[0], ft.header[1], ft.header[2], ft.header[3],
-                             ft.packets, ft.vertices, ft.fanVertices, static_cast<unsigned long long>(ft.pairs), ft.ns);
+                std::fprintf(
+                    out, "%zu,%u,0x%x,0x%x,0x%x,%u,%u,%u,%u,%u,%u,%u,%llu,%.0f,%u,%u,%s\n", i, runs[i].e.resume,
+                    ft.entryPc, ft.exitPc, ft.flags, ft.header[0], ft.header[1], ft.header[2], ft.header[3], ft.packets,
+                    ft.vertices, ft.fanVertices, static_cast<unsigned long long>(ft.pairs), ft.ns,
+                    taken.empty() ? 0u : taken[i], batch.on ? batch.runTaken[i] : 0u,
+                    batch.on ? vu1gpu::batch::reasonName(static_cast<vu1gpu::batch::Reason>(batch.runReason[i])) : "");
             }
             std::fclose(out);
             std::fprintf(stderr, "[vubench] per-run facts written to %s\n", runsCsv);
@@ -697,6 +1331,6 @@ void bench(PS2Memory& memory, GS& gs) {
     std::fflush(stderr);
     ps2perf::stop();
     drakan_log::flush();
-    std::exit(bad ? 1 : 0);
+    std::exit(bad || (batch.on && batch.failed()) ? 1 : 0);
 }
 } // namespace vu1check
