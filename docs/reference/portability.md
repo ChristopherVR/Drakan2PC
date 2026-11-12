@@ -368,6 +368,13 @@ loading the new slot succeeded; existing slots retained their file hashes.
 - The browser launcher is a local desktop player. Arbitrary third-party hosting, an unisolated page,
   and mobile/touch-only play are not implemented.
 
+The GPU renderer's GS emulation (texture cache, per-draw code, render target policy) is one text compiled into the
+Direct3D 11 and the WebGPU backend (`runtime/gs/src/gs_*.inl`, `gs_backend_shared.h`; see `graphics.md` section 9).
+For a port this means: a new graphics API implements the small backend interface of those units and its
+`BackendCaps`, and inherits the GS behaviour. The units use `if constexpr` on a capability flag with functions that
+are declared and not defined for the backend without the capability (standard C++17); they were built with MSVC
+only so far, not with clang or for WebAssembly.
+
 The original audit remains in
 [linux-browser-readiness.md](../journal/2026-10-25/linux-browser-readiness.md); implementation and live
 validation notes are recorded in the subsequent dated journal entries.

@@ -370,10 +370,31 @@ one of two hardware backends chosen at start-up from `[video] renderer` in `drak
 
 `d3d12` and `opengl` name the other two wgpu-native APIs for diagnosis (ini / env only, not in PC Settings).
 `gsr/renderer_choice.h` maps the names; `[gpu] device: <adapter> via <API>, ..., driver <text>` in the log is what the
-adapter itself reported. There is no hand-written Vulkan backend: Vulkan is reached through wgpu-native. Rules both
-backends follow live in backend-neutral headers with their own tests (`gs_solid_mirror.h`, `rt_sync_rows.h`,
-`rt_local_copy.h`, `rt_upload_runs.h`, `rt_texture_source.h`); a backend file should only hold API calls, and a new
-rule goes into such a header first. A lost graphics device ends the session in order (`gsr::Renderer::deviceLost`,
+adapter itself reported. There is no hand-written Vulkan backend: Vulkan is reached through wgpu-native.
+
+**One copy of the GS emulation.** What the GS decides exists once and is compiled into both backends
+(`gs_backend_shared.h` describes the arrangement):
+
+| Shared unit | Holds | A backend provides |
+| --- | --- | --- |
+| `gs_texture_cache.inl` | the texture cache: keys, decode, CLUT, mip chains, HD replacement and upscale jobs, the worker pool, palette-animated textures | `GpuTexture`, `createSampledTexture`, `copyAliasedBlocks` |
+| `gs_draw.inl` | `Impl::draw`: classification of a draw, widescreen and HUD mapping, blend / depth / alpha-test decisions (`gs_pipeline_state.h`), constants, scissor, passes | `clearTarget`, `beginVertices`, `bindDraw`, `setPass`, `drawVertices`, `endDraw` |
+| `gs_targets.inl` | target lookup and aliasing, which target a texture samples, dirty rows and stamps, readback skips, row refresh, target copies, uploads into targets, partial uploads | `allocRT`, `beginReadback`, `uploadTargetRect`, `copyTargetTop`, `patchTargetBlock` |
+
+A backend file (`d3d11_textures.cpp`, `wgpu_draw.cpp`, ...) defines those functions, sets `GSR_IMPL` to its `Impl`
+and includes the unit. A feature only one backend has is a flag in its `BackendCaps kCaps`, asked with
+`if constexpr (kCaps.x)`: terrain and material detail, motion vectors, the temporal upscaler's reduced world,
+readback prefetch, textures created off the render thread and `GSR_RB_VERIFY` are Direct3D 11 only today. Smaller
+rules with their own unit tests stay in neutral headers (`gs_solid_mirror.h`, `rt_sync_rows.h`, `rt_local_copy.h`,
+`rt_upload_runs.h`, `rt_texture_source.h`). The rule for new work: GS logic goes into a shared unit or header, a
+backend file only holds API calls, and a missing capability is a flag, never a second copy of the logic. Still
+written twice: the `Impl` state (`*_backend_impl.h`), presentation (`*_present.cpp`) and the scene-camera phase
+machine (`*_backend.cpp`). The readback skips (block and exact-bit, clean-block retention) are memory-exact: GS
+memory and the targets hold the same with and without them; with automatic texture upscaling the picture can differ
+by a few values in 255, because a texture in memory that a still-dirty target occupies is not upscaled. Proofs and
+measurements: [renderer-shared-code.md](../journal/2026-11-12/renderer-shared-code.md).
+
+A lost graphics device ends the session in order (`gsr::Renderer::deviceLost`,
 `gsr/renderer_session.h`). DLSS, DLSS ray
 reconstruction and hardware ray queries need a raw D3D or Vulkan device, which `webgpu.h` does not expose, so they stay
 on `d3d11`; the feature matrix and measurements are in
