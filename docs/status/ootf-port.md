@@ -374,6 +374,20 @@ of the stair: the floor needs the book), and in the Ruined Village opening. Open
 converted, the text is unreviewed machine transcription, the builder does not run the tool yet. Needs a regenerated pack
 and the new exe. See [church stair scene](../journal/2026-11-12/ootf-church-cinematic.md).
 
+**November 12 the tomb's push puzzle (issue 5):** the owner's "cannot push the objects in the lair" is the tomb of the Soul
+Crystal in Ruined Village: a block (Rigid Body, Push Mode Slide) is pushed onto one of three pressure plates, then the plate
+beside the statue is pressed and the Rising Floor Ring bridges the pit to the crystal. In the pack the block lay under the pit
+in every save of the owner (the PS2 Rigid Body rests on terrain only and the tomb floor is a model), and the plates' detector
+stand-ins sat at the plate objects' origin behind the pit, so nothing could be done and the crystal was out of reach. The
+converter now turns such a block (linked to plates, standing on a model) into a Mover with a solid box that slides onto the
+nearest plate tile when Rynn walks into it, and counts its arrival and the plate that raises the block's plate on the PC
+(formats `d189acd`, `ootfpush.ts`). Played on a full pack in an own play folder without god mode: block onto the tile, F5 /
+F8 in the middle (block and Rynn restored), plate, ring up; then over the ring to the crystal, and the lair scene from a
+placement (`proof1`, `proof2`). It is a stand-in, not a physics push: a fixed slide, static plates. Open: a converted Rigid
+Body does not move on terrain either (the Islands crate is most likely fixed), native Pressure Plates did not sense Rynn, the
+other plate puzzles (Islands, Rift Crystal) do not enforce their order, old saves keep the old objects. Needs a regenerated
+pack and a new game. See [tomb push puzzle](../journal/2026-11-12/ootf-lair-push-puzzle.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
