@@ -2612,6 +2612,13 @@ int main(int argc, char** argv) {
     }
     cfg.vsync = false;
 #if defined(GSR_PARTIAL_UPLOAD_ONLY)
+#if defined(GSR_TEST_WEBGPU)
+    // A machine without a GPU adapter (CI) has nothing to run this subset on: report it and pass.
+    if (!Renderer::create(cfg)) {
+        std::printf("SKIP: no WebGPU adapter\n");
+        return 0;
+    }
+#endif
     solidMirrorTest(cfg);
     partialUploadTest(cfg);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);

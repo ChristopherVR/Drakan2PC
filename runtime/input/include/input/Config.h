@@ -61,8 +61,8 @@ struct Config {
                                  // active, so the pitch stays where the mouse left it
     float yawSign =
         -1.0f; // angle passed to the player turn function = yawSign * dx * sensX   (verified: mouse right turns right)
-    float pitchSign = -1.0f;   // pitch += pitchSign * dy * sensY. A negative camera pitch looks DOWN (verified with
-                               // screenshots): mouse up (dy < 0) raises it with -1
+    float pitchSign = -1.0f; // pitch += pitchSign * dy * sensY. A negative camera pitch looks DOWN (verified with
+                             // screenshots): mouse up (dy < 0) raises it with -1
     // [mouse] camera_lag_in_place: a turn does not swing the camera's travel lag round Rynn (input/CameraCarry.h)
     bool cameraLagInPlace = true;
     float cameraFollow = 5.0f; // [mouse] camera_follow: while mouse / keyboard steer on foot, turns carry the camera

@@ -44,7 +44,8 @@ def noise(size, seed, lo=60, hi=200):
     return rgba
 
 
-def enlarge(rgba, f=4, mode=Image.BICUBIC):
+def enlarge(rgba, f=4, mode=None):
+    mode = Image.BICUBIC if mode is None else mode
     rgb = Image.fromarray(rgba[..., :3]).resize((rgba.shape[1] * f, rgba.shape[0] * f), mode)
     a = Image.fromarray(rgba[..., 3]).resize((rgba.shape[1] * f, rgba.shape[0] * f), mode)
     return np.dstack([np.array(rgb), np.array(a)])
