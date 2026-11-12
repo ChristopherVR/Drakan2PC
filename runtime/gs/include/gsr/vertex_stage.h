@@ -111,6 +111,8 @@ enum class Op : uint8_t {
     Shr, // by imm (below 32), unsigned
     IEqual,
     ILess, // unsigned
+    // word of the carried state of a pass stage (gsr/vertex_batch_stage.h): a = row, b = lane (raw bits)
+    State,
 };
 
 struct Node {
@@ -125,6 +127,7 @@ enum Field : uint32_t { S, T, Q, R, G, B, A, X, Y, Z, FogLane, kFieldCount };
 constexpr uint32_t kAllFields = (1u << kFieldCount) - 1u;
 constexpr uint32_t kPositionFields = (1u << X) | (1u << Y) | (1u << Z);
 constexpr uint16_t kNoValue = 0xFFFFu;
+constexpr uint32_t kStateRows = 3, kStateLanes = kStateRows * 4; // the carried state of a pass stage: three rows
 
 struct Value {
     uint16_t id = kNoValue;
@@ -136,6 +139,9 @@ struct Stage {
     std::vector<uint8_t> perVertex;              // per node: depends on a vertex word (else on the constants alone)
     std::array<uint16_t, kFieldCount> outputs{}; // node per field; kNoValue = the field is 0
     uint32_t constantRows = 0, attributeRows = 0;
+    // A pass stage works on a carried state (Op::State) and leaves the next one: node per lane, kNoValue = the lane
+    // keeps its value. A stage that ends a chain reads the state and has `outputs`.
+    std::array<uint16_t, kStateLanes> state{};
 };
 
 class Builder {
@@ -143,6 +149,7 @@ public:
     explicit Builder(const char* name) {
         stage_.name = name;
         stage_.outputs.fill(kNoValue);
+        stage_.state.fill(kNoValue);
     }
     Value imm(uint32_t bits) { return node(Op::Imm, {}, {}, {}, bits); }
     Value immFloat(float value) { return imm(vu::asBits(value)); }
@@ -156,6 +163,10 @@ public:
             stage_.attributeRows = row + 1;
         return node(Op::Attribute, {static_cast<uint16_t>(row)}, {static_cast<uint16_t>(lane)}, {}, 0);
     }
+    Value state(uint32_t row, uint32_t lane) {
+        return node(Op::State, {static_cast<uint16_t>(row)}, {static_cast<uint16_t>(lane)}, {}, 0);
+    }
+    void setState(uint32_t row, uint32_t lane, Value value) { stage_.state[row * 4u + lane] = value.id; }
     // the usual reads: a float as an instruction sees it
     Value constantFloat(uint32_t row, uint32_t lane) { return operand(constant(row, lane)); }
     Value attributeFloat(uint32_t row, uint32_t lane) { return operand(attribute(row, lane)); }
@@ -200,8 +211,8 @@ private:
             return {found->second};
         const uint16_t id = static_cast<uint16_t>(stage_.nodes.size());
         stage_.nodes.push_back({op, a.id, b.id, c.id, imm});
-        bool vertex = op == Op::Attribute;
-        if (op != Op::Imm && op != Op::Constant && op != Op::Attribute)
+        bool vertex = op == Op::Attribute || op == Op::State;
+        if (op != Op::Imm && op != Op::Constant && op != Op::Attribute && op != Op::State)
             for (const uint16_t input : {a.id, b.id, c.id})
                 vertex = vertex || (input != kNoValue && stage_.perVertex[input] != 0);
         stage_.perVertex.push_back(vertex ? 1 : 0);
@@ -218,6 +229,7 @@ constexpr uint32_t inputCount(Op op) {
         case Op::Imm:
         case Op::Constant:
         case Op::Attribute:
+        case Op::State:
             return 0;
         case Op::Operand:
         case Op::Neg:
@@ -323,6 +335,27 @@ public:
     }
     Raw vertexRaw(const Vertex& vertex) { return vertexRaw(reinterpret_cast<const uint32_t*>(&vertex)); }
     Output vertex(const Vertex& vertex) { return toOutput(vertexRaw(vertex)); }
+    // A pass stage on the carried state (kStateLanes words, updated in place); `vertex` as for vertexRaw.
+    void apply(const uint32_t* vertex, uint32_t* state) {
+        state_ = state;
+        run(1, vertex);
+        for (uint32_t lane = 0; lane < kStateLanes; ++lane)
+            if (stage_->state[lane] != kNoValue)
+                next_[lane] = values_[stage_->state[lane]];
+            else
+                next_[lane] = state[lane];
+        for (uint32_t lane = 0; lane < kStateLanes; ++lane)
+            state[lane] = next_[lane];
+        state_ = nullptr;
+    }
+    // The packet fields of a stage that reads a carried state.
+    Raw stateRaw(const uint32_t* vertex, const uint32_t* state) {
+        state_ = state;
+        const Raw raw = vertexRaw(vertex);
+        state_ = nullptr;
+        return raw;
+    }
+    const Stage& stage() const { return *stage_; }
     static Output toOutput(const Raw& r) {
         Output o{};
         o.s = r.stq[0];
@@ -445,12 +478,17 @@ private:
                 case Op::ILess:
                     r = v[n.a] < v[n.b] ? 1u : 0u;
                     break;
+                case Op::State:
+                    r = state_[n.a * 4u + n.b];
+                    break;
             }
             v[i] = r;
         }
     }
     const Stage* stage_;
     const uint32_t* constants_ = nullptr;
+    const uint32_t* state_ = nullptr;
+    uint32_t next_[kStateLanes] = {};
     std::vector<uint32_t> values_;
 };
 

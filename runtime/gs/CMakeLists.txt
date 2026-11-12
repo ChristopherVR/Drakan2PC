@@ -120,6 +120,40 @@ if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
   endif()
 endif()
 
+# The batch path as a generated vertex stage (gsr/vertex_batch_stage.h): its CPU evaluation against
+# gsr/vertex_batch.h; the generated HLSL (both arithmetic libraries) by stream output on Direct3D 11, hardware and
+# software adapter; the generated WGSL on every graphics API under WebGPU. GPU tests skip (77) without an adapter.
+if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
+  add_executable(gsr_test_vertex_batch_stage tests/test_vertex_batch_stage.cpp)
+  target_include_directories(gsr_test_vertex_batch_stage PRIVATE src include)
+  add_test(NAME vertex_batch_stage COMMAND gsr_test_vertex_batch_stage)
+  set_tests_properties(vertex_batch_stage PROPERTIES TIMEOUT 300)
+  if(TARGET drakan::gpu)
+    add_executable(gsr_test_vertex_batch_webgpu tests/test_vertex_batch_webgpu.cpp)
+    target_include_directories(gsr_test_vertex_batch_webgpu PRIVATE src include)
+    target_link_libraries(gsr_test_vertex_batch_webgpu PRIVATE drakan::gpu)
+    drakan_stage_webgpu(gsr_test_vertex_batch_webgpu)
+    add_test(NAME vertex_batch_webgpu_vulkan COMMAND gsr_test_vertex_batch_webgpu)
+    set_tests_properties(vertex_batch_webgpu_vulkan PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300
+      ENVIRONMENT "DRAKAN_GPU_BACKEND=vulkan")
+    if(WIN32)
+      add_test(NAME vertex_batch_webgpu_d3d12 COMMAND gsr_test_vertex_batch_webgpu)
+      set_tests_properties(vertex_batch_webgpu_d3d12 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300
+        ENVIRONMENT "DRAKAN_GPU_BACKEND=dx12")
+    endif()
+  endif()
+  if(WIN32)
+    add_executable(gsr_test_vertex_batch_program tests/test_vertex_batch_program.cpp)
+    target_include_directories(gsr_test_vertex_batch_program PRIVATE src include)
+    target_compile_definitions(gsr_test_vertex_batch_program PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(gsr_test_vertex_batch_program PRIVATE d3d11 d3dcompiler)
+    add_test(NAME vertex_batch_program COMMAND gsr_test_vertex_batch_program)
+    add_test(NAME vertex_batch_program_warp COMMAND gsr_test_vertex_batch_program)
+    set_tests_properties(vertex_batch_program vertex_batch_program_warp PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+    set_tests_properties(vertex_batch_program_warp PROPERTIES ENVIRONMENT "GSR_VP_WARP=1")
+  endif()
+endif()
+
 # The GS emulation shared by both backends.
 add_library(gsr_core STATIC
   src/gs_core.cpp

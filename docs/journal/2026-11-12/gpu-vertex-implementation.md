@@ -116,6 +116,26 @@ vertex queue was empty, where the packets leave the last two vertices of the las
 PRIM continues the strip); fixed in `gs_core.cpp`. Today it proves the `records` mode and the fallback; when a backend
 answers yes to `vertexPrograms()` the same test is the proof of its shader.
 
+## 5. Increment 4: the batch path as a generated vertex stage
+
+Written by the `bstage` subagent; description, input layout for the backends, cost tables and what is not
+established are in [gpu-vertex-batch-stage.md](gpu-vertex-batch-stage.md).
+
+* One generated function per pass kind (`gsr/vertex_batch_stage.h`), a carried row as state (`Op::State`), and one
+  loop written once in the emitter for HLSL and WGSL and mirrored on the CPU: it walks the set bits of the vertex's
+  pass mask (at most 24) and dispatches on the kind read from the pass table. No pass logic exists twice.
+* Two findings that matter beyond the batch path. The double arithmetic of Direct3D 11 returned -0 for a sum of a
+  literal zero and -0 (FXC folds it even under `precise`); fixed in the double library, the strips never used such a
+  sum. And the engine's MAX / MINI compare raw register bits, which differs from the operand form when one side is a
+  NaN: the batch description reproduces the engine; the strip stage (`vp::evaluate`) clamps the fog depth with
+  operand-normalised constants and would differ from the microprogram for NaN clamp constants. That last point is
+  read from the code, never seen in a recording, and not changed.
+* FXC needs 14 to 24 s for the batch entry point with integer limbs (5 to 7 s with doubles), 23 to 30 s with the
+  previous-position twin: background compilation is mandatory, and the first seconds after the first start on a
+  machine run on the CPU path.
+
+No renderer draws a batch record with a shader yet.
+
 ## Proof log
 
 | Date | What | Result |
@@ -131,6 +151,7 @@ answers yes to `vertexPrograms()` the same test is the proof of its shader.
 | 2026-11-12 | Increment 2: live, Surdana, owner's ini (3840x2160, DLSS quality), two screenshots looked at | world, HUD and character as expected; no comparison possible across runs |
 | 2026-11-12 | Increment 3, re-run by the orchestrator with a game build of the main tree: VU1 replay of 16 recordings of 8,000 runs with VIF write lists (`DRAKAN_VU_BENCH_BATCH=1 DRAKAN_VU_BENCH_GPUPROG=1`; Surdana, street, square, fight, arena, catacombs, mine, tundra, valley, stratos, two Isles scenes, Ravenshold and Shiverbane mounted, Order of the Flame Ruined Village and Volcanic) | 34,725 vertex runs evaluated against the microprogram's memory, 0 differ; 57,528 batch records, 2,604,739 vertices, 0 differ; 708,250 strip vertices, 0 differ; runs executed on the tracker's memory: 0 with other packets, 0 lanes other than recorded; 0 draws from a stale lane; declines: clip codes and clipper only |
 | 2026-11-12 | Records test, as reported by its author on Direct3D 11, Vulkan and Direct3D 12 (identical totals): 1,017,252 record vertices, 846 colour frames and 174 depth pictures compared | 0 pixels differ of 5,983,272,960 and 1,230,602,240; controls detect a colour step and a depth step |
+| 2026-11-12 | Increment 4, re-run by the orchestrator in the main tree with the 16 record dumps: `gsr_test_vertex_batch_stage` (description against `vp::evaluateVertex` and `vp::batchToGif`, both arithmetics), `gsr_test_vertex_batch_program` (Direct3D 11, RTX 5080, doubles and limbs), `gsr_test_vertex_batch_webgpu` on Vulkan and Direct3D 12: 2,451,056 vertices per path (120,240 generated, 2,330,816 recorded in 57,528 records; chains up to 24 passes), packet, previous position and row | 0 differ on every path |
 
 ## Not verified (running list)
 

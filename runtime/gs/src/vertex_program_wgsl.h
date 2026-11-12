@@ -39,4 +39,27 @@ inline std::string vertexProgramWgsl(const std::vector<vp::StageEntry>& stages =
     return text;
 }
 
+// ---- the batch path (gsr/vertex_batch_stage.h) ----
+// The includer fills a VbRow from a vertex (the three rows of a vp::BatchVertex) and passes its fourth row as
+// `sel`, with the `slot` word replaced by the row of the record's first vp::Pass in the constants table.
+inline const char* kWgslVertexBatchHead = R"WGSL(
+struct VbRow {
+    pos: vec4u, // the three quadwords of a vertex of the batch window, as VU memory holds them
+    col: vec4u,
+    st: vec4u,
+}
+)WGSL";
+
+// Structures, library and the batch functions: vbEvaluate(row, sel) and, with `previousPosition`,
+// vbEvaluatePrevious(row, sel): the position passes and fields alone, for the previous frame's position row, sel
+// and pass table (the motion-vector twin).
+inline std::string vertexBatchWgsl(bool previousPosition = false) {
+    std::string text = std::string(kWgslVertexProgramHead) + kWgslVertexBatchHead +
+                       vp::emitLibrary(vp::ShaderLanguage::Wgsl, vp::Arithmetic::Limbs) +
+                       vp::emitBatch(vp::ShaderLanguage::Wgsl);
+    if (previousPosition)
+        text += vp::emitBatch(vp::ShaderLanguage::Wgsl, vp::ir::kPositionFields, "Previous");
+    return text;
+}
+
 } // namespace gsr
