@@ -235,8 +235,9 @@ refiles and the view layer are touched; the only write to the actor is rule 4.
    (filing the controlled actor after she lost her layer) returns a layer that neither lists her last layer nor is
    listed by it, while the point is within 2048 units of that layer's listed area, the result is refused. She stays
    without a layer for that tick, exactly as the engine already leaves her at walls, and is refiled from the next
-   lookup once her point is over a listed layer again. Far away (a teleport, a new level, which also resets what is
-   remembered) the engine's search stands. Where the search returns an adjacent layer (every walkable passage) the
+   lookup once her point is over a listed layer again. After a teleport (she moved more than 2048 units, 3D, since the
+   view update of the last frame: a harness or script placement, a level arrival, a cut-scene; `teleported`) and on a
+   new level the engine's search stands. Where the search returns an adjacent layer (every walkable passage) the
    engine's handling stands.
 2. **View kept at walls.** A view lookup from a known layer that finds nothing keeps that layer while the camera point
    is within 384 units of that layer or one it lists (the logged breaks were 4 to 360 units out).
@@ -246,7 +247,8 @@ refiles and the view layer are touched; the only write to the actor is rule 4.
 4. **No long rewind.** When the player update rewinds the controlled actor without a layer (the filing called from
    `0x321548`) and the rewound position is more than 512 units from the position it saved at the end of the last frame
    (player `+0xbe4`, the caller's `s17` is the player), she is put at that saved position instead
-   (`rewindTooFar`). A first try (v12) used the position of her last refile with a layer; the refile does not run every
+   (`rewindTooFar`). Only while she is without a layer because rule 1 refused a search; otherwise (a teleport, the
+   engine's own layer losses) the engine's rewind stands. A first try (v12) used the position of her last refile with a layer; the refile does not run every
    frame, so that position was stale (it was the placement point) and was dropped.
 
 Rejected on the way (each one built and driven, runs under `build/review/issue6-1/runs/`):
@@ -272,10 +274,31 @@ Rejected on the way (each one built and driven, runs under `build/review/issue6-
 and every change, `=2` with `DRAKAN_LAYER_SEAM_BOX` every layer change in a box with its caller
 (`docs/reference/env-flags.md`).
 
+## Teleports: the guard undid far placements (v13), fixed in v14
+
+Another session reported that `place` no longer took on builds of the current tree. Checked with
+`ISSUE6_MISSION=teleports` (18 placements: cellar, Surdana level start, straight above the cellar, house, outdoors by
+the house, cellar 205):
+
+| target | baseline (`tp-base`) | v13, fix off (`tp-v13-fix0`) | v13 (`tp-v13`) | v14 (`tp-v14`) |
+| --- | --- | --- | --- | --- |
+| cellar, house 259, cellar 205, outdoors by the house (272, 1900 units off: the terrain) | taken | taken | taken | taken |
+| Surdana level start from the cellar (3 times) | flung 24000 to 395000 units | flung 259000 to 437000 units | **stays in the cellar, 275000 to 289000 units away** | flung 8000 to 645000 units |
+| straight above the cellar onto 195 | lands in 5 | lands on 195 | lands in 5 | lands in 5 |
+| hook actions | - | - | refusals and refused rewinds | none |
+
+On v13 a far placement left Rynn where she was: the placement moves her, the refile from her old layer finds nothing,
+the player update rewinds her by a step computed from the jump, and rule 4 replaced that rewind with the saved
+position, her old spot. Rule 1 could also refuse the search after a placement whose target lay within 2048 units of
+the listed area of her last layer, which builds since 11:15 had. The level-start target does not take natively either
+(the engine flings her 24000 to 436000 units), so it shows the difference, not a working placement. v14 exempts
+teleports from rule 1 and runs rule 4 only after a rule 1 refusal, so after any teleport the engine's own handling is
+unchanged.
+
 ## Fixed build results
 
-Final exe v13 (SHA-256 `2cf9a56d0258b28daac5b56b474af66e8a414087a70d8f497bc72996cece5781`, the design above, with the
-trace diagnostics; built with `Build-LocalGame.ps1 -Incremental` into `build/review/issue6-1/play`). Baseline: the
+v13 (SHA-256 `2cf9a56d0258b28daac5b56b474af66e8a414087a70d8f497bc72996cece5781`, the design above before the teleport
+exemption of v14, with the trace diagnostics; built with `Build-LocalGame.ps1 -Incremental` into `build/review/issue6-1/play`). Baseline: the
 v0.1.11 exe in `build/review/baseline-play`. Counts are samples after the cellar entry; "outdoor" means layer 195, 217
 or 272. The corridor recipe is `ISSUE6_SCENARIO=barrel` (`jumps`, 700 s, with its 6 s idle after a lost layer); the
 west-wall recipe is `ISSUE6_MISSION=pintest` (above).
@@ -294,7 +317,15 @@ single frames per v13 run (not measurable on the baseline exe, which has no hook
 Legitimate passages, each probe three times (`tools/probes_pass_x3.json`; `runs/pass3-base` baseline,
 `runs/pass3-v13` v13, trace on):
 
-PASSRESULT
+Every passage that crossed on the baseline crossed on v13 in every try: the stairs 453 / 452 both ways (`L4 -> 5`,
+`L5 -> 4`, 3/3 and 2/2), the barrel-room doorway both ways (`L5 -> 9`, `L9 -> 5`), 447 / 446 / 205 (`L10 -> 11`,
+`L11 -> 10`, `L11 -> 205`, `L205 -> 11`, 3/3 each) and the rest of the 37 probe points. The probes that stop on the
+baseline stop on v13 too (pillars and the 449 / 447 wall: `L0 -> 2` at x 463872 and 467968, `L6 -> 7` at x 467968 and
+472064, `L8 -> 7` at 467968, `L8 -> 9` at z 470016, `L11 -> 205` at x 463872); `L4 -> 1` crossed 3/3 on v13 and 0/1
+on the baseline. (The 3600 s limit ended the baseline run after 87 of 138 probes and the v13 run after 104; the
+counts are per probe point.) No actor refusal was logged at a passage: they were at probe placements dropped outside
+the layers (x 459500 / z 475000 west of 446, x 460000 / z 450000 west of 455, and the drop under the 447 floor at
+x 468500 to 469000).
 
 The house door, walked (`ISSUE6_MISSION=door`: placed in 205 below it, 5 s of W up the stairs, then a turn and 4 s
 back, three times; `runs/door-base-2`, `runs/door-v13`): on both exes Rynn runs up the stairs of 205 and stops in the
@@ -322,8 +353,10 @@ under `build/review/issue6-1/runs/`.
 
 * The store that puts the view layer at -1 in play (not `0x1435c8`).
 * The stair-top snag at the south edge of 453 (both exes): a collision put-back of the stair-head tiles, not traced.
-* Whether rule 4 ever changes a legitimate move: it only acts on the player update's rewind of an actor without a
-  layer, and in the passage probes it fired only in placements (PASSREWIND).
+* Whether rule 4 ever changes a legitimate move: it acts only on the player update's rewind of an actor without a
+  layer after a rule 1 refusal (v14). On v13, where it was not gated yet, it refused 117 rewinds in the passage run, a
+  run made of placements; the passage counts above are from v13, and v14 was checked on the teleport mission, three
+  west-wall and two corridor runs only.
 * Whether the PS2 shows the fault. With `camera_follow = 0` the baseline still handed her outdoors at the west wall,
   so the PC camera follow is not required for it.
 * Other levels and other interiors: the change is general (any interior under an outdoor layer), only Surdana's cellar
