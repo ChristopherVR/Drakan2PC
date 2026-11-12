@@ -10,9 +10,12 @@
 // instead the world update all but stopped Rynn (the Surdana cellar fault).
 //
 // The native tick FUN_0041f848 computes its target and tests it against the world itself (FUN_0021ad48, then
-// FUN_0021b280); the glue reads the target those tests returned. Only the part from the pivot to that target turns
-// with her. The lag stays where it is, in the space she just came through, and the native easing takes it up as
-// before. No ray is cast and no guest function is called for this; this header is the arithmetic.
+// FUN_0021b280); the glue reads the target those tests returned. The camera position is split into the part from the
+// pivot to that target and the lag from the target to the camera. Both turn with her, but the lag is shortened by
+// the size of the turn: a quick turn takes it away within a few ticks, which brings the camera onto the native,
+// world-tested target; running straight or along a gentle bend leaves it as it was. (Leaving the lag fixed in the
+// world instead cured the staircase and made winding tunnels worse: the lag then pokes into the far wall of a bend.)
+// No ray is cast and no guest function is called for this; this header is the arithmetic.
 #pragma once
 #include <cmath>
 
@@ -26,8 +29,18 @@ inline bool carryFinite(const float v[3]) {
     return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
 }
 
-// Splits the camera position into the part that turns with Rynn (pivot -> native target of the last tick) and the
-// travel lag (that target -> camera), which keeps its place. targetAge: camera ticks since the glue reported the
+// A turn of this many radians in one camera tick takes the whole lag away; smaller turns take their share, so that a
+// turn of a given size leaves about the same lag at any tick rate: roughly exp(-turn / kLagTurn), 55 % after 17
+// degrees, 35 % after 30, 4 % after 90.
+constexpr float kLagTurn = 0.5f;
+
+inline float lagKeptAfterTurn(float yaw) {
+    const float kept = 1.0f - std::fabs(yaw) / kLagTurn;
+    return kept > 0.0f ? kept : 0.0f;
+}
+
+// Splits the camera position into the part up to the native target of the last tick (pivot -> target) and the
+// travel lag (target -> camera). targetAge: camera ticks since the glue reported the
 // target (1 = the tick before this one, the only age that is used). Returns false when the whole offset has to
 // turn.
 inline bool splitTravelLag(bool enabled, int targetAge, const float camera[3], const float lastTarget[3],

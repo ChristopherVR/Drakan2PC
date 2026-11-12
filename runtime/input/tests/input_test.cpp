@@ -3035,8 +3035,9 @@ static void testFreeMouseCombat() {
     CHECK(!m.freeCombatActive());
 }
 
-// Issue 6 item 1: a turn carries the camera round Rynn only as far out as the native camera target; the travel lag
-// keeps its place, so a quick turn at the head of a staircase cannot swing it through a wall (input/CameraCarry.h).
+// Issue 6 item 1: a turn carries the camera round Rynn as far out as the native camera target; the travel lag behind
+// it is shortened by the turn, so a quick turn at the head of a staircase cannot swing it through a wall
+// (input/CameraCarry.h).
 static void testCameraTravelLag() {
     // Policy. Rynn's pivot at the origin, the native target 1000 units behind her (-x), the camera trailing it by a
     // further 600 units along the way she came.
@@ -3099,9 +3100,15 @@ static void testCameraTravelLag() {
         NEAR(g.readF(camObj + 0x14), x, 1e-2);
         NEAR(g.readF(camObj + 0x1c), z, 1e-2);
     };
+    // How much of the lag a turn leaves.
+    NEAR(lagKeptAfterTurn(0.0f), 1.0, 1e-6);
+    NEAR(lagKeptAfterTurn(0.01f), 0.98, 1e-6); // a gentle bend
+    NEAR(lagKeptAfterTurn(-0.25f), 0.5, 1e-6); // either way
+    NEAR(lagKeptAfterTurn(0.5f), 0.0, 1e-6);
+    NEAR(lagKeptAfterTurn(1.5708f), 0.0, 1e-6); // never negative
     float x = 0, z = 0;
-    run(true, true, x, z); // the target part swings to +z, the lag stays behind where she came from (-x)
-    NEAR(x, -600.0, 1e-2);
+    run(true, true, x, z); // 90 degrees in one tick: the target part swings to +z and the lag is gone
+    NEAR(x, 0.0, 1e-2);
     NEAR(z, 1000.0, 1e-2);
     run(false, true, x, z); // switched off: the whole 1600 units swing round, as before
     NEAR(x, 0.0, 1e-2);

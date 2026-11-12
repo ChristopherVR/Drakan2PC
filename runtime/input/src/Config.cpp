@@ -312,7 +312,7 @@ invert_y = 0
 pitch_persist = 1          ; the camera pitch stays where the mouse left it (the game's automatic re-centring is switched off while you look with the mouse; a pad right stick still re-centres)
 free_combat = 1            ; free combat look; explicit target lock and bow aiming remain available
 camera_follow = 5          ; mouse / keyboard on foot: turning carries the camera round Rynn at once, its travel behind her eases at this rate (1/s; higher = stiffer, 0 = the game's own slow rubber band)
-camera_lag_in_place = 1    ; with camera_follow: a turn carries the camera round Rynn only as far out as the game's own camera target; the distance it trails behind a running Rynn stays where it is, so a quick turn in a narrow room cannot swing it through a wall (0 = the whole offset turns, as before)
+camera_lag_in_place = 1    ; with camera_follow: the distance the camera trails behind a running Rynn is shortened by a turn instead of being swung round her whole, so a quick turn in a narrow room cannot swing it through a wall (0 = the whole offset turns, as before)
 pitch_view_gain = 1.8      ; the game shows 1.8x the camera pitch on foot; mouse up / down is divided by this so both axes turn the view equally (1 = old feel)
 bow_draw = 1             ; hold left to show the drawn bow (aiming stance on the torso until the release); 0 = pose only on release
 bow_aim = ootf             ; ootf: hold left to draw and aim (crosshair), release to shoot, walk any direction, right click toggles the first-person sight; native = the original PS2 bow (click fires); modern = ootf without the first-person sight adapters

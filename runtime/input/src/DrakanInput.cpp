@@ -836,8 +836,8 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
                                12 * static_cast<uint32_t>(i)); // camera axes: columns of +0x20
             back[i] = g.readF(obj + camera_.layout.transformBack + 12 * static_cast<uint32_t>(i));
         }
-        // Only the part up to the native target of the last tick turns with her; the travel lag keeps its place
-        // (input/CameraCarry.h). Without that target the whole offset turns, as it always did.
+        // The part up to the native target of the last tick and the travel lag behind it (input/CameraCarry.h).
+        // Without that target there is no lag to treat apart and the whole offset turns, as it always did.
         float turning[3];
         if (splitTravelLag(cfg_.cameraLagInPlace, cameraTick_ - cameraTargetTick_, camera, cameraTarget_, pivot,
                            turning, lag))
@@ -857,6 +857,11 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
         rotateAbout(off, up, yaw);
         rotateAbout(right, up, yaw);
         rotateAbout(back, up, yaw);
+        // The lag turns with her too, shortened by the size of the turn.
+        rotateAbout(lag, up, yaw);
+        const float kept = lagKeptAfterTurn(yaw);
+        for (float& v : lag)
+            v *= kept;
         // Looking up (pitch +) tilts the camera's back axis down and lowers it behind her; the view turns by the
         // branch's gain (1.8 on foot) times the pitch change. Pick the rotation sense from the back axis.
         const float rl = std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
