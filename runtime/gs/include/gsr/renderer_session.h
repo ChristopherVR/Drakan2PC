@@ -23,6 +23,7 @@ struct Record {
     Config::Api api = Config::Api::Auto;
     End end = End::None;
     unsigned abnormalInRow = 0; // sessions on this renderer in a row that ended as Running or DeviceLost
+    unsigned lostInRow = 0;     // of those, sessions in a row that ended with a lost device (DeviceLost)
     std::string reason;         // the driver's text of a device loss
 };
 
@@ -100,7 +101,52 @@ inline Record begin(const Record& previous, Config::Api api) {
     const bool abnormal = previous.end == End::Running || previous.end == End::DeviceLost;
     r.abnormalInRow = sameRenderer && abnormal ? previous.abnormalInRow : 0;
     ++r.abnormalInRow; // this session counts until it ends cleanly
+    r.lostInRow = sameRenderer && previous.end == End::DeviceLost ? previous.lostInRow : 0;
     return r;
+}
+
+// The record of a session whose device was just lost (`reason`: what happened, for the log and the next start).
+inline Record lost(Record r, const std::string& reason) {
+    r.end = End::DeviceLost;
+    r.reason = reason;
+    ++r.lostInRow;
+    return r;
+}
+
+// What the player is told when the device is lost during play, before the game closes. Plain words only: no API or
+// driver names, no em-dashes. `current`: the session's record after lost(); `reason`: what the backend reported. The
+// Direct3D 11 backend reports plain words that complete "The graphics card stopped working: ..."
+// (gsr::device_loss::plainWords); the WebGPU backend reports wgpu-native's own text, which goes to the log and the
+// record only. `fallback`: the next start begins on Direct3D 11 once (lossFallsBack).
+// - A loss on Direct3D 11 changes nothing at the next start: there is no renderer that is safer than it (the shared
+//   renderer has its own losses, and Direct3D 11 is the one the WebGPU path falls back to), so the notice is all.
+// - A second loss in a row on the same renderer says so and puts the driver update first.
+inline std::string lossNotice(const Record& current, const std::string& reason, bool fallback) {
+    const bool plain = current.api == Config::Api::D3D11 && !reason.empty();
+    std::string text = "The graphics card stopped working: " +
+                       (plain ? reason : std::string("the graphics driver stopped responding")) + ".\n\n";
+    text += "The game will close now. Progress since your last save is lost.\n\n";
+    if (fallback)
+        text += "The next start uses the Direct3D 11 renderer once; your renderer setting is not changed.\n\n";
+    if (current.lostInRow >= 2)
+        text += "This has happened in " + std::to_string(current.lostInRow) +
+                " sessions in a row. Please update your graphics driver before you play again. If it still happens, "
+                "lower the Internal render scale in the settings (F1) and turn off the ray-traced effects (shadows, "
+                "reflections, global illumination).";
+    else
+        text += "If this happens again: update your graphics driver, lower the Internal render scale in the settings "
+                "(F1), or turn off the ray-traced effects (shadows, reflections, global illumination).";
+    return text;
+}
+
+// The title of that notice.
+inline const char* lossNoticeTitle() {
+    return "Drakan: the graphics card stopped working";
+}
+
+// True when the next start after a loss on `api` begins on Direct3D 11 once (the rule of decide()).
+inline bool lossFallsBack(Config::Api api, bool haveD3D11) {
+    return api == Config::Api::WebGpu && haveD3D11;
 }
 
 inline std::string serialize(const Record& r) {
@@ -114,7 +160,7 @@ inline std::string serialize(const Record& r) {
         if (c == '\n' || c == '\r')
             c = ' ';
     return std::string("renderer=") + api + "\nend=" + end + "\nabnormal=" + std::to_string(r.abnormalInRow) +
-           "\nreason=" + reason + "\n";
+           "\nlost=" + std::to_string(r.lostInRow) + "\nreason=" + reason + "\n";
 }
 
 inline Record parse(const std::string& text) {
@@ -137,12 +183,12 @@ inline Record parse(const std::string& text) {
                     : value == "clean"       ? End::Clean
                     : value == "device-lost" ? End::DeviceLost
                                              : End::None;
-        else if (key == "abnormal") {
+        else if (key == "abnormal" || key == "lost") {
             unsigned n = 0;
             for (const char c : value)
                 if (c >= '0' && c <= '9' && n < 1000)
                     n = n * 10 + unsigned(c - '0');
-            r.abnormalInRow = n;
+            (key == "lost" ? r.lostInRow : r.abnormalInRow) = n;
         } else if (key == "reason")
             r.reason = value;
     }
