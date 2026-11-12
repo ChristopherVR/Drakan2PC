@@ -507,7 +507,25 @@ struct Renderer::Impl {
             ca = o.a;
             cfog = o.fog;
         }
+        // The queue holds what the last strip left in it: its last two vertices (a following tag without PRIM
+        // continues that strip, as it does after the packets of the microprogram). Nothing is drawn here.
         qn = 0;
+        if (h.stripCount) {
+            const uint32_t n = rec.strips[h.stripCount - 1];
+            for (uint32_t i = n > 2 ? n - 2 : 0; i < n; ++i) {
+                const vp::Output o = vp::evaluate(h.program, *rec.constants, rec.vertices[h.vertexCount - n + i]);
+                cs = asFloat(o.s);
+                ct = asFloat(o.t);
+                cq = asFloat(o.q);
+                cr = o.r;
+                cg = o.g;
+                cb = o.b;
+                ca = o.a;
+                cfog = o.fog;
+                kick(o.x, o.y, o.z, -1, false);
+                stats.vertices--; // counted above
+            }
+        }
         if (programDebug & 1)
             flushProgram();
     }

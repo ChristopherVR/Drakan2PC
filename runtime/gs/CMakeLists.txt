@@ -539,6 +539,28 @@ if(GSR_BUILD_TESTS)
   set_tests_properties(live PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
 endif()
 
+# A vertex-program record draws exactly what the packets of the microprogram draw (tests/test_vertex_records.cpp):
+# whole frames and depth, every evaluation mode of the control word, the toggle and the fallback counters, on
+# Direct3D 11 and on the WebGPU backend over Vulkan and Direct3D 12. 77 = no hardware adapter of that kind.
+if(GSR_BUILD_TESTS)
+  add_executable(gsr_test_vertex_records tests/test_vertex_records.cpp)
+  target_link_libraries(gsr_test_vertex_records PRIVATE gsr)
+  target_include_directories(gsr_test_vertex_records PRIVATE src)
+  add_test(NAME vertex_records COMMAND gsr_test_vertex_records)
+  set_tests_properties(vertex_records PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 900)
+  if(TARGET gsr_webgpu)
+    add_executable(gsr_test_vertex_records_webgpu tests/test_vertex_records.cpp)
+    target_link_libraries(gsr_test_vertex_records_webgpu PRIVATE gsr_webgpu)
+    target_compile_definitions(gsr_test_vertex_records_webgpu PRIVATE GSR_TEST_WEBGPU=1)
+    target_include_directories(gsr_test_vertex_records_webgpu PRIVATE src)
+    drakan_stage_webgpu(gsr_test_vertex_records_webgpu)
+    add_test(NAME vertex_records_webgpu_vulkan COMMAND gsr_test_vertex_records_webgpu --gpu-api vulkan)
+    add_test(NAME vertex_records_webgpu_d3d12 COMMAND gsr_test_vertex_records_webgpu --gpu-api d3d12)
+    set_tests_properties(vertex_records_webgpu_vulkan vertex_records_webgpu_d3d12 PROPERTIES
+      SKIP_RETURN_CODE 77 TIMEOUT 900)
+  endif()
+endif()
+
 # Project warning flags for every test / tool executable defined above.
 get_directory_property(GSR_DIR_TARGETS BUILDSYSTEM_TARGETS)
 foreach(tgt IN LISTS GSR_DIR_TARGETS)
