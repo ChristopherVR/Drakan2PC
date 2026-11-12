@@ -221,15 +221,111 @@ Files tab, **Materials** button (`editor/packages/app/src/materialsui.ts`, pure 
 Normal / ORM and a three.js `MeshStandardMaterial` sphere or plane (room environment, light angle slider, Normal / ORM toggles) with
 the JSON's blend mode, two-sidedness, emissive and tiling applied. It works without a disc.
 
-### Renderer (runtime/gs): not done
+### Renderer (runtime/gs)
 
-The D3D11 backend (`runtime/gs`) emulates the GS: it receives already transformed vertices with UV and vertex colour
-(`gs_shaders.h` `VSIn`), no normals, tangents or light list, and it samples one texture per draw. Using the normal / ORM maps there
-needs (1) per-vertex normals + tangents from the model draw path (the HLE model path in `scene_models.h` knows the 0x0203 normals but
-only for models it re-draws itself, not for terrain and the rest), (2) a world-space light (the game's lighting is baked into
-vertex colour, so a new light model must replace, not add to, it), (3) extra texture slots keyed by the same hash (`texture_dir`
-lookups `<hash>_n.png` / `_orm.png`) and a second shader permutation. That is a renderer project, not a safe addition; the maps are
-for the editor and the UE5 export today.
+When this section was written the renderer had no use for the maps. Since 2026-11-12 the Direct3D 11 backend shades
+relief from the hash-keyed maps of section 12 (`material_detail`): it derives the surface frame per pixel, so it needs
+no vertex normals or tangents, and it corrects the texel instead of replacing the game's baked lighting. The UE5-named
+pack of this section is still for the editor and the export.
+
+## 11. Refit to the source (2026-11-12)
+
+`hd_pack.py upscale` ends with a refit of every image it has a source for; `hd_pack.py refit` runs it alone (an
+existing pack, no GPU). `--no-refit` leaves the network's images as they are. Tests: `scripts/tests/test_hd_pack_refit.py`.
+
+Why: the network may add detail finer than a source texel, but the audit of the pack (journal
+`2026-11-12/gfx-materials.md`) found that it also moves the picture:
+
+* **Colour drift.** The pack image averaged back down to source size differs from the source by a median of 3 to 4
+  levels in its mean colour, more than 6 levels on 573 of the 2,962 disc textures and up to 31. Two textures drawn next
+  to each other (a terrain tile and the far-terrain atlas made from it) drift by different amounts.
+* **Lost grain.** 231 textures came out flatter than their source (snow, sand, fine noise): the network read the grain
+  as compression noise.
+* **Soft alpha.** Smoke, cloud and glow textures whose picture is in the alpha plane got strokes and shards in it
+  (the `realesrgan-x4plus-anime` model on alpha). The earlier fix only caught textures with constant RGB.
+
+What it does (`refit_image`): the difference between the source and the image averaged back down, low-passed over one
+source texel, is added back (the network's own finer detail stays); for a flattened texture there is no low-pass, so
+the image averages to the source almost exactly; a soft alpha plane (at least 16 alpha levels and a quarter of the
+visible texels in between) is replaced by the source's, enlarged bicubically. Transparent texels take no part (their
+colour is bled filler), tiling axes wrap, HUD sources (INTERFCE, SYSTEM, DEBUG, PS2MUSIC) keep the network's alpha.
+`refit_done.txt` in the pack lists `<hash>@<version>:<file size>`, so an image is refitted once and again only when a
+later upscale made it anew. Files are replaced through `refit-tmp-<hash>.png` (not a 16 hex digit name: the game never
+reads one), never written in place.
+
+Measured on the disc pack plus the installed Order of the Flame pack (5,371 images): see the journal for the counts
+and the time. It does not remove content the network invented at texel scale or above with the right mean colour
+(a cracked-rock look on a noise texture stays); that needs another model or a per-texture review.
+
+## 12. Material maps for the game and other engines (2026-11-12)
+
+`analysis/scripts/material_maps.py build --work <hdpack work> --hd <textures>` writes, next to the HD images and keyed
+like them by the content hash:
+
+| File in `<textures>/materials/` | Content |
+| --- | --- |
+| `<hash>_n.png` | tangent-space normal, RGB = xyz * 0.5 + 0.5, linear. +X = image right (+u), +Y = image **down** (+v): the DirectX / UE5 convention in the row order of `<hash>.png` itself |
+| `<hash>_orm.png` | R = ambient occlusion, G = roughness, B = metallic, linear (UE5 `TC_Masks`) |
+| `<hash>_h.png` | height, 8 bit grey, 128 = mean surface, linear; wraps where the texture tiles |
+| `materials.json` | schema 1, generator version, conventions and one record per hash: `class`, `classReason`, `sources` (`<TXD path>#<texture id>`), `sourceSize`, `size`, `fromHdImage`, `tiles`, `flatNormal`, `textures`, `scalars` (`roughnessMean`, `metallic`), `heuristics` |
+| `materials.txt` | the table the game reads: `<hash> <class id> <class> <mean roughness> <metallic>` |
+
+The maps have the source texture's size times `--scale` (default 2: half the 4x image, a quarter of its pixels) and the
+row order of `<hash>.png`, so whatever draws `<hash>.png` with some UVs samples the maps with the same UVs. The key is
+the renderer's content hash of the decoded guest texture: it does not depend on the disc region, the level or the pack
+a texture comes from (the same picture has the same hash everywhere; a picture whose palette alpha the game edits is
+reached through `alias.txt` like its HD image). `pbr_pack.py` (section 10) remains the exporter that renames, de-lights
+and flips images upright for UE5; this step is the plain, hash-keyed record the game and any other engine can read.
+
+Everything is a deterministic filter of the picture (no network, no random numbers; `--jobs` only splits the work):
+
+* **Height**: perceptual luminance with its large-scale shading divided out, summed as three bands (0.5, 1.5 and 5
+  source texels) weighted by their width, so stones and planks stand taller than grain. Bright = high. This is relief
+  from painted detail, not recovered geometry: painted lettering and stains become relief too.
+* **Normal**: central-difference slope per source texel times a class strength. **Occlusion**: cavities of the height,
+  0.6 .. 1. **Roughness**: class base, darker and recessed parts a little rougher. **Metallic**: 1 for the metal class.
+* **Classes** (`CLASSES`, ids are stable): `terrain` (the PROCTEES tile set), `character` (NPCS), then by the picture:
+  `foliage` (cut-out or green dominant), `stone` (low saturation), `metal` (neutral bluish with strong contrast),
+  `wood` (brown hue), else `surface`. No maps (`none`): HUD and effect sources, translucent layers, flat colours and
+  the level `*TS` far-terrain atlases (blurred mosaics with filler). The class is a guess; `classReason` says which
+  rule applied.
+
+Tests with synthetic textures: `scripts/tests/test_material_maps.py` (which way the normal leans, tiling, flat input,
+classes, file names and table, reproducible bytes, incremental rerun). The builder runs the step after the upscale
+(`extras.py`, step `hd-materials`).
+
+### In the game: `material_detail` (Direct3D 11)
+
+`[video] material_detail = off | hard | all` (PC Settings > Video > "Material detail"; env `GSR_MATERIAL_DETAIL`),
+`material_detail_strength` (0.25 .. 2), `material_specular` (0 .. 1, default 0). The default is `off` (opt-in until
+its look in motion has been checked in real play, see the journal). `off` binds none of it: the picture is
+the one without the feature. `hard` shades terrain, stone, wood, metal and generic surfaces; `all` adds characters and
+foliage.
+
+* **Loading.** The job that loads a texture's HD image also reads `<hash>_n.png` and `_orm.png` and packs them into one
+  RGBA8 texture with mips (R, G = normal x, y; B = occlusion relative to the map's mean; A = roughness;
+  `material::packTexels`). It counts against `texture_budget_mb` with the image it belongs to (plus one third at
+  `--scale 2`). A texture without an HD or upscaled copy, or without a record, has no material.
+* **Which draws.** Depth-tested perspective triangles of the open world phase whose texture colour is modulated by the
+  vertex colour (`material::eligible`): not the HUD, sprites, sky layers, decals, additive glows, render-target
+  textures or region-wrapped textures.
+* **Shading** (`gs_material.inc`, CPU mirror `material::shade`). The GS path has no normals or world positions, so the
+  pixel shader rebuilds them: the view-space position from the pixel and Q (1 / w, linear in screen space), the face
+  normal from its screen derivatives, the directions of u and v on the surface from the UV derivatives. The texel is
+  multiplied by `1 + strength * (n.x * T.L + n.y * B.L)`, clamped to 0.5 .. 1.6, where L is the level's sun
+  (`SceneLighting`, the directional light of the layer under the eye; a fixed light from above and to the side when
+  none is captured) and T, B the unit directions of u and v. The term of the flat normal is left out on purpose: the
+  game's baked vertex lighting already holds it, a flat normal changes nothing, and the mean of a texture does not
+  move. Faces turned from the light keep 35 % of the relief, cavities are darkened by half the occlusion, and the
+  effect fades between 60 and 120 m. The result is still multiplied by the vertex colour and fogged by the GS
+  pipeline, so the level's lighting, colour and fog stay as they are.
+* **Specular** (`material_specular`, off by default): a Blinn highlight from the same light, scaled by
+  (1 - roughness)^2. Roughness is an estimate per class, so this is opt-in.
+* **Other backends.** The table, the rule, the constants and the texel are in `runtime/gs/src/material_detail.h`
+  (no graphics API, test `gsr_test_material_detail`). The WebGPU backend does not load or shade materials yet; the
+  list of what it needs is in the journal.
+* Debug: `GSR_MATERIAL_DEBUG=1` face normal, `2` the map's normal, `3` the detail term alone, `4` the u direction;
+  `GSR_MATERIAL_LOG=1` prints the table size and, at exit, maps loaded, their bytes and draws shaded.
 
 ## Converted (Order of the Flame) levels
 
@@ -243,3 +339,17 @@ tiled then reported with exit 1) into `dist/DrakanPC/textures`. Full 13-level ca
 unmatched dump entries are non-texture noise and 1x1 fills).
 Textures the converter takes from the disc instead of converting (Drakan 2 textures for OotF objects, `docs/reference/modding.md`)
 are byte-for-byte copies, so their hash is the disc texture's: the Drakan 2 pack's replacement applies and `ootf_hd_pack.py` skips them.
+
+**HD sources of converted textures (2026-11-12).** With `ootf-convert.ts --hd` (the builder passes it when HD textures are on) the
+converter writes `<pack>.hdsrc/<sha1 of the 0x0040 record>.rgba` (`u32 w, u32 h, RGBA`) for every texture it quantised **or
+resized**, and for a resized one the file holds the PC pixels before the resize (`Ps2Texture.hdSource` in `ootftex.ts`): the
+64 px ground tiles it enlarges to 128, the textures it squares for skinned and display-list models (256 x 128 -> 256 x 256 and
+the like) and sizes it rounds up to a power of two. The guest texture and its hash are unchanged. `hd_pack.py modextract` indexes
+such a source with its own size (`sw`, `sh`, `exactv = 2`); `upscale` always writes the pack image at the guest size times
+`--scale`. An opaque source at most half the guest size (the ground tiles) is enlarged to the guest size with a wrap-around
+Lanczos and upscaled once (`--small-source enlarge`, the default): the network reads the soft enlargement as fine texture,
+while fed the 64 px tile itself, twice (`esrgan`: x4, to the guest size, x4 again), it draws sharper rock cracks but turns
+grass into a flat smear (seen in game); `lanczos` = one pass on the tile plus a resize, the softest. Any other size difference is a
+wrap-around Lanczos resize of colour and alpha separately (a premultiplied RGBA resize blackens the bled hole colour), with
+binary alpha sharpened again afterwards. `exact_done.txt` records `<hash>@2` for these, so images made from an older source
+(the quantised picture, or the enlarged 128 px copy) are redone once. Why and what it changes: `docs/journal/2026-11-12/ootf-texture-quality.md`.

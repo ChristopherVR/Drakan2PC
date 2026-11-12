@@ -71,9 +71,10 @@ STEPS: dict[str, Step] = {
         Step("hd-index", "Decode and index every texture", 0.5, 1.5, basis="15 s disc + 18 s Order of the Flame measured"),
         Step("hd-upscale", "Upscale the Drakan 2 textures x4 (2,962 textures, 1.2 GB)", 10.0, 15.0, gpu=True, basis="616 s on the reference GPU"),
         Step("hd-upscale-ootf", "Upscale the Order of the Flame textures (about 1,400 new ones)", 2.5, 4.0, gpu=True, basis="162 s on the reference GPU"),
+        Step("hd-materials", "Fit the images to their sources and make the material maps (no graphics card needed)", 6.0, 12.0, basis="refit 307 s on one core (run inside the upscale steps) + maps 179 s on six, Drakan 2 pack"),
     )
 }  # fmt: skip
-DISK_GB = {"ootf": 1.0, "hd": 2.0, "hd-ootf": 1.0}  # work files plus the finished pack; approximate
+DISK_GB = {"ootf": 1.0, "hd": 2.0, "hd-ootf": 1.0}  # work files, the finished pack and its material maps; approximate
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,7 @@ def plan(source_kind: str | None, hd: bool, tools_ready: bool = False, ootf_in_h
         keys += ["hd-index", "hd-upscale"]
         if source_kind if ootf_in_hd is None else ootf_in_hd:
             keys.append("hd-upscale-ootf")
+        keys.append("hd-materials")
     return keys
 
 
@@ -622,7 +624,7 @@ def converter_command(
         # the campaign's card cover and title / loading background (previews/campaign-ootf.png, background-ootf.png)
         cmd += ["--cover", str(cover)]
     if hd:
-        # lossless pixels of the textures the converter has to quantise, next to the pack (<out>.hdsrc); the HD step
+        # lossless sources of the textures the converter has to quantise or resize, next to the pack (<out>.hdsrc); the HD step
         # indexes and upscales them itself, so the converter does not start its own HD run
         cmd += ["--hd", "--hd-sources-only", "1"]
     return cmd
@@ -820,6 +822,17 @@ def run_hd(
         mark = time.time()
         upscale("the Order of the Flame textures")
         timings.record("hd-upscale-ootf", time.time() - mark)
+    # Material maps (normal, occlusion / roughness / metallic, height) of every upscaled texture, next to the images.
+    # The game's material detail setting reads them; only missing ones are made.
+    mark = time.time()
+    print("Making the material maps of the HD textures (no graphics card needed)", flush=True)
+    maps = hd_command(python, ANALYSIS / "material_maps.py", "build", "--work", str(work), "--hd", str(textures))
+    if run(maps, env=env, check=False).returncode:
+        raise ExtrasError(
+            "Making the material maps failed (see above). The HD textures themselves are complete; run the build again "
+            "to retry, or set material_detail = off in drakan.ini."
+        )
+    timings.record("hd-materials", time.time() - mark)
     return textures
 
 

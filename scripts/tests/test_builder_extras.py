@@ -74,11 +74,11 @@ class EstimateTests(unittest.TestCase):
         self.assertEqual(extras.plan(None, False), [])
         self.assertEqual(extras.plan("install", False), ["ootf-data", "ootf-convert"])
         self.assertEqual(extras.plan("image", False), ["ootf-source", "ootf-data", "ootf-convert"])
-        self.assertEqual(extras.plan(None, True), ["hd-tools", "hd-index", "hd-upscale"])
-        self.assertEqual(extras.plan(None, True, tools_ready=True), ["hd-index", "hd-upscale"])
+        self.assertEqual(extras.plan(None, True), ["hd-tools", "hd-index", "hd-upscale", "hd-materials"])
+        self.assertEqual(extras.plan(None, True, tools_ready=True), ["hd-index", "hd-upscale", "hd-materials"])
         self.assertEqual(
             extras.plan("install", True, True),
-            ["ootf-data", "ootf-convert", "hd-index", "hd-upscale", "hd-upscale-ootf"],
+            ["ootf-data", "ootf-convert", "hd-index", "hd-upscale", "hd-upscale-ootf", "hd-materials"],
         )
 
     def test_only_upscale_steps_scale_with_the_graphics_card(self):
@@ -842,7 +842,9 @@ class HdToolsTests(unittest.TestCase):
             )
         self.assertEqual(textures, self.dir / "play/textures")
         subcommands = [cmd[3] for cmd, _ in calls]
-        self.assertEqual(subcommands, ["extract", "upscale", "modextract", "upscale"])
+        self.assertEqual(subcommands, ["extract", "upscale", "modextract", "upscale", "build"])
+        self.assertTrue(calls[4][0][2].endswith("material_maps.py"), "the material maps follow the last upscale")
+        self.assertEqual(calls[4][0][calls[4][0].index("--hd") + 1], str(self.dir / "play/textures"))
         for cmd, env in calls:
             self.assertEqual(cmd[:2], ["py", "-I"], "hd_pack runs isolated")
             self.assertEqual(env["DRAKAN_PY_SITE"], str(self.root / "tools/hd-site"))
@@ -851,7 +853,7 @@ class HdToolsTests(unittest.TestCase):
         self.assertEqual(upscale[upscale.index("--gpu") + 1], "1")
         self.assertEqual(calls[2][0][calls[2][0].index("--zip") + 1], str(pack))
         timed = extras.Timings(self.root / "build/extras-timings.json").load()
-        for key in ("hd-index", "hd-upscale", "hd-upscale-ootf"):
+        for key in ("hd-index", "hd-upscale", "hd-upscale-ootf", "hd-materials"):
             self.assertIn(key, timed)
 
     def test_a_failed_upscale_is_reported_so_the_build_can_say_how_to_continue(self):

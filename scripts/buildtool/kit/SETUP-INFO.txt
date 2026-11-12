@@ -14,7 +14,7 @@ What happens:
      compiles at low priority so the PC stays responsive.
      Optional: add your own Drakan: Order of the Flame (PC) as a second
      campaign (3 to 8 minutes, 1 GB), and make HD textures with an AI upscaler
-     on your graphics card (11 to 20 minutes on a fast card, 17 to 31 with Order
+     on your graphics card (17 to 32 minutes on a fast card, 23 to 43 with Order
      of the Flame, more on older cards; the build shows the estimate for your PC).
   2. The builder is copied to the install folder.
   3. A build window opens. On the first run it downloads and installs

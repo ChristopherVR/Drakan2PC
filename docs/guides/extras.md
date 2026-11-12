@@ -15,6 +15,8 @@ Extraction writes to `build/hdpack`; upscaling writes replacements to `dist/Drak
 
 Turn **HD texture replacement** on or off in PC Settings. Rebuilds keep the pack. Linux and browser builds can use it too.
 
+The same build step also fits every upscaled image to its original (colour, grain, soft transparency) and writes material maps (normal, roughness, height) into `textures/materials`. **Material detail** in PC Settings uses them on the Direct3D 11 renderer; the maps are ordinary PNG files named by the same hash as the textures, so other tools can read them too.
+
 <!-- media:hd-compare -->
 
 ## Upscaled movies

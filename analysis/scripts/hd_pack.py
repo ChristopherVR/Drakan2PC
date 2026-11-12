@@ -5,7 +5,8 @@ r"""HD texture pack generator for the Drakan PC port (static recompilation). Rea
   python -I hd_pack.py compare  --dump DIR [--work DIR]              match rate of the offline hashes against a texture_dump of a real game run
   python -I hd_pack.py hybrid   --dump DIR [--work DIR]              add dump textures whose hash is not in the TXD index (runtime generated / edited ones)
   python -I hd_pack.py modextract --zip MOD.zip [--work DIR]         same for a converted mod pack (OotF levels): every SRSC member of the zip (TXD / ODB ...),
-                                                                     decoded RGBA hashed; then run 'upscale --work DIR --out <dist textures or local/...>'
+                                                                     decoded RGBA hashed (with <zip>.hdsrc: the converter's lossless source, which can be
+                                                                     smaller than the guest texture, is what gets upscaled); then run 'upscale --work DIR --out ...'
   python -I hd_pack.py upscale  [--out DIR] [--limit N] [--exe ...]  Real-ESRGAN (GPU) every source texture -> <out>/<hash>.png (resumable)
   python -I hd_pack.py all      [...]                                extract + upscale
 
@@ -248,6 +249,25 @@ def cmd_extract(a):
     print("textures %d undecodable %d unique %d" % (total, bad, len(index)))
 
 
+# Version of the lossless sources an index entry was made from. 1: the final-size picture before quantising (2026-11-02). 2: the
+# converter's source pixels before any resize (terrain enlarged 64 -> 128, textures squared for skinned and display-list models), so
+# a source can be smaller than the guest texture (sw / sh). exact_done.txt lists "<hash>@2" for version 2 (a bare hash = version 1),
+# so pack images made from an older source are redone once.
+EXACT_VERSION = 2
+
+
+def mark_exact(e, sw, sh):
+    e.update(exact=True, exactv=EXACT_VERSION, sw=int(sw), sh=int(sh))
+
+
+def exact_current(e, sw, sh):
+    return bool(e.get("exact")) and e.get("exactv") == EXACT_VERSION and (e.get("sw"), e.get("sh")) == (sw, sh)
+
+
+def exact_token(h, e):
+    return "%s@%d" % (h, e["exactv"]) if e.get("exactv", 1) > 1 else h
+
+
 def cmd_modextract(a):
     """Index the textures of a converted mod pack (zip) the way cmd_extract does for the disc. Work dir defaults to build/hdpack-mod."""
     import zipfile
@@ -268,7 +288,7 @@ def cmd_modextract(a):
     z = zipfile.ZipFile(a.zip)
     hdsrc = (
         a.zip + ".hdsrc"
-    )  # lossless pixels of textures the converter quantised (ootf-convert.ts --hd), by SHA-1 of the record
+    )  # lossless sources of textures the converter quantised or resized (ootf-convert.ts --hd), by SHA-1 of the record
     exact_n = 0
     for name in z.namelist():
         if name.endswith("/"):
@@ -299,8 +319,9 @@ def cmd_modextract(a):
                 ew, eh = struct.unpack("<II", raw[:8])
                 exact = np.frombuffer(raw, np.uint8, ew * eh * 4, 8).reshape(eh, ew, 4)
             e = index.get(hx)
-            if e is not None and exact is not None and not e.get("exact"):
-                e["exact"] = True  # earlier index had the quantised picture
+            if e is not None and exact is not None and not exact_current(e, ew, eh):
+                # earlier index had the quantised picture, or an older converter's final-size source
+                mark_exact(e, ew, eh)
                 Image.fromarray(exact, "RGBA").save(os.path.join(src, hx + ".png"))
                 exact_n += 1
             if e is None:
@@ -310,7 +331,7 @@ def cmd_modextract(a):
                     apartial=float(((rgba[..., 3] > 0) & (rgba[..., 3] < 0x80)).mean()),
                 )  # fmt: skip
                 if exact is not None:
-                    e["exact"] = True
+                    mark_exact(e, ew, eh)
                     Image.fromarray(exact, "RGBA").save(
                         os.path.join(src, hx + ".png")
                     )  # PNG alpha as the lossless source has it
@@ -464,6 +485,52 @@ def run_esrgan(exe, model, indir, outdir, scale=4, gpu=None, tile=0):
         raise RuntimeError("realesrgan failed (exit %d)" % r.returncode)
 
 
+def resize_padded(img, target, tx, ty):
+    """Lanczos resize of an HxWxC uint8 image to target (w, h) that wraps tiling axes (mirrors the others), so a tiling
+    texture stays seamless: a plain resize clamps at the border and leaves a visible seam where the tiles meet."""
+    if img.ndim == 3 and img.shape[2] == 4:
+        # colour and alpha apart: Pillow resizes RGBA premultiplied, which blackens the colour under alpha 0 (the
+        # bled hole colour) and gives cut-outs dark fringes once the renderer filters across their edges
+        rgb = resize_padded(img[..., :3], target, tx, ty)
+        al = resize_padded(np.repeat(img[..., 3:], 3, 2), target, tx, ty)[..., 0]
+        return np.dstack([rgb, al])
+    h, w = img.shape[:2]
+    tw, th = target
+    px, py = min(w, max(4, w // 16)), min(h, max(4, h // 16))  # at least the Lanczos support (3 px)
+    padded = pad_image(img, px, py, tx, ty)
+    sx, sy = tw / w, th / h
+    big = np.array(
+        Image.fromarray(padded).resize((round(padded.shape[1] * sx), round(padded.shape[0] * sy)), Image.LANCZOS)
+    )
+    ox, oy = round(px * sx), round(py * sy)
+    out = big[oy : oy + th, ox : ox + tw]
+    if out.shape[:2] != (th, tw):  # rounding left the crop short: plain resize
+        out = np.array(Image.fromarray(img).resize((tw, th), Image.LANCZOS))
+    return np.ascontiguousarray(out)
+
+
+def run_esrgan_retry(exe, model, folder, gpu, label):
+    """<folder>_in -> <folder>_out; nothing to do for an empty input. On a failure (out of VRAM, driver hiccup) one tiled retry,
+    then the textures are left without output (the caller reports them as failed)."""
+    if not any(os.scandir(folder + "_in")):
+        return
+    try:
+        run_esrgan(exe, model, folder + "_in", folder + "_out", 4, gpu)
+    except RuntimeError:
+        try:
+            run_esrgan(exe, model, folder + "_in", folder + "_out", 4, gpu, tile=128)
+        except RuntimeError as ex:
+            print("  %s chunk failed twice (%s); its textures are skipped, rerun to retry" % (label, ex))
+
+
+def first_pass(dirs, h, m):
+    """The network's x4 output of texture h with its padding cropped: (image, factor, crop x, crop y)."""
+    up = np.array(Image.open(os.path.join(dirs[m["model"]] + "_out", h + ".png")).convert("RGB"))
+    s = up.shape[1] // (m["w"] + 2 * m["px"])  # esrgan native 4x
+    cx, cy = m["px"] * s, m["py"] * s
+    return up[cy : cy + m["h"] * s, cx : cx + m["w"] * s], s, cx, cy
+
+
 def cmd_upscale(a):
     exe = os.path.abspath(a.exe)
     index = json.load(open(os.path.join(a.work, "index.json")))
@@ -480,7 +547,8 @@ def cmd_upscale(a):
     todo = [
         h
         for h in sorted(index)
-        if not os.path.exists(os.path.join(a.out, h + ".png")) or (index[h].get("exact") and h not in edone)
+        if not os.path.exists(os.path.join(a.out, h + ".png"))
+        or (index[h].get("exact") and exact_token(h, index[h]) not in edone)
     ]
     if a.limit:
         todo = todo[: a.limit]
@@ -494,7 +562,7 @@ def cmd_upscale(a):
         chunk = todo[c0 : c0 + a.chunk]
         tmp = os.path.join(a.work, "tmp")
         shutil.rmtree(tmp, ignore_errors=True)
-        dirs = {k: os.path.join(tmp, k) for k in ("rgb_x4", "rgb_anime", "alpha")}
+        dirs = {k: os.path.join(tmp, k) for k in ("rgb_x4", "rgb_anime", "alpha", "rgb_x4_2")}
         for k, d in dirs.items():
             os.makedirs(d + "_in")
             os.makedirs(d + "_out")
@@ -503,6 +571,15 @@ def cmd_upscale(a):
             e = index[h]
             im = np.array(Image.open(os.path.join(srcdirs[h], h + ".png")).convert("RGBA"))
             hh, ww = im.shape[:2]
+            gw, gh = int(e.get("w", ww)), int(e.get("h", hh))
+            small = bool((im[..., 3] == im[0, 0, 3]).all()) and gw >= 2 * ww and gh >= 2 * hh
+            if small and a.small_source == "enlarge":
+                # an opaque converter source at most half its guest size (OotF ground: 64 px PC tile, 128 px guest):
+                # enlarged smoothly to the guest size first, then one network pass. The network reads the soft
+                # enlargement as fine texture (grass blades); fed the 64 px tile itself it flattens grass into a smear
+                # (journal 2026-11-12/ootf-texture-quality.md)
+                im = resize_padded(im, (gw, gh), *tile_axis_ok(im[..., :3]))
+                hh, ww = im.shape[:2]
             rgb, alpha = im[..., :3], im[..., 3]
             tx, ty = tile_axis_ok(rgb)
             px, py = min(PAD, ww), min(PAD, hh)
@@ -529,11 +606,19 @@ def cmd_upscale(a):
                 Image.fromarray(np.repeat(ap[..., None], 3, 2), "RGB").save(
                     os.path.join(dirs["alpha"] + "_in", h + ".png")
                 )
+            # --small-source esrgan: the network runs twice on such a source (source x4, brought to the guest size, x4
+            # again). Sharper cracks on rock, but grass turns flat; not the default
+            pass2 = a.small_source == "esrgan" and small and model_dir == "rgb_x4"
             meta[h] = dict(
                 px=px,
                 py=py,
                 w=ww,
                 h=hh,
+                gw=gw,
+                gh=gh,
+                pass2=pass2,
+                tx=tx,
+                ty=ty,
                 ac=ac,
                 a0=int(alpha[0, 0]),
                 model=model_dir,
@@ -547,24 +632,30 @@ def cmd_upscale(a):
             ("rgb_anime", "realesrgan-x4plus-anime"),
             ("alpha", "realesrgan-x4plus-anime"),
         ):
-            if any(os.scandir(dirs[k] + "_in")):
-                try:
-                    run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu)
-                except (
-                    RuntimeError
-                ):  # out of VRAM / driver hiccup: retry tiled, else the textures of this model are skipped
-                    try:
-                        run_esrgan(exe, model, dirs[k] + "_in", dirs[k] + "_out", 4, a.gpu, tile=128)
-                    except RuntimeError as ex:
-                        print("  %s chunk failed twice (%s); its textures are skipped, rerun to retry" % (k, ex))
+            run_esrgan_retry(exe, model, dirs[k], a.gpu, k)
+
+        for h, m in meta.items():  # second pass for sources smaller than their guest texture
+            if m["pass2"] and os.path.exists(os.path.join(dirs["rgb_x4"] + "_out", h + ".png")):
+                # the first pass (source x4) brought down to the guest size, then x4 again: lands on guest x4 directly,
+                # with a quarter of the pixels a second pass over the whole first-pass output would cost
+                up = resize_padded(first_pass(dirs, h, m)[0], (m["gw"], m["gh"]), m["tx"], m["ty"])
+                qx, qy = min(PAD, up.shape[1]), min(PAD, up.shape[0])
+                Image.fromarray(pad_image(up, qx, qy, m["tx"], m["ty"]), "RGB").save(
+                    os.path.join(dirs["rgb_x4_2"] + "_in", h + ".png")
+                )
+                m["q"] = (qx, qy, up.shape[1], up.shape[0])
+        run_esrgan_retry(exe, "realesrgan-x4plus", dirs["rgb_x4_2"], a.gpu, "rgb_x4 second pass")
         for h, m in meta.items():
             if not os.path.exists(os.path.join(dirs[m["model"]] + "_out", h + ".png")):
                 failed.append(h)
                 continue
-            up = np.array(Image.open(os.path.join(dirs[m["model"]] + "_out", h + ".png")).convert("RGB"))
-            S = up.shape[1] // (m["w"] + 2 * m["px"])  # esrgan native 4x
-            cx, cy = m["px"] * S, m["py"] * S
-            up = up[cy : cy + m["h"] * S, cx : cx + m["w"] * S]
+            up, S, cx, cy = first_pass(dirs, h, m)
+            p2 = os.path.join(dirs["rgb_x4_2"] + "_out", h + ".png")
+            if m.get("q") and os.path.exists(p2):
+                qx, qy, qw, qh = m["q"]
+                up = np.array(Image.open(p2).convert("RGB"))[qy * 4 : qy * 4 + qh * 4, qx * 4 : qx * 4 + qw * 4]
+            elif m.get("q"):
+                print("  %s: second pass missing, the first pass is resized instead" % h)
             if m["ac"]:
                 al = np.full(up.shape[:2], m["a0"], np.uint8)
             elif m["smooth_alpha"]:
@@ -577,16 +668,20 @@ def cmd_upscale(a):
                 k = 6.0 if m["binary"] else 1.0
                 ua = np.clip((ua - 0.5) * k + 0.5, 0, 1)
                 al = (ua * 255 + 0.5).astype(np.uint8)
-            if scale != S:
-                im = Image.fromarray(np.dstack([up, al]), "RGBA").resize(
-                    (m["w"] * scale, m["h"] * scale), Image.LANCZOS
-                )
-                out = np.array(im)
-            else:
-                out = np.dstack([up, al])
+            # the pack image is the guest texture's size times --scale; a converter source of another size or shape
+            # (smaller terrain tile, a texture the converter squared) is resampled to it here
+            target = (m["gw"] * scale, m["gh"] * scale)
+            if al.shape != up.shape[:2]:
+                al = np.array(Image.fromarray(al, "L").resize((up.shape[1], up.shape[0]), Image.LANCZOS))
+            out = np.dstack([up, al])
+            if (out.shape[1], out.shape[0]) != target:
+                out = resize_padded(out, target, m["tx"], m["ty"])
+                if not m["ac"] and m["binary"]:  # the resize softened the cut-out edge again: back to a ~2 px ramp
+                    edge = np.clip((out[..., 3].astype(np.float32) / 255 - 0.5) * 6 + 0.5, 0, 1)
+                    out[..., 3] = (edge * 255 + 0.5).astype(np.uint8)
             save_png(os.path.join(a.out, h + ".png"), out, 6)
             if index[h].get("exact"):
-                edone.add(h)
+                edone.add(exact_token(h, index[h]))
             done += 1
         el = time.time() - t0
         print(
@@ -619,9 +714,173 @@ def cmd_upscale(a):
         return 1
 
 
+# ------------------------------------------------------------------------------------------------ refit to the source
+REFIT_VERSION = 1
+PURE_UI_TXDS = ("INTERFCE", "SYSTEM", "DEBUG", "PS2MUSIC")
+
+
+def _blur_wrap(img, sigma, tx, ty):
+    """Gaussian blur of an HxW float image: wrap-around on tiling axes, mirrored border on the others."""
+    if sigma <= 0:
+        return img
+    h, w = img.shape
+    px = 0 if tx else min(w, int(np.ceil(3 * sigma)) + 1)
+    py = 0 if ty else min(h, int(np.ceil(3 * sigma)) + 1)
+    if px or py:
+        img = np.pad(img, ((py, py), (px, px)), mode="symmetric")
+    hh, ww = img.shape
+    fy = np.fft.fftfreq(hh)[:, None]
+    fx = np.fft.rfftfreq(ww)[None, :]
+    out = np.fft.irfft2(np.fft.rfft2(img) * np.exp(-2.0 * (np.pi * sigma) ** 2 * (fx * fx + fy * fy)), s=(hh, ww))
+    return out[py : py + h, px : px + w]
+
+
+def _enlarge_wrap(img, f, tx, ty):
+    """Bicubic enlargement of an HxW float image by the integer factor f; wraps tiling axes (no seam), mirrors the others."""
+    pad = 2
+    p = np.pad(img, ((pad, pad), (0, 0)), mode="wrap" if ty else "symmetric")
+    p = np.pad(p, ((0, 0), (pad, pad)), mode="wrap" if tx else "symmetric")
+    big = np.array(Image.fromarray(p.astype(np.float32), "F").resize((p.shape[1] * f, p.shape[0] * f), Image.BICUBIC))
+    return big[pad * f : pad * f + img.shape[0] * f, pad * f : pad * f + img.shape[1] * f]
+
+
+def soft_alpha(alpha):
+    """A picture drawn in alpha (smoke, cloud, glow): many alpha levels and a large share of in-between texels. A
+    cut-out with an anti-aliased rim is not one."""
+    nz = alpha > 0
+    if not nz.any():
+        return False
+    top = int(alpha.max())
+    between = (alpha > 0) & (alpha < top)
+    return len(np.unique(alpha)) >= 16 and float(between.sum()) / float(nz.sum()) >= 0.25
+
+
+def refit_image(src, hd, ui_alpha=False):
+    """Make an upscaled image agree with its source: src HxWx4, hd (H*f)x(W*f)x4, both uint8 with PNG alpha.
+    -> (image, info) or (None, reason).
+
+    The network may add detail finer than a source texel; it may not move the picture. Two corrections:
+      * colour: the difference between the source and the image averaged back down to source size, low-passed over one
+        source texel (so the network's own fine detail stays), is added back. It removes the brightness and hue drift of
+        the network (up to 20 levels on some textures) and restores texel-scale grain where the network flattened a
+        texture (then there is no low-pass: the result averages to the source almost exactly).
+      * soft alpha (smoke, clouds, glows; not HUD art): the alpha plane is the source's, enlarged smoothly. The network
+        draws strokes and shards into soft alpha.
+    Transparent source texels do not take part (their colour is bled filler), tiling axes wrap."""
+    h, w = src.shape[:2]
+    if hd.shape[0] % h or hd.shape[1] % w or hd.shape[0] // h != hd.shape[1] // w:
+        return None, "size is not a whole multiple of the source"
+    f = hd.shape[1] // w
+    if f < 2:
+        return None, "not enlarged"
+    tx, ty = tile_axis_ok(src[..., :3])
+    alpha = src[..., 3]
+    aconst = bool((alpha == alpha[0, 0]).all())
+    if not aconst:
+        ax, ay = tile_axis_ok(np.repeat(alpha[..., None], 3, 2))
+        tx, ty = tx and ax, ty and ay
+    vis = np.ones((h, w), np.float32) if aconst else (alpha > 0).astype(np.float32)
+    if vis.sum() < 4:
+        return None, "nothing visible"
+    s = src[..., :3].astype(np.float32)
+    hdf = hd[..., :3].astype(np.float32)
+    down = hdf.reshape(h, f, w, f, 3).mean(axis=(1, 3))
+    res = (s - down) * vis[..., None]
+
+    def grain(img):  # texel-scale contrast of the visible part
+        g = img.mean(-1)
+        return float(np.sqrt((((g - _blur_wrap(g, 1.0, tx, ty)) * vis) ** 2).sum() / vis.sum()))
+
+    gs, gd = grain(s), grain(down)
+    flattened = gs > 1.5 and gd < 0.5 * gs
+    sigma = 0.0 if flattened else 1.0
+    wsum = np.maximum(_blur_wrap(vis, sigma, tx, ty), 1e-3)
+    out = hd.copy()
+    for c in range(3):
+        low = _blur_wrap(res[..., c], sigma, tx, ty) / wsum
+        out[..., c] = np.clip(hdf[..., c] + _enlarge_wrap(low, f, tx, ty) + 0.5, 0, 255).astype(np.uint8)
+    smooth = (not aconst) and (not ui_alpha) and soft_alpha(alpha)
+    if smooth:
+        out[..., 3] = np.clip(_enlarge_wrap(alpha.astype(np.float32), f, tx, ty) + 0.5, 0, 255).astype(np.uint8)
+    before = float(np.abs(res.sum(axis=(0, 1)) / vis.sum()).max())
+    after_down = out[..., :3].astype(np.float32).reshape(h, f, w, f, 3).mean(axis=(1, 3))
+    after = float(np.abs(((s - after_down) * vis[..., None]).sum(axis=(0, 1)) / vis.sum()).max())
+    return out, dict(shift_before=before, shift_after=after, flattened=flattened, soft_alpha=smooth)
+
+
+def cmd_refit(a):
+    """Refit every pack image that has an index entry to its source (refit_image). Runs once per image: the pack's
+    refit_done.txt lists "<hash>@<version>". No GPU. Files are replaced, never written in place."""
+    index = json.load(open(os.path.join(a.work, "index.json")))
+    srcdirs = {h: os.path.join(a.work, "src") for h in index}
+    p2 = os.path.join(a.work, "index_dump.json")
+    if os.path.exists(p2):
+        for h, e in json.load(open(p2)).items():
+            if h not in index:
+                index[h] = e
+                srcdirs[h] = os.path.join(a.work, "src_dump")
+    dest = os.path.abspath(a.refit_out) if getattr(a, "refit_out", None) else a.out
+    os.makedirs(dest, exist_ok=True)
+    rp = os.path.join(dest, "refit_done.txt")
+    done = set(open(rp).read().split()) if os.path.exists(rp) else set()
+
+    def token(h, folder):  # a file made again by a later upscale has another size and is refitted again
+        return "%s@%d:%d" % (h, REFIT_VERSION, os.path.getsize(os.path.join(folder, h + ".png")))
+
+    todo = [
+        h
+        for h in sorted(index)
+        if os.path.exists(os.path.join(a.out, h + ".png"))
+        and not (os.path.exists(os.path.join(dest, h + ".png")) and token(h, dest) in done)
+    ]
+    if a.limit:
+        todo = todo[: a.limit]
+    print("refit: %d of %d images to do" % (len(todo), len(index)), flush=True)
+    t0 = time.time()
+    changed = flat = soft = 0
+    worst = 0.0
+    for n, h in enumerate(todo):
+        e = index[h]
+        src = np.array(Image.open(os.path.join(srcdirs[h], h + ".png")).convert("RGBA"))
+        gw, gh = int(e.get("w", src.shape[1])), int(e.get("h", src.shape[0]))
+        if (src.shape[1], src.shape[0]) != (gw, gh):  # a converter source of another size: compare at the guest size
+            src = resize_padded(src, (gw, gh), *tile_axis_ok(src[..., :3]))
+        hd = np.array(Image.open(os.path.join(a.out, h + ".png")).convert("RGBA"))
+        ui_alpha = any(t in s.upper() for s in e.get("src", []) for t in PURE_UI_TXDS)
+        out, info = refit_image(src, hd, ui_alpha)
+        if out is not None:
+            tmp = os.path.join(dest, "refit-tmp-" + h + ".png")  # not a 16 hex digit name: the game never reads it
+            save_png(tmp, out, 6)
+            for attempt in range(20):  # the game may have the image open for a moment
+                try:
+                    os.replace(tmp, os.path.join(dest, h + ".png"))
+                    break
+                except PermissionError:
+                    if attempt == 19:
+                        raise
+                    time.sleep(0.25)
+            changed += 1
+            flat += int(info["flattened"])
+            soft += int(info["soft_alpha"])
+            worst = max(worst, info["shift_before"])
+        elif dest != a.out:
+            shutil.copyfile(os.path.join(a.out, h + ".png"), os.path.join(dest, h + ".png"))
+        done = {t for t in done if not t.startswith(h + "@")}
+        done.add(token(h, dest))
+        if (n + 1) % 500 == 0:
+            print("  %d / %d, %.0f s" % (n + 1, len(todo), time.time() - t0), flush=True)
+            open(rp, "w").write(" ".join(sorted(done)))
+    open(rp, "w").write(" ".join(sorted(done)))
+    print(
+        "refit finished: %d images in %.0f s (%d had lost their grain, %d soft alpha planes, largest colour drift %.1f levels)"
+        % (changed, time.time() - t0, flat, soft, worst)
+    )
+    return 0
+
+
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("cmd", choices=["extract", "modextract", "compare", "hybrid", "upscale", "all"])
+    p.add_argument("cmd", choices=["extract", "modextract", "compare", "hybrid", "upscale", "refit", "all"])
     p.add_argument("--iso", default=os.environ.get("DRAKAN_ISO", DEFAULT_ISO))
     p.add_argument("--work", default=os.path.join(ROOT, "build", "hdpack"))
     p.add_argument("--zip", help="modextract: converted mod pack (e.g. build/ootf-run/<name>/mods/ootf-levels.zip)")
@@ -632,7 +891,22 @@ def main():
     p.add_argument("--force", action="store_true", help="modextract: re-index a zip even if unchanged")
     p.add_argument("--chunk", type=int, default=300)
     p.add_argument("--scale", type=int, default=4)
+    p.add_argument(
+        "--small-source",
+        choices=["enlarge", "esrgan", "lanczos"],
+        default="enlarge",
+        help="upscale: an opaque converter source at most half its guest texture's size is enlarged to the guest size and "
+        "upscaled once (enlarge), runs the network twice (esrgan) or once plus a Lanczos resize (lanczos)",
+    )
     p.add_argument("--gpu", type=int, default=None)
+    p.add_argument(
+        "--no-refit",
+        action="store_true",
+        help="upscale: leave the network's images as they are (no colour / grain / soft alpha refit to the source)",
+    )
+    p.add_argument(
+        "--refit-out", help="refit: write the refitted images to this folder instead of replacing those in --out"
+    )
     a = p.parse_args()
     a.work, a.out = os.path.abspath(a.work), os.path.abspath(a.out)  # esrgan runs with cwd = its own folder
     if a.cmd in ("extract", "all") and not a.iso:
@@ -649,7 +923,12 @@ def main():
     if a.cmd == "hybrid":
         cmd_hybrid(a)
     if a.cmd in ("upscale", "all"):
-        sys.exit(cmd_upscale(a) or 0)
+        failed = cmd_upscale(a) or 0
+        if not a.no_refit:
+            cmd_refit(a)
+        sys.exit(failed)
+    if a.cmd == "refit":
+        sys.exit(cmd_refit(a))
 
 
 if __name__ == "__main__":
