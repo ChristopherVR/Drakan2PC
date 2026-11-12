@@ -78,4 +78,31 @@ inline double snapTickToRefresh(double measured, double refresh, double& carry) 
     carry = due - given;
     return given;
 }
+inline constexpr float kRopeTickLimit = 1.0f / 30.0f;
+inline constexpr int kRopeMaxSteps = 8;
+// 3e3610 (rope / cable swing, engine class 0x10049) adds velocity * tick to the rope's angle with a small-angle step
+// and only binds the objects the rope carries (3ab1f8 -> 3aafd8) after its first step. Both assume the console's steady
+// tick: a carried object stays behind the rope by the rope's first step for good, and one long tick (a load hitch, a
+// slow frame) leaves the swing off-centre for good. So the rope update runs as `steps` updates of `seconds` each: one
+// update of 0 s until its carried objects are bound (it binds them where the level placed them), otherwise the tick
+// split into equal parts of at most the console's 1/30 s (a tick longer than kRopeMaxSteps of those is cut short: the
+// rope then lags a frame slower than 4 per second instead of jumping).
+struct RopeTicks {
+    int steps;
+    float seconds;
+};
+inline RopeTicks ropeTicks(float tick, bool swinging, bool carries, bool carriedBound) {
+    if (!swinging || !(tick > 0.0f))
+        return {1, tick};
+    if (carries && !carriedBound)
+        return {1, 0.0f};
+    if (tick <= kRopeTickLimit)
+        return {1, tick};
+    int steps = static_cast<int>(tick / kRopeTickLimit);
+    if (static_cast<float>(steps) * kRopeTickLimit < tick)
+        ++steps;
+    if (steps > kRopeMaxSteps)
+        return {kRopeMaxSteps, kRopeTickLimit};
+    return {steps, tick / static_cast<float>(steps)};
+}
 } // namespace drakan_frame_rate

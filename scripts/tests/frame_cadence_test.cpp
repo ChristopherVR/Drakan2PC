@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <initializer_list>
+#include <utility>
 int main() {
     using drakan_frame_rate::useForwardWalkJump;
     assert(useForwardWalkJump(0x2f94b0, 2, 19, 0x101, 0, 1168));
@@ -70,6 +71,30 @@ int main() {
     assert(!keepUnrebuildableLighting(pass, {vt, 0xffffffffu, 0x165272cu, 0x17eb090u})); // light link rebuilds it
     assert(!keepUnrebuildableLighting(pass, {vt, 0xffffffffu, 0, 0}));                   // nothing to keep
     assert(!keepUnrebuildableLighting(pass, {vt + 8, 0xffffffffu, 0, 0x17eb090u}));      // not a scene object
+    // A rope update: 0 s until the objects it carries are bound to it, then steps of at most the console's 1/30 s.
+    using drakan_frame_rate::ropeTicks;
+    constexpr float tick30 = drakan_frame_rate::kRopeTickLimit;
+    auto rope = [](float tick, bool swinging, bool carries, bool bound) {
+        const auto t = ropeTicks(tick, swinging, carries, bound);
+        return std::pair<int, float>(t.steps, t.seconds);
+    };
+    auto total = [&](float tick) {
+        const auto t = ropeTicks(tick, true, true, true);
+        assert(t.seconds <= tick30 * 1.0001f);
+        return static_cast<float>(t.steps) * t.seconds;
+    };
+    assert(rope(0.004f, true, true, false) == std::make_pair(1, 0.0f));  // first step: bind the blade as placed
+    assert(rope(0.25f, true, true, false) == std::make_pair(1, 0.0f));   // also when that step is a load hitch
+    assert(rope(0.004f, true, true, true) == std::make_pair(1, 0.004f)); // bound: a fast tick passes through
+    assert(rope(tick30, true, true, true) == std::make_pair(1, tick30)); // the console tick passes through
+    assert(ropeTicks(0.05f, true, true, true).steps == 2);               // a 20 fps frame: two steps, same time
+    assert(std::fabs(total(0.05f) - 0.05f) < 1e-6f);
+    assert(ropeTicks(0.25f, true, true, true).steps == 8 && std::fabs(total(0.25f) - 0.25f) < 1e-6f);
+    assert(ropeTicks(2.0f, true, true, true).steps == drakan_frame_rate::kRopeMaxSteps); // a hitch is cut short
+    assert(std::fabs(total(2.0f) - 8 * tick30) < 1e-6f);
+    assert(rope(0.25f, true, false, false).first == 8);                  // carries nothing: nothing to bind
+    assert(rope(0.25f, false, true, false) == std::make_pair(1, 0.25f)); // waiting for its trigger, or falling: native
+    assert(rope(0.0f, true, true, true) == std::make_pair(1, 0.0f));
     // Tick time snaps to whole refreshes while keeping the clock's total.
     using drakan_frame_rate::snapTickToRefresh;
     constexpr double T = 1.0 / 59.9956;
