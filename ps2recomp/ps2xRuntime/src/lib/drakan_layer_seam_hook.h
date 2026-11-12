@@ -1,8 +1,9 @@
 #pragma once
 // Hooks on the PAL cell lookup 0x14b6b8, the actor refile 0x1496a0 and the refile "from no layer" 0x1499c8 that apply
 // drakan_layer_seam.h to the controlled actor and to the view layer.
-// DRAKAN_LAYER_SEAM_FIX=0 keeps the native behaviour (A/B test aid); DRAKAN_LAYER_SEAM_TRACE=1 logs every native
-// "no layer" result, =2 also every cell change inside DRAKAN_LAYER_SEAM_BOX="x0 x1 z0 z1" with its caller.
+// Off by default (the guard was replaced by the root-cause work of issue 6); DRAKAN_LAYER_SEAM_FIX=1 turns it on;
+// DRAKAN_LAYER_SEAM_TRACE=1 logs every native "no layer" result, =2 also every cell change inside
+// DRAKAN_LAYER_SEAM_BOX="x0 x1 z0 z1" with its caller.
 #include "drakan_layer_seam.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
@@ -28,7 +29,7 @@ inline bool haveFramePos = false;       // framePos: the controlled actor's posi
 inline float framePos[3] = {0.0f, 0.0f, 0.0f};
 inline int32_t viewLostFrom = kNoCell; // the view layer whose own lookup last found nothing (beyond kEdgeSlack)
 inline uint32_t knownLayers = 0;       // world +8 when the state above was recorded (a new level resets it)
-inline bool recoverEnabled = true;     // DRAKAN_LAYER_SEAM_FIX=0: native result kept
+inline bool recoverEnabled = false;    // off by default; DRAKAN_LAYER_SEAM_FIX=1 turns the guard on (experiment)
 inline bool trace = false;             // DRAKAN_LAYER_SEAM_TRACE=1: log every native "no layer" result (diagnosis)
 inline bool traceCallers = false;      // DRAKAN_LAYER_SEAM_TRACE=2: also every cell change inside DRAKAN_LAYER_SEAM_BOX
 inline float traceBox[4] = {-1e30f, 1e30f, -1e30f, 1e30f};
@@ -342,8 +343,9 @@ inline void fileHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
 inline void install(PS2Runtime& rt) {
     if (!drakan_region::build().identityAddresses) // SCES-500.06 addresses only
         return;
-    if (const char* e = std::getenv("DRAKAN_LAYER_SEAM_FIX"); e && e[0] == '0')
-        recoverEnabled = false;
+    // The guard (rules 1 to 4) was replaced by the search for the root cause (issue 6): off unless asked for.
+    if (const char* e = std::getenv("DRAKAN_LAYER_SEAM_FIX"); e && e[0] == '1')
+        recoverEnabled = true;
     if (const char* e = std::getenv("DRAKAN_LAYER_SEAM_TRACE"); e && (e[0] == '1' || e[0] == '2')) {
         trace = true;
         traceCallers = e[0] == '2';

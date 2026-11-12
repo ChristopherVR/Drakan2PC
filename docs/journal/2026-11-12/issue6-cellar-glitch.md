@@ -225,7 +225,14 @@ refused 1 to 38 rewinds per run outside placements. The one run of the ten that 
 frame 19558) did so in a placement: x went 461003, 463293, 465299 in three frames, past the 2048-unit window, and the
 search from -1 gave 195.
 
-## Fix
+## Fix (superseded: the guard is off by default)
+
+The owner and the coordinator stopped the guard approach after three revisions in one day (v13 undid placements,
+v14 let the west-wall hand-over back in, v15 needed a hook on the player update to tell a teleport from the engine's
+own rewind): every rule had to separate cases the engine does not separate. The guard below is now off unless
+`DRAKAN_LAYER_SEAM_FIX=1`, so the committed game behaves like the original; the work moved to the cause, the first
+lookup miss at the wall (section "Root cause" when it is written). What follows documents the guard as it was.
+
 
 `ps2recomp/ps2xRuntime/src/lib/drakan_layer_seam.h` (policy, unit tested) and `drakan_layer_seam_hook.h` (hooks on
 `0x14b6b8`, `0x1496a0`, `0x1499c8`), installed from `drakan_overrides.cpp` (PAL only). Only the controlled actor's
@@ -247,8 +254,7 @@ refiles and the view layer are touched; the only write to the actor is rule 4.
 4. **No long rewind.** When the player update rewinds the controlled actor without a layer (the filing called from
    `0x321548`) and the rewound position is more than 512 units from the position it saved at the end of the last frame
    (player `+0xbe4`, the caller's `s17` is the player), she is put at that saved position instead
-   (`rewindTooFar`). Only while she is without a layer because rule 1 refused a search; otherwise (a teleport, the
-   engine's own layer losses) the engine's rewind stands. A first try (v12) used the position of her last refile with a layer; the refile does not run every
+   (`rewindTooFar`). Not in a frame in which she teleported (see below): then the engine's rewind stands. A first try (v12) used the position of her last refile with a layer; the refile does not run every
    frame, so that position was stale (it was the placement point) and was dropped.
 
 Rejected on the way (each one built and driven, runs under `build/review/issue6-1/runs/`):
