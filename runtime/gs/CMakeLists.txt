@@ -86,6 +86,36 @@ if(TARGET drakan::gpu)
   endif()
 endif()
 
+# Vertex stages (gsr/vertex_stage.h): the description, its CPU evaluation and the integer arithmetic library on the
+# CPU; the generated WGSL on every graphics API under WebGPU; the generated HLSL on the software adapter as well
+# (vertex_program, further down, is the Direct3D 11 hardware run). GPU tests skip (77 / "skipped") without an adapter.
+if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
+  add_executable(gsr_test_vertex_stage tests/test_vertex_stage.cpp)
+  target_include_directories(gsr_test_vertex_stage PRIVATE src include)
+  target_link_libraries(gsr_test_vertex_stage PRIVATE Threads::Threads)
+  add_test(NAME vertex_stage COMMAND gsr_test_vertex_stage)
+  set_tests_properties(vertex_stage PROPERTIES TIMEOUT 300)
+  if(TARGET drakan::gpu)
+    add_executable(gsr_test_vertex_stage_webgpu tests/test_vertex_stage_webgpu.cpp)
+    target_include_directories(gsr_test_vertex_stage_webgpu PRIVATE src include)
+    target_link_libraries(gsr_test_vertex_stage_webgpu PRIVATE drakan::gpu)
+    drakan_stage_webgpu(gsr_test_vertex_stage_webgpu)
+    add_test(NAME vertex_stage_webgpu COMMAND gsr_test_vertex_stage_webgpu)
+    add_test(NAME vertex_stage_webgpu_vulkan COMMAND gsr_test_vertex_stage_webgpu)
+    set_tests_properties(vertex_stage_webgpu vertex_stage_webgpu_vulkan PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
+    set_tests_properties(vertex_stage_webgpu_vulkan PROPERTIES ENVIRONMENT "DRAKAN_GPU_BACKEND=vulkan")
+    if(WIN32)
+      add_test(NAME vertex_stage_webgpu_d3d12 COMMAND gsr_test_vertex_stage_webgpu)
+      set_tests_properties(vertex_stage_webgpu_d3d12 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300
+        ENVIRONMENT "DRAKAN_GPU_BACKEND=dx12")
+    endif()
+  endif()
+  if(WIN32)
+    add_test(NAME vertex_program_warp COMMAND gsr_test_vertex_program)
+    set_tests_properties(vertex_program_warp PROPERTIES TIMEOUT 600 ENVIRONMENT "GSR_VP_WARP=1")
+  endif()
+endif()
+
 # The GS emulation shared by both backends.
 add_library(gsr_core STATIC
   src/gs_core.cpp

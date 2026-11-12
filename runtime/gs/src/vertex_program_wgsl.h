@@ -1,0 +1,42 @@
+// WGSL around the generated vertex stages (gsr/vertex_stage.h, src/vertex_stage_emit.h): the two structures the
+// generated functions use, and the text of library plus stages. The includer adds its bindings, a function
+//   fn vpConstant(row: u32) -> vec4u      a row of the constants table (a storage buffer, or textureLoad of an
+//                                         rgba32uint texture where the vertex stage has no storage buffers)
+// and its entry point, which fills a VpIn and calls vpEvaluate (or vpEvaluateAt with another constants index).
+// WGSL has no 64-bit float, so the only arithmetic here is the integer library (vp::Arithmetic::Limbs).
+#pragma once
+#include "vertex_stage_emit.h"
+
+#include <string>
+
+namespace gsr {
+
+inline const char* kWgslVertexProgramHead = R"WGSL(
+struct VpIn {
+    pos: vec4u,
+    st: vec4u,
+    nrm: vec4i,
+    sel: vec4u, // x = constants index, y = program, z = constants index of the previous frame (motion)
+}
+struct VpRaw {
+    place: vec4u,  // x, y (16 bits each), z, fog lane (bits 4..11 fog, bit 15 skip)
+    colour: vec4u, // r g b a (0..255)
+    stq: vec4u,    // float bits of s, t, q
+}
+)WGSL";
+
+// Structures, library and the given stages (the game's when none are given). `previousPosition` adds
+// vpEvaluateAtPrevious, the position fields alone, for a second evaluation with the previous frame's constants (the
+// motion-vector twin).
+inline std::string vertexProgramWgsl(const std::vector<vp::StageEntry>& stages = vp::gameStages(),
+                                     bool previousPosition = false) {
+    std::string text = std::string(kWgslVertexProgramHead) +
+                       vp::emitLibrary(vp::ShaderLanguage::Wgsl, vp::Arithmetic::Limbs) +
+                       vp::emitStages(vp::ShaderLanguage::Wgsl, stages.data(), stages.size());
+    if (previousPosition)
+        text +=
+            vp::emitStages(vp::ShaderLanguage::Wgsl, stages.data(), stages.size(), vp::ir::kPositionFields, "Previous");
+    return text;
+}
+
+} // namespace gsr

@@ -49,6 +49,31 @@ indexed (one raw vertex per strip vertex instead of three per triangle), and eve
 
 Proof: see section "Proof log" below.
 
+## 2. Increment 2: one description of a stage, generated HLSL and WGSL, one arithmetic source
+
+Written by the `wgsl` subagent, checked and landed by the orchestrator; details, the operation list, the cost table
+and the root cause of the jitter bit are in [gpu-vertex-stages.md](gpu-vertex-stages.md).
+
+* `gsr/vertex_stage.h`: a stage is a list of operations over constant rows and vertex attributes; the two strip
+  stages are written in it. `ir::Evaluator` runs it on the CPU (the reference; `vp::evaluate` is pinned to it by the
+  test `vertex_stage`).
+* `gsr/vu_exact.inl`: the VU arithmetic on the bits of a float in 32-bit integers, one text compiled as C++
+  (`gsr/vu_limbs.h`) and emitted as HLSL and WGSL (`src/vertex_stage_emit.h`). The double functions of the study
+  remain as a second arithmetic for Direct3D 11. `vp::chooseArithmetic` picks per backend and adapter; integer limbs
+  are the default everywhere, so the path does not depend on the optional double feature of Direct3D 11.
+* `VSMain` (`gs_shaders.h`) now fixes the order of its two sums per coordinate with `precise`. Cause of the "61
+  positions differ in one last bit under jitter" of the study: FXC reordered the unprotected three-term sum
+  differently in each shader `VSMain` is inlined into. Consequence for the ordinary renderer, stated plainly: frames
+  without jitter are unchanged (hashes below); with DLSS on, `VSMain` gives the same bits as before (shown at vertex
+  level: the new entry point against the previous `VSMain` text, 1,215,215 jittered vertices, 0 differ), but the
+  velocity shader `VSMotion`, which inlines `VSMain`, may now round a jittered position like the colour pass where
+  it did not before. Whether it differed before was not measured.
+* Shader compile time is a constraint: FXC needs 6 to 10 s for the integer version of the draw's entry point (2 to 4 s
+  with doubles). A backend must compile it in the background and stay on the CPU path until it is ready; the shader
+  cache makes that once per machine.
+
+No renderer uses the generated shaders yet.
+
 ## Proof log
 
 | Date | What | Result |
@@ -58,6 +83,10 @@ Proof: see section "Proof log" below.
 | 2026-11-12 | The same live run again with the final build of increment 1 | the 9 shots after the notice are identical (4 records, 5 microprogram); 96,246 strip runs handed over, 3,703 not recognised |
 | 2026-11-12 | "`cpu` equals before": five captures without records (Surdana, cave, flight, inventory, Order of the Flame; `build/review/perf-gpu/caps`) replayed by this build on Direct3D 11, WebGPU on Vulkan and WebGPU on Direct3D 12 at scales 1, 3 and 8 with HD textures, against the hashes the renderer restructuring session made with a build of `1fa0fc3e` (`scripts/harness/replay_hash_check.py --reference`) | 45 comparisons, 162,585 frames, 0 differ |
 | 2026-11-12 | `runtime-tests` preset in a private tree of the main tree (111 tests): all pass except `ray_water_lost_signal` (timeout) and `spu2_test` under four parallel jobs on the loaded machine; both pass when run alone. `python scripts/run_tests.py`: OK. `scripts/repository_guard.py`: 0 prohibited | |
+| 2026-11-12 | Increment 2, re-run by the orchestrator in the main tree with `GSR_VP_RECORDS` = the 615,215 recorded vertices: `gsr_test_vertex_stage` (limb library against doubles and the processor's round-toward-zero, 16,000,000 operand triples x 18 operations; evaluators; `vp::evaluate`), `gsr_test_vertex_program` (Direct3D 11, RTX 5080: doubles and limbs, raw output and the draw's entry point, plain and jittered), `gsr_test_vertex_stage_webgpu` on Vulkan and on Direct3D 12 | 1,215,215 vertices per path, 0 differ on every path |
+| 2026-11-12 | Increment 2: five captures on Direct3D 11 at scales 1, 3, 8 against the reference hashes (the `VSMain` change) | 15 comparisons, 54,195 frames, 0 differ |
+| 2026-11-12 | Increment 2: `runtime-tests` preset, two parallel jobs | 168 tests, 0 failed, 6 skipped (need game data) |
+| 2026-11-12 | Increment 2: live, Surdana, owner's ini (3840x2160, DLSS quality), two screenshots looked at | world, HUD and character as expected; no comparison possible across runs |
 
 ## Not verified (running list)
 

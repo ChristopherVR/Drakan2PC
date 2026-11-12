@@ -61,8 +61,13 @@ struct VSOut
 VSOut VSMain(VSIn i)
 {
     VSOut o;
-    o.pos = float4(i.pf.x / cb_rt.x * 2.0 - 1.0, 1.0 - i.pf.y / cb_rt.y * 2.0, saturate(i.pf.z / cb_rt.z), 1.0);
-    o.pos.xy += cb_g.yz;   // temporal upscaler: sub-pixel jitter (NDC), zero for everything but the 3D world
+    // cb_g.yz: the temporal upscaler's sub-pixel jitter (NDC), zero for everything but the 3D world. `precise` fixes the
+    // order of the two sums per coordinate. Without it FXC chooses the order anew in every shader this function is
+    // inlined into (VSMotion, the vertex-program entry point), and a jittered position then differs in its last bit
+    // between two shaders that must cover the same pixels. The order written here is the one FXC gave VSMain.
+    precise float2 ndc = float2(i.pf.x / cb_rt.x * 2.0 + cb_g.y, -(i.pf.y / cb_rt.y) * 2.0 + cb_g.z);
+    ndc += float2(-1.0, 1.0);
+    o.pos = float4(ndc, saturate(i.pf.z / cb_rt.z), 1.0);
     o.col = i.col;
     o.stq = i.stq;
     o.fog = i.pf.w;

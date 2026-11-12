@@ -140,6 +140,8 @@ inline bool less(uint32_t a, uint32_t b) {
 }
 } // namespace vu
 
+// The hand-written twin of the stage evaluator of gsr/vertex_stage.h, which is the documented oracle (the shaders are
+// generated from the same description); tests/test_vertex_stage.cpp pins the two to each other.
 inline Output evaluate(uint32_t program, const Constants& k, const Vertex& v) {
     using namespace vu;
     uint32_t p[4], clip[4];
