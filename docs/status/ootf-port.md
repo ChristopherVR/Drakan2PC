@@ -402,6 +402,18 @@ Body does not move on terrain either (the Islands crate is most likely fixed), n
 other plate puzzles (Islands, Rift Crystal) do not enforce their order, old saves keep the old objects. Needs a regenerated
 pack and a new game. See [tomb push puzzle](../journal/2026-11-12/ootf-lair-push-puzzle.md).
 
+**November 12 white squares in the tomb (issue 5):** the "white squares floating looking like trigger points" in the same
+room are not trigger detectors. They are the room's three dynamic lights: a PC dynamic light keeps the visible object flag,
+and its converted class is a clone of the System light class, whose small white marker cube has a draw list. On the disc no
+placed dynamic light of a class with that model carries the flag, so the converter now clears it (formats `db1a9c3`,
+`ootfmarkers.ts`; 22 lights in seven levels, one byte each, nothing else in the pack changes). Detectors need nothing: the
+disc's detector boxes have no draw list, and a detector entity was not drawn in game even with a drawable box and the visible
+flag. Played before and after on full packs: the tomb without cubes, its push and plate detectors, the lair scene trigger,
+the walk-in exit box and the plate stand-in of Wartok Canyons all still fire. Open: only the tomb's lights were looked at,
+the other 19 were not visited; a weapon effect's light class with the same cube was not looked at. Needs a regenerated pack
+and a new game (the game refuses a save made on another pack build). See
+[detector squares](../journal/2026-11-12/ootf-detector-squares.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
