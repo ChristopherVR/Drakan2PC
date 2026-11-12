@@ -173,7 +173,7 @@ endif()
 # The WebGPU backend (docs/proposals/webgpu-renderer.md): every target with a WebGPU implementation.
 if(TARGET drakan::gs_rhi)
   add_library(gsr_webgpu_backend STATIC
-    src/wgpu_backend.cpp src/wgpu_backend_impl.h src/wgpu_device.cpp src/wgpu_targets.cpp src/wgpu_textures.cpp
+    src/wgpu_backend.cpp src/wgpu_backend_impl.h src/gs_backend_shared.h src/gs_texture_cache.inl src/wgpu_device.cpp src/wgpu_targets.cpp src/wgpu_textures.cpp
     src/wgpu_draw.cpp src/wgpu_present.cpp src/wgpu_capture.cpp src/wgpu_backdrop.cpp src/wgpu_movie.cpp
     src/wgpu_temporal.cpp src/wgpu_ray.cpp src/wgpu_ray.h src/ray_trace.wgsl src/gs_shaders_wgsl.h)
   # ray_trace.wgsl as a byte array (MSVC limits string literals to 16 KB); reconfigured when the shader changes.
@@ -270,7 +270,7 @@ target_compile_definitions(gsr_shader_compile PRIVATE NOMINMAX WIN32_LEAN_AND_ME
 target_link_libraries(gsr_shader_compile PUBLIC gsr_shader_cache d3dcompiler PRIVATE drakan::options)
 
 add_library(gsr_d3d11_backend STATIC
-  src/d3d11_backend.cpp src/d3d11_backend_impl.h
+  src/d3d11_backend.cpp src/d3d11_backend_impl.h src/gs_backend_shared.h src/gs_texture_cache.inl
   src/d3d11_device.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp src/d3d11_terrain.cpp src/d3d11_material.cpp
   src/d3d11_draw.cpp src/d3d11_present.cpp src/d3d11_capture.cpp src/d3d11_movie.cpp
   src/temporal.cpp src/temporal.h

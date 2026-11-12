@@ -97,14 +97,18 @@ void D3D11Backend::Impl::createMaterialTexture(UpDone& d) const {
         w = std::max(1u, w / 2);
         h = std::max(1u, h / 2);
     }
-    ComPtr<ID3D11Texture2D> texture;
-    if (FAILED(dev->CreateTexture2D(&td, init.data(), &texture)) ||
-        FAILED(dev->CreateShaderResourceView(texture.Get(), nullptr, &d.materialSrv))) {
-        d.materialSrv.Reset();
+    if (FAILED(dev->CreateTexture2D(&td, init.data(), &d.material.tex)) ||
+        FAILED(dev->CreateShaderResourceView(d.material.tex.Get(), nullptr, &d.material.srv))) {
+        d.material.reset();
         d.materialBytes = 0;
     }
     d.materialLevels.clear();
     d.materialLevels.shrink_to_fit();
+}
+
+void D3D11Backend::Impl::noteMaterialTexture(uint64_t bytes) {
+    materialGpu.texturesLoaded++;
+    materialGpu.bytes += bytes;
 }
 
 bool D3D11Backend::Impl::ensureMaterialGpu() {

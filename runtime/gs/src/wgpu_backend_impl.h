@@ -6,6 +6,7 @@
 // Private header shared by the wgpu_*.cpp files.
 #pragma once
 #include "gs_internal.h"
+#include "gs_backend_shared.h"
 #include "gs_texdecode.h"
 #include "gs_texup.h"
 #include "gs_palette_hd.h"
@@ -21,6 +22,7 @@
 #include "rt_texture_source.h"
 #include "rt_sync_rows.h"
 #include "rt_local_copy.h"
+#include "material_detail.h"
 #include "temporal_presentation.h"
 #include "runtime_flags.h"
 #include "rhi.h"
@@ -102,91 +104,11 @@ inline uint32_t roundUp(uint32_t v, uint32_t a) {
     return (v + a - 1) / a * a;
 }
 
-struct TexKey {
-    uint32_t tbp, tbw, psm, tw, th;
-    uint32_t mxl, clutKind;
-    uint32_t pad;
-    uint64_t clutHash, texa, mip1, mip2;
-    bool operator==(const TexKey& o) const { return std::memcmp(this, &o, sizeof(*this)) == 0; }
-};
-struct TexKeyHash {
-    size_t operator()(const TexKey& k) const {
-        const uint64_t* p = reinterpret_cast<const uint64_t*>(&k);
-        uint64_t h = 1469598103934665603ull;
-        for (size_t i = 0; i < sizeof(TexKey) / 8; ++i) {
-            h ^= p[i];
-            h *= 1099511628211ull;
-        }
-        return (size_t)h;
-    }
-};
-static_assert(sizeof(TexKey) % 8 == 0, "TexKey must have no padding");
-
-struct UpKey {
-    uint64_t hash;
-    uint32_t factor;
-    uint32_t packed; // algo | wrapS << 8 | wrapT << 9 | mxl << 12 | kind << 16 (0 upscale, 1 replacement)
-    bool operator==(const UpKey& o) const { return hash == o.hash && factor == o.factor && packed == o.packed; }
-};
-struct UpKeyHash {
-    size_t operator()(const UpKey& k) const {
-        return (size_t)(k.hash ^ ((uint64_t)k.factor * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)k.packed << 20));
-    }
-};
-struct UpEntry {
-    rhi::TexturePtr tex; // null = the job failed, keep the native texture
-    uint32_t factor = 1;
-    uint32_t mxl = 0; // last level of the copy (upscaledMipLevelMax): the draw's LOD clamp while it is bound
-    uint64_t bytes = 0;
-    uint64_t lastFrame = 0;
-};
-struct UpDone {
-    UpKey key;
-    uint32_t factor = 1, w = 0, h = 0; // physical level 0 size
-    std::vector<std::vector<uint32_t>> levels;
-    uint64_t us = 0;
-    bool replaced = false;
-    uint32_t gen = 0;
-};
-
-struct TexEntry {
-    rhi::TexturePtr tex;
-    std::shared_ptr<UpEntry> up; // upscaled / replaced version (preferred when set)
-    UpKey upKey{};
-    bool upWanted = false;
-    bool fontAtlas = false, menuArtwork = false;
-    uint64_t previewVersion = 0, previewHash = 0;
-    uint64_t paletteWait = 0;
-    float averageColor[3]{.35f, .35f, .35f};
-    uint8_t minimumAlpha = 0;
-    uint32_t reflectionTexture = ~0u;
-    uint64_t stamp = 0;
-    uint64_t checkedClock = 0;
-    uint64_t lastFrame = 0;
-    uint64_t bytes = 0;
-    uint64_t rawHash = 0;
-    const void* aliasTarget = nullptr;
-    uint64_t aliasWrites = 0;
-    std::vector<std::pair<uint32_t, uint32_t>> spans;
-    std::vector<std::vector<uint32_t>> cpu;
-    uint32_t w = 0, h = 0;
-};
-
-struct SlotInfo {
-    uint64_t windowStart = 0, lastDecode = 0, lastHash = 0;
-    uint32_t count = 0, changes = 0, sameRun = 0;
-    bool isVolatile = false, hashValid = false;
-    uint64_t lastIndexHash = 0;
-    bool indexValid = false;
-};
-
-struct PalettePlane {
-    std::atomic<bool> ready{false};
-    bool fromPack = false;
-    uint32_t factor = 1;
-    std::vector<uint8_t> map;
-    uint64_t lastFrame = 0;
-};
+// A sampled texture as the shared texture cache holds it (GpuTexture of gs_backend_shared.h).
+using GpuTexture = rhi::TexturePtr;
+using UpEntry = UpEntryOf<GpuTexture>;
+using UpDone = UpDoneOf<GpuTexture>;
+using TexEntry = TexEntryOf<GpuTexture>;
 
 struct RT {
     uint32_t fbp = 0, fbw = 1, cls = 0, psm = 0; // cls: 0 = 32-bit, 1 = 16-bit
@@ -298,6 +220,19 @@ private:
 };
 
 struct WgpuBackend::Impl {
+    // What this backend can do beyond the common interface (gs_backend_shared.h). Textures are created on the render
+    // thread (rhi::Device::writeTexture is ordered with the draws); the material and terrain shader fragments exist
+    // in HLSL only.
+    static constexpr BackendCaps kCaps{};
+    // Behind kCaps.terrainDetail / kCaps.materialDetail: declared for the shared code, never called.
+    void initTerrain();
+    void initMaterial();
+    void scanMaterials();
+    const material::Record* materialFor(uint64_t packHash) const;
+    void loadMaterialLevels(UpDone& d, const std::string& packDir, uint64_t packHash, const material::Record& record,
+                            uint32_t logicalW, uint32_t logicalH) const;
+    void createMaterialTexture(UpDone& d) const;
+    void noteMaterialTexture(uint64_t bytes);
     CpuProfile cpuProfile;
     LocalMemory& mem;
     Config cfg;
@@ -508,6 +443,10 @@ struct WgpuBackend::Impl {
     uint32_t pickFactor(uint32_t W, uint32_t H, bool ui = false) const;
     void submitJob(std::function<void()> job, bool urgent = false);
     void pushDone(UpDone&& d);
+    void createUpTexture(UpDone& d);
+    // Backend interface of the texture cache (see d3d11_backend_impl.h).
+    GpuTexture createSampledTexture(const std::vector<uint32_t>* levels, const uint32_t* lw, const uint32_t* lh,
+                                    uint32_t count, bool updatable, const char* label);
     void pumpUp(std::chrono::microseconds budget = std::chrono::microseconds(0)); // 0: drain everything
     void adoptUp(TexEntry& e);
     static void resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, uint32_t rh, uint32_t tw, uint32_t th,
@@ -561,7 +500,7 @@ struct WgpuBackend::Impl {
                               bool apply, uint64_t written);
     bool uploadCovers(uint32_t block) const;
     RT* aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans);
-    void copyAliasedBlocks(RT& rt, rhi::Texture& texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h);
+    void copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h);
     bool touchesUpload(const RT& rt) const;
     bool uploadRows(const RT& rt, uint32_t& y0, uint32_t& y1) const;
     std::vector<uint64_t> uploadBlocks;
@@ -588,6 +527,8 @@ struct WgpuBackend::Impl {
         uint8_t minimumAlpha = 0;
         uint32_t reflectionTexture = ~0u;
         uint32_t factor = 1;
+        rhi::Texture* materialSrv = nullptr; // never set: kCaps.materialDetail is false
+        uint8_t materialClass = 0;
     };
     RT* findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox, float& oy);
     std::pair<uint32_t, uint32_t> rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const;

@@ -20,6 +20,7 @@
 #include <wrl/client.h>
 
 #include "gs_internal.h"
+#include "gs_backend_shared.h"
 #include "gs_texdecode.h"
 #include "gs_texup.h"
 #include "gs_palette_hd.h"
@@ -129,117 +130,20 @@ inline uint32_t roundUp(uint32_t v, uint32_t a) {
     return (v + a - 1) / a * a;
 }
 
-struct TexKey {
-    uint32_t tbp, tbw, psm, tw, th;
-    uint32_t mxl, clutKind;
-    uint32_t pad;
-    uint64_t clutHash, texa, mip1, mip2;
-    bool operator==(const TexKey& o) const { return std::memcmp(this, &o, sizeof(*this)) == 0; }
-};
-struct TexKeyHash {
-    size_t operator()(const TexKey& k) const {
-        const uint64_t* p = reinterpret_cast<const uint64_t*>(&k);
-        uint64_t h = 1469598103934665603ull;
-        for (size_t i = 0; i < sizeof(TexKey) / 8; ++i) {
-            h ^= p[i];
-            h *= 1099511628211ull;
-        }
-        return (size_t)h;
-    }
-};
-static_assert(sizeof(TexKey) % 8 == 0, "TexKey must have no padding");
-
-// upscaled / replaced texture, shared by every TexEntry with the same content (hash of the decoded level 0 + dims)
-struct UpKey {
-    uint64_t hash;
-    uint32_t factor;
-    uint32_t packed; // algo | wrapS << 8 | wrapT << 9 | mxl << 12 | kind << 16 (0 upscale, 1 replacement)
-    bool operator==(const UpKey& o) const { return hash == o.hash && factor == o.factor && packed == o.packed; }
-};
-struct UpKeyHash {
-    size_t operator()(const UpKey& k) const {
-        return (size_t)(k.hash ^ ((uint64_t)k.factor * 0x9E3779B97F4A7C15ull) ^ ((uint64_t)k.packed << 20));
-    }
-};
-struct UpEntry {
-    ComPtr<ID3D11ShaderResourceView> srv; // null = the job failed, keep the native texture
-    ComPtr<ID3D11Texture2D> tex;
-    uint32_t factor = 1;
-    uint32_t mxl = 0; // last level of the copy (upscaledMipLevelMax): the draw's LOD clamp while it is bound
-    uint64_t bytes = 0;
-    uint64_t lastFrame = 0;
-    // Material map of the texture (material_detail.h, packTexels), null when it has none.
-    ComPtr<ID3D11ShaderResourceView> materialSrv;
-    uint8_t materialClass = 0;
-};
-struct UpDone {
-    UpKey key;
-    uint32_t factor = 1, w = 0, h = 0; // physical level 0 size
-    std::vector<std::vector<uint32_t>> levels;
-    uint64_t us = 0;
-    bool replaced = false;
-    uint32_t gen = 0; // upscale cache generation the job was started in; stale results are dropped
-    // The GPU texture, created by pushDone on the thread that finished the job (device calls are free-threaded):
-    // creating a 2048 pixel image with its mip chain copies about 22 MiB inside the driver, which stalled the
-    // render thread for tens of milliseconds when pumpUp did it. `levels` is emptied once the texture exists.
+// A sampled texture as the shared texture cache holds it (GpuTexture of gs_backend_shared.h).
+struct GpuTexture {
     ComPtr<ID3D11Texture2D> tex;
     ComPtr<ID3D11ShaderResourceView> srv;
-    uint32_t levelCount = 0;
-    uint64_t bytes = 0;
-    // Material map loaded by the same job (d3d11_material.cpp): levels until pushDone made the texture.
-    std::vector<std::vector<uint32_t>> materialLevels;
-    uint32_t materialW = 0, materialH = 0;
-    uint8_t materialClass = 0;
-    ComPtr<ID3D11ShaderResourceView> materialSrv;
-    uint64_t materialBytes = 0;
+    explicit operator bool() const { return srv != nullptr; }
+    ID3D11ShaderResourceView* get() const { return srv.Get(); }
+    void reset() {
+        srv.Reset();
+        tex.Reset();
+    }
 };
-
-struct TexEntry {
-    ComPtr<ID3D11Texture2D> tex;
-    ComPtr<ID3D11ShaderResourceView> srv;
-    std::shared_ptr<UpEntry> up; // upscaled / replaced version (preferred when set)
-    UpKey upKey{};
-    bool upWanted = false;
-    bool fontAtlas = false, menuArtwork = false;
-    uint64_t previewVersion = 0, previewHash = 0;
-    uint64_t paletteWait = 0; // index-plane hash whose HD index map was still building: decode again once it is ready
-    float averageColor[3]{.35f, .35f, .35f};
-    uint8_t minimumAlpha = 0;
-    uint32_t reflectionTexture = ~0u;
-    uint64_t stamp = 0;
-    uint64_t checkedClock = 0;
-    uint64_t lastFrame = 0;
-    uint64_t bytes = 0;
-    uint64_t rawHash = 0;              // LocalMemory::hashBlocks over spans when decoded
-    const void* aliasTarget = nullptr; // RT whose dirty blocks were copied in from its GPU texture
-    uint64_t aliasWrites = 0;
-    std::vector<std::pair<uint32_t, uint32_t>> spans;
-    std::vector<std::vector<uint32_t>>
-        cpu; // CPU copies of the levels (only kept when Config::onTexture is set, for the audit)
-    uint32_t w = 0, h = 0;
-};
-
-// Per texture-memory slot bookkeeping for palette / pixel animated textures (see resolveTexture): a slot that is
-// re-decoded many times in a short time is "volatile" (the highlighted menu entry, water / fire palette effects); it is
-// never dumped beyond the first variants and never replaced / upscaled.
-struct SlotInfo {
-    uint64_t windowStart = 0, lastDecode = 0, lastHash = 0;
-    uint32_t count = 0, changes = 0, sameRun = 0;
-    bool isVolatile = false, hashValid = false;
-    // indexed volatile slots: index-plane hash of the last decode; unchanged indices with a new decode = palette-only
-    // animation, which gets the HD index map path (gs_palette_hd.h)
-    uint64_t lastIndexHash = 0;
-    bool indexValid = false;
-};
-
-// HD index map of one palette-animated index plane, built once on the worker pool (ready is set last).
-struct PalettePlane {
-    std::atomic<bool> ready{false};
-    bool fromPack = false; // guided by an HD pack image (preferred) instead of the live upscaler
-    uint32_t factor = 1;
-    std::vector<uint8_t> map; // (w * factor) x (h * factor) palette indices
-    uint64_t lastFrame = 0;
-};
+using UpEntry = UpEntryOf<GpuTexture>;
+using UpDone = UpDoneOf<GpuTexture>;
+using TexEntry = TexEntryOf<GpuTexture>;
 
 struct RT {
     uint32_t fbp = 0, fbw = 1, cls = 0, psm = 0; // cls: 0 = 32-bit, 1 = 16-bit
@@ -386,6 +290,8 @@ private:
 };
 
 struct D3D11Backend::Impl {
+    // What this backend can do beyond the common interface (gs_backend_shared.h).
+    static constexpr BackendCaps kCaps{.texturesOffThread = true, .materialDetail = true, .terrainDetail = true};
     CpuProfile cpuProfile;
     LocalMemory& mem;
     Config cfg;
@@ -658,6 +564,7 @@ struct D3D11Backend::Impl {
     void loadMaterialLevels(UpDone& d, const std::string& packDir, uint64_t packHash, const material::Record& record,
                             uint32_t logicalW, uint32_t logicalH) const;
     void createMaterialTexture(UpDone& d) const;
+    void noteMaterialTexture(uint64_t bytes); // a material map entered the texture cache
     // Binds the material pixel shader, constants, map and sampler for this draw and returns true, or returns
     // false and leaves the pipeline alone.
     bool prepareMaterial(const GsDrawState& s, ID3D11ShaderResourceView* materialSrv, uint8_t materialClass,
@@ -788,6 +695,12 @@ struct D3D11Backend::Impl {
     uint32_t pickFactor(uint32_t W, uint32_t H, bool ui = false) const;
     void submitJob(std::function<void()> job, bool urgent = false);
     void pushDone(UpDone&& d);
+    void createUpTexture(UpDone& d);
+    // Backend interface of the texture cache: a sampled RGBA8 texture with `count` levels of the given sizes and
+    // pixels; `updatable` when target blocks are copied into it later (copyAliasedBlocks). Called from a texture
+    // worker thread when kCaps.texturesOffThread.
+    GpuTexture createSampledTexture(const std::vector<uint32_t>* levels, const uint32_t* lw, const uint32_t* lh,
+                                    uint32_t count, bool updatable, const char* label);
     void pumpUp(std::chrono::microseconds budget = std::chrono::microseconds(0)); // 0: drain everything
     void adoptUp(TexEntry& e);
     static void resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, uint32_t rh, uint32_t tw, uint32_t th,
@@ -848,7 +761,7 @@ struct D3D11Backend::Impl {
     bool uploadCovers(uint32_t block) const;
     void trimDirtyRows(RT& rt);
     RT* aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans);
-    void copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h);
+    void copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h);
     bool touchesUpload(const RT& rt) const;
     bool uploadRows(const RT& rt, uint32_t& y0, uint32_t& y1) const;
     std::vector<uint64_t> uploadBlocks; // blocks rewritten by the image upload in progress (beginTargetUpload)

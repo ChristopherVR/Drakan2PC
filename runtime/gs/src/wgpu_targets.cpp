@@ -539,7 +539,7 @@ RT* WgpuBackend::Impl::aliasedTarget(uint32_t psm, uint32_t mxl,
     return found;
 }
 
-void WgpuBackend::Impl::copyAliasedBlocks(RT& rt, rhi::Texture& texture, uint32_t tbp, uint32_t tbw, uint32_t w,
+void WgpuBackend::Impl::copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w,
                                           uint32_t h) {
     syncRT(rt); // rows memory leads must be in the target before its blocks are copied
     rhi::Texture* source = scale > 1 ? nativeGather(rt, rt.h, 0) : rt.tex.get();
@@ -556,7 +556,7 @@ void WgpuBackend::Impl::copyAliasedBlocks(RT& rt, rhi::Texture& texture, uint32_
                 continue;
             const auto [sx, sy] = it->second;
             const uint32_t cw = std::min(sx + 8, rt.w) - sx, ch = std::min(sy + 8, rt.h) - sy;
-            gpu->copyTexture(*source, 0, sx, sy, texture, 0, x, y, std::min(cw, w - x), std::min(ch, h - y));
+            gpu->copyTexture(*source, 0, sx, sy, *texture, 0, x, y, std::min(cw, w - x), std::min(ch, h - y));
         }
     st.aliasedTextures++;
 }

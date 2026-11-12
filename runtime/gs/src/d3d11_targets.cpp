@@ -958,7 +958,7 @@ RT* D3D11Backend::Impl::aliasedTarget(uint32_t psm, uint32_t mxl,
     return found;
 }
 
-void D3D11Backend::Impl::copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uint32_t tbp, uint32_t tbw, uint32_t w,
+void D3D11Backend::Impl::copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w,
                                            uint32_t h) {
     syncRT(rt); // rows memory leads must be in the target before its blocks are copied
     ID3D11Texture2D* source =
@@ -977,7 +977,7 @@ void D3D11Backend::Impl::copyAliasedBlocks(RT& rt, ID3D11Texture2D* texture, uin
                 continue;
             const auto [sx, sy] = it->second;
             const D3D11_BOX box{sx, sy, 0, std::min(sx + 8, rt.w), std::min(sy + 8, rt.h), 1};
-            ctx->CopySubresourceRegion(texture, 0, x, y, 0, source, 0, &box);
+            ctx->CopySubresourceRegion(texture.tex.Get(), 0, x, y, 0, source, 0, &box);
         }
     st.aliasedTextures++;
 }
