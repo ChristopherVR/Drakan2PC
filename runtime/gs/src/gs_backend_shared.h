@@ -37,6 +37,11 @@ struct BackendCaps {
     bool temporalUpscaler = false;
     // Readback prefetch: a staged copy of a scratch target the game stopped drawing, started without waiting.
     bool readbackPrefetch = false;
+    // Clean-block retention: a row refreshed from memory proves its blocks equal on both sides (syncRows).
+    bool cleanRowRefresh = false;
+    // Exact partial uploads: an image upload that is not aligned to its format's blocks is patched into the target
+    // under a bit mask, and a later read of exactly those bits needs no readback (partial_upload.h).
+    bool partialUploads = false;
     // GSR_RB_VERIFY: compare a target's GPU content with memory after a readback was avoided.
     bool readbackVerify = false;
 };

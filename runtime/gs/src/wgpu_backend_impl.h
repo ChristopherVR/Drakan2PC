@@ -22,6 +22,7 @@
 #include "rt_texture_source.h"
 #include "rt_sync_rows.h"
 #include "rt_local_copy.h"
+#include "partial_upload.h"
 #include "material_detail.h"
 #include "temporal_presentation.h"
 #include "runtime_flags.h"
@@ -87,6 +88,7 @@ struct RT {
     // Blocks an applied upload made identical on the GPU and in memory (completeTargetUpload), valid while rt.writes
     // still equals cleanWrites: any later GPU write invalidates the whole set. See d3d11_targets.cpp.
     std::vector<uint64_t> cleanBlocks;
+    std::unordered_map<uint32_t, uint32_t> cleanWords; // kCaps.partialUploads: never filled here
     uint64_t cleanWrites = ~0ull;
     hud::CanvasFrame inventoryCanvasFrame;
     uint64_t displaySeenFrame = ~0ull;
@@ -215,7 +217,13 @@ struct WgpuBackend::Impl {
     void logTemporalDraw(const RT& rt, const GsDrawState& s, uint32_t fpsm, int sx0, int sy0, int sx1, int sy1,
                          bool zte, uint32_t ztst);
     void prefetchReadback(RT& rt, bool stale = false);
-    void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi);
+    void verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi, uint32_t cmpBase = ~0u,
+                        uint32_t cmpFbw = 0, const PartialUpload* requested = nullptr);
+    bool readBitsAreClean(const RT& rt, const PartialUpload& requested) const;
+    // Behind kCaps.partialUploads: declared, never called.
+    bool beginPartialUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h);
+    void completePartialUpload(bool apply, uint64_t written);
+    bool uploadPartial = false;
     // Surface audit / pick diagnostics only (gs_draw.inl); the ray-scene reconstruction uses surfaceBuilder's camera.
     surface::CachedRasterToWorld surfaceCamera;
     uint64_t surfaceCameraSerial = ~0ull, surfaceXY = 0;
@@ -471,6 +479,15 @@ struct WgpuBackend::Impl {
     // the top-left of gatherTex; null when unavailable.
     rhi::Texture* nativeGather(RT& rt, uint32_t rows, uint32_t y0);
     void readbackRT(RT& rt);
+    // Backend interface of the target policy (gs_targets.inl).
+    const uint8_t* beginReadback(RT& rt, uint32_t y0, uint32_t y1, uint32_t& readScale, size_t& pitch);
+    void endReadback() {}
+    std::vector<uint8_t> readbackPixels; // beginReadback
+    void copyTargetTop(RT& src, RT& dst, uint32_t w, uint32_t h);
+    // Behind kCaps.partialUploads: declared, never called.
+    bool preparePartialPatch();
+    void patchTargetBlock(RT& rt, uint32_t bx, uint32_t by, const uint32_t* patch);
+    PartialUpload partialUpload;
     void syncRT(RT& rt);
     void syncRows(RT& rt, rt_sync::Rows rows);
     bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,

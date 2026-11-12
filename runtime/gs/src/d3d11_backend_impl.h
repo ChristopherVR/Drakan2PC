@@ -257,6 +257,8 @@ struct D3D11Backend::Impl {
                                        .motionVectors = true,
                                        .temporalUpscaler = true,
                                        .readbackPrefetch = true,
+                                       .cleanRowRefresh = true,
+                                       .partialUploads = true,
                                        .readbackVerify = true};
     CpuProfile cpuProfile;
     LocalMemory& mem;
@@ -706,11 +708,19 @@ struct D3D11Backend::Impl {
     static uint32_t unpackPixel(uint32_t psm, uint32_t v);
     void ensureStaging(uint32_t w, uint32_t h);
     void readbackRT(RT& rt);
+    // Backend interface of the target policy (gs_targets.inl).
+    const uint8_t* beginReadback(RT& rt, uint32_t y0, uint32_t y1, uint32_t& readScale, size_t& pitch);
+    void endReadback();
+    ID3D11Texture2D* readbackMapped = nullptr; // beginReadback .. endReadback
+    void copyTargetTop(RT& src, RT& dst, uint32_t w, uint32_t h);
+    bool preparePartialPatch();
+    // 8 x 8 native pixels at (bx, by): 64 pairs {bit mask, value}; the masked bits of the target become the value.
+    void patchTargetBlock(RT& rt, uint32_t bx, uint32_t by, const uint32_t* patch);
     void prefetchReadback(RT& rt, bool stale = false);
     void uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
     void syncRT(RT& rt);
     void syncRows(RT& rt, rt_sync::Rows rows);
-    bool lazySyncTarget(const RT& rt) const;
+    bool lazySyncTarget(const RT& rt) const { return rt_sync::lazySyncTarget(rt); } // d3d11_present.cpp
     void flushToMemory(uint32_t first, uint32_t last);
     void flushForRead(uint32_t first, uint32_t last, const VramRect* rect = nullptr);
     bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;

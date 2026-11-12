@@ -1,6 +1,10 @@
 // Render-target and depth-buffer management, readback to GS memory (WebGPU backend; policy as d3d11_targets.cpp).
 #include "wgpu_backend_impl.h"
 
+#define GSR_IMPL WgpuBackend::Impl
+#include "gs_targets.inl"
+#undef GSR_IMPL
+
 namespace gsr {
 
 void WgpuBackend::Impl::allocRT(RT& rt, uint32_t newH) {
@@ -22,40 +26,6 @@ void WgpuBackend::Impl::allocRT(RT& rt, uint32_t newH) {
     rt.rowStamp.resize(newH / rt.pageH(), 0);
     rt.rowFromMemory.resize(rt.rowStamp.size(), 1);
     rt.seen = 0; // force a stamp scan for the new rows
-}
-
-RT* WgpuBackend::Impl::getRT(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t needH) {
-    fbw = std::max(fbw, 1u);
-    const uint32_t cls = (psm == PSM_CT16 || psm == PSM_CT16S) ? 1u : 0u;
-    const uint32_t pitchBytes = fbw * 64u * (cls ? 2u : 4u);
-    const uint32_t base = fbp * 32u * 256u;
-    uint32_t maxRows = base < kVramSize ? (kVramSize - base) / pitchBytes : 0;
-    maxRows = std::max(maxRows, 64u);
-    maxRows = std::min(maxRows, 2048u);
-    RT* rt = nullptr;
-    for (auto& r : rts)
-        if (r->fbp == fbp && r->fbw == fbw && r->cls == cls) {
-            rt = r.get();
-            break;
-        }
-    const uint32_t ph = cls ? 64u : 32u;
-    needH = std::min(std::max(needH, 1u), maxRows);
-    if (!rt) {
-        rts.push_back(std::make_unique<RT>());
-        rt = rts.back().get();
-        rt->fbp = fbp;
-        rt->fbw = fbw;
-        rt->cls = cls;
-        rt->psm = psm;
-        rt->w = fbw * 64u;
-        allocRT(*rt, roundUp(std::min(std::max(needH, 512u), maxRows), ph));
-    } else {
-        rt->psm = psm;
-        if (needH > rt->h)
-            allocRT(*rt, roundUp(std::min(needH, maxRows), ph));
-    }
-    rt->lastUse = frame;
-    return rt;
 }
 
 void WgpuBackend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
@@ -98,39 +68,6 @@ void WgpuBackend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
     }
 }
 
-void WgpuBackend::Impl::rowSpan(const RT& rt, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) const {
-    const uint32_t ph = rt.pageH();
-    const uint32_t r0 = y0 / ph, r1 = (y1 + ph - 1) / ph;
-    lo = rt.base() + r0 * rt.fbw * 32u;
-    hi = rt.base() + r1 * rt.fbw * 32u - 1u;
-}
-
-uint32_t WgpuBackend::Impl::packPixel(uint32_t psm, const uint8_t* p) {
-    switch (psm) {
-        case PSM_CT16:
-        case PSM_CT16S:
-            return (uint32_t)(p[0] >> 3) | ((uint32_t)(p[1] >> 3) << 5) | ((uint32_t)(p[2] >> 3) << 10) |
-                   ((p[3] >= 128) ? 0x8000u : 0u);
-        case PSM_CT24:
-            return p[0] | (p[1] << 8) | (p[2] << 16);
-        default:
-            return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
-    }
-}
-
-uint32_t WgpuBackend::Impl::unpackPixel(uint32_t psm, uint32_t v) {
-    switch (psm) {
-        case PSM_CT16:
-        case PSM_CT16S:
-            return ((v & 31) << 3) | (((v >> 5) & 31) << 11) | (((v >> 10) & 31) << 19) |
-                   ((v & 0x8000) ? 0x80000000u : 0u);
-        case PSM_CT24:
-            return (v & 0xFFFFFF) | 0x80000000u;
-        default:
-            return v;
-    }
-}
-
 rhi::Texture* WgpuBackend::Impl::nativeGather(RT& rt, uint32_t rows, uint32_t y0) {
     if (!rows || !rt.w)
         return nullptr;
@@ -154,58 +91,29 @@ rhi::Texture* WgpuBackend::Impl::nativeGather(RT& rt, uint32_t rows, uint32_t y0
     return gatherTex.get();
 }
 
-void WgpuBackend::Impl::readbackRT(RT& rt) {
-    CpuProfile::Scope profile(cpuProfile, CpuProfile::ReadbackRT);
-    // Match the display/HUD boundary when the guest first consumes a closed world through a screen grab instead.
-    // Active world geometry and the late native-water stream must remain open until their real boundary.
-    if (pendingTemporalEnd && !engineWorldOpen && !nativeWaterPass && rt.neuralState == 1) {
-        pendingTemporalEnd = false;
-        for (auto& target : rts)
-            finalizeNeuralWorld(*target);
-    }
-    if (rt.wstate == 1)
-        finalizeWorld(rt);
-    if (!rt.dirty || rt.dy1 <= rt.dy0) {
-        rt.dirty = false;
-        return;
-    }
-    const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
+// A rectangle of the target (native pixels) from memory, replicated to the internal scale.
+// The dirty rows [y0, y1) of the target on the CPU. Scaled targets: gather the native centre samples on the GPU
+// first, so only native pixels cross the bus.
+const uint8_t* WgpuBackend::Impl::beginReadback(RT& rt, uint32_t y0, uint32_t y1, uint32_t& readScale, size_t& pitch) {
     const uint32_t rows = y1 - y0;
-    // Scaled targets: gather the native centre samples on the GPU first, so only native pixels cross the bus.
+    traceReadback("readback", frame, rt);
     rhi::Texture* compact = scale > 1 && nativeReadbackEnabled ? nativeGather(rt, rows, y0) : nullptr;
-    const uint32_t readScale = compact ? 1 : scale;
-    std::vector<uint8_t> pixels;
+    readScale = compact ? 1 : scale;
     bool read;
     {
         CpuProfile::Scope mapProfile(cpuProfile, CpuProfile::ReadbackMap);
-        read = compact ? gpu->readTexture(*compact, 0, 0, 0, rt.w, rows, pixels)
-                       : gpu->readTexture(*rt.tex, 0, 0, y0 * scale, rt.w * scale, rows * scale, pixels);
+        read = compact ? gpu->readTexture(*compact, 0, 0, 0, rt.w, rows, readbackPixels)
+                       : gpu->readTexture(*rt.tex, 0, 0, y0 * scale, rt.w * scale, rows * scale, readbackPixels);
     }
     cpuProfile.copied(uint64_t(rt.w) * rows * readScale * readScale * 4);
-    if (read) {
-        CpuProfile::Scope packProfile(cpuProfile, CpuProfile::ReadbackPack);
-        const uint32_t half = readScale / 2, pitch = rt.w * readScale * 4;
-        for (uint32_t y = 0; y < rows; ++y) {
-            const uint8_t* row = pixels.data() + (size_t)(y * readScale + half) * pitch;
-            for (uint32_t x = 0; x < rt.w; ++x)
-                // An upload streaming into this target owns its blocks (see beginTargetUpload).
-                if (!uploadActive || !uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, x, y0 + y)))
-                    mem.write(rt.psm, rt.base(), rt.fbw, x, y0 + y,
-                              packPixel(rt.psm, row + (size_t)(x * readScale + half) * 4));
-        }
-    }
-    mem.touchRect(rt.psm, rt.base(), rt.fbw, 0, y0, rt.w, rows);
-    const uint32_t ph = rt.pageH();
-    for (uint32_t r = y0 / ph; r < (y1 + ph - 1) / ph && r < rt.rowStamp.size(); ++r) {
-        rt.rowStamp[r] = mem.clock();
-        rt.rowFromMemory[r] = 0; // these rows keep the draws that were just read back
-    }
-    rt.seen = mem.clock();
-    rt.dirty = false;
-    st.rtReadbacks++;
+    pitch = size_t(rt.w) * readScale * 4;
+    return read ? readbackPixels.data() : nullptr;
 }
 
-// A rectangle of the target (native pixels) from memory, replicated to the internal scale.
+void WgpuBackend::Impl::copyTargetTop(RT& src, RT& dst, uint32_t w, uint32_t h) {
+    gpu->copyTexture(*src.tex, 0, 0, 0, *dst.tex, 0, 0, 0, w * scale, h * scale);
+}
+
 void WgpuBackend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
     const size_t count = size_t(width) * height;
     if (uploadPixels.size() < count)
@@ -264,281 +172,6 @@ void WgpuBackend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_
     st.targetRefreshBytes += scaledCount * sizeof(uint32_t);
 }
 
-void WgpuBackend::Impl::syncRT(RT& rt) {
-    syncRows(rt, {0, (uint32_t)rt.rowStamp.size()});
-}
-
-// Refresh the page rows [rows.first, rows.end) the CPU wrote since the target last had them (the row policy is
-// rt_sync_rows.h, shared with D3D11Backend::Impl::syncRows). Rows outside keep their stamp (rt.partialSync), so the
-// stamp scan of a later call still finds them stale.
-void WgpuBackend::Impl::syncRows(RT& rt, rt_sync::Rows rows) {
-    CpuProfile::Scope profile(cpuProfile, CpuProfile::SyncRT);
-    const bool whole = rows.first == 0 && rows.end >= rt.rowStamp.size();
-    if (rt.seen == mem.clock() && !rt.partialSync)
-        return;
-    const uint32_t ph = rt.pageH();
-    const uint32_t pagesPerRow = rt.fbw;
-    for (uint32_t r = rows.first; r < rows.end && r < rt.rowStamp.size(); ++r) {
-        const uint32_t lo = rt.base() + r * pagesPerRow * 32u;
-        if (lo >= kVramBlocks)
-            break;
-        if (mem.maxStamp(lo, pagesPerRow * 32u) <= rt.rowStamp[r])
-            continue;
-        const uint32_t y0 = r * ph, y1 = std::min(y0 + ph, rt.h);
-        uploadTargetRect(rt, 0, y0, rt.w, y1 - y0);
-        rt.rowStamp[r] = mem.clock();
-        rt.rowFromMemory[r] = 1;
-        rt.copyValid = false;
-        ++rt.writes;
-        st.rtUploads++;
-    }
-    if (whole) {
-        rt.seen = mem.clock();
-        rt.partialSync = false;
-    } else
-        rt.partialSync = true;
-}
-
-void WgpuBackend::Impl::flushToMemory(uint32_t first, uint32_t last) {
-    for (auto& r : rts) {
-        if (!r->dirty)
-            continue;
-        uint32_t lo, hi;
-        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
-        if (hi < first || lo > last)
-            continue;
-        readbackRT(*r);
-    }
-}
-
-// One GPU copy between two whole CT32 targets instead of two readbacks and a re-upload (rt_local_copy.h decides).
-bool WgpuBackend::Impl::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
-                                  uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
-    const auto planned = rt_copy::plan(
-        rts, spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h,
-        [&](const RT& t, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) { rowSpan(t, y0, y1, lo, hi); });
-    if (!planned)
-        return false;
-    syncRT(*planned.src); // rows of the source the CPU wrote since the target was last current
-    if (h < planned.dst->h)
-        syncRT(*planned.dst); // rows below the copy stay as they are
-    gpu->copyTexture(*planned.src->tex, 0, 0, 0, *planned.dst->tex, 0, 0, 0, w * scale, h * scale);
-    rt_copy::finish(mem, *planned.dst, dbp, dbw, w, h, frame);
-    ++st.rtGpuCopies;
-    return true;
-}
-
-// See D3D11Backend::Impl::blocksAreClean / flushForRead (d3d11_targets.cpp).
-bool WgpuBackend::Impl::blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const {
-    if (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty())
-        return false;
-    uint32_t lo, hi;
-    rowSpan(rt, rt.dy0, std::min(rt.dy1, rt.h), lo, hi);
-    for (uint32_t b = std::max(first, lo); b <= std::min(hi, last); ++b)
-        if (!((rt.cleanBlocks[b / 64] >> (b % 64)) & 1))
-            return false;
-    return true;
-}
-
-void WgpuBackend::Impl::flushForRead(uint32_t first, uint32_t last, const VramRect*) {
-    if (!readbackSkipEnabled()) {
-        flushToMemory(first, last);
-        return;
-    }
-    for (auto& r : rts) {
-        if (!r->dirty)
-            continue;
-        uint32_t lo, hi;
-        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
-        if (hi < first || lo > last)
-            continue;
-        if (blocksAreClean(*r, first, last)) {
-            ++st.rtReadbacksSkipped;
-            continue;
-        }
-        readbackRT(*r);
-    }
-}
-
-// After an applied upload the GPU rows of every covered block equal memory: take fully rewritten rows off both ends of
-// the dirty range (see D3D11Backend::Impl::trimDirtyRows).
-void WgpuBackend::Impl::trimDirtyRows(RT& rt) {
-    if (!rt.dirty || !readbackSkipEnabled())
-        return;
-    const PsmGeom g = geomOf(rt.psm);
-    const auto rowCovered = [&](uint32_t by) {
-        for (uint32_t bx = 0; bx < rt.w; bx += g.blockW)
-            if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by)))
-                return false;
-        return true;
-    };
-    uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
-    while (y0 < y1) {
-        const uint32_t by = y0 / g.blockH * g.blockH;
-        if (!rowCovered(by))
-            break;
-        y0 = by + g.blockH;
-    }
-    while (y1 > y0) {
-        const uint32_t by = (y1 - 1) / g.blockH * g.blockH;
-        if (!rowCovered(by))
-            break;
-        y1 = by;
-    }
-    // Rows that leave the dirty range here hold the uploaded image, not draws.
-    const uint32_t ph = rt.pageH(), oldEnd = std::min(rt.dy1, rt.h);
-    for (uint32_t r = rt.dy0 / ph; r < (oldEnd + ph - 1) / ph && r < rt.rowFromMemory.size(); ++r)
-        if (y0 >= y1 || (r + 1) * ph <= y0 || r * ph >= y1)
-            rt.rowFromMemory[r] = 1;
-    if (y0 >= y1) {
-        rt.dirty = false;
-        rt.seen = mem.clock();
-        ++st.rtDirtyCleared;
-    } else {
-        rt.dy0 = y0;
-        rt.dy1 = y1;
-    }
-}
-
-// Image upload into memory a dirty render target occupies: see d3d11_targets.cpp. The blocks an aligned upload
-// rewrites are copied into the target when the upload completes instead of reading the whole target back first.
-bool WgpuBackend::Impl::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                          uint32_t h) {
-    const PsmGeom g = geomOf(psm);
-    if (!w || !h || x % g.blockW || y % g.blockH || w % g.blockW || h % g.blockH)
-        return false;
-    uint32_t lo, hi;
-    spanBlocks(psm, bp, bw, x, y, w, h, lo, hi);
-    bool overlaps = false;
-    for (auto& r : rts) {
-        if (!r->dirty)
-            continue;
-        uint32_t rlo, rhi;
-        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), rlo, rhi);
-        if (rhi < lo || rlo > hi)
-            continue;
-        if (r->wstate == 1 || frame > r->drawFrame + 1)
-            return false;
-        overlaps = true;
-    }
-    if (!overlaps)
-        return false;
-    uploadBlocks.assign(kVramBlocks / 64, 0);
-    uploadLo = lo;
-    uploadHi = hi;
-    for (uint32_t by = y; by < y + h; by += g.blockH)
-        for (uint32_t bx = x; bx < x + w; bx += g.blockW) {
-            const uint32_t b = blockOf(psm, bp, bw, bx, by);
-            uploadBlocks[b / 64] |= 1ull << (b % 64);
-        }
-    for (auto& r : rts)
-        if (r->dirty && touchesUpload(*r))
-            syncRT(*r);
-    uploadActive = true;
-    return true;
-}
-
-bool WgpuBackend::Impl::uploadCovers(uint32_t block) const {
-    return (uploadBlocks[block / 64] >> (block % 64)) & 1;
-}
-
-bool WgpuBackend::Impl::uploadRows(const RT& rt, uint32_t& y0, uint32_t& y1) const {
-    const uint32_t ph = rt.pageH(), rowBlocks = rt.fbw * 32u;
-    y0 = rt.h;
-    y1 = 0;
-    for (uint32_t r = 0; r * ph < rt.h; ++r) {
-        const uint32_t first = rt.base() + r * rowBlocks, last = first + rowBlocks - 1;
-        if (last < uploadLo || first > uploadHi)
-            continue;
-        y0 = std::min(y0, r * ph);
-        y1 = std::max(y1, std::min(rt.h, (r + 1) * ph));
-    }
-    return y0 < y1;
-}
-
-bool WgpuBackend::Impl::touchesUpload(const RT& rt) const {
-    const PsmGeom g = geomOf(rt.psm);
-    uint32_t y0, y1;
-    if (!uploadRows(rt, y0, y1))
-        return false;
-    for (uint32_t by = y0; by < y1; by += g.blockH)
-        for (uint32_t bx = 0; bx < rt.w; bx += g.blockW)
-            if (uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by)))
-                return true;
-    return false;
-}
-
-void WgpuBackend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t,
-                                             bool apply, uint64_t written) {
-    if (!apply && written)
-        return; // Fragment progress is needed only by the masked D3D11 upload path.
-    if (!uploadActive)
-        return;
-    for (auto& r : rts) {
-        RT& rt = *r;
-        if (!rt.dirty)
-            continue;
-        const PsmGeom g = geomOf(rt.psm);
-        const uint32_t ph = rt.pageH();
-        uint32_t y0, y1;
-        if (!uploadRows(rt, y0, y1))
-            continue;
-        bool touched = false;
-        if (apply && (rt.cleanWrites != rt.writes || rt.cleanBlocks.empty()))
-            rt.cleanBlocks.assign(kVramBlocks / 64, 0);
-        // The runs of covered blocks and their vertical joins: rt_upload_runs.h, shared with Direct3D 11.
-        touched = rt_upload::uploadedRuns(
-            rt, y0, y1, apply, [&](uint32_t block) { return uploadCovers(block); },
-            [&](uint32_t bx, uint32_t by, uint32_t, uint32_t, uint32_t end) {
-                if (apply)
-                    for (uint32_t cx = bx; cx < std::min(end, rt.w); cx += g.blockW) {
-                        const uint32_t cb = blockOf(rt.psm, rt.base(), rt.fbw, cx, by);
-                        rt.cleanBlocks[cb / 64] |= 1ull << (cb % 64);
-                    }
-                if (by / ph < rt.rowStamp.size()) {
-                    rt.rowStamp[by / ph] = mem.clock();
-                    // see the D3D11 completeTargetUpload: an uploaded row outside the dirty range mirrors memory
-                    if (apply && !rt_source::rowInRange(by / ph, ph, rt.dy0, std::min(rt.dy1, rt.h)))
-                        rt.rowFromMemory[by / ph] = 1;
-                }
-            },
-            [&](uint32_t x, uint32_t y, uint32_t w, uint32_t h) { uploadTargetRect(rt, x, y, w, h); });
-        if (touched && apply) {
-            rt.copyValid = false;
-            ++rt.writes;
-            rt.cleanWrites = rt.writes;
-            st.targetUploads++;
-            trimDirtyRows(rt);
-        }
-    }
-    if (apply)
-        uploadActive = false;
-}
-
-// A 32-bit texture whose memory overlaps a dirty 32-bit render target at another base: the target's blocks are
-// copied into the texture on the GPU instead of reading the target back (scaled targets through nativeGather).
-RT* WgpuBackend::Impl::aliasedTarget(uint32_t psm, uint32_t mxl,
-                                     const std::vector<std::pair<uint32_t, uint32_t>>& spans) {
-    if (psm != PSM_CT32 || mxl != 0 || (scale > 1 && !nativeReadbackEnabled))
-        return nullptr;
-    RT* found = nullptr;
-    for (auto& r : rts) {
-        if (!r->dirty)
-            continue;
-        uint32_t lo, hi;
-        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
-        for (const auto& sp : spans) {
-            if (hi < sp.first || lo > sp.second)
-                continue;
-            if (found || r->psm != PSM_CT32 || r->wstate == 1)
-                return nullptr;
-            found = r.get();
-            break;
-        }
-    }
-    return found;
-}
-
 void WgpuBackend::Impl::copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w,
                                           uint32_t h) {
     syncRT(rt); // rows memory leads must be in the target before its blocks are copied
@@ -578,74 +211,6 @@ DepthBuf* WgpuBackend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
         gpu->clearDepth(*d->tex, 0.0f);
     d->lastUse = frame;
     return d;
-}
-
-// Render targets are allocated with at least 512 rows, so several of them can cover the same local memory: the
-// texture comes from the target that really owns it (see d3d11_targets.cpp).
-RT* WgpuBackend::Impl::findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox,
-                                        float& oy) {
-    uint32_t cls;
-    if (psm == PSM_CT32 || psm == PSM_CT24)
-        cls = 0;
-    else if (psm == PSM_CT16 || psm == PSM_CT16S)
-        cls = 1;
-    else
-        return nullptr;
-    RT* best = nullptr;
-    int bestScore = -1;
-    float bx = 0, by = 0;
-    for (auto& r : rts) {
-        if (r->cls != cls || r->fbw != std::max(tbw, 1u))
-            continue;
-        if (cls == 1 && r->psm != psm)
-            continue;
-        if (tbp < r->base())
-            continue;
-        const uint32_t off = tbp - r->base();
-        if (off % 32u)
-            continue;
-        const uint32_t page = off / 32u;
-        const uint32_t px = (page % r->fbw) * 64u, py = (page / r->fbw) * r->pageH();
-        if (px >= r->w || py >= r->h)
-            continue;
-        if (px != 0 && w > r->w - px)
-            continue;
-        if (!rt_source::targetOwnsTexture(rowsFromMemory(*r, py, h), off != 0, py, h, r->h))
-            continue;
-        int score = 0;
-        if (off == 0)
-            score = 1000;
-        else if (r->dirty && r->dy0 < py + h && r->dy1 > py)
-            score = 500;
-        if (score < bestScore || (score == bestScore && r->lastUse <= (best ? best->lastUse : 0)))
-            continue;
-        best = r.get();
-        bestScore = score;
-        bx = (float)px;
-        by = (float)py;
-    }
-    if (best) {
-        ox = bx;
-        oy = by;
-    }
-    return best;
-}
-
-// Page rows of the texture inside the target: {total, rows whose GPU copy merely mirrors memory} (see
-// D3D11Backend::Impl::rowsFromMemory).
-std::pair<uint32_t, uint32_t> WgpuBackend::Impl::rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const {
-    const uint32_t ph = rt.pageH(), end = std::min(py + h, rt.h);
-    const uint32_t dirtyEnd = std::min(rt.dy1, rt.h);
-    uint32_t total = 0, fromMemory = 0;
-    for (uint32_t r = py / ph; r * ph < end && r < rt.rowStamp.size(); ++r) {
-        ++total;
-        if (rt.dirty && rt_source::rowInRange(r, ph, rt.dy0, dirtyEnd))
-            continue;
-        const uint32_t lo = rt.base() + r * rt.fbw * 32u;
-        if (rt.rowFromMemory[r] || (lo < kVramBlocks && mem.maxStamp(lo, rt.fbw * 32u) > rt.rowStamp[r]))
-            ++fromMemory;
-    }
-    return {total, fromMemory};
 }
 
 rhi::Texture* WgpuBackend::Impl::snapshot(RT& rt, const uint32_t* box) {
@@ -727,11 +292,6 @@ void WgpuBackend::Impl::gridCaptureEnd() {
     }
     g.open = false;
     g.rt = nullptr;
-}
-
-void WgpuBackend::Impl::flushAll() {
-    for (auto& r : rts)
-        readbackRT(*r);
 }
 
 } // namespace gsr
