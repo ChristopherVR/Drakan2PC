@@ -32,6 +32,7 @@
 #endif
 
 std::string drakanExtractBootElfFromIso(); // drakan_overrides.cpp
+void drakanStartModsEarly();               // drakan_overrides.cpp
 
 namespace {
 [[noreturn]] void finishProcess(int code) {
@@ -217,6 +218,7 @@ int main(int argc, char* argv[]) {
         windowTitle = "Drakan: The Ancients' Gates";
 #endif
 
+        drakanStartModsEarly(); // mod packs are opened and read while the window and the renderer start
         PS2Runtime runtime;
 #if defined(PS2X_ENABLE_DEBUG_UI) && !defined(PLATFORM_VITA)
         // This hook is to prevent leak rlimgui deps to recompiler etc

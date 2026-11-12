@@ -31,6 +31,7 @@
 #include "ui/FontAtlas.h"
 #endif
 #ifdef PS2X_HAVE_GSR
+#include <future>
 #include <gsr/gsr.h>
 #include "drakan_dlss.h"
 #ifdef PS2X_HAVE_GSR
@@ -976,6 +977,15 @@ struct HleHost {
 
 HleHost* g_host = nullptr;                     // intentionally leaked: its threads outlive static destruction
 std::unique_ptr<hle::mods::ModManager> g_mods; // mod packs (docs/reference/modding.md); kept for the process lifetime
+// Mod packs opened and read while the renderer starts (drakanStartModsEarly): the manager, the folder it was made
+// for and the number of packs load() returned. applyDrakanOverrides takes it when the folder still matches.
+struct EarlyMods {
+    std::future<void> done;
+    std::unique_ptr<hle::mods::ModManager> mods;
+    std::string dir;
+    size_t loaded = 0;
+};
+EarlyMods g_earlyMods;
 // Menu skin without the campaign packs' own files, and those files per campaign pack id ("mod <id>: <path>", text):
 // the game card applies a campaign's skin on top of the base one only while it is chosen.
 gameui::UiSkin g_baseSkin;
@@ -1628,6 +1638,35 @@ extern "C"
     __declspec(dllimport) int __stdcall MessageBoxA(void* window, const char* text, const char* caption, unsigned type);
 #endif
 
+// Called by main() (drakanStartModsEarly below) before the runtime (window, renderer, audio) starts: opens the mod
+// packs and reads the members installFiles will need on another thread, so that work (0.35 s for the two shipped packs
+// on 8 cores) overlaps the renderer start-up instead of following it. Needs the packs only, no disc and no guest.
+// DRAKAN_MODS_EARLY=0 keeps everything in applyDrakanOverrides, in sequence, as before 12 November 2026.
+void startModsEarly() {
+#if !defined(__EMSCRIPTEN__)
+    if (const char* off = std::getenv("DRAKAN_MODS_EARLY"); off && off[0] == '0')
+        return;
+    const auto& prof = drakan_region::build();
+    const char* modsEnv = std::getenv("DRAKAN_MODS");
+    std::string modsDir = modsEnv && *modsEnv ? std::string(modsEnv) : drakan_cfg::exeDir() + "mods";
+    std::error_code ec;
+    if (!std::filesystem::is_directory(modsDir, ec))
+        return;
+    // The language the services will most likely settle on; installFiles reads again if they choose another.
+    const std::string language =
+        drakan_language::select(drakan_cfg::getString("general", "language", nullptr, "english"),
+                                std::getenv("DRAKAN_LANG"), prof.languageCount)
+            .root;
+    const hle::mods::DiscProfile discProfile{prof.id, hle::mods::profileHash(prof.serial, prof.saveId)};
+    g_earlyMods.mods = std::make_unique<hle::mods::ModManager>(discProfile);
+    g_earlyMods.dir = std::move(modsDir);
+    g_earlyMods.done = std::async(std::launch::async, [language] {
+        g_earlyMods.loaded = g_earlyMods.mods->load(g_earlyMods.dir);
+        g_earlyMods.mods->prefetchFiles(language);
+    });
+#endif
+}
+
 void applyDrakanOverrides(PS2Runtime& runtime) {
     using drakan_region::Feature;
     using drakan_region::guestAddress;
@@ -1777,8 +1816,15 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             const hle::mods::DiscProfile discProfile{prof.id, hle::mods::profileHash(prof.serial, prof.saveId)};
             std::fprintf(stderr, "[mods] disc profile %s hash %s, folder %s\n", prof.id,
                          hle::mods::hex64(discProfile.hash).c_str(), modsDir.c_str());
-            g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
-            const size_t n = g_mods->load(modsDir);
+            size_t n = 0;
+            if (g_earlyMods.mods && g_earlyMods.dir == modsDir) {
+                g_earlyMods.done.get(); // packs opened and their members read beside the renderer start-up
+                g_mods = std::move(g_earlyMods.mods);
+                n = g_earlyMods.loaded;
+            } else {
+                g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
+                n = g_mods->load(modsDir);
+            }
             drakan_input::module().setBowAimFiles(g_mods->bowAimFiles());
             g_mods->install(host->iop.res);
             g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
@@ -2241,6 +2287,10 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     runtime.setHleRpcHooks(hooks);
 }
 } // namespace
+
+void drakanStartModsEarly() {
+    startModsEarly();
+}
 
 // The boot ELF straight from the disc image: when no extracted boot ELF of the build's region (SCES_500.06 /
 // SCUS_971.28) is configured, main.cpp calls this. The file

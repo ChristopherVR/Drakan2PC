@@ -684,6 +684,30 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(entryBytes(localized, "GERMAN\\COMMON\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b[0] == 0x63);
     }
 
+    // The members can be read ahead of the install (prefetchFiles): the same files are served when the language
+    // matches, and a read-ahead for another language is dropped and read again.
+    {
+        const fs::path mods = root / "mods_localized";
+        for (const char* ahead : {"\\German", "\\ENGLISH"}) {
+            IsoFs localized;
+            CHECK(localized.openFolder(disc.string(), &err));
+            localized.setLanguageRoot("German");
+            ModManager mm(pal);
+            CHECK(mm.load(mods.string(), {{"first", true}, {"last", true}}) == 2);
+            mm.prefetchFiles(ahead);
+            g_log.clear();
+            CHECK(mm.installFiles(localized) >= 4);
+            CHECK(logHas("pack files installed"));
+            CHECK(logHas("ahead of the install") == (std::string(ahead) == "\\German"));
+            CHECK(mm.extraLevels().size() == 1);
+            std::vector<u8> b;
+            CHECK(entryBytes(localized, "\\Levels\\Level 9X - Clone Test\\Level 9X - Clone Test.lvl", 0x20, 1, 0, b) &&
+                  b[0] == 0x55);
+            CHECK(entryBytes(localized, "GERMAN\\COMMON\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b[0] == 0x63);
+            CHECK(entryBytes(localized, "ENGLISH\\COMMON\\WEAP\\WEAP.TXD", 0x40, 7, 0, b) && b[0] == 0x63);
+        }
+    }
+
     // pack with files/, LVL override, new/ entry, levels
     {
         const fs::path mods = root / "mods_files";

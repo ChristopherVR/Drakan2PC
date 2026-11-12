@@ -2029,14 +2029,24 @@ void readPackMembers(std::vector<PackRead>& jobs) {
 }
 } // namespace
 
-size_t ModManager::installFiles(IsoFs& fsys) {
-    size_t served = 0;
+// What installFiles reads from the packs, for one language root: the mounted whole files and every member the
+// steps of installFiles use, in their order. Needs the packs only, not the disc, so it can be read ahead.
+struct ModManager::Prefetch {
+    std::string language;
+    std::map<std::string, PackSource> mounted;
+    std::vector<PackRead> reads;
+    double readMs = 0;
+};
+
+std::shared_ptr<ModManager::Prefetch> ModManager::readFiles(const std::string& language) const {
+    auto out = std::make_shared<Prefetch>();
+    out->language = language;
     // English is the editor's portable pack namespace. Mount these files in the running
     // language too, while retaining their explicit paths for generated DB references.
     // Resolve collisions before installation: later packs win, and an explicit localized
     // file wins over its English fallback within the same pack.
-    std::map<std::string, PackSource> mountedFiles = files_;
-    const std::string language = fsys.languageRoot();
+    std::map<std::string, PackSource>& mountedFiles = out->mounted;
+    mountedFiles = files_;
     if (!language.empty() && language != "ENGLISH") {
         for (const auto& [path, source] : files_) {
             if (path.rfind("ENGLISH\\", 0) != 0)
@@ -2047,9 +2057,9 @@ size_t ModManager::installFiles(IsoFs& fsys) {
                 mountedFiles[localized] = source;
         }
     }
-    // Everything the packs put on the disc is read here, at once (readPackMembers), in the order the steps below use
-    // it: the whole files, the entry patches of plain-read containers, the new entries.
-    std::vector<PackRead> reads;
+    // Everything the packs put on the disc is read here, at once (readPackMembers), in the order the steps of
+    // installFiles use it: the whole files, the entry patches of plain-read containers, the new entries.
+    std::vector<PackRead>& reads = out->reads;
     for (auto& [pk, src] : mountedFiles)
         reads.push_back({src.archive.get(), &src.path});
     for (auto& [k, src] : merged_->map)
@@ -2057,13 +2067,34 @@ size_t ModManager::installFiles(IsoFs& fsys) {
             reads.push_back({src.archive.get(), &src.path});
     for (auto& [k, src] : newEntries_)
         reads.push_back({src.archive.get(), &src.path});
+    const auto start = std::chrono::steady_clock::now();
+    readPackMembers(reads);
+    out->readMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    return out;
+}
+
+void ModManager::prefetchFiles(const std::string& languageRoot) {
+    prefetch_ = readFiles(manglePath(languageRoot));
+}
+
+size_t ModManager::installFiles(IsoFs& fsys) {
+    size_t served = 0;
+    const std::string language = fsys.languageRoot();
     using Clock = std::chrono::steady_clock;
     auto msSince = [](Clock::time_point t) {
         return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
     };
     const Clock::time_point tStart = Clock::now();
-    readPackMembers(reads);
-    const double readMs = msSince(tStart);
+    // Read ahead by prefetchFiles for this language, or read now.
+    std::shared_ptr<Prefetch> fetched = std::move(prefetch_);
+    prefetch_.reset();
+    const bool readAhead = fetched && fetched->language == language;
+    if (!readAhead)
+        fetched = readFiles(language);
+    std::map<std::string, PackSource>& mountedFiles = fetched->mounted;
+    std::vector<PackRead>& reads = fetched->reads;
+    const double readMs = fetched->readMs;
+    const double aheadMs = readAhead ? readMs : 0.0; // read time that is not inside this call
     u64 readBytes = 0;
     for (const PackRead& r : reads)
         readBytes += r.data.size();
@@ -2136,7 +2167,7 @@ size_t ModManager::installFiles(IsoFs& fsys) {
              (unsigned long long)n);
     }
 
-    const double filesMs = msSince(tStart) - readMs;
+    const double filesMs = msSince(tStart) + aheadMs - readMs;
     // 2. entry patches of containers read with plain file reads (.LVL overrides) and `new/` entries
     struct Item {
         size_t modIndex;
@@ -2217,10 +2248,10 @@ size_t ModManager::installFiles(IsoFs& fsys) {
 
     // The start-up cost of the packs, for the log (scripts/perf/load_phases.py reads it).
     if (readCount)
-        logf("mods: pack files installed in %.0f ms: %zu members (%.1f MB) read in %.0f ms, whole files %.0f ms, "
+        logf("mods: pack files installed in %.0f ms: %zu members (%.1f MB) read in %.0f ms%s, whole files %.0f ms, "
              "containers rebuilt in %.0f ms",
-             msSince(tStart), readCount, (double)readBytes / (1024.0 * 1024.0), readMs, filesMs,
-             msSince(tStart) - readMs - filesMs);
+             msSince(tStart) + aheadMs, readCount, (double)readBytes / (1024.0 * 1024.0), readMs,
+             readAhead ? " (ahead of the install)" : "", filesMs, msSince(tStart) + aheadMs - readMs - filesMs);
     // 3. LEVELLST.TXT
     if (!levelDefs_.empty()) {
         IsoFs::Node ln;

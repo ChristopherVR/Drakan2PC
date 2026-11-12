@@ -189,6 +189,11 @@ public:
     // the game reads files. Returns the number of files served from memory. Problems are logged as `mods: ...`
     // (e.g. a replacement past a guest limit is rejected with the reason).
     size_t installFiles(IsoFs& fs);
+    // Optional, after load(): reads everything installFiles will need for this language root ("\\ENGLISH", any
+    // case) from the packs. Touches no disc and no other state, so a start-up can run load() and this on another
+    // thread while it does something else; installFiles then uses the result (or reads itself when the language
+    // differs). Not to be called concurrently with anything else on this object.
+    void prefetchFiles(const std::string& languageRoot);
     // Levels registered by packs (valid after installFiles; only those whose LVL exists on the merged disc).
     // For the Multiplayer map list: `name` is what the game's level list holds, `path` the file the game opens.
     const std::vector<ExtraLevel>& extraLevels() const { return extraLevels_; }
@@ -223,6 +228,9 @@ public:
     }
 
 private:
+    struct Prefetch;
+    std::shared_ptr<Prefetch> readFiles(const std::string& language) const;
+    std::shared_ptr<Prefetch> prefetch_;
     bool e_nonEmpty() const { return entryCount() != 0 || textCount_ != 0; }
     DiscProfile profile_;
     ModLimits limits_;
