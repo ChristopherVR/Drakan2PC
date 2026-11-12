@@ -1,5 +1,7 @@
 # Handover: editor, mods, multiplayer (recovery reviewed 2026-11-03)
 
+**Game, renderer and campaign hand-over (2026-11-13):** the session that worked through issues #5 and #6, the performance and renderer work, the GPU vertex path and the Order of the Flame fixes is summarised in [session hand-over](../journal/2026-11-13/session-handover.md): what is released, what is on `main`, what is still running, and the open decisions.
+
 **Recovery update:** [2026-11-03 session review](../journal/2026-11-03/session-recovery.md) separates the ready editor /
 multiplayer changes from the unconnected campaign wizard and local OotF investigations. It also records three-player
 mode harness results that supersede some unproven items below. Older bullets are historical unless rechecked there.
