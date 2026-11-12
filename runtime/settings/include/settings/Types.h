@@ -76,7 +76,7 @@ struct VideoSettings {
     float drawDistance = 1.0f;
     // terrain_distance: the ground keeps its textures this many times further out, 1 (original) .. 4
     float terrainDistance = 1.0f;
-    bool dlssNeural = false;          // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
+    bool dlssNeural = false; // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
     std::string dlssNeuralResolution = "output"; // dlss_neural_resolution: output | render (NR on the SR output, or
                                                  // on the reduced raster before SR; only differs with a reduced mode)
     bool operator==(const VideoSettings&) const = default;

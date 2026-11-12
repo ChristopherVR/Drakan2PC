@@ -118,7 +118,7 @@ struct Config {
     std::string neuralRuntimeDir; // signed Streamline / NR runtime bundle; empty selects executable directory / nr
     uint32_t upscalePreset =
         0; // 0 = SDK default for the mode, 10..13 = render preset J K L M. Env GSR_UPSCALE_PRESET=auto|j|k|l|m
-    float upscaleSharpness = 0.0f;   // optional post sharpen of the upscaled 3D image, 0..1
+    float upscaleSharpness = 0.0f; // optional post sharpen of the upscaled 3D image, 0..1
     // ---- terrain detail (drakan.ini [video]; runtime/gs/src/terrain_detail.h). Off = the picture without it. ----
     bool terrainDetail = false; // terrain_detail: world-space detail and large-scale breakup on terrain layers. Env
                                 // GSR_TERRAIN_DETAIL=0|1
@@ -130,7 +130,7 @@ struct Config {
                                  // 2 all classes. Needs <textureDir>/materials. Env GSR_MATERIAL_DETAIL=off|hard|all
     float materialDetailStrength = 1.0f; // material_detail_strength: 0..2. Env GSR_MATERIAL_STRENGTH
     float materialSpecular = 0.0f;       // material_specular: 0..1 highlight from the light. Env GSR_MATERIAL_SPECULAR
-    bool textureUpscaleSync = false; // true: wait for upscale / replacement jobs inside the draw (deterministic
+    bool textureUpscaleSync = false;     // true: wait for upscale / replacement jobs inside the draw (deterministic
                                      // screenshots, replays); default: asynchronous worker threads, the native texture
                                      // is used until the result is ready. Env GSR_TEXUP_SYNC=1
 };

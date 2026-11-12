@@ -236,10 +236,10 @@ private:
     bool bowLmbIsSquare() const;
     std::atomic<bool> bowReady_{false}, bowAiming_{false}, bowSightOpen_{false};
     bool bowSightCrosshair(IGuest& g) const; // m_ held: the native first-person bow sight is open in gameplay
-    int bowChannelFrames_ = 0; // frames after a release in which the attack start may take the torso channel
-    int bowDrawRelease_ = 0;         // frames the frozen draw still waits for the release tap's native attack
-    bool bowReleaseTapped_ = false;  // bowAimFrame sent the release tap (false: the aim was cancelled without a shot)
-    bool bowDrawActive_ = false;     // the held draw's stance is on the torso channel
+    int bowChannelFrames_ = 0;      // frames after a release in which the attack start may take the torso channel
+    int bowDrawRelease_ = 0;        // frames the frozen draw still waits for the release tap's native attack
+    bool bowReleaseTapped_ = false; // bowAimFrame sent the release tap (false: the aim was cancelled without a shot)
+    bool bowDrawActive_ = false;    // the held draw's stance is on the torso channel
     uint32_t bowDrawPlayer_ = 0, bowHoldClip_ = 0; // the stance clip the last draw started
     uint32_t bowTorsoChannel(IGuest& g, uint32_t player);
     // The held draw decides under m_ (bowDrawFrame) and plays clips after m_ is released (runBowDrawAction): the
@@ -250,8 +250,8 @@ private:
         uint32_t player = 0;
     };
     BowDrawAction bowDrawFrame(IGuest& g, uint32_t player, bool want); // m_ held
-    BowDrawAction updateBowAimLocked(IGuest& g);                        // m_ held
-    void runBowDrawAction(IGuest& g, const BowDrawAction& a);           // m_ NOT held
+    BowDrawAction updateBowAimLocked(IGuest& g);                       // m_ held
+    void runBowDrawAction(IGuest& g, const BowDrawAction& a);          // m_ NOT held
     // Over-the-shoulder view while aiming (afterCameraFollow): the shift applied to the camera transform after the
     // last native tick, the position it produced (taken back out only if nothing else moved the camera since) and
     // the eased amount 0..1.
@@ -259,8 +259,8 @@ private:
     float bowShift_[3] = {}, bowShiftPos_[3] = {}, bowShiftAmount_ = 0;
     bool bowShiftApplied_ = false;
     void bowShoulderUndo(IGuest& g, uint32_t cam); // m_ held: takes the last shift back out before a native tick
-    bool bowAimedLaunch_ = false; // beforeBowLaunch pointed the arrow; consumed by bowAutoTarget
-    int bowShotFrames_ = 0;       // frames during which a launch belongs to a shot released from the aim
+    bool bowAimedLaunch_ = false;                  // beforeBowLaunch pointed the arrow; consumed by bowAutoTarget
+    int bowShotFrames_ = 0; // frames during which a launch belongs to a shot released from the aim
     bool bowZoomActive_ = false;
     uint32_t bowZoomCam_ = 0;
     float bowZoomNative_ = 0, bowZoomTarget_ = 0;

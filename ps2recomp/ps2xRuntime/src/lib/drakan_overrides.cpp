@@ -1658,12 +1658,12 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_stomp_probe::install(runtime);
     drakan_texture_budget::install(runtime);
     drakan_save_reference_probe::install(runtime);
-    drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
-    drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
-    drakan_polyclip::install(runtime);    // near-plane clip for projected polygons (ribbons crossing the camera)
-    drakan_view_layer::install(runtime);  // the view keeps to the player's layer behind interior walls (issue #6, PAL)
-    drakan_melee_trace::install(runtime); // DRAKAN_MELEE_TRACE: log the player's swings and contacts (diagnosis, PAL)
-    drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
+    drakan_lifecycle::install(runtime);    // engine lifecycle events (PAL addresses; no-op elsewhere)
+    drakan_levelchange::install(runtime);  // host-triggered level change through the exit triggers (PAL)
+    drakan_polyclip::install(runtime);     // near-plane clip for projected polygons (ribbons crossing the camera)
+    drakan_view_layer::install(runtime);   // the view keeps to the player's layer behind interior walls (issue #6, PAL)
+    drakan_melee_trace::install(runtime);  // DRAKAN_MELEE_TRACE: log the player's swings and contacts (diagnosis, PAL)
+    drakan_foliage::install(runtime);      // living foliage: wind sway for grass and trees, off by default (PAL)
     drakan_model_detail::install(runtime); // LOD and draw distance factors for models (PAL)
     drakan_terrain_distance::install(runtime); // ground texture distance factor of the terrain (PAL)
     // Arokh's flight look-ahead: objects he starts inside do not stop him (PAL; DRAKAN_DRAGON_RAY_TRACE).

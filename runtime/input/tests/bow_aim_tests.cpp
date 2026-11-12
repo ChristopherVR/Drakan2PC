@@ -309,8 +309,8 @@ void setupDraw(DrawGuest& g) {
     g.write16(DCHANS + 0, 0);
     g.write16(DCHANS + 4, 1);
     g.write32(PLAYER + 0xabc, STANDSRC); // native cached Stand
-    g.motions[STANDSRC] = STAND;        // mapped for the bow by 0x325650
-    for (uint32_t r = 0; r < 2; ++r) {  // legs and torso both run
+    g.motions[STANDSRC] = STAND;         // mapped for the bow by 0x325650
+    for (uint32_t r = 0; r < 2; ++r) {   // legs and torso both run
         g.write32(DRECS + r * 0x80 + 0x50, RUN);
         g.writeF(DRECS + r * 0x80 + 0x54, 1.0f);
         g.writeF(DRECS + r * 0x80 + 0x58, 0.3f);
