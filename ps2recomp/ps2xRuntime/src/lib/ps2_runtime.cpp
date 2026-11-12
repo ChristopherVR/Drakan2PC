@@ -22,6 +22,7 @@ void ps2PollHostPad();      // Window thread snapshot for the portable libpad ba
 #include <cstdio>
 #include "ps2_perf.h"
 #include "vu/ps2_vu1_check.h"
+#include "runtime/ps2_readback.h"
 #include "runtime/ps2_vu1_async.h"
 #include "ps2_log.h"
 #include "ps2_stubs.h"
@@ -2220,6 +2221,9 @@ uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 uint64_t PS2Runtime::Load64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     try {
+        // GS CSR read by the FINISH poll of a store-image routine: see runtime/ps2_readback.h.
+        if (vaddr == 0x12001000u && ctx && ps2x_readback::eagerFinish(ctx->pc))
+            return m_memory.read64(vaddr) | 0x2ull;
         return m_memory.read64(vaddr);
     } catch (const std::exception&) {
         SignalException(ctx, EXCEPTION_ADDRESS_ERROR_LOAD);
@@ -2850,6 +2854,7 @@ void PS2Runtime::run() {
 #endif
     }
 
+    const auto shutdownStart = std::chrono::steady_clock::now();
     drakanShutdownAudio(); // fade out + stop the output first: nothing clicks while the threads wind down
     requestStop();
     profilerStop = true;
@@ -2887,7 +2892,9 @@ void PS2Runtime::run() {
 #endif
     if (frameTex.id)
         UnloadTexture(frameTex);
+    const auto rendererStart = std::chrono::steady_clock::now();
     m_gs.shutdownD3D11();
+    const auto rendererEnd = std::chrono::steady_clock::now();
 #if defined(PS2X_HAVE_GSR)
     if (m_nativeWindow) {
         drakan_win::destroy();
@@ -2900,5 +2907,21 @@ void PS2Runtime::run() {
         vu1async::sync();
         vu1async::printStats();
     }
+    {
+        // Where the time after a quit goes (the rest, up to the end of the process, is the process teardown in main).
+        const auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+        std::fprintf(stderr, "[run] shutdown: threads %.0f ms, renderer %.0f ms, window %.0f ms\n",
+                     ms(shutdownStart, rendererStart), ms(rendererStart, rendererEnd),
+                     ms(rendererEnd, std::chrono::steady_clock::now()));
+    }
+    if (auto& rb = ps2x_readback::state(); rb.reads.load() != 0)
+        std::fprintf(stderr,
+                     "[readback] %llu reads (%llu bytes, %.1f ms waited), FINISH polls %llu, answered at once %llu, "
+                     "late %llu, first reads %llu, verified %llu, different %llu\n",
+                     (unsigned long long)rb.reads.load(), (unsigned long long)rb.readBytes.load(),
+                     rb.waitNs.load() * 1e-6, (unsigned long long)rb.finishPolls.load(),
+                     (unsigned long long)rb.eagerFinish.load(), (unsigned long long)rb.lateServed.load(),
+                     (unsigned long long)rb.lateMissed.load(), (unsigned long long)rb.verified.load(),
+                     (unsigned long long)rb.verifyDifferent.load());
     RUNTIME_LOG("[run] exiting loop");
 }

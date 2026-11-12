@@ -22,6 +22,7 @@
 #include <thread>
 
 #include "runtime/ps2_render_queue.h"
+#include "runtime/ps2_readback.h"
 
 namespace {
 inline void inRange(uint32_t offset, size_t bytes, size_t regionSize, const char* op, uint32_t address) {
@@ -852,10 +853,13 @@ uint64_t PS2Memory::read64(uint32_t address) {
                 return value && value[0] == '1';
             }();
             static thread_local uint32_t clearPolls = 0;
-            if (csr & 0x2ull)
+            if (csr & 0x2ull) {
                 clearPolls = 0;
-            else if (yieldOn && ++clearPolls >= 16u)
-                std::this_thread::yield();
+            } else {
+                ps2x_readback::state().finishPolls.fetch_add(1, std::memory_order_relaxed);
+                if (yieldOn && ++clearPolls >= 16u)
+                    std::this_thread::yield();
+            }
             return csr;
         }
         uint64_t* reg = gsRegPtr(gs_regs, address);
@@ -1138,7 +1142,12 @@ void PS2Memory::write128(uint32_t address, __m128i value) {
 }
 
 bool PS2Memory::writeIORegister(uint32_t address, uint32_t value) {
-    if (address >= 0x10003000u && address < 0x10003E00u && !(address == 0x10003010u && vu1async::renderQueueEnabled()))
+    // VIF1_STAT takes only the FIFO direction bit from the EE (stored in the EE-owned register table below); a late
+    // read-back (runtime/ps2_readback.h) sets and clears it around its DMA and must not wait for the worker there.
+    const bool lateReadbackStat =
+        address == 0x10003C00u && ps2x_readback::mode() == ps2x_readback::Mode::Late && vu1async::renderQueueEnabled();
+    if (address >= 0x10003000u && address < 0x10003E00u &&
+        !(address == 0x10003010u && vu1async::renderQueueEnabled()) && !lateReadbackStat)
         vu1async::sync(); // GIF / VIF registers are updated by the worker
     size_t timerIndex = 0u;
     uint32_t timerOffset = 0u;
@@ -1788,6 +1797,55 @@ void PS2Memory::dispatchVif1(std::vector<uint8_t>&& job, drakan_object_motion::J
     vu1async::submit(this, std::move(job), meta);
 }
 
+// One GS local-to-host read into guest memory (runtime/ps2_readback.h). The blocking form waits for the VU1 worker
+// and, inside the renderer bridge, for the GS worker: the read must see everything queued before it.
+void PS2Memory::serveLocalToHost(uint8_t* dst, uint32_t bytes) {
+    namespace rb = ps2x_readback;
+    rb::State& state = rb::state();
+    const uint64_t key = state.callerKey.exchange(0, std::memory_order_relaxed);
+    const auto start = std::chrono::steady_clock::now();
+    bool served = false;
+    if (rb::mode() == rb::Mode::Late && key && bytes <= rb::kMaxLateBytes && vu1async::renderQueueEnabled() &&
+        !vu1async::onWorker()) {
+        std::vector<uint8_t> previous(bytes);
+        if (state.lookup(key, bytes, previous.data())) {
+            if (rb::verify()) {
+                vu1async::sync();
+                m_localToHostFn(dst, bytes);
+                state.verified.fetch_add(1, std::memory_order_relaxed);
+                if (std::memcmp(dst, previous.data(), bytes) != 0)
+                    state.verifyDifferent.fetch_add(1, std::memory_order_relaxed);
+                state.store(key, dst, bytes);
+            } else {
+                std::memcpy(dst, previous.data(), bytes);
+                // Runs on the VU1 worker behind the transfer set-up queued just before this read, so it takes exactly
+                // this read's pixels. It owns its buffer; the guest buffer may be gone by then.
+                vu1async::submitRenderTask([this, key, bytes] {
+                    std::vector<uint8_t> current(bytes);
+                    m_localToHostFn(current.data(), bytes);
+                    rb::state().store(key, current.data(), bytes);
+                });
+                state.lateServed.fetch_add(1, std::memory_order_relaxed);
+            }
+            served = true;
+        } else {
+            state.lateMissed.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    if (!served) {
+        vu1async::sync();
+        m_localToHostFn(dst, bytes);
+        if (key && bytes <= rb::kMaxLateBytes)
+            state.store(key, dst, bytes);
+    }
+    state.reads.fetch_add(1, std::memory_order_relaxed);
+    state.readBytes.fetch_add(bytes, std::memory_order_relaxed);
+    state.waitNs.fetch_add(
+        static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count()),
+        std::memory_order_relaxed);
+}
+
 void PS2Memory::processPendingTransfers() {
     const bool queueGif = vu1async::renderQueueEnabled() && !vu1async::onWorker() && m_pendingVif0Transfers.empty();
     if ((!m_pendingGifTransfers.empty() && !queueGif) || !m_pendingVif0Transfers.empty())
@@ -1937,8 +1995,7 @@ void PS2Memory::processPendingTransfers() {
                 if (dstPhys < PS2_RAM_SIZE) {
                     if (static_cast<uint64_t>(dstPhys) + bytes > PS2_RAM_SIZE)
                         bytes = PS2_RAM_SIZE - dstPhys;
-                    vu1async::sync(); // the readback must see everything queued before it
-                    m_localToHostFn(m_rdram + dstPhys, bytes);
+                    serveLocalToHost(m_rdram + dstPhys, bytes);
                 }
             }
             continue;

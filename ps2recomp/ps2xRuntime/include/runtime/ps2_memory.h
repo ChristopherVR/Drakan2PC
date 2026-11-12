@@ -332,6 +332,7 @@ public:
     using Vu1MetaProvider = std::function<void(bool& dEn, bool& tEn, void*& ctx)>;
     void setVu1MetaProvider(Vu1MetaProvider cb) { m_vu1MetaProvider = std::move(cb); }
     void processPendingTransfers();
+    void serveLocalToHost(uint8_t* dst, uint32_t bytes); // one GS local-to-host read (runtime/ps2_readback.h)
     std::vector<uint32_t> consumeCompletedDmacCauses();
 
     int pollDmaRegisters();

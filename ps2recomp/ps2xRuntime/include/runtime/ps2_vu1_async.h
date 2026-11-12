@@ -36,6 +36,8 @@ const Meta* currentMeta(); // non-null while the worker runs a job
 bool onWorker();
 void shutdown();
 void printStats();
+// Times the EE thread had to wait in sync() and the nanoseconds it waited, since the start (for the PS2X_PERF line).
+void syncStats(uint64_t& waits, uint64_t& nanoseconds);
 } // namespace vu1async
 
 #endif

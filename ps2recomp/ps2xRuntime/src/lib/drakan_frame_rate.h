@@ -6,10 +6,12 @@
 #include "drakan_software_frame_clock.h"
 #include "drakan_dlss.h"
 #include "drakan_present_clock.h"
+#include "drakan_region.h"
 #if defined(PS2X_HAVE_GSR)
 #include "drakan_intro_movie.h"
 #endif
 #include "runtime/ee_scheduler.h"
+#include "runtime/ps2_readback.h"
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -270,6 +272,27 @@ inline void tickTimeHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
                          .count(),
                      measured * 1000.0f, given * 1000.0f);
 }
+inline PS2Runtime::RecompiledFunction storeImageOriginal = nullptr;
+// 1dbfa8(gs, buffer, ...): the engine's GS store-image routine (transfer set-up with FINISH, FINISH poll at 1dc668,
+// VIF1 read with CHCR.DIR=0). Called from 1dda88 for the 32 row probe image the world render reads back. The key
+// names what is read (every argument but the destination), for runtime/ps2_readback.h.
+inline void storeImageHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == 0x1dbfa8u) { // a fresh call, not the resume of a call that yielded
+        uint64_t key = 0xcbf29ce484222325ull;
+        const uint32_t sp = GPR_U32(ctx, 29);
+        const uint32_t words[] = {GPR_U32(ctx, 6),
+                                  GPR_U32(ctx, 7),
+                                  GPR_U32(ctx, 8),
+                                  GPR_U32(ctx, 9),
+                                  GPR_U32(ctx, 10),
+                                  GPR_U32(ctx, 11),
+                                  sp >= 0x100000u && sp <= PS2_RAM_SIZE - 4 ? readWord(ram, sp) : 0u};
+        for (const uint32_t word : words)
+            key = (key ^ word) * 0x100000001b3ull;
+        ps2x_readback::noteCaller(key);
+    }
+    storeImageOriginal(ram, ctx, rt);
+}
 inline PS2Runtime::RecompiledFunction windOriginal = nullptr;
 // 141d80 (engine wind gusts) eases the direction +40c..414 towards the gust
 // target +418..420 by a fixed 25% per update: x' = 0.75 x + 0.25 t. Pre-shift x
@@ -412,6 +435,19 @@ inline void install(PS2Runtime& rt) {
         rt.replaceFunction(0x1d8660u, waitHook);
         flipOriginal = rt.lookupFunction(0x1e0048u);
         rt.replaceFunction(0x1e0048u, flipHook);
+    }
+    // GS read-backs that do not stop the frame pipeline (PS2X_READBACK, runtime/ps2_readback.h). The addresses are the
+    // PAL executable's.
+    if (drakan_region::build().identityAddresses && ps2x_readback::mode() != ps2x_readback::Mode::Poll &&
+        rt.hasFunction(0x1dbfa8u)) {
+        storeImageOriginal = rt.lookupFunction(0x1dbfa8u);
+        rt.replaceFunction(0x1dbfa8u, storeImageHook);
+        ps2x_readback::setFinishPollPc(0x1dc668u);
+        std::fprintf(stderr, "[readback] %s%s\n",
+                     ps2x_readback::mode() == ps2x_readback::Mode::Late
+                         ? "late: a repeated small read gets the bytes of its previous read"
+                         : "eager: no FINISH poll, blocking read",
+                     ps2x_readback::verify() ? ", verified against the blocking read" : "");
     }
     const char* audit = std::getenv("DRAKAN_FRAME_AUDIT");
     if (((audit && std::atoi(audit) != 0) || metrics) && rt.hasFunction(0x143448u)) {

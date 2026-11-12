@@ -2,6 +2,8 @@
 
 #include "drakan_polyclip.h"
 #include "runtime/ps2_chain_buffers.h"
+#include "runtime/ps2_readback.h"
+#include "runtime/ps2_vu1_async.h"
 
 #include <chrono>
 #include <cstdio>
@@ -137,6 +139,7 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
             std::map<DWORD, std::string> names;
             uint64_t prevFlips2 = 0, prevFlips = 0, prevVs = 0, prevGp = 0, prevGb = 0, prevVc = 0, prevVr = 0,
                      prevVp = 0, prevChains = 0, prevChainBytes = 0, prevChainReused = 0;
+            uint64_t prevRb[7] = {}, prevSync[2] = {};
             auto prevT = std::chrono::steady_clock::now();
             int line = 0;
             int stalledSeconds = 0;
@@ -216,16 +219,34 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                 prevChains = chains;
                 prevChainBytes = chainBytes;
                 prevChainReused = chainReused;
+                // GS read-backs and the EE's waits for the workers (runtime/ps2_readback.h): per second.
+                auto& rbState = ps2x_readback::state();
+                const uint64_t rbNow[7] = {rbState.reads.load(),          rbState.waitNs.load(),
+                                           rbState.finishPolls.load(),    rbState.eagerFinish.load(),
+                                           rbState.lateServed.load(),     rbState.verified.load(),
+                                           rbState.verifyDifferent.load()};
+                uint64_t syncNow[2] = {};
+                vu1async::syncStats(syncNow[0], syncNow[1]);
+                char waits[256];
+                std::snprintf(waits, sizeof waits,
+                              " rb/s=%.0f rb_wait_ms/s=%.1f finish_polls/s=%.0f rb_eager/s=%.0f rb_late/s=%.0f "
+                              "rb_verified/s=%.0f rb_diff/s=%.0f vu1_syncs/s=%.0f vu1_sync_ms/s=%.1f",
+                              (rbNow[0] - prevRb[0]) / dt, (rbNow[1] - prevRb[1]) / dt / 1e6,
+                              (rbNow[2] - prevRb[2]) / dt, (rbNow[3] - prevRb[3]) / dt, (rbNow[4] - prevRb[4]) / dt,
+                              (rbNow[5] - prevRb[5]) / dt, (rbNow[6] - prevRb[6]) / dt, (syncNow[0] - prevSync[0]) / dt,
+                              (syncNow[1] - prevSync[1]) / dt / 1e6);
+                std::memcpy(prevRb, rbNow, sizeof prevRb);
+                std::memcpy(prevSync, syncNow, sizeof prevSync);
                 std::fprintf(
                     stderr,
                     "[perf %d] flips/s=%.1f flips2/s=%.1f vblank/s=%.1f gifpk/s=%.0f gifMB/s=%.1f vu1Mcyc/s=%.1f "
                     "vu1runs/s=%.0f vu1Mpairs/s=%.1f ee_thread_cpu=%.0f%% ee_ms/flip=%.2f other_cpu=%.0f%% "
                     "clip_fans/s=%.0f clip_us/s=%.1f clip_ee_pct=%.3f dma_chains/s=%.0f dma_chainMB/s=%.1f "
-                    "dma_pooled/s=%.0f ee_ms/flip2=%.2f%s\n",
+                    "dma_pooled/s=%.0f ee_ms/flip2=%.2f%s%s\n",
                     line++, df / dt, df2 / dt, dv / dt, gifPk, gifMb, vuMc, vuRuns, vuMp, 100.0 * gameCpu / dt,
                     df ? 1000.0 * gameCpu / df : 0.0, 100.0 * otherCpu / dt, clipFans / dt, clipNs / dt / 1e3,
                     gameCpu > 0 ? 100.0 * (clipNs / 1e9) / gameCpu : 0.0, chainsRate, chainMb, chainReuseRate,
-                    df2 ? 1000.0 * gameCpu / df2 : 0.0, others.c_str());
+                    df2 ? 1000.0 * gameCpu / df2 : 0.0, waits, others.c_str());
                 // No flips for three seconds: print where the EE thread and every busy thread are, once per second.
                 stalledSeconds = df == 0 ? stalledSeconds + 1 : 0;
                 if (stalledSeconds >= 3 && stalledSeconds <= 8) {

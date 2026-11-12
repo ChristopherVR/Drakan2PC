@@ -256,6 +256,12 @@ void shutdown() {
     w.started = false;
 }
 
+void syncStats(uint64_t& waits, uint64_t& nanoseconds) {
+    Worker& w = worker();
+    waits = w.syncWaits.load(std::memory_order_relaxed);
+    nanoseconds = w.syncNs.load(std::memory_order_relaxed);
+}
+
 void printStats() {
     Worker& w = worker();
     std::fprintf(stderr, "[vu1async] %llu jobs, %llu syncs (%llu waited, %.1f ms total), max queued %llu\n",
