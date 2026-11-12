@@ -433,12 +433,14 @@ This section was written by a second investigator who took the note above as a c
   in a narrow place the camera is swung on an arc of its full distance (about 1550 units) through the corner of the
   room and past the edge of the cellar's terrain layers. The engine's view layer lookup then finds no layer, the next
   frame searches all layers and takes the outdoor layer above the cellar, and the engine tick, which runs the world
-  update from the view layer, stops moving Rynn. That is "Rynn gets completely stuck and the entire rendering bugs
+  update from the view layer, all but stops Rynn. That is "Rynn gets completely stuck and the entire rendering bugs
   out" in one mechanism.
 * With `camera_follow = 0` (the native PS2 camera) the fault did not occur (4 runs, 22 laps, 88250 samples in the cellar: the view never left the cellar layers and was never -1).
 * Fix: a view-only rule (`drakan_view_layer.h`): a follow-camera point with no layer is answered from the controlled
   actor's layer. On by default, `[video] camera_layer_fix = 0` or `DRAKAN_VIEW_LAYER_FIX=0` turns it off. Nothing
   moves the player. The guard (`drakan_layer_seam*.h`, its test and its install line) is deleted in the same commit.
+* Counts for the committed build: 17 real-play runs (owner settings uncapped, 60 and 30; reporter settings), 110
+  laps, no outdoor view and no stuck run; with the rule switched off on the same exe 2 of 2 runs stuck.
 * The "open side" of the room at the stair head does not exist for a player. The spot the earlier pictures were
   taken from is a pocket outside the room's east wall that only a harness placement reaches.
 
@@ -487,11 +489,11 @@ the view has been outdoors for 5 s with Rynn in a cellar layer ("stuck").
 | fixed v1, owner, 30 | 3 | 18 | 20889 | 0 | - | 0 | 23 | 0 | 0 |
 | fixed v1, reporter, uncapped | 6 | 25 | 58464 | 0 | - | 0 | 29 | 0 | 0 |
 | fixed v1, owner, uncapped, rule off | 2 | 6 | 18594 | 2 | 0 (layer 4, view 195); 4 (layer 5, view 217) | 966 | 19 | 0 | 0 |
-| fixed v2 (committed), owner, uncapped | 4 | 29 | 208762 | 0 | - | 0 | 256 | 0 | 0 |
-| fixed v2 (committed), owner, 60 | 0 (not run yet) | | | | | | | | |
-| fixed v2 (committed), owner, 30 | 0 (not run yet) | | | | | | | | |
-| fixed v2 (committed), reporter, uncapped | 3 | 20 | 165736 | 0 | - | 0 | 160 | 0 | 0 |
-| fixed v2 (committed), owner, uncapped, rule off | 0 (not run yet) | | | | | | | | |
+| fixed v2 (committed), owner, uncapped | 6 | 40 | 262627 | 0 | - | 0 | 286 | 0 | 0 |
+| fixed v2 (committed), owner, 60 | 3 | 19 | 50452 | 0 | - | 0 | 120 | 0 | 0 |
+| fixed v2 (committed), owner, 30 | 3 | 17 | 22978 | 0 | - | 0 | 11 | 0 | 0 |
+| fixed v2 (committed), reporter, uncapped | 5 | 34 | 260613 | 0 | - | 0 | 310 | 0 | 0 |
+| fixed v2 (committed), owner, uncapped, rule off | 2 | 8 | 22156 | 2 | 4 (layer 4, view 195); 2 (layer 9, view 195) | 750 | 26 | 0 | 0 |
 
 Machine load: for the original exe, v1 and the first seven v2 runs two to three game instances ran at the same
 time (two of these batches, and another agent's game), and other sessions built and benchmarked, so the uncapped
@@ -551,10 +553,14 @@ Verdict: (a). The room is enclosed, and the open side was the harness.
   returns into the view (`+0x8c`, PAL `0x4dade4`). A miss stores -1, the next call searches all layers.
 * The engine tick `0x135c40` reads the view layer at `0x1360c0`: with -1 it jumps over the whole world update
   (`0x1360cc` to `0x13636c`); otherwise it takes the view layer's record (`0x151790`) and runs the update from it
-  (`0x14cf08`). Read from the recompiled code. With the outdoor layer as the view, Rynn stands still while her
-  animation runs and the mouse no longer turns her (heading constant in `runs/t1/frames.jsonl` from the hand-over on):
-  the cellar's layers are not among those the outdoor layer lists. That the update skips her for that reason is
-  inferred from the code path and the observation, not traced further.
+  (`0x14cf08`). Read from the recompiled code. With the outdoor layer as the view, Rynn all but stops while her
+  animation runs, and the mouse no longer turns her: in `runs/t1/frames.jsonl` her heading is constant from the
+  hand-over on and she covers 575 units in the next 1200 input samples, with W held and the driver's unstick moves,
+  against roughly 20 units a sample before. In the runs `b-own-2` to `b-own-5` her position changed on 1622 of the
+  3132 lap samples with the outdoor view. The cellar's layers are not among those
+  the outdoor layer lists; that the update leaves her out for that reason is inferred from the code path and the
+  observation, not traced further. On the fixed builds her position changed on every sample taken while the view
+  read -1 (355 of 355 on v2, 182 of 183 on v1).
 * With `camera_follow = 0` the camera position eases along a chord inside the room and the view never left the cellar.
   The PS2 game has only that camera, which is why the level shipped like this.
 
@@ -591,7 +597,9 @@ which the engine never takes; lifted onto the outdoor layer 195 three times; hou
 and from the ninth on the outcome differed from run to run within every configuration, the original exe included
 (the same cellar target ended in layer 5 in one run and on the terrain above in the next). v1 did log decisions
 while the camera flew to Rynn after a placement (for example "engine 11, actor layer 217 -> 217"), which is why v2
-stands aside after a placement. The v2 runs of the placements, a level exit and a cut-scene start are in the addendum at the end of this note.
+stands aside after a placement. On v2, with every decision logged (`DRAKAN_VIEW_LAYER_TRACE=1`), the rule made no decision at all in two runs of
+the 18 placements (`runs/tp7-fix`, `tp8-fix`), so there the engine's handling is untouched by construction; the
+outcomes scatter as before (`tools/tp.py` prints the table of all eleven runs).
 
 ### What is left, and not established
 
@@ -600,7 +608,7 @@ stands aside after a placement. The v2 runs of the placements, a level exit and 
   inside or behind the wall and the picture is stone surfaces at point-blank range (`evidence/fixed_viewlost.png`).
   That blemish is in v0.1.11 too, wherever a turn does not end in the fault. A collision test for the carried
   position in `beforeCameraFollow` would be the fix for it; not done here.
-* On the fixed build the view layer in memory still reads -1 between frames while the camera point is outside (721 of 692483
+* On the fixed build the view layer in memory still reads -1 between frames while the camera point is outside (1032 of 914655
   samples): something sets the view to -1 after the draw whenever the point is outside the layer, and the hook answers
   again on the next view update. The tick did not skip the world on those frames (Rynn's position changes on every
   one of them) and the pictures show cellar geometry, so the draw and the tick both see the answered layer. The writer of
@@ -634,5 +642,21 @@ pocket, the earlier placements and the walked tracks); `slice_l4_159350.png`, `s
 `slice_house_161000.png` (cuts through the tile meshes). Every picture in the sheets was looked at. Per-sample logs:
 `runs/<run>/frames.jsonl`, driver events `drive.jsonl`, game log `stdout.log`.
 
-Rows of the table marked "not run yet" wait behind another session's GPU benchmark; they and the placement, level
-exit and cut-scene runs of the committed build are added below when they have run.
+`fixed_v2_owner_runs.png`, `fixed_v2_reporter_runs.png` (the committed build, four and three runs, four frames each;
+two of the 28 frames show a flat wall face across part of the picture, the camera behind a wall);
+`cutscene_fix_vs_off.png`.
+
+### The committed build: cut scene, level exit, placements
+
+* Counts: the v2 rows of the table. 17 runs, the same recipes as the 17 of v1.
+* Opening sequence (`play_run.py --keep-cutscene`, New Game, the intro level, the level change into Surdana;
+  `runs/cut-i6bfix`, `cut-i6boff`): with the rule on and off the run reaches gameplay at the same spot with the same
+  picture (`evidence/cutscene_fix_vs_off.png`), and the rule logged no decision in it.
+* Level exit: `level_change_walk.py --exit 735232,772096 --dist 5000 --y 153300` (the walk into the Kragmor exit of
+  Surdana documented on 2026-11-01), rule off and on (`build/harness/i6doff-walk-735232_772096`,
+  `i6dfix-walk-735232_772096`): both took the exit (`exit taken in 'Level 1A - Surdana' at 729088 152750 772096`),
+  loaded `Level 1B - Kragmor` and report Rynn at the same arrival position (342016 172626 230520); the rule logged no
+  decision in either. Neither run ended with the script's quit (the recipe's last wait ran into the harness timeout in
+  both). The tool's default recipes (`--exit kragmor`, on the trigger and 3000 units short of it) did not reach the
+  trigger with the rule off or on, a matter of the recipe.
+* Placements: above.
