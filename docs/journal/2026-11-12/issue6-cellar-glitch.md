@@ -660,3 +660,208 @@ two of the 28 frames show a flat wall face across part of the picture, the camer
   both). The tool's default recipes (`--exit kragmor`, on the trigger and 3000 units short of it) did not reach the
   trigger with the rule off or on, a matter of the recipe.
 * Placements: above.
+
+---
+
+## Third pass (evening of the same day): the cause in the PC camera follow
+
+The view layer rule of the second pass treats what happens after the camera is behind a wall. This pass is about why
+it gets there. Commits a670ac32 (first version), 5796df9d (the carry that stands) and e5fbc986 (a narrower range for
+the view layer rule); runs `build/review/issue6-1b/runs/f7-*` (a670ac32), `f8-*` (5796df9d), `f9-*` (e5fbc986),
+`v2-*` (the build before).
+
+### The native camera collision, and why it could not be called a second time
+
+Decompiled with Ghidra into `build/review/issue6-1b/ghidra/` (`0041f848`, `0021ad48`, `0021b280`, `0021a948`,
+`00219528`, `00376170`). The follow tick `0x41f848` computes a target behind Rynn, tests it twice from an origin above
+her (her position plus a height from her bounding data, minus 100) and then eases the camera position towards the
+result by `min(1, cam+0x210 * average dt)`. The camera position itself is never tested.
+
+* `0x21ad48(camera, target, origin, mode)`: four rays (`0x376170`) from the origin to the corners of the near plane
+  round the target (64 units right, 48 up). Called on the carried position it found the stairs and nothing else: it
+  does not see the walls of the cellar (runs `f3-own-1`, `f3-dbg-1`: 18 and 45 hits, all on the stairs of 452, with
+  the camera still past the east wall of 453).
+* `0x21b280(camera, target, origin, mode)`: the sweep against objects (`0x375a80` with a class filter), which is what
+  finds interior walls. It first sweeps back from the target; when that hits, it answers with the camera's own saved
+  last position (camera `+0x130`): the native camera stays where it is while the way to the target is blocked.
+  Otherwise it returns the hit point pulled back 128 units. It keeps state in the camera (`+0x25c`, `+0x25e`, the
+  player fade through `0x21a948`).
+* Called a second time per tick from the hook (mode 1, the mode the routine uses on itself), `0x21b280` stopped the
+  game: the EE main thread waited for ever on semaphore 11 (`pc 0x4c4010`, `ra 0x12d7b0`) inside the nested call
+  (`runs/f3-dbg-2`, the watchdog dump in its `stdout.log`). A nested guest call cannot wait. So the engine's wall test
+  cannot be reused from a hook as a second call without moving it to a guest thread of its own.
+
+### What the per-tick log showed
+
+A build that wrote one line per follow tick (origin, target given to the tests, target returned, camera after the
+carry, after the native tick; `build/review/issue6-1b/limit.csv`, 20845 ticks) settled it. At the head of the
+stairs, in the ticks with the camera past the east wall:
+
+    origin (461638, 159886, 460035)   native target (462488, 160063, 460650)   returned unchanged
+    camera after the carry (462915, 160005, 460938)
+
+The native target is 1049 units from the origin and inside the room; the tests have nothing to hit. The carried
+camera is 1564 units out. The 500 units between them are the travel lag: the camera eases towards the target at
+`camera_follow` per second, so behind a Rynn running at about 3000 units a second it trails by about 600 units, back
+along the way she came. `beforeCameraFollow` turned the whole offset round her with her heading, lag included, and so
+swung a camera that was correctly trailing down the staircase sideways through the corner of the room. The native
+target never goes there, which is why the native camera (`camera_follow = 0`) never left the cellar layers in 22 laps.
+
+### Fix
+
+`runtime/input/include/input/CameraCarry.h`, `InputModule::beforeCameraFollow`, hooks in `drakan_input_glue.cpp`:
+
+* The glue reads, from inside the native tick, the target as `0x21ad48` receives it and as `0x21b280` leaves it (no
+  extra guest call) and hands it to the module.
+* The next tick's carry splits the camera position at that target: the part from the pivot to the target turns with
+  Rynn's heading and view pitch as before; the lag from the target to the camera turns with her heading too, but is
+  shortened by the size of the turn (`lagKeptAfterTurn`: a turn of 0.5 rad in one tick removes it, smaller turns take
+  their share, which leaves about exp(-turn / 0.5) of it after a turn of any speed and at any tick rate: 35 % after
+  30 degrees, 4 % after 90). A quick turn therefore brings the camera onto the native, world-tested target within a
+  few ticks; running straight leaves the lag, and with it the smooth follow, alone.
+* Without a target from the previous tick (another disc, the first tick, a target more than 4096 units from the
+  pivot after a placement) the whole offset turns as before.
+* `[mouse] camera_lag_in_place = 0` restores the old carry (the key has the name of the first version).
+  `DRAKAN_INPUT_SKIP` bit 32 removes the hooks with the follow hook. PAL only (the two addresses); the USA build
+  keeps the old carry.
+* Unit test `testCameraTravelLag` in `runtime/input/tests/input_test.cpp`: the split and its conditions, the share a
+  turn leaves, and the staircase case through the module (a 90 degree turn in one tick with 600 units of lag: the
+  camera ends 1000 units behind her instead of 1600; switched off or without a reported target, as before).
+
+Three designs were built and dropped on the way:
+
+* The second call of the native tests (above).
+* Holding the camera to the distance of the returned target (`f4-dbg-1`, `f5-dbg-1`): it acted 137 to 180 times a
+  run and did not remove the fault, because at the stair head the target is not shortened at all.
+* Leaving the lag fixed in the world while the rest turns (a670ac32, committed, then replaced by 5796df9d). It cured
+  the staircase (the "a670ac32" rows below) but was worse in winding tunnels: a lag fixed in the world pokes into
+  the far wall of a bend (the tunnel table below).
+
+### Counts
+
+Same real-play recipe as before (walk in through the house door, laps between the barrel room and room 453, random
+modes), `DRAKAN_VIEW_LAYER_TRACE=1` so that every decision of the view layer rule is counted. One game instance at a
+time. "Camera outside" counts input samples with the camera position outside every cellar layer rectangle while
+Rynn is in a cellar layer (`tools/count3.py`).
+
+| build, view layer rule, settings, world rate | runs | laps | samples in the cellar | stuck runs | rule decisions (per lap) | camera outside, samples (per lap) | view -1, samples | view outdoors, samples |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| before (5757266f), rule on, owner, uncapped | 2 | 11 | 70247 | 0 | 228 (20.7) | 229 (20.8) | 66 | 0 |
+| e5fbc986 (final), rule on, owner, uncapped | 2 | 13 | 67616 | 0 | 4 (0.3) | 8 (0.6) | 2 | 0 |
+| e5fbc986 (final), rule on, owner, 60 | 1 | 4 | 14001 | 0 | 1 (0.2) | 0 (0.0) | 0 | 0 |
+| e5fbc986 (final), rule on, reporter, uncapped | 1 | 5 | 49214 | 0 | 0 (0.0) | 0 (0.0) | 0 | 0 |
+| 5796df9d, rule on, owner, uncapped | 3 | 16 | 62264 | 0 | 13 (0.8) | 11 (0.7) | 4 | 0 |
+| 5796df9d, rule on, owner, 60 | 2 | 10 | 24763 | 0 | 15 (1.5) | 8 (0.8) | 3 | 0 |
+| 5796df9d, rule on, owner, 30 | 2 | 11 | 13088 | 0 | 1 (0.1) | 3 (0.3) | 1 | 0 |
+| 5796df9d, rule on, reporter, uncapped | 2 | 13 | 64740 | 0 | 7 (0.5) | 8 (0.6) | 1 | 0 |
+| a670ac32, rule on, owner, uncapped | 4 | 22 | 78459 | 0 | 44 (2.0) | 36 (1.6) | 11 | 0 |
+| a670ac32, rule on, owner, 60 | 2 | 7 | 22641 | 0 | 24 (3.4) | 21 (3.0) | 10 | 0 |
+| a670ac32, rule on, owner, 30 | 2 | 11 | 11806 | 0 | 16 (1.5) | 18 (1.6) | 8 | 0 |
+| a670ac32, rule on, reporter, uncapped | 3 | 16 | 83270 | 0 | 32 (2.0) | 22 (1.4) | 4 | 0 |
+| before, rule off, owner, uncapped (second pass) | 2 | 8 | 22156 | 2 (lap 4, Rynn in layer 4, view 195; lap 2, Rynn in layer 9, view 195) | rule off | 59 (7.4) | 26 | 750 |
+| 5796df9d, rule off, owner, uncapped | 2 | 13 | 62616 | 0 | rule off | 6 (0.5) | 6 | 1 |
+| 5796df9d, rule off, owner, 60 | 2 | 9 | 26138 | 1 (lap 3, Rynn in layer 9, view 217) | rule off | 3 (0.3) | 2 | 305 |
+| 5796df9d, rule off, owner, 30 | 1 | 5 | 5667 | 0 | rule off | 0 (0.0) | 0 | 0 |
+| 5796df9d, rule off, reporter, uncapped | 1 | 6 | 27737 | 0 | rule off | 0 (0.0) | 0 | 0 |
+| a670ac32, rule off, owner, uncapped | 2 | 9 | 29396 | 0 | rule off | 0 (0.0) | 1 | 0 |
+| a670ac32, rule off, owner, 60 | 1 | 3 | 4913 | 1 (lap 2, Rynn in layer 9, view 217) | rule off | 7 (2.3) | 1 | 302 |
+| a670ac32, rule off, owner, 30 | 1 | 5 | 6538 | 0 | rule off | 2 (0.4) | 1 | 0 |
+| a670ac32, rule off, reporter, uncapped | 1 | 2 | 8008 | 1 (lap 1, Rynn in layer 9, view 217) | rule off | 5 (2.5) | 2 | 314 |
+
+* Before, the view layer rule made about 21 decisions a lap: the camera left the cellar layers on most quick turns
+  and the rule covered it.
+* With 5796df9d and e5fbc986 it makes well under one a lap (the rows of those builds), all at one place: the west jamb of the corridor
+  mouth by the kegs, with the camera up to about 100 units past the layer edge while Rynn rounds the corner into the
+  barrel room. That is the camera cutting the corner of a doorway on its way to the target, which the native camera
+  does as well; it was not traced further.
+* Wall at point-blank range: none of the 45 pictures taken at fixed times in the five 5796df9d runs with pictures
+  shows a wall face across the view (`evidence/f8_all45.png`, `f8_owner_runs.png`; two of 28 before,
+  `fixed_v2_owner_runs.png`). The pictures are timed, not aimed at turns, so this is a sample.
+* Camera steps: the largest camera move between two consecutive input samples in the laps was 521 units before and
+  677 units with 5796df9d (99th percentile 252 and 275, uncapped runs): a quick turn now also takes the lag in,
+  so single steps can be somewhat larger; nothing in the thousands.
+* The view layer rule is still needed. With the rule switched off the new carry no longer sticks at the stair head,
+  but the corridor mouth can still do it: see the "rule off" rows (5796df9d: stuck in 0 of 2 runs uncapped, 0 of 1 at 30, 0 of 1 with the reporter settings and 1 of 2 at 60, at the
+  corridor mouth; the build before: 2 of 2).
+* One run of the batch did not count: `f8-60-1` crashed in `d3d11.dll` on a host render thread during the intro
+  level, before gameplay (access violation reading 0xEC; `runs/f8-60-1/stdout.log`). The follow hooks run on the EE
+  thread; this was not looked into and is not known to be related.
+
+### The camera elsewhere
+
+Runs without any placement: from where the level starts, 60 s of running with quick mouse turns of 0.6 to 2.2 rad
+and some jumps (`R_WANDER`, `tools/wander.py`), every decision of the view layer rule logged. The walks are not
+repeatable (the turns are timed, not placed), so only repeated runs say anything.
+
+| level | build before (5757266f) | a670ac32 (lag fixed in the world) | 5796df9d (lag shortened by the turn) |
+| --- | --- | --- | --- |
+| Crystal Mine (tunnels), rule decisions per run | 2, 8, 0, 5 | 24, 54, 0, 30 | 3, 18, 0, 2 |
+| Catacombs (corridors), rule decisions per run | 0, 3, 17 | 0, 6, 32 | 0, 2, 18 |
+| Surdana outdoors, rule decisions | 0 | 0 | 0 |
+| Ravenshold on Arokh, rule decisions | 0 | 0 | 0 |
+| Arokh, median camera distance / largest step | 4422 / 1487 | 4406 / 1422 | 4535 / 1001 |
+
+* Tunnels: a670ac32 was clearly worse than the build before; 5796df9d is back in the range of the build before
+  (four and three runs each; the spread between runs is as large as the differences, so "not worse" is all this
+  shows, not "better").
+* Outdoors and on Arokh: nothing changes. On Arokh the carry is not active (the follow hook stands aside for the
+  dragon) and the camera distance is about 4400 units on every build.
+* Cut scene: the opening sequence (`play_run.py --keep-cutscene`) reaches gameplay at the same spot with the same
+  picture and no rule decision (`evidence/cutscene_final.png`, `runs/cut-i6efix` on a670ac32, `cut-i6ffix` on 5796df9d).
+* Level exit, walked: the Kragmor exit of Surdana as in the second pass (`build/harness/i6efix-walk-735232_772096` on a670ac32,
+  `i6ffix-walk-735232_772096` on 5796df9d): exit taken, `Level 1B - Kragmor` loaded, Rynn reported at (342156, 172647,
+  230727) and (342130, 172678, 230696) 200 frames after the arrival, no rule decision; as before neither run ended with
+  the script's quit.
+* Placements: the 18-placement mission of the first pass, every decision logged (`runs/tp9-fix` on a670ac32,
+  `tp10-fix` on 5796df9d, `tp11-fix` and `tp12-fix` on e5fbc986). The outcomes scatter as in every earlier run of that
+  mission, the original exe included. Unlike the two runs of the second pass, which logged no decision, these logged
+  426, 1378, 1364 and 1037, nearly all of one kind: after the mission's entry placement Rynn stands at (464765,
+  477175) in layer 205, the camera is parked about 1070 units behind her at (465652, 477757), outside every cellar
+  layer, and once the 600-update stand-aside has run out the rule answers each frame with her layer where the engine
+  would alternate between no view layer and the outdoor layer 272 (the state in which the first pass saw Rynn frozen
+  after placements). So after the stand-aside a placement that leaves the camera behind a wall is no longer
+  "exactly as before": the view stays in her layer. Whether the new carry leaves the camera parked there more often
+  than the old one (0 decisions in two runs before, over 400 in each of four runs after) was not established.
+  e5fbc986 narrowed the rule's range from 4096 to 2560 units on the mistaken reading that this camera was 3900 units
+  away (its commit message says so); the narrower range is harmless and keeps Arokh's camera out, but it did not
+  change these counts.
+* Turning on the spot in the corridor 452 with one picture per input sample (`R_SPIN`; `evidence/f7-spin_seq2.png`
+  for a670ac32, `v2-spin_seq2.png` for the build before): the two sequences look alike, but they are not usable as
+  a jitter proof: in both builds consecutive pictures alternate between two views half a turn apart during the
+  turn, which is either how the picture requests of the script line up with the frames or something in the game that
+  was there before this work. Not explained. The numeric step measure above is the evidence there is.
+* Bow aiming: not driven in the game (a New Game Rynn has no bow, and no save was used). The carry runs before the
+  native tick and the bow's shoulder shift after it, on the position the tick leaves, as before; `bow_aim_test`
+  (which covers `beforeCameraFollow` taking the shift back out) passes unchanged.
+
+### Is the stand-aside of the view layer rule still needed?
+
+Yes, both stay. The rule still fires about once a lap in the cellar and more in tunnels, and with the rule off the
+fault still occurs (with the rule off, 5796df9d still stuck in 1 of 6 runs, at 60 frames a second), so the window of 600 view updates after an arrival, load or placement in which
+the rule stands aside is still an exposure, smaller than before: a quick turn at the wrong doorway in the first
+seconds after a load inside an interior can still end in the outdoor view. Closing it means either shortening the
+window (the play-test placement hold is 240 input boundaries, so anything under about 300 view updates would let the
+rule act while a placement is still settling; not tried), or making the camera never leave the layers at all, which
+needs a wall test of the camera position itself (next paragraph).
+
+What a complete fix would take: the engine's own wall sweep `0x21b280` on the camera position every tick. It cannot
+be nested in the hook (it waits on a semaphore). It would have to run as a posted guest call on a guest thread of
+its own (`IGuest::post`, as the sound loads do), one tick late, with its side effects on the camera state (the
+tracked blocking object at `+0x25c` / `+0x25e`, the player fade) understood and kept out of the native tick's way;
+or the sweep primitive `0x375a80` would have to be called with the same class filter, without the camera
+bookkeeping. Either is a day of work with its own proof round, and was not started.
+
+### Not established in this pass
+
+* Bow aiming in the game, and any interior other than the Surdana cellar, the Catacombs start and the Crystal Mine
+  start.
+* The USA disc: no hooks there, the old carry stays.
+* The feel of the camera in normal play: after a quick turn the camera now comes in to the native target distance
+  within a few ticks and eases back out as Rynn runs on. Nobody has looked at that by hand.
+* Why the pictures of the spin sequence alternate.
+* Whether the remaining decisions at the corridor mouth come from the native target itself or from the easing path.
+* The d3d11 crash of `f8-60-1`.
+* The `f8-*` runs used the game build made just before 5796df9d was committed, which differs from it in comments
+  and in the text of the default `drakan_input.ini` line only. The `f9-*` runs used the build of e5fbc986
+  (`build12.log`, exit 0), which contains 5796df9d as committed.
+* 30 frames a second and the rule-off cases were not repeated on e5fbc986; its change is a constant in the rule.
