@@ -378,10 +378,10 @@ inline void smoothNormal(const NormalGrid& grid, const float world[3], const flo
 // other or with the 2048 unit cells: fine grain, medium breakup, and a slow one against the visible tile repeat.
 inline constexpr int kOctaves = 3;
 inline constexpr float kOctavePeriod[kOctaves] = {224.0f, 1408.0f, 9728.0f}; // world units per noise tile
-inline constexpr float kOctaveAmplitude[kOctaves] = {0.14f, 0.06f, 0.05f};   // albedo factor swing at strength 1
+inline constexpr float kOctaveAmplitude[kOctaves] = {0.12f, 0.025f, 0.04f};  // albedo factor swing at strength 1
 inline constexpr float kReliefAmplitude = 0.30f;                 // light-facing slope of the fine and medium octaves
 inline constexpr float kReliefStep = 0.045f;                     // in noise tiles
-inline constexpr float kReliefFine = 0.6f, kReliefMedium = 0.3f; // octave weights inside the relief term
+inline constexpr float kReliefFine = 0.6f, kReliefMedium = 0.1f; // octave weights inside the relief term
 // The fine and medium octaves and the relief read as surface roughness up close; on a mountain across the valley
 // they would read as grain. They fade from full at kReliefNear to kReliefFar times their strength at kReliefNear +
 // kReliefRange (camera distance, units). The slow octave keeps its strength.
@@ -389,6 +389,17 @@ inline constexpr float kReliefNear = 3000.0f, kReliefRange = 14000.0f, kReliefFa
 inline float reliefFade(float distance) {
     const float t = std::clamp((distance - kReliefNear) / kReliefRange, 0.0f, 1.0f);
     return 1.0f + (kReliefFar - 1.0f) * t;
+}
+// The engine draws a character's projected shadow over the terrain as a pass of its own that darkens the ground by
+// as little as 21 / 128 (16 percent). Detail with features of the size of that shadow (the medium octave, 0.3 to
+// 1.5 m) and a swing of the same size hides it: with the first amplitudes (0.06 and a relief weight of 0.3 to 0.6)
+// Rynn's shadow on a Tundra slope could no longer be made out, although it was drawn. The fine octave has features of
+// a few centimetres and the slow one of many metres; neither competes with a shadow. So the rule: the medium octave's
+// peak to peak swing stays under half the weakest shadow at strength 1 and under the shadow at the top strength.
+inline constexpr float kWeakestShadow = 21.0f / 128.0f;
+inline constexpr float kTypicalReliefStep = 0.14f; // mean |noise - lit noise| of the volume (35.5 of 255)
+inline constexpr float mediumScaleSwing(float strength) {
+    return strength * 2.0f * (kOctaveAmplitude[1] + kReliefAmplitude * kReliefMedium * kTypicalReliefStep);
 }
 inline constexpr float kOctaveRotation[kOctaves][9] = {
     {1, 0, 0, 0, 1, 0, 0, 0, 1},

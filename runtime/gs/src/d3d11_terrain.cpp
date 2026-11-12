@@ -122,8 +122,10 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
     }
     if (!g.unproject.valid)
         return 0;
-    if (audit)
+    if (audit) {
+        auditShadowProjection(s, texIsTarget, depthMasked);
         auditTerrain(s, v, count, classified, depthMasked, g.unproject, dsx, dsy, k);
+    }
     if (!classified || !terrainCfg.any())
         return 0;
     if (!g.cb) {
@@ -326,6 +328,38 @@ void D3D11Backend::Impl::endTerrainTiming() {
     t.pending = true;
     t.frame = frame;
     g.timedNext = (g.timedNext + 1) % g.timed.size();
+}
+
+// GSR_TERRAIN_AUDIT=1, second part: the engine's projected character shadow. It is a draw of its own over the terrain
+// (a 128 px 32 bit texture the character was rendered into, clamped, depth writes masked, alpha test GREATER 2), so it
+// never takes the terrain flags. This counts, per 300 world frames, in how many frames the guest submitted such a draw
+// and whether its texture came from the render target or from memory, next to the terrain settings in force: a shadow
+// that comes and goes with the same counts whatever the settings are is not the terrain code's doing.
+void D3D11Backend::Impl::auditShadowProjection(const GsDrawState& s, bool textureIsTarget, bool depthMasked) {
+    static uint64_t lastFrame = ~0ull, frames = 0, framesWith = 0, fromTarget = 0, fromMemory = 0;
+    static bool seenThisFrame = false;
+    if (lastFrame != frame) {
+        lastFrame = frame;
+        seenThisFrame = false;
+        if (++frames >= 300) {
+            std::fprintf(stderr,
+                         "[terrain-audit] shadow projection, detail=%d cliffs=%d: a draw in %llu of %llu world frames "
+                         "(texture from the target %llu draws, from memory %llu)\n",
+                         (int)terrainCfg.detail, (int)terrainCfg.cliffs, (unsigned long long)framesWith,
+                         (unsigned long long)frames, (unsigned long long)fromTarget, (unsigned long long)fromMemory);
+            frames = framesWith = fromTarget = fromMemory = 0;
+        }
+    }
+    const bool signature = (s.flags & DF_TME) && !(s.flags & DF_FST) && depthMasked && (s.clamp & 0xf) == 5 &&
+                           (s.test & 0xfff) == 0x02d && bitsOf(s.tex0, 20, 6) == 0 && bitsOf(s.tex0, 26, 4) == 7 &&
+                           bitsOf(s.tex0, 30, 4) == 7;
+    if (!signature)
+        return;
+    ++(textureIsTarget ? fromTarget : fromMemory);
+    if (!seenThisFrame) {
+        seenThisFrame = true;
+        ++framesWith;
+    }
 }
 
 // GSR_TERRAIN_AUDIT=1: how well the state signature of classify() separates terrain from everything else. Ground

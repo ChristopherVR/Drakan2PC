@@ -33,6 +33,7 @@ struct FakeHost : dsettings::ISettingsHost {
         c.mipBias = true;
         c.hdTextures = true;
         c.terrainDetail = true;
+        c.terrainDistance = true;
         c.textureDump = false; // shown greyed out
         c.languageSelect = true;
         c.textureUpscaleFilters = {"default", "bicubic", "lanczos", "xbrz"};

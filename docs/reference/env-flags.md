@@ -79,10 +79,11 @@ Fresh settings now default reflections off because they can run on opaque scenes
 | `GSR_ANISO` | atoi | config | Anisotropy (clamped to 16). |
 | `GSR_MIPBIAS` | `auto` or atof | config | Mip bias. |
 | `GSR_TEXDUMP`, `GSR_TEXREPLACE`, `GSR_TEXUP_SYNC` | atoi | config | Dump / replace / synchronous upscaling. |
+| `DRAKAN_TERRAIN_DISTANCE`, `DRAKAN_TERRAIN_DISTANCE_LOG` | float 1..4; presence | config (`[video] terrain_distance`, 1) | Ground texture distance factor of the terrain (`drakan_terrain_distance.cpp`, guest `0x158148`, PAL only); the log prints the view scale it changes every 20000 scaled chunk draws. |
 | `GSR_TERRAIN_DETAIL`, `GSR_TERRAIN_CLIFFS` | first char `1` = on, else off | config (`[video] terrain_detail` 0, `terrain_cliffs` 0) | Terrain detail and the side projection of steep terrain faces ([graphics.md](graphics.md), "Terrain detail"). Direct3D 11 only. |
 | `GSR_TERRAIN_STRENGTH` | atof, clamped to 0..2 | config (`terrain_detail_strength`, 1) | Strength of the terrain detail. |
 | `GSR_TERRAIN_DEBUG` | atoi | 0 | `1` tints terrain layers (green: mapped from above only, red: side projection allowed); `2` shows the projection weights (blue from above, red plane x, green plane z, grey: no side projection). |
-| `GSR_TERRAIN_AUDIT` | presence | off | Every 600 frames, `[terrain-audit]` lines: per GS state signature, how many world triangles have all three vertices on the 2048 unit grid (the geometric ground truth for terrain), and which layer textures took the side projection (size, cells per tile). |
+| `GSR_TERRAIN_AUDIT` | presence | off | Every 600 frames, `[terrain-audit]` lines: per GS state signature, how many world triangles have all three vertices on the 2048 unit grid (the geometric ground truth for terrain), and which layer textures took the side projection (size, cells per tile); also `shadow projection` lines: in how many world frames the guest submitted the projected character shadow draw and where its texture came from. |
 | `GSR_TERRAIN_GPU_TIMING` | presence | off | `[terrain-gpu]` every 300 frames with terrain: GPU time between the start and end of the terrain layer draws (timestamp queries; the same draws whatever the terrain settings are) and CPU time in `prepareTerrain`. A setting change starts a new window. |
 | `GSR_PALETTE_HD` | atoi | 1 | HD index maps for palette-only animated textures (`docs/reference/hd-textures.md` 9). |
 | `GSR_PALETTE_HD_DUMP` | folder | unset | Writes the first 32 recoloured palette steps (`<hash>_native.png` / `_hd.png`). |

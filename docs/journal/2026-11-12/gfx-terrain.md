@@ -233,3 +233,94 @@ test of `gs_terrain.inc` against `detailFactor` / `smoothNormal`.
 
 `terrain_detail` now defaults to 0. The missing shadow in `tundra_n2_hill_near` (section 10) is a visible fault in a
 picture of this note and has no explanation yet, so the feature stays opt-in until the cause is found.
+
+## 12. Second round: corrections, the missing shadow, ground texture distance
+
+### Corrections to sections 1, 3, 8 and 9
+
+A trace of the guest terrain draw (code reading of `0x158148` and its callees, one RAM dump at the Surdana start,
+checked against the GS draw log; scratch under `build/review/gfx-terrain/trace/`) shows that **nothing is composited
+at run time**. What sections 1 to 9 call "the run-time composite" is the outdoor rock, an ordinary disc texture
+(128 px, 32 bit with alpha, material "Base Tiling Size" 4 cells, hence 32 texels per cell), drawn a second time with
+texture alpha on as the material's noise pass. The "Splat Cache" is a byte budget for draw pages. Also wrong: "4 live
+upscaled 128 px textures = the composites". With `GSR_TEXDUMP=1` two of the three hashes were dumped and looked at:
+they are menu text and the loading bar. No terrain texture at the Surdana start lacks a pack image.
+
+How the passes are really chosen (`docs/reference/graphics.md` has the full description): the far colour map is the
+base of every chunk at full weight; every ground texture of the chunk is drawn on top while the chunk is nearer than
+the material's splat fade distance (30 cells = 61440 units for most ground, 45 or 50 cells for rock), with a weight
+that falls linearly with view depth from 1 at the camera to 0 at that distance. So "tiles within about 10000 units"
+in section 1 was one frame's chunk content, not a threshold, and the softness of mid-range terrain is that linear
+fade towards a 4 texel per cell map, plus the stretch on steep faces, plus 32 texels per cell for rock.
+
+For `terrain_cliffs` this means the side projection does not move hand-placed art: the blend weights stay, and what
+lands elsewhere is the pattern inside the tile, including the rock's alpha noise that lets the layer below through.
+The patches still look rearranged against the stretched original, so the setting stays off by default.
+
+### The missing shadow
+
+Reproduced at the same Tundra slope (`runs/shadow-t/`, detail switched five times in place): the shadow is visible in
+all five shots with detail off and cannot be made out in the five with detail on (`runs/shadow-t/sh.jpg`). Findings:
+
+* The shadow is a pass of its own (GS draw log `runs/shadow-log`): 18 vertices, the character's render target as
+  texture, clamped, depth writes masked, alpha test GREATER 2, black with a vertex alpha of 21 to 35 of 128, drawn
+  after all terrain. It never takes the terrain flags (pixel flags 0x0042434b in the log), so the classification,
+  the alpha-0 skip, depth and alpha are not involved. The audit added for this
+  (`[terrain-audit] shadow projection`) shows the guest submitting it in 300 of 300 world frames with the texture
+  from the target, with detail on and off alike.
+* In the zoomed shot with detail on the silhouette is still there (`runs/shadow-t/zoom.jpg`). It is masked: the
+  shadow darkens the ground by 16 to 27 %, and the detail's medium octave with its relief put a mottling of the same
+  size and the same strength over a surface that is one flat colour without it.
+* Fix: the medium octave is cut from 0.06 to 0.025 and its relief weight from 0.3 to 0.1 (fine 0.14 to 0.12, slow
+  0.05 to 0.04). Rule and test in `terrain_detail.h`: the peak to peak swing of shadow-sized detail stays under half
+  the weakest projected shadow at strength 1 (0.058 against 0.164) and under the shadow at strength 2. Tests also pin
+  that the shadow's GS state is never classified as terrain.
+* After the fix: `evidence/shadow_surdana_off_on.jpg` (3818 x 2032, same pose, three off / on pairs: the shadow on the
+  grass is equally plain in all six) and `runs/sht.jpg` (Tundra snow at the cave mouth, two runs: Rynn's and a
+  rock's shadow plain with detail on). **Not re-shot at the slope where it failed**: the walk that reached it is not
+  reproducible (creatures push Rynn around) and `place` with the watched coordinates left her in the cave.
+  `terrain_detail` therefore stays off by default.
+* Other overlays (blood, scorch marks, footprints, water edges, the ray-traced shadow composite): not tested. They
+  are separate passes too and cannot take the terrain flags unless they use the splat state exactly; a weak dark
+  overlay on a flat surface would be masked the same way by the first amplitudes.
+* The detail is now subtle: in the 4K panels it is hard to see beyond a few metres. That is the price of the rule.
+
+### Ground texture distance (`terrain_distance`, 1 to 4, default 1)
+
+`drakan_terrain_distance.cpp` wraps `0x158148` and divides the view scale the cut-off and the fade use by the factor
+for the length of the call (`world/TerrainDistance.h`, `world_terrain_distance_test`). In play the log shows the scale
+going from 1 to 0.5 at factor 2. It works on every renderer (it is guest side) and is PAL only.
+
+Pictures, 3818 x 2032 client area (a 3840 x 2160 window), internal scale 8, DLSS quality, settings switched in place,
+six panels each (original, distance 2, distance 4, detail, distance 2 + detail, distance 2 + detail + cliffs):
+
+| Picture | What it shows |
+| --- | --- |
+| `s4k_v1_peaks` | Surdana, snow mountain across the valley: at distance 2 and 4 the snow gets its tile's veined structure where the original is a smooth gradient; the rock below changes little |
+| `s4k_v5_rockface` | Surdana rock face about 60 m away: distance alone changes the snow slope above it (streaks, because the tile is stretched down the slope); the rock only loses its smear in the panel with cliffs |
+| `s4k_v4_cliff` | Surdana cliff about 15 m away: distance and detail make no visible difference (the tiles are already there); only the cliffs panel removes the streaks, with rearranged patches and a straight seam at the bottom |
+| `r4k_v0_full` | Ravenshold from Arokh's back (he hovers: six different frames): the mountain on the right shows more structure at distance 2 and 4 |
+| `t4k_v0_full` | Northern Tundra start cave (the `place` to the valley did not take): no visible difference between the six panels, nothing breaks. **No Tundra mountain picture at 4K** |
+| `o4k_v4_full` | OotF Wartok Canyons from Arokh's back at dusk (he hovers): no difference between the panels that can be told from the frame to frame change; nothing breaks. The overlay reads 5 to 15 fps in this run (4K window, other games on the GPU) |
+| `motion_surdana_walk_w00_w07.jpg` | eight frames two input samples apart while walking with detail and distance 2: no trails and no pattern apart from the ground are visible, but the frames are too far apart to follow one feature; `runs/mo-r` (flying) was not looked at |
+
+Honest size of the gain: moderate. Far slopes show the game's own tile texture instead of the colour map; steep
+faces show it stretched unless `terrain_cliffs` is on; the rock stays at 32 texels per cell (128 with the HD pack).
+
+Cost: not measured this round. The trace's estimate from the RAM dump at the Surdana start (all pages of the drawn
+layers, no frustum cull) is 92 tile passes and 13763 splat vertices at factor 1, 182 and 27161 at factor 2, 225 and
+31545 at factor 4, on top of 84 base passes: about twice the terrain VU1 and fill work at factor 2. No texture
+memory changes (the textures are loaded regardless of distance).
+
+### Still open after this round
+
+* Tundra and OotF mountain panels at 4K at fixed poses; the Tundra slope after the amplitude fix.
+* VU1, GS and frame time cost of `terrain_distance` in play, on the disc levels and on OotF.
+* Motion judged from video; DLSS ghosting on the grain.
+* What the view float at `+0x3c` is and who writes it (1.0 in play); whether a zoomed view (bow sight) changes it.
+* A chunk draw that the scheduler suspends keeps the changed scale until it returns; whether that ever happens was
+  not observed.
+* Section 4's picture table describes pictures of the first amplitudes; of those, `surdana_4k_v4_cliff`,
+  `surdana_4k_v1_peaks`, `surdana_v1_snow_peaks_far`, `raven_n3_full`, `raven_n1_lower_left`, `tundra_n4_valley`,
+  `tundra_cave_v0` and `ootf_v4_canyon_crop` were never opened, and all of them are superseded by the amplitudes of
+  this round.

@@ -117,6 +117,22 @@ int main() {
         d = layer;
         d.test = 0x3000d;
         expect(!classify(d), "depth test ALWAYS: not terrain");
+        // The projected character shadow as the engine draws it (Tundra draw log): the character's render target as
+        // texture, clamped, depth writes masked, alpha test GREATER 2. It must never take the terrain flags, with
+        // the texture read from the target or (after the target went stale) from memory.
+        DrawInfo shadow;
+        shadow.triangles = shadow.textured = shadow.blend = shadow.textureIsTarget = true;
+        shadow.test = 0x5002d;
+        shadow.alpha = 0x44;
+        shadow.clamp = 5;
+        shadow.zbuf = 0x100000100ull;
+        expect(!classify(shadow), "the projected character shadow is not terrain");
+        shadow.textureIsTarget = false;
+        expect(!classify(shadow), "nor when its texture is decoded from memory");
+        shadow.clamp = 0;
+        expect(!classify(shadow), "nor a repeating decal with depth writes masked");
+        shadow.zbuf = 0x100;
+        expect(!classify(shadow), "nor one that writes depth: its alpha reference is not 0");
     }
 
     std::printf("world position from the pixel and Q\n");
@@ -359,12 +375,16 @@ int main() {
         const float high[kOctaves] = {1, 1, 1}, low[kOctaves] = {0, 0, 0};
         const float facing[2] = {0.3f, 0.3f};
         const float lit1[2] = {1, 1}, lit0[2] = {0, 0};
-        expect(detailFactor(high, lit1, 1) > 1.2f && detailFactor(low, lit0, 1) < 0.8f, "swing at strength 1");
+        expect(detailFactor(high, lit1, 1) > 1.15f && detailFactor(low, lit0, 1) < 0.85f, "swing at strength 1");
         expect(reliefFade(0) == 1.0f && reliefFade(1e6f) == kReliefFar && reliefFade(kReliefNear + 1) < 1.0f,
                "the relief fades with distance");
         expect(detailFactor(mid, facing, 1, 1e6f) < detailFactor(mid, facing, 1, 0) &&
                    detailFactor(mid, facing, 1, 1e6f) > 1.0f,
                "and is weaker but not gone on a far mountain");
+        std::printf("    medium scale swing %.3f at strength 1, %.3f at 2; weakest projected shadow %.3f\n",
+                    mediumScaleSwing(1), mediumScaleSwing(2), kWeakestShadow);
+        expect(mediumScaleSwing(1) <= 0.5f * kWeakestShadow, "shadow-sized detail stays under half the weakest shadow");
+        expect(mediumScaleSwing(2) < kWeakestShadow, "and under the shadow itself at the top strength");
         expect(detailFactor(low, lit1, 2) >= 0, "never negative");
         expect(detailFactor(mid, facing, 1) > 1.0f, "a face that falls away towards the light is brighter");
     }

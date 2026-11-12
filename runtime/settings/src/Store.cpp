@@ -414,6 +414,9 @@ const std::vector<Field>& fields() {
          "texture LOD bias: auto follows internal resolution, negative = sharper, positive = softer"},
         {"video", "hd_textures", false, GETB(video.hdTextures), SETB(video.hdTextures),
          "1 = use replacement textures from the overrides folder"},
+        {"video", "terrain_distance", false, GETF(video.terrainDistance, "%.2f"), SETF(video.terrainDistance),
+         "the ground keeps its textures this many times further out, 1 (original) .. 4; about twice the terrain "
+         "drawing work at 2"},
         {"video", "terrain_detail", false, GETB(video.terrainDetail), SETB(video.terrainDetail),
          "1 = fine detail and large-scale variation on the ground and mountains, 0 = the terrain as before"},
         {"video", "terrain_detail_strength", false, GETF(video.terrainDetailStrength, "%.2f"),
@@ -824,6 +827,7 @@ std::string settingLabel(const std::string& key) {
         {"video.texture_upscale_filter", "Texture upscale filter"},
         {"video.mip_bias", "Mip bias"},
         {"video.hd_textures", "HD texture replacement"},
+        {"video.terrain_distance", "Ground texture distance"},
         {"video.terrain_detail", "Terrain detail"},
         {"video.terrain_detail_strength", "Terrain detail strength"},
         {"video.terrain_cliffs", "Cliff textures"},

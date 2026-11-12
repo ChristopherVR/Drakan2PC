@@ -421,23 +421,43 @@ sampler s3 (the terrain detail uses b3 / t2 / s2). Near terrain is drawn from th
 which have no pack image and therefore no material map; measurements, pictures and limits:
 [gfx-materials](../journal/2026-11-12/gfx-materials.md).
 
-## Terrain detail: world-space detail and side projection on the GS path (2026-11-12)
+## Terrain: ground texture distance, world-space detail and side projection (2026-11-12)
 
-Two player settings for the height-field terrain (ground, hillsides, mountains), both exact no-ops when off:
-`terrain_detail` (with `terrain_detail_strength`) and `terrain_cliffs`, both off by default (cliffs changes the look
-of steep faces; detail is off until the missing shadow of the 2026-11-12 Tundra picture is explained). Direct3D 11 only so far. Facts, pictures, cost and limits:
+Three player settings for the height-field terrain (ground, hillsides, mountains), all off by default and exact
+no-ops when off: `terrain_distance` (guest side, every renderer), `terrain_detail` with `terrain_detail_strength`,
+and `terrain_cliffs` (both Direct3D 11 only so far). Facts, pictures, cost and limits:
 [gfx-terrain](../journal/2026-11-12/gfx-terrain.md).
 
-**How terrain reaches the renderer.** Every chunk of a terrain layer (up to 12 x 12 cells of 2048 units) is drawn
-through VU1 as perspective textured triangles, once per texture, with the blend weight in the vertex alpha: the
-group's far colour map (256 px, 4 texels per cell, drawn at every distance as the base), a run-time composite of the
-chunk's layers (32 bit, 128 px over 2 or 4 cells, i.e. 64 or 32 texels per cell; in the measured Surdana frame from
-about 5000 units outwards) and, near the camera, the ground tiles themselves (8 bit, 128 or 256 px per cell). All of
-these passes share one GS state: `ALPHA` 0x44, alpha test "greater than 0", depth test GEQUAL with depth writes,
-`MODULATE`, both axes repeating. `terrain::classify` (`runtime/gs/src/terrain_detail.h`) tests exactly that;
-`GSR_TERRAIN_AUDIT=1` checks it against the geometry (terrain vertices lie on the 2048 unit grid). Vertex colours carry
-the baked lighting, the fog value comes per vertex, and nothing in the stream says "terrain" or carries a normal or a
-world position.
+**How terrain reaches the renderer.** Every chunk (draw page) of a terrain layer, up to 12 x 12 cells of 2048 units,
+is drawn through VU1 as perspective textured triangles, once per texture:
+
+* the base pass: the group's far colour map (the level's `..TS.TXD` texture, 256 px, 4 texels per cell), always, at
+  full weight;
+* one "splat" pass per ground texture of the chunk, with the blend weight in the vertex alpha. A material's "Base
+  Tiling Size" says how many cells one tile covers (grass and dirt 1, snow 2, the outdoor rock 4, so the 128 px rock
+  has 32 texels per cell), and textures with an alpha channel (the rock) are drawn a second time with texture alpha
+  on (the material's noise pass).
+
+Guest `0x158148` (layer, page) decides the passes: a splat is drawn while the squared distance from the camera to the
+chunk's box, times the square of one view float `s` (`*(0x5565c8) + 0x3c`, 1.0 in play), is under the square of the
+material's "Splat Fade Distance" (30 cells for most ground, 45 or 50 for rock), and the vertex program fades its
+weight linearly with view depth: `alpha = weight * (1 - depth / (fade / s))`. A ground texture has therefore lost a
+third of its weight 20000 units away and the 4 texel colour map shows through: that, the top-down mapping on steep
+faces, and the low texel density of the rock are why mid-range mountains are soft. Nothing is composited at run time
+(the "Splat Cache" is a byte budget for the draw pages).
+
+All of these passes share one GS state: `ALPHA` 0x44, alpha test "greater than 0", depth test GEQUAL with depth
+writes, `MODULATE`, both axes repeating. `terrain::classify` (`runtime/gs/src/terrain_detail.h`) tests exactly that;
+`GSR_TERRAIN_AUDIT=1` checks it against the geometry (terrain vertices lie on the 2048 unit grid). The engine's
+projected character shadow is a pass of its own over the terrain (the character's render target as texture, clamped,
+depth writes masked, alpha test GREATER 2, vertex alpha 21 to 35 of 128) and never takes the terrain flags. Vertex
+colours carry the baked lighting, the fog value comes per vertex, and nothing in the stream says "terrain" or carries
+a normal or a world position.
+
+**Ground texture distance** (`terrain_distance`, 1 to 4, PAL): `drakan_terrain_distance.cpp` wraps `0x158148` and
+divides `s` by the factor for the length of the call, which moves both the cut-off and the fade of every material out
+by that factor (rules and numbers: `runtime/world/include/world/TerrainDistance.h`). No level data, material or code
+changes. It costs terrain passes: about twice as many splat passes and vertices at factor 2 at the Surdana start.
 
 **World position per pixel.** The vertex Q is 1 / clip w at full float precision and is linear in screen space, so a
 pixel's camera-relative world position follows from its pixel position, Q and the engine camera the host publishes
@@ -447,25 +467,28 @@ upscaler's jitter are folded into the constants, so the position is the same und
 
 **Terrain detail.** The layer colour is multiplied, before fog, by a factor from three octaves of one procedural
 tiling noise volume (64^3, two 8 bit channels, generated at start-up, about 600 KiB with mips; no art asset) sampled at
-the world position: periods 224, 1408 and 9728 units, each in its own rotated frame. The second channel is the noise
-one step towards a fixed light in the volume's frame, so the difference of the channels is a relief term at no extra
-fetch (three fetches per pixel and layer pass in all). The two finer octaves and the relief fade to 30 % between 3000
-and 17000 units from the camera; the slow octave (amplitudes 0.14, 0.06 and 0.05 of the colour, relief 0.30) breaks up the visible tile repeat and keeps its strength. A volume
-needs no projection and no normal, so the detail cannot stretch on a cliff or show a seam at a triangle, cell, chunk
-or layer border, and every splat pass of a pixel gets the same factor, so the blend of the layers is the original
-blend times that factor. The mean of both channels is mid grey at every mip level: far terrain converges to the
-picture without detail. Pixels with vertex alpha 0 (no weight, dropped by the alpha test) skip the work.
+the world position: periods 224, 1408 and 9728 units, each in its own rotated frame, amplitudes 0.12, 0.025 and 0.04
+of the colour. The second channel is the noise one step towards a fixed light in the volume's frame, so the
+difference of the channels is a relief term (0.30, mostly on the fine octave) at no extra fetch: three fetches per
+pixel and layer pass in all. The two finer octaves and the relief fade to 30 % between 3000 and 17000 units from the
+camera; the slow octave breaks up the visible tile repeat and keeps its strength. The medium octave is kept weak on
+purpose: detail with features of the size of a character's shadow and a swing like the shadow's (16 %) hides the
+shadow (`mediumScaleSwing`, tested). A volume needs no projection and no normal, so the detail cannot stretch on a
+cliff or show a seam at a triangle, cell, chunk or layer border, and every splat pass of a pixel gets the same
+factor, so the blend of the layers is the original blend times that factor. The mean of both channels is mid grey at
+every mip level: far terrain converges to the picture without detail. Pixels with vertex alpha 0 (no weight, dropped
+by the alpha test) skip the work.
 
-**Cliff textures.** On steep faces the layer texture is sampled from the side (world height against x or z, at the
+**Cliff textures.** On steep faces the splat textures are sampled from the side (world height against x or z, at the
 density of the mapping from above) instead of from above, where one texel covers `1 / normal.y` texels of slope.
 The weight comes from the normal of the height field itself, not of the drawn triangle (triangles are 4 m wide and a
 per-triangle weight shows every edge): `terrain::buildNormalGrid` turns the resident height field the ray effects
 already capture into a grid of vertex normals (up to four stacked layers per grid vertex), uploaded as a float
 texture array once per level, and the shader interpolates it at the pixel. The side projection starts at a slope of
-50 degrees and is complete at 66 degrees. Textures with a tile period of 2048 * 2^n units up to 8 cells take part,
-which includes the run-time composite: on a steep face the side projection shows another part of that composite, so
-patches of grass and rock sit elsewhere than in the original picture. That is why the setting is off by default. The
-far colour map stays mapped from above.
+50 degrees and is complete at 66 degrees. Textures with a tile period of 2048 * 2^n units up to 8 cells take part.
+The blend weights stay where they are, but the pattern inside a tile, including the rock's alpha noise that lets the
+layer below show through, lands elsewhere on the face than in the stretched original, so patches of grass and rock
+look rearranged there. The far colour map stays mapped from above.
 
 **Shader and bindings.** `gs_terrain.inc` is included into `kHlslMain`; the terrain code runs behind two pixel flag
 bits (`PF_TERRAIN`, `PF_TERRAIN_SIDE`) that `D3D11Backend::Impl::prepareTerrain` (`d3d11_terrain.cpp`) sets per draw.

@@ -615,6 +615,7 @@ struct D3D11Backend::Impl {
     // constants, noise volume and sampler when it returns flags, and stores the side projection density in k.g[3].
     uint32_t prepareTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool haveTex, bool texIsTarget,
                             const RT& rt, bool depthMasked, float dsx, float dsy, PSConsts& k);
+    void auditShadowProjection(const GsDrawState& s, bool textureIsTarget, bool depthMasked);
     void auditTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool classified, bool depthMasked,
                       const terrain::Unproject& u, float dsx, float dsy, const PSConsts& k);
     // ---- material detail (d3d11_material.cpp; table, rule and maths in material_detail.h) ----

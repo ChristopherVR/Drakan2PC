@@ -157,6 +157,9 @@ const Entry kEntries[] = {
      "renderer); 0 = the terrain exactly as before (env GSR_TERRAIN_DETAIL)"},
     {"video", "terrain_detail_strength", "1.00",
      "strength of the terrain detail, 0.25 .. 2 (env GSR_TERRAIN_STRENGTH)"},
+    {"video", "terrain_distance", "1.0",
+     "the ground keeps its textures this many times further out before the level's coarse far colour map takes over, "
+     "1 (original) .. 4; about twice the terrain drawing work at 2 (PAL only; env DRAKAN_TERRAIN_DISTANCE)"},
     {"video", "terrain_cliffs", "0",
      "1 = steep mountain faces take their ground texture from the side instead of from above, so it is not stretched "
      "into streaks; patches of grass and rock on such faces then sit elsewhere than in the original picture "

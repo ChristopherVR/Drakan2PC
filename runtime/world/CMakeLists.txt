@@ -37,6 +37,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_model_detail_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_model_detail_test COMMAND world_model_detail_test)
 
+    # Ground texture distance option (header only): factor clamp, the view scale the chunk draw sees, splat weights.
+    add_executable(world_terrain_distance_test tests/terrain_distance_test.cpp)
+    target_link_libraries(world_terrain_distance_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_terrain_distance_test COMMAND world_terrain_distance_test)
+
     # Near-plane clip of the engine's projected polygons (header only): bit-identical front polygons, clipped straddlers.
     add_executable(world_polyclip_test tests/polyclip_test.cpp)
     target_link_libraries(world_polyclip_test PRIVATE drakan_world drakan::options)

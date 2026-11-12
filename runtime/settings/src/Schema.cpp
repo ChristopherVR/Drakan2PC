@@ -344,6 +344,13 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
     b.toggle("video.hd_textures", "HD texture replacement",
              "Load replacement textures from the overrides folder instead of the disc textures.", true,
              caps.hdTextures);
+    b.slider("video.terrain_distance", "Ground texture distance",
+             caps.terrainDistance
+                 ? "How far away hills and mountains keep their ground textures before the level's coarse far colour "
+                   "map takes over: 1 = the original PlayStation 2 distance, 2 = twice as far. Costly: 2 is about "
+                   "twice the terrain drawing work."
+                 : "Needs the PAL executable layout; not available for this disc.",
+             v.terrainDistance, 1.0f, 4.0f, "x%.2f", 0.25f, caps.terrainDistance);
     b.toggle("video.terrain_detail", "Terrain detail",
              caps.terrainDetail
                  ? "Adds fine surface detail and large-scale variation to the ground and mountains, fixed in the "
