@@ -15,7 +15,7 @@ the `elf =` line pointing at a private copy. Other agents ran 7 to 10 game insta
 * **Draw stream.** A terrain layer is cut into chunks of up to 12 x 12 cells (a cell is 2048 units, about 4 m). Each
   chunk goes through VU1 as perspective textured triangles (Q = 1 / w, not FST) and is drawn once per texture with the
   blend weight in the vertex alpha: a splat. The renderer sees batches of 6 to about 800 vertices per pass; a Surdana
-  frame has about 40 to 90 terrain draws. Vertex colours are the baked lighting (per 4 m vertex, Gouraud), FOG is per
+  frame has about 80 terrain draws. Vertex colours are the baked lighting (per 4 m vertex, Gouraud), FOG is per
   vertex, and there is no normal and no world position in the stream.
 * **Three kinds of texture** (GS draw log of one Surdana frame, `probe/dist.py`; distance = 1 / Q):
 
@@ -66,7 +66,7 @@ the `elf =` line pointing at a private copy. Other agents ran 7 to 10 game insta
   silhouette and flat shading per 4 m triangle.
 * **Northern Tundra**, `tundra_n6_valley`, `tundra_n1_hill`: hills as smooth blurs with visible facets, snow ground a
   single flat colour.
-* **OotF Wartok Canyons**, `ootf_v3_canyon`: dark canyon walls with vertical streaks.
+* **OotF Wartok Canyons**, `ootf_v4_canyon`: dark canyon walls, soft, with vertical streaks on the steep parts.
 
 ## 3. What was built
 
@@ -97,11 +97,59 @@ Decisions taken from pictures on the way:
 
 ## 4. Pictures after (same pose, toggled inside one run)
 
-PICTURES
+All under `build/review/gfx-terrain/evidence/`: `<name>.png` is the pixel-exact four-panel crop (nearest-neighbour
+enlargement where the name says crop), `<name>_view.jpg` a reduced copy. Panels: off, `terrain_detail`,
+`terrain_cliffs`, both; the settings were switched with `setting` lines of the input script while Rynn (or Arokh)
+kept the pose, 25 to 40 input samples before each shot. Source frames: `runs/ev-*/`, `runs/k4-surdana/`.
+
+| Picture | What it shows |
+| --- | --- |
+| `surdana_v5_rockface_far`, `surdana_4k_v5_rockface` | A rock face about 60 m away. Detail: a fine grain, hardly visible at this distance. Cliffs: the vertical smear becomes horizontal strata with cracks; this is the clearest gain of the work |
+| `surdana_v4_cliff_mid`, `surdana_4k_v4_cliff` | A steep grass and rock hillside. Detail: the patches keep their place and get a rough surface. Cliffs: the streaks are gone, **the green patches sit elsewhere and lie in horizontal bands**, and a straight seam shows at the bottom where a chunk without the side projection begins |
+| `surdana_v1_snow_peaks_far`, `surdana_4k_v1_peaks` | Distant snow mountains (colour map only). Detail: slight mottling; silhouettes and facets unchanged |
+| `surdana_n0_hill_near` | Ground and a rocky hill next to Rynn: the detail gives the flat patches a surface |
+| `raven_n0_full`, `raven_n3_full`, `raven_n1_lower_left` | Ravenshold from Arokh's back (he hovers, so the four panels are not the same frame): rock gets slight texture, snow stays smooth; cliffs alters the rock bands of the mountain on the left |
+| `tundra_n2_hill_near`, `tundra_n4_valley`, `tundra_cave_v0` | Northern Tundra: a hill face next to Rynn turns from one flat colour into a rough surface; the cave (terrain ceiling and walls) takes the detail without seams |
+| `ootf_v4_canyon`, `ootf_v4_canyon_crop` | OotF Wartok Canyons (converted level), from Arokh's back at dusk: the differences are small at this distance and brightness; nothing breaks |
+| `surdana_motion_walk_m0_m3.jpg` | Frames 3 input samples apart while walking and turning with both settings on |
+
+Seen and not fixed: with the detail on, flat snow right under the camera shows a faint cloud pattern (the medium
+octave), much weaker than before the amplitudes were cut; at strength 2 it is plain. Objects, characters, foliage,
+water, sky and the HUD are untouched in every picture (the classification tint of `GSR_TERRAIN_DEBUG=1` covers ground
+and mountains only, `runs/dbg-surdana/sheet.jpg`).
+
+4K: a 3840 x 2160 window is cut to a 3818 x 2032 client area by the desktop; internal scale 8 (auto), DLSS quality.
 
 ## 5. Cost
 
-COST
+| | `terrain_detail` | `terrain_cliffs` |
+| --- | --- | --- |
+| Texture fetches per terrain pixel and layer pass (pixels with blend weight 0 skip everything) | 3 trilinear fetches of the noise volume | 1 fetch of the volume (dither) when the detail is off, 16 point reads of the normal grid, and on faces steeper than 50 degrees one or two more samples of the layer texture, each as expensive as the draw's own (up to 16 anisotropic taps) |
+| Draw calls | none added | none added |
+| GPU memory | noise volume 64^3 x 2 channels with mips: 0.6 MiB; constants 256 bytes | normal grid, 4 slots x 16 bytes per grid vertex: Surdana 372 x 415 = 9.4 MiB, Ravenshold 463 x 392 = 11.1 MiB, Tundra 367 x 450 = 10.1 MiB |
+| CPU per level | 64^3 noise built at first use (not timed) | grid built from the height field at level load (not timed; 141000 to 221000 triangles) |
+| Host side | nothing | asks the host for the resident height field like DLSS does (motion-only model capture) |
+
+GPU time of the terrain draws, `GSR_TERRAIN_GPU_TIMING=1` (timestamp queries around about 80 terrain draws per
+frame), Surdana start looking at the mountains, 1920 x 1080 window, DLSS quality, settings cycled three times in one
+run (`recipes/perf.txt`), three 300 frame windows each, ms per frame, median (range):
+
+| Round | off | detail | cliffs | both |
+| --- | --- | --- | --- | --- |
+| 1 | 1.63 (1.46 to 1.79) | 3.14 (3.02 to 3.58) | 2.81 (2.65 to 3.25) | 4.16 (3.79 to 4.82) |
+| 2 | 2.39 (1.85 to 2.58) | 3.82 (3.54 to 3.93) | 3.47 (3.23 to 3.92) | 4.43 (4.36 to 5.75) |
+| 3 | 2.54 (2.54 to 2.60) | 5.89 (5.21 to 8.92) | 8.19 (7.57 to 9.85) | 12.40 (11.23 to 12.52) |
+
+Round 3 ran while the GPU was busier (other agents' games), so read rounds 1 and 2: the detail costs about 1.5 ms of
+GPU time per frame at this size, cliffs about 1.1 ms, both about 2.3 ms. Not measured at 4K. Frame rate was not used
+as a measure: the overlay read between 17 and 93 fps for the same view over the day.
+
+CPU: the same log gives the time inside `prepareTerrain` including its own timing calls: 0.23 to 0.64 ms per frame
+with everything off, 0.30 to 0.64 with a setting on. The feature's own share is not separable from that noise.
+`cpu_scene_bench.py` and `gs_replay_ab.py` were not used: captures carry no camera, so the features never run there.
+
+Cold start: the main pixel shader compiles in 3.7 to 8.2 s instead of 1.4 to 2.5 s (three variants in parallel, once
+per version, then from the disk cache), measured with `gsr_replay` and an empty cache on the loaded machine.
 
 ## 6. Off is today's picture
 
@@ -165,7 +213,13 @@ test of `gs_terrain.inc` against `detailFactor` / `smoothNormal`.
   (`evidence/surdana_motion_walk_m0_m3.jpg`) show nothing sliding, but the camera moves too much between them to call
   that verified. The detail is a function of the world position and the unprojection is unit tested to 0.02 units at
   300 units; DLSS ghosting on the new grain was not examined.
-* Borderless fullscreen was not run; 4K was a 3840 x 2160 window.
+* In `tundra_n2_hill_near` Rynn's projected shadow is present in the off and cliffs panels and absent in the two
+  detail panels. A repeat at another Tundra spot (`runs/shadow-tundra/feet.jpg`, detail switched four times) shows the
+  shadow in all eight shots, and it is there with both settings on in the Surdana walk frames. Why it was missing on
+  that slope was not found.
+* Close to the camera the grain is plain on smooth snow (`runs/shadow-tundra/feet.jpg`): whether that reads as snow
+  or as noise is a matter of taste; `terrain_detail_strength` scales it.
+* Borderless fullscreen was not run; 4K was a 3840 x 2160 window (3818 x 2032 client area), Surdana only.
 * Ray-traced shadows, water, GI and neural rendering together with the terrain settings: not run.
 * The USA disc and levels other than Surdana, Ravenshold, Northern Tundra and OotF Wartok Canyons.
 * A level whose height field is wider than 1024 cells gets no normal grid (cliffs then use face normals); none was met.
