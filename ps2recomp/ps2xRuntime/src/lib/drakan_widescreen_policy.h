@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <cmath>
+#include <cstdio>
+#include <string>
 
 // Private host-thread policy; no dependency on generated code or renderer headers.
 namespace drakan_ws::detail {
@@ -60,6 +62,34 @@ inline bool correctFrustumWidth(const ProjectionScope& scope, int thread, uint32
         return false;
     width = corrected;
     return true;
+}
+
+// A mod pack's `level_aspect` entry, "Level title = 4:3" (also "16:9", or a number such as 1.333): the level title
+// and the aspect its world is shown at. False when the entry has no '=', no title or no usable aspect (1.0 .. 4.0).
+inline bool parseLevelAspect(const std::string& entry, std::string& level, float& aspect) {
+    const size_t eq = entry.rfind('=');
+    if (eq == std::string::npos)
+        return false;
+    const auto trim = [](std::string t) {
+        const size_t a = t.find_first_not_of(" \t"), b = t.find_last_not_of(" \t");
+        return a == std::string::npos ? std::string() : t.substr(a, b - a + 1);
+    };
+    level = trim(entry.substr(0, eq));
+    const std::string value = trim(entry.substr(eq + 1));
+    float w = 0.0f, h = 0.0f;
+    if (std::sscanf(value.c_str(), "%f:%f", &w, &h) == 2 && h > 0.0f)
+        aspect = w / h;
+    else if (std::sscanf(value.c_str(), "%f", &w) == 1)
+        aspect = w;
+    else
+        return false;
+    return !level.empty() && std::isfinite(aspect) && aspect >= 1.0f && aspect <= 4.0f;
+}
+
+// The aspect the world of the loaded level is rendered and presented at: the window's (or the fixed) aspect, but not
+// wider than the level's own (`levelAspect`, 0 = the level has none). A level never widens the player's choice.
+inline float levelWorldAspect(float target, float levelAspect) {
+    return levelAspect > 0.0f && levelAspect < target ? levelAspect : target;
 }
 
 inline bool frontEndScreen(int id) {

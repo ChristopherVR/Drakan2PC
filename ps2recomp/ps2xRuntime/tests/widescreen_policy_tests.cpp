@@ -319,5 +319,33 @@ int main() {
     p.update(79999, 0, 8, false);
     p.update(80000, 0, -1, true);
     check(!p.wide, "F1 cannot establish world");
+    {
+        // A pack's level_aspect: "Level title = 4:3". The level's world is shown at that aspect, never wider than
+        // asked.
+        using namespace drakan_ws::detail;
+        std::string level;
+        float aspect = 0;
+        check(parseLevelAspect("Picture Level = 4:3", level, aspect) && level == "Picture Level" &&
+                  std::fabs(aspect - 4.0f / 3.0f) < 1e-5f,
+              "level aspect entry: title and W:H");
+        check(parseLevelAspect("A = B level=16:9", level, aspect) && level == "A = B level" &&
+                  std::fabs(aspect - 16.0f / 9.0f) < 1e-5f,
+              "level aspect entry: the last '=' separates the aspect");
+        check(parseLevelAspect("L = 1.5", level, aspect) && aspect == 1.5f, "level aspect entry: plain number");
+        check(!parseLevelAspect("no aspect", level, aspect), "level aspect entry needs '='");
+        check(!parseLevelAspect(" = 4:3", level, aspect), "level aspect entry needs a title");
+        check(!parseLevelAspect("L = wide", level, aspect), "level aspect entry needs a number");
+        check(!parseLevelAspect("L = 9:16", level, aspect) && !parseLevelAspect("L = 8", level, aspect),
+              "level aspect outside 1..4 is refused");
+        constexpr float wide = 16.0f / 9.0f;
+        check(levelWorldAspect(wide, 0.0f) == wide, "a level without an aspect follows the window");
+        check(levelWorldAspect(wide, nativeAspect) == nativeAspect,
+              "a 4:3 picture level is shown 4:3 in a wide window");
+        check(levelWorldAspect(nativeAspect, wide) == nativeAspect, "a level aspect never widens a 4:3 choice");
+        // 4:3 is below the wide threshold: the layout is the pillarboxed, unstretched world with a native projection
+        const auto layout = layoutPolicy(-1, true, true, levelWorldAspect(wide, nativeAspect), false);
+        check(!layout.presentWide && layout.projection == nativeAspect && layout.foregroundScale == 1.0f,
+              "picture level: native projection, no wide presentation, HUD unscaled");
+    }
     std::printf("widescreen policy: %d checks passed\n", checks);
 }

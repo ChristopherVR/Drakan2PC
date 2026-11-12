@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -20,7 +20,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, re
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { Iso9660, SrscReader, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { Iso9660, SrscReader, SubtitleTable, parseSubtitleFile, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -188,6 +188,11 @@ const readPs2Txd = async (discPath: string): Promise<Uint8Array | null> => {
 
 const prefix = opt['prefix'] ?? 'OotF - ';
 const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
+// --subtitles <json>: the subtitle lines of the PC voice clips (analysis/scripts/ootf_subtitles.py makes the file on this
+// machine from the install's own audio; the PC game has no subtitle text). Without it the pack has no scene subtitles.
+const subtitles = opt['subtitles']
+    ? new SubtitleTable(parseSubtitleFile(JSON.parse(readFileSync(opt['subtitles'], 'utf8'))))
+    : undefined;
 const res = await convertOotfLevels(
     src,
     levels,
@@ -195,6 +200,7 @@ const res = await convertOotfLevels(
     {
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),
+        subtitles,
         textures: !only || only.has('textures'),
         terrainInCommon: opt['tex-common'] === '1',
         terrainDiscTextures: opt['tex-disc'] === '1',
@@ -263,6 +269,8 @@ const pack = await buildOotfPack(
         ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
         // the rendered OotF title theme ("gui", PC Background Music ID 4) plays on the title menu while the campaign is chosen
         ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
+        // levels of flat picture scenes are shown at the aspect they were framed for (the Ruined Village Book: 4:3)
+        ...(res.levelAspect ? { levelAspect: res.levelAspect } : {}),
     },
     template,
     res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath), preview: previewPng(arenas.get(l.pcPath)?.name) })),

@@ -586,6 +586,19 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(!rebaseFieldLists({1, 2, 3}, 2, 1, merged) && merged == stored(english));
     }
 
+    // `level_aspect` lists the levels a pack wants shown at one picture shape.
+    {
+        Manifest m;
+        std::string err;
+        CHECK(parseManifest("format = 1\nid = \"a\"\nlevel_aspect = [\"Picture Level = 4:3\", \"Other = 16:9\"]\n"
+                            "[target]\nprofile = \"pal\"\n",
+                            false, m, err));
+        CHECK(m.levelAspect.size() == 2 && m.levelAspect[0] == "Picture Level = 4:3" &&
+              m.levelAspect[1] == "Other = 16:9");
+        CHECK(parseManifest("format = 1\nid = \"a\"\n[target]\nprofile = \"pal\"\n", false, m, err));
+        CHECK(m.levelAspect.empty());
+    }
+
     // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.
     {
         const fs::path mods = root / "mods_bow_metadata";

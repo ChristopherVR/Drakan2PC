@@ -21,7 +21,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -66,6 +68,8 @@ void* g_hwnd = nullptr;
 
 std::atomic<float> g_projAspect{k43}; // read by the EE hooks: aspect the 3D world is rendered for
 std::atomic<float> g_fovScale{1.0f};
+std::map<std::string, float> g_levelAspects;  // lower-case level title -> aspect of its scenes (guarded by g_mu)
+std::atomic<float> g_levelAspect{0.0f};       // of the loaded level, 0 = none
 std::atomic<float> g_worldProjX{0.0f};        // sc+0x40 * sc+0x48 at the last world camera update (worldProjectionX)
 std::atomic<float> g_inventoryHudScale{1.0f}; // exact foreground compression sent to GSR
 std::atomic<uint64_t> g_worldTick{0};         // vblank counter at the last 3D camera update
@@ -417,6 +421,32 @@ void setHudCorrect(bool on) {
     g_hudCorrect = on;
 }
 
+bool registerLevelAspect(const std::string& entry) {
+    std::string level;
+    float aspect = 0.0f;
+    if (!detail::parseLevelAspect(entry, level, aspect))
+        return false;
+    for (char& ch : level)
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    std::lock_guard<std::mutex> l(g_mu);
+    g_levelAspects[level] = aspect;
+    return true;
+}
+
+void setCurrentLevel(const std::string& level) {
+    std::string key = level;
+    for (char& ch : key)
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    float aspect = 0.0f;
+    {
+        std::lock_guard<std::mutex> l(g_mu);
+        if (const auto it = g_levelAspects.find(key); it != g_levelAspects.end())
+            aspect = it->second;
+    }
+    if (g_levelAspect.exchange(aspect) != aspect)
+        std::fprintf(stderr, "[ws] level '%s': scene aspect %.3f\n", level.c_str(), aspect);
+}
+
 void setFieldOfView(float degrees) {
     g_fovScale.store(detail::fieldOfViewScale(degrees), std::memory_order_relaxed);
     std::fprintf(stderr, "[ws] field of view set to %.0f degrees\n", degrees);
@@ -565,6 +595,11 @@ void hostTick() {
         target = windowAspect();
     const float winAspect = (mode == Mode::Auto || mode == Mode::Stretch) ? target : 0.0f;
     target = std::min(target, kMaxAspect); // sane bounds: beyond 32:9 the picture is pillarboxed instead of stretched
+    // A level whose scenes are framed for a narrower picture (a pack's level_aspect) is rendered and pillarboxed at it.
+    const float levelAspect = g_levelAspect.load(std::memory_order_relaxed);
+    const bool levelFramed = mode != Mode::Native && detail::levelWorldAspect(target, levelAspect) != target;
+    if (levelFramed)
+        target = levelAspect;
     const int layoutScr = g_worldPolicy.layoutScreen(scr);
     const auto layout = detail::layoutPolicy(layoutScr, g_stateWide, mode != Mode::Native, target, hud);
     const bool wide = layout.presentWide || layout.stretchImage;
@@ -573,7 +608,7 @@ void hostTick() {
     if (mode == Mode::Native)
         present = 0.0f;
     else if (wide) {
-        if (mode == Mode::Fixed)
+        if (mode == Mode::Fixed || levelFramed)
             present = target;
         else if (winAspect > kMaxAspect + 0.01f)
             present = target; // window wider than 32:9: pillarbox at 32:9

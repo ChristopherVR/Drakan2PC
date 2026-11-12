@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <mutex>
@@ -67,6 +68,54 @@ inline std::vector<SubCue> loadSrtFile(const std::string& path) {
     std::stringstream ss;
     ss << f.rdbuf();
     return parseSrt(ss.str());
+}
+
+// Timed pages of one voice clip, as a mod pack stores them in the clip's sound descriptor:
+// `[[<start s>]]text[[<start s>]]text[[<end s>]]`, seconds from the clip's first sample (the editor's
+// ootfsubtitles.ts writes them). A page ends where the next mark stands; a last page without an end mark ends at
+// `clipEndMs` (the clip's length). Text without a leading mark is not a clip text: no cues.
+inline bool isClipCueText(const char* text, size_t size) {
+    return text && size >= 5 && text[0] == '[' && text[1] == '[';
+}
+
+inline std::vector<SubCue> parseClipCues(const std::string& text, int clipEndMs) {
+    std::vector<SubCue> out;
+    if (!isClipCueText(text.data(), text.size()))
+        return out;
+    size_t pos = 0;
+    int start = -1;
+    std::string body;
+    auto flush = [&](int end) {
+        while (!body.empty() && body.back() == ' ')
+            body.pop_back();
+        const size_t ink = body.find_first_not_of(' ');
+        if (start >= 0 && ink != std::string::npos && end > start)
+            out.push_back({start, end, body.substr(ink)});
+        body.clear();
+    };
+    while (pos < text.size()) {
+        const size_t open = text.find("[[", pos);
+        if (open == std::string::npos) {
+            body += text.substr(pos);
+            break;
+        }
+        const size_t close = text.find("]]", open + 2);
+        char* numEnd = nullptr;
+        const std::string num = close == std::string::npos ? std::string() : text.substr(open + 2, close - open - 2);
+        const double seconds = num.empty() ? -1.0 : std::strtod(num.c_str(), &numEnd);
+        if (close == std::string::npos || num.empty() || *numEnd != '\0' || !(seconds >= 0.0) || seconds > 36000.0) {
+            body += text.substr(pos, open + 2 - pos); // not a mark: keep the brackets as text
+            pos = open + 2;
+            continue;
+        }
+        body += text.substr(pos, open - pos);
+        const int ms = static_cast<int>(seconds * 1000.0 + 0.5);
+        flush(ms);
+        start = ms;
+        pos = close + 2;
+    }
+    flush(std::max(clipEndMs, start + 1500));
+    return out;
 }
 
 // A running subtitle timeline. `clock` returns the media time in milliseconds (monotonic, frozen while the game's audio

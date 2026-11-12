@@ -30,6 +30,11 @@ void install(PS2Runtime& rt, uint8_t* rdram, const std::atomic<uint64_t>* vsyncT
 // Live changes (settings overlay, any thread). `text` uses the ini spelling.
 void setAspectText(const std::string& text);
 void setFieldOfView(float degrees); // 60..120 horizontal degrees at 4:3, original 80
+// A mod pack's `level_aspect` entry ("Level title = 4:3", drakan_widescreen_policy.h parseLevelAspect); false when it
+// is not usable. Registered once after the packs are installed.
+bool registerLevelAspect(const std::string& entry);
+// The level that finished loading (its title), or empty while a level loads: selects that level's aspect, if any.
+void setCurrentLevel(const std::string& level);
 void setHudCorrect(bool on);
 // hud_scale: 0 = auto (by output size), else 0.5 .. 1.5.
 void setHudScale(float v);

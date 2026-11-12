@@ -60,7 +60,16 @@ export interface ModMeta {
      * `new/PS2MUSIC.SDB/` entries; the OotF converter writes the rendered "gui" theme, ootfdmusic.ts).
      */
     campaignTitleMusic?: number;
+    /**
+     * Levels whose cut scenes are framed for one picture shape: level title -> aspect (`4:3`, `16:9` or a number).
+     * While such a level is loaded the game renders and shows its world at that aspect instead of the window's
+     * (manifest `level_aspect`; the OotF converter marks the "Ruined Village Book", whose paintings fill a 4:3 screen).
+     */
+    levelAspect?: Record<string, string>;
 }
+
+/** An aspect a manifest accepts: `W:H` or a number, between 1 and 4. */
+export const LEVEL_ASPECT_PATTERN = /^(\d+(\.\d+)?:\d+(\.\d+)?|\d+(\.\d+)?)$/;
 
 /** A campaign id: 1-32 of a-z 0-9 _ -, starting with a letter or digit. */
 export const CAMPAIGN_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -126,6 +135,13 @@ export function validateModMeta(m: ModMeta): void {
         // The runtime skips such a level with only a log line, which leaves a pack that loads but has no level.
         if (why) throw new ModError(`level "${level}": ${why}`);
     }
+    for (const [level, aspect] of Object.entries(m.levelAspect ?? {})) {
+        const [w, h] = aspect.split(':').map(Number);
+        const value = h === undefined ? w! : w! / h;
+        if (!LEVEL_ASPECT_PATTERN.test(aspect) || !(value >= 1 && value <= 4))
+            throw new ModError(`levelAspect of "${level}" must be like 4:3 (between 1 and 4)`);
+        if (level.includes('=') || !level.trim()) throw new ModError(`levelAspect: "${level}" is not a level title`);
+    }
     if (m.campaignStart !== undefined && !m.levels?.includes(m.campaignStart))
         throw new ModError('campaignStart must be one of the pack levels');
 }
@@ -149,6 +165,8 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.campaign && m.campaignStart) l.push(`campaign_start = ${tomlStr(m.campaignStart)}`);
     if (m.campaign && m.campaignSaves) l.push(`campaign_saves = ${tomlStr(m.campaignSaves)}`);
     if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
+    const aspects = Object.entries(m.levelAspect ?? {});
+    if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

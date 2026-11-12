@@ -282,3 +282,14 @@ A level whose draws never match the world camera (a converted level with no terr
 kept it for its whole length: the held menu frame covered the top of every frame and only the bottom band showed the
 level (2026-11-09, `docs/journal/2026-11-09/ootf-book-scene.md`).
 
+**Levels with their own aspect (2026-11-12).** A mod pack can list levels whose cut scenes are framed for one picture
+shape: manifest `level_aspect = ["Level title = 4:3"]` (`hle::mods::Manifest::levelAspect`, parsed by
+`drakan_ws::detail::parseLevelAspect`). While such a level is loaded (`drakan_levelchange` reports it after the load and
+clears it when the next load begins, `drakan_ws::setCurrentLevel`), `hostTick` renders and presents the world at
+`levelWorldAspect(target, levelAspect)`: the level's aspect when it is narrower than the window's, pillarboxed like a movie;
+a level never widens the player's choice, `aspect = native` is untouched, and loading screens keep their own layout. Cut
+scenes of every other level stay as before: the authored field of view, widened horizontally to the window (the player's
+`fov` applies only to the free player camera, mode 6 with no scripted flag). The Order of the Flame converter marks the
+"Ruined Village Book": its scene pans over flat paintings that fill a 4:3 screen at the PC field of view of 80, so a 16:9
+view ran up to 26 % of the frame past their edges (`docs/journal/2026-11-12/ootf-church-cinematic.md`).
+

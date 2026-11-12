@@ -52,6 +52,16 @@ describe('campaign manifest keys', () => {
         expect(campaignSlug('Drakan')).toBe('drakan-campaign');
         expect(campaignSlug('***')).toBe('my-campaign');
     });
+    it('writes the levels shown at their own aspect', () => {
+        const meta = { id: 'p', target: { profile: 'pal' as const }, levels: ['Picture Level', 'Other'] };
+        const toml = buildManifestToml({ ...meta, levelAspect: { 'Picture Level': '4:3', Other: '1.5' } });
+        expect(toml).toContain('level_aspect = ["Picture Level = 4:3", "Other = 1.5"]');
+        expect(toml.indexOf('level_aspect')).toBeLessThan(toml.indexOf('[target]'));
+        expect(buildManifestToml(meta)).not.toContain('level_aspect');
+        for (const bad of ['wide', '9:16', '8', '4:0', ''])
+            expect(() => validateModMeta({ ...meta, levelAspect: { 'Picture Level': bad } })).toThrow();
+        expect(() => validateModMeta({ ...meta, levelAspect: { 'A = B': '4:3' } })).toThrow();
+    });
     it('writes campaign, name, description, start and saves', () => {
         const toml = buildManifestToml({
             id: 'test.campaign',

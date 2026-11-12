@@ -86,6 +86,10 @@ my_mod/
   mangled copy title + `TS`, what the New Game redirect of a play test asks for) and `<source>TS.*` (`LEVEL1TS.*`: the LVL's
   dependency table still says `<source level>_splats`, which is what the game opens when the copy is entered through an
   exit). A missing `.DB`/`.TXD` there crashed the load (journal 2026-11-01/level-copy-campaign.md).
+* **Levels shown at their own aspect**: `level_aspect = ["Level title = 4:3"]` (top-level key; `W:H` or a number
+  between 1 and 4). While that level is loaded the game renders and shows its world at that aspect instead of the
+  window's (pillarboxed when the window is wider; never wider than the player's own setting). For levels whose cut scenes
+  frame flat pictures; the OotF converter writes it for the "Ruined Village Book" (`reference/widescreen.md`).
 * **Pointing an exit at a copy**: an exit's destination is a level XDB string, `Levels\<name>\<name>.lvl`; override it with
   `overrides/LEVEL1ON.XDB/0400_<id>_1.bin` (text in all language slots) and the game's own transition loads the copy by that
   path, no runtime table involved. The string is shared by every exit that uses it; the editor's exit picker therefore
@@ -752,3 +756,34 @@ titles are not skinnable yet. Screens read the skin when built, so it applies fr
 The Menus tab edits all of this with a 2D mock preview (layout and colours; fonts and art are the game's), stores the
 work in the browser, exports `ui/menus.ini` as a zip or into the mods folder, and the project export includes it when it
 changes anything.
+
+## Subtitles of a pack's voice clips
+
+The engine shows the text of a sound descriptor (SDB `0x0302`, flag `0x2000`) only for actors with a speech controller
+(the player, talking NPC classes); a cut scene's camera or narrator plays clips without one. A pack can therefore store a
+clip's subtitle as **timed pages** in its descriptor text:
+
+```
+[[<start s>]]first page[[<start s>]]second page[[<end s>]]
+```
+
+Seconds count from the clip's first sample; a page ends where the next mark stands, and a last page without an end mark
+ends with the clip. The runtime (`drakan_clip_subtitles`) starts the pages when the clip takes an SPU2 voice, whichever
+actor plays it, and draws them with the narration subtitle band on the audio clock (`reference/subtitles.md` section 10).
+Text without a leading mark is left to the engine. `[subtitles] narration` in `drakan.ini` and the game's own
+Options > Audio > Show Subtitles switch them; a descriptor text holds at most 1000 bytes (cp1252).
+
+The Order of the Flame converter fills these from a **subtitle file** (`ootf-convert.ts --subtitles <json>`), because
+the PC game has no subtitle text: `analysis/scripts/ootf_subtitles.py --ootf <install> --out build/ootf-subtitles/english.json`
+exports the clips the PC sequences play (`editor/scripts/ootf-speech.ts`), transcribes them on the player's machine
+(faster-whisper, CPU) and writes one line per clip:
+
+```json
+{ "format": "drakan-subtitles", "version": 1, "language": "english",
+  "lines": [ { "bank": "<pc sound bank, lower case, no extension>", "id": 9, "name": "...", "duration": 10.7,
+               "cues": [ { "start": 0.0, "end": 4.9, "text": "..." } ] } ] }
+```
+
+The file is engine-neutral (keyed by the PC sound bank and id, times relative to the clip) and can be corrected by hand; the
+pack carries the lines it used as `story/subtitles.json` beside the engine's copy in the descriptors. It is game text made
+from game audio: keep it under `build/` or `local/`, never in the repository.

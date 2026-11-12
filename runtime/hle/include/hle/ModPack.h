@@ -52,6 +52,10 @@ struct Manifest {
     // `campaign_title_music` = the PS2MUSIC.SDB sound id (decimal) the title menu plays while the campaign is chosen
     // (hle::CampaignMusicRedirect; the pack adds that track with `new/PS2MUSIC.SDB/` entries).
     std::string campaign, campaignName, campaignStart, campaignDescription, campaignSaves, campaignTitleMusic;
+    // top-level `level_aspect = ["Level title = 4:3"]`: levels whose cut scenes are framed for one picture shape (flat
+    // pictures that fill a 4:3 screen, such as the Order of the Flame "Ruined Village Book"). While such a level is
+    // loaded its world is rendered and shown at that aspect instead of the window's (drakan_widescreen).
+    std::vector<std::string> levelAspect;
 };
 // Parses mod.toml (json=false) or mod.json (json=true). Returns false with `err` on a syntax or schema error.
 bool parseManifest(const std::string& text, bool json, Manifest& out, std::string& err);

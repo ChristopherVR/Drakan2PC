@@ -205,3 +205,23 @@ at the bottom (full-width dark band, text centred, wrapped to 2 lines of the 350
 (`FUN_003afd18`) stays in state 1 until the speech controller ends it, so a test line stays until `ClearSubtitle`; in real dialogue it follows the sound. No NPC dialogue was reachable in the
 scripted runs (Rynn's idle "Look at nails" has no text), so the end-of-line clearing was not exercised; the earlier agent's real-line check (`001AR03-B`) still stands.
 The option "Show Subtitles" (word 0x4fb740, default 1) gates both the game's bar and our narration overlay.
+
+## 10. Voice clips of mod packs: timed pages (2026-11-12)
+
+Finding (Order of the Flame campaign, `docs/journal/2026-11-12/ootf-church-cinematic.md`): the engine's own bar only shows
+descriptor text for a sound that an actor's speech controller plays. With a test text on all 617 converted sounds, the
+Ruined Village opening showed a bar for exactly the two lines the player speaks and none for the other actors or for a
+scene's camera (the Book's 19 narration lines); `SetSubtitle` (0x4149a0) was not called for them.
+
+A pack therefore stores a clip's subtitle as timed pages, `[[<start s>]]text[[<start s>]]text[[<end s>]]`
+(`dsettings::parseClipCues`, `reference/modding.md` "Subtitles of a pack's voice clips"), and the runtime shows them
+(`drakan_clip_subtitles.cpp`, PAL addresses):
+
+| Piece | What it does |
+| --- | --- |
+| Trigger | The sound manager's per-instance gain update `0x1e5470` (a0 = instance; runs every tick while it plays). Instance: `+4` play handle, `+0xc` sound id, `+0x10` descriptor record, `+0x78` SPU2 voice (-1 until one is taken). Record: `+0x34` f32 clip length in seconds, `+0x50` text (the engine keeps loaded texts in 0x400 byte slots). The first update of a play handle that has a voice and a marked text starts the pages. |
+| Display | `drakan_subtitles::startClip`: the narration band (`HudSlot::Subtitles`) on the SPU2 frame clock, so the text follows the voice and freezes with it. A new clip replaces the previous one. |
+| Engine bar | `SetSubtitle` returns at once for a text that starts with a page mark, so a line the player speaks is not drawn twice. Disc text has no marks and is untouched. |
+| Switches | `[subtitles] narration`, the game's Show Subtitles option, `DRAKAN_CLIP_SUBTITLES=0` (hooks not installed), `DRAKAN_SUB_LOG=1` (logs each clip and cue with the audio clock). |
+
+Tests: `drakan_subtitle_toggle_test` (page parsing, Latin-1 text, one start per play, playback on the media clock).

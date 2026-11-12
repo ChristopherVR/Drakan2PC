@@ -384,6 +384,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_pause.cpp
     src/lib/drakan_widescreen.cpp
     src/lib/drakan_subtitles.cpp
+    src/lib/drakan_clip_subtitles.cpp
     src/lib/drakan_fpsmeter.cpp
     src/lib/drakan_menus.cpp
     src/lib/drakan_save_previews.cpp

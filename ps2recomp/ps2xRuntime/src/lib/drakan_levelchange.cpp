@@ -7,6 +7,7 @@
 #include "drakan_mount_arrival.h"
 #include "drakan_pause.h"
 #include "drakan_region.h"
+#include "drakan_widescreen.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
@@ -732,6 +733,7 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
             }
         }
     } else if (e.kind == drakan_lifecycle::Kind::BeforeLevelLoad) {
+        drakan_ws::setCurrentLevel({}); // the loading screen is laid out like any other
         g_loading = true;
         g_framesInLevel = 0;
         std::lock_guard<std::mutex> l(g_m);
@@ -744,6 +746,7 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
         }
         g_fireKey = {};
         g_currentLevel = e.level;
+        drakan_ws::setCurrentLevel(e.level); // a pack's level_aspect for this level, if any
         g_following = false;
         {
             // A load (title Load / Continue, quick load, a level change) can put the player on an exit and touch it

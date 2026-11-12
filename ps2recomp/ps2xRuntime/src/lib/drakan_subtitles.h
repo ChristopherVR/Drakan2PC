@@ -18,6 +18,9 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <vector>
+
+#include <settings/Subtitles.h>
 
 namespace hle {
 struct ResourceId;
@@ -40,6 +43,8 @@ bool wantsSpuEvents(); // cheap: true only while a narration track is waiting fo
 void onSpuUpload(uint32_t spuAddr, uint32_t bytes);
 void onVoiceKeyOn(uint32_t spuAddr, uint64_t frames);
 void stop();
+// Timed pages of a voice clip that starts now (drakan_clip_subtitles): they replace whatever the band shows.
+void startClip(std::vector<dsettings::SubCue> cues);
 // Registers the subtitle band in the shared HUD layers (dsettings::hudLayers()), before the first present.
 void installHudLayer();
 } // namespace drakan_subtitles

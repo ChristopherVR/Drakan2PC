@@ -187,6 +187,17 @@ void onVoiceKeyOn(uint32_t spuAddr, uint64_t frames) {
     }
 }
 
+void startClip(std::vector<dsettings::SubCue> cues) {
+    if (cues.empty())
+        return;
+    std::lock_guard<std::mutex> presentation(g_presentationMutex);
+    g_touchingBoundaries.clear();
+    for (size_t i = 1; i < cues.size(); ++i)
+        if (cues[i - 1].endMs == cues[i].startMs)
+            g_touchingBoundaries.push_back(cues[i].startMs);
+    g_track.start(std::move(cues), g_offsetMs);
+}
+
 void stop() {
     g_track.stop();
     std::lock_guard<std::mutex> l(g_pending.m);

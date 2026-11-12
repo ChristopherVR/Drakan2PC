@@ -47,6 +47,7 @@
 #include "drakan_config.h"
 #include "drakan_settings_host.h"
 #include "drakan_subtitles.h"
+#include "drakan_clip_subtitles.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_menus.h"
 #include "drakan_save_guard.h"
@@ -1695,6 +1696,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_texscale::install(runtime);   // fast surface downscale (PAL)
     installNullControllerGuard(runtime); // objects without a controller in the scene walk (PAL)
     drakan_stomp_probe::install(runtime);
+    if constexpr (supports(Feature::Subtitles))
+        drakan_clip_subtitles::install(runtime); // timed pages of a pack's voice clips (PAL)
     drakan_texture_budget::install(runtime);
     drakan_save_reference_probe::install(runtime);
     drakan_lifecycle::install(runtime);    // engine lifecycle events (PAL addresses; no-op elsewhere)
@@ -2062,6 +2065,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 if (!l.copyOf.empty())
                     drakan_levelchange::registerLevelCopy(l.name, l.copyOf);
             }
+            // Levels a pack wants shown at one picture shape (manifest `level_aspect`, drakan_widescreen).
+            for (const hle::mods::ModStatus& st : g_mods->status())
+                if (st.state == hle::mods::ModState::Loaded)
+                    for (const std::string& entry : st.manifest.levelAspect)
+                        if (!drakan_ws::registerLevelAspect(entry))
+                            std::fprintf(stderr, "[game] pack '%s': level_aspect '%s' is not \"Level = 4:3\"\n",
+                                         st.manifest.id.c_str(), entry.c_str());
             std::string names; // the loaded packs, for the server list (ServerInfo.mods)
             for (const hle::mods::ModStatus& st : g_mods->status())
                 if (st.state == hle::mods::ModState::Loaded) {
