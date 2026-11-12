@@ -349,6 +349,19 @@ until a trigger shows them and take no damage while hidden, but they are not dra
 what the owner did differently (hand play, full screen frame rates and co-op were not tested). Follow-up without god mode: against the hill Scavengers, which attack at once, Rynn with Atimar's Blade died in 5 of 5 fights from the owner's save and in 4 of 8 from a fresh game; their hits (5 points about every 2 s) cancel her swings (hit during 38 of 61 attack spans, 10 of those dealt damage) and the dagger needs eight hits. Carrying the PC flee limit onto the swapped class does nothing (the Scavenger engine class does not run away: 4 of 4 probes, and no disc class of it sets the limit). In the converter now: each Scavenger gets the 15 hit points the PC one loses before it flees (35 - 20) instead of the disc 40, so three dagger hits end the fight as they drive the original off; fresh game, same driver: 10 kills and 1 death in 11 fights against 4 and 4 in 8 (median time to kill 8.3 s against 23.1 s). It reaches new games only: a save restores its creatures with their saved health. Needs a regenerated pack. See
 [flesh eater combat](../journal/2026-11-12/flesh-eater-combat.md).
 
+**November 12 trap ropes and mace heads:** the swinging blades of Ruined Village (5) and Wartok Canyons (2) hung in the
+air: the PC `Rope` class (its own 8.1 unit rope mesh, scaled per placement) was name-mapped to the disc's `Rope`, whose
+model is a 0.2 unit stub; `Cable` (Grimstone's crystal) and `Static Rope` (Wartok) got a 5 unit disc rope pointing the
+other way. Rope classes and classes placed with a rope mesh now keep the PC mesh (formats `15c2899`). With the rope drawn
+the blade trailed it by up to 16 degrees and the swing sat off-centre: the engine binds a rope's carried objects after
+its first step and turns the rope by small-angle steps, which only holds for the console's steady tick; the rope update
+now runs with a 0 s tick until the bind and in steps of at most 1/30 s (runtime, PAL, `DRAKAN_ROPE_TICK=0` = native):
+rope and blade agree to 0.0 degrees and swing -44 to +42. The Mace showed its handle only: weapons shown with a disc
+model lost the disc weapon's child part (the class record's auxiliary reference), so also the Battle Hammer's head, the
+Battle Axe itself and the sheen layer of five swords; swapped weapons now carry it. Seen in game before and after at the
+owner's settings (3 to 9 fps under shared GPU load, so not dense in time). Needs a regenerated pack, the rebuilt
+executable and an HD step for the rope texture. See [trap ropes and mace heads](../journal/2026-11-12/ootf-axe-trap-ropes.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
