@@ -12,6 +12,8 @@ bool D3D11Backend::Impl::iequals(const char* a, const char* b) {
 }
 
 void D3D11Backend::Impl::initTexQuality() {
+    initTerrain();
+    initMaterial();
     upFactorCfg = cfg.textureUpscale;
     upAlgoCfg = (texup::Algo)std::min(cfg.textureUpscaleFilter, 2u);
     aniso = cfg.anisotropic;
@@ -110,6 +112,7 @@ void D3D11Backend::Impl::scanTexDir() {
             std::fclose(ef);
         }
     }
+    scanMaterials();
     if (texDump) {
         texup::makeDirs(dumpDir);
         for (const std::string& f : texup::listDir(dumpDir))
@@ -139,6 +142,35 @@ void D3D11Backend::Impl::submitJob(std::function<void()> job, bool urgent) {
 }
 
 void D3D11Backend::Impl::pushDone(UpDone&& d) {
+    d.levelCount = (uint32_t)d.levels.size();
+    if (!d.levels.empty() && d.w) {
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = d.w;
+        td.Height = d.h;
+        td.MipLevels = (UINT)d.levels.size();
+        td.ArraySize = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.SampleDesc.Count = 1;
+        td.Usage = D3D11_USAGE_IMMUTABLE;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        std::vector<D3D11_SUBRESOURCE_DATA> init(d.levels.size());
+        uint32_t lw = d.w, lh = d.h;
+        for (size_t l = 0; l < d.levels.size(); ++l) {
+            init[l].pSysMem = d.levels[l].data();
+            init[l].SysMemPitch = lw * 4;
+            d.bytes += (uint64_t)lw * lh * 4;
+            lw = std::max(1u, lw / 2);
+            lh = std::max(1u, lh / 2);
+        }
+        if (FAILED(dev->CreateTexture2D(&td, init.data(), &d.tex)) ||
+            FAILED(dev->CreateShaderResourceView(d.tex.Get(), nullptr, &d.srv))) {
+            d.srv.Reset();
+            d.tex.Reset();
+        }
+        d.levels.clear();
+        d.levels.shrink_to_fit();
+        createMaterialTexture(d);
+    }
     {
         std::lock_guard<std::mutex> lk(doneMu);
         done.push_back(std::move(d));
@@ -172,32 +204,23 @@ void D3D11Backend::Impl::pumpUp(std::chrono::microseconds budget) {
             continue; // started before a live settings change flushed the caches
         auto ue = std::make_shared<UpEntry>();
         ue->factor = d.factor;
-        ue->mxl = d.levels.empty() ? 0u : (uint32_t)d.levels.size() - 1;
+        ue->mxl = d.levelCount ? d.levelCount - 1 : 0u;
         ue->lastFrame = frame;
-        if (!d.levels.empty() && d.w) {
-            D3D11_TEXTURE2D_DESC td{};
-            td.Width = d.w;
-            td.Height = d.h;
-            td.MipLevels = (UINT)d.levels.size();
-            td.ArraySize = 1;
-            td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            td.SampleDesc.Count = 1;
-            td.Usage = D3D11_USAGE_IMMUTABLE;
-            td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-            std::vector<D3D11_SUBRESOURCE_DATA> init(d.levels.size());
-            uint64_t bytes = 0;
-            uint32_t lw = d.w, lh = d.h;
-            for (size_t l = 0; l < d.levels.size(); ++l) {
-                init[l].pSysMem = d.levels[l].data();
-                init[l].SysMemPitch = lw * 4;
-                bytes += (uint64_t)lw * lh * 4;
-                lw = std::max(1u, lw / 2);
-                lh = std::max(1u, lh / 2);
-            }
-            if (SUCCEEDED(dev->CreateTexture2D(&td, init.data(), &ue->tex)) &&
-                SUCCEEDED(dev->CreateShaderResourceView(ue->tex.Get(), nullptr, &ue->srv))) {
+        if (d.levelCount && d.w) {
+            const uint64_t bytes = d.bytes;
+            if (d.tex && d.srv) { // created by pushDone
+                ue->tex = std::move(d.tex);
+                ue->srv = std::move(d.srv);
                 ue->bytes = bytes;
                 upBytes += bytes;
+                if (d.materialSrv) { // the texture's material map counts against the same budget
+                    ue->materialSrv = std::move(d.materialSrv);
+                    ue->materialClass = d.materialClass;
+                    ue->bytes += d.materialBytes;
+                    upBytes += d.materialBytes;
+                    materialGpu.texturesLoaded++;
+                    materialGpu.bytes += d.materialBytes;
+                }
                 if (d.replaced)
                     st.texReplaced++;
                 else {
@@ -415,6 +438,13 @@ void D3D11Backend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& 
         key.factor = factor;
         key.packed = (uint32_t)algo | ((wrapS ? 1u : 0u) << 8) | ((wrapT ? 1u : 0u) << 9) | (mxl << 12);
     }
+    // The material map (material_detail.h) is loaded with the image it belongs to: the pack image's hash names it.
+    const uint64_t materialHash = rit != replIndex.end() ? rit->first : hash;
+    const material::Record* materialRecord = generated || !preview.path.empty() ? nullptr : materialFor(materialHash);
+    const bool withMaterial = materialRecord != nullptr;
+    const material::Record materialCopy = withMaterial ? *materialRecord : material::Record{};
+    if (withMaterial)
+        key.packed |= 1u << 20;
     e.upKey = key;
     e.upWanted = true;
     adoptUp(e);
@@ -428,7 +458,8 @@ void D3D11Backend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& 
     std::vector<uint32_t> copy = base;
     const uint32_t gen = upGen;
     auto job = [this, gen, key, copy = std::move(copy), W, H, mxl, factor, algo, wrapS, wrapT, replace, rpath, viaAlias,
-                generated, generatedFactor, preview, overlayPack, overlayAlias] {
+                generated, generatedFactor, preview, overlayPack, overlayAlias, withMaterial, materialCopy,
+                materialHash, materialDir = texDir] {
         const auto t0 = std::chrono::steady_clock::now();
         UpDone d;
         d.key = key;
@@ -511,6 +542,8 @@ void D3D11Backend::Impl::setupUpscale(TexEntry& e, const std::vector<uint32_t>& 
                 lh = std::max(1u, lh / 2);
                 d.levels.push_back(std::move(nx));
             }
+            if (withMaterial)
+                loadMaterialLevels(d, materialDir, materialHash, materialCopy, W, H);
         }
         d.us = (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0)
                    .count();
@@ -712,7 +745,10 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
     // framebuffer-as-texture
     float ox, oy;
     if (RT* rt = findRTForTexture(tbp, tbw, psm, W, H, ox, oy)) {
-        syncRT(*rt);
+        if (lazySyncTarget(*rt))
+            syncRows(*rt, rt_sync::sampleRows((uint32_t)oy, H, rt->pageH(), (uint32_t)rt->rowStamp.size()));
+        else
+            syncRT(*rt);
         if (texLog)
             std::fprintf(
                 stderr,
@@ -835,6 +871,8 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
                 e.up->lastFrame = frame;
                 out.srv = e.up->srv.Get();
                 out.factor = e.up->factor;
+                out.materialSrv = e.up->materialSrv.Get();
+                out.materialClass = e.up->materialClass;
                 out.mxl = std::min(mxl, e.up->mxl);
             } else {
                 out.srv = e.srv.Get();
@@ -1150,6 +1188,8 @@ bool D3D11Backend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clu
         e.up->lastFrame = frame;
         out.srv = e.up->srv.Get();
         out.factor = e.up->factor;
+        out.materialSrv = e.up->materialSrv.Get();
+        out.materialClass = e.up->materialClass;
         out.mxl = std::min(out.mxl, e.up->mxl);
     }
     texBytes += bytes;

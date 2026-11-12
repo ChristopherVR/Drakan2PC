@@ -4,6 +4,7 @@
 // The WebGPU build (GSR_TEST_WEBGPU) skips (exit 77) without a hardware adapter unless --warp is given: WARP on the
 // Windows Server CI runners loses the D3D12 device partway through.
 #include "gsr/gsr.h"
+#include "gsr/renderer_choice.h"
 #include "gsr/scene_guide_camera.h"
 #include "gs_mem.h"
 #include "gs_solid_mirror.h"
@@ -1152,8 +1153,9 @@ static void rtShiftedRowTest(Config cfg) {
         expectPixel(image, 20 * (int)cfg.scale, 438 * (int)cfg.scale, 0, 0, 200, 1,
                     "orb top-left exterior stays transparent");
         expectTrue((gs->readVram(0, 0, 8, 68, 438) >> 24) == 0, "orb exterior stored alpha stays zero");
-        expectTrue(mode == 0 ? gs->stats().rtSamples == 0 : gs->stats().rtSamples == 1,
-                   "unsafe shifted row decodes VRAM; valid RT views stay direct");
+        // The atlas is an uploaded image in all three placements: never sampled from the target's native
+        // resolution mirror of it (issue 6; modes 1 and 2 used the target before).
+        expectTrue(gs->stats().rtSamples == 0, "uploaded atlas decodes VRAM wherever it starts in the target");
     }
 }
 
@@ -1529,7 +1531,6 @@ static void solidMirrorTest(Config cfg) {
         }
         expectTrue(!solidMirror(changed, verts.data(), 6, false, 64, 64), "uncertain sprite retains GPU readback");
     }
-#ifndef GSR_TEST_WEBGPU
     for (uint32_t scale : {1u, 4u}) {
         cfg.scale = scale;
         cfg.textureUpscale = 1;
@@ -1605,9 +1606,18 @@ static void solidMirrorTest(Config cfg) {
         sprite(wrapping, 0, 0, 4, 4, 12, 13, 14, 128, 0, int(mkPrim(6, 0, 0, 0, 0, 0)));
         gs->submitGifPacket(GifPath::Path3, wrapping.d.data(), uint32_t(wrapping.d.size()));
         gs->flushToMemory();
-        expectTrue(gs->stats().rtReadbacks == 3, "target allocations crossing the VRAM boundary retain GPU readback");
+        // The target object on the last page is taller than memory, but this sprite lies in its first page row,
+        // which exists: mirrored (the game's per-frame 4 x 4 probe, see lastPageMirrorTest). A sprite that reaches
+        // the rows past the end of memory keeps the readback.
+        expectTrue(gs->stats().rtReadbacks == 2 && gs->readVram(PSM_CT32, 0x1ffu * 32u, 1, 1, 1) == 0x800e0d0c,
+                   "sprite inside the last page of a target crossing the VRAM boundary is mirrored");
+        Gif past;
+        past.ad({{FRAME_1, 0x1ffull | 1ull << 16}, {SCISSOR_1, 63ull << 16 | 63ull << 48}});
+        sprite(past, 0, 0, 4, 40, 15, 16, 17, 128, 0, int(mkPrim(6, 0, 0, 0, 0, 0)));
+        gs->submitGifPacket(GifPath::Path3, past.d.data(), uint32_t(past.d.size()));
+        gs->flushToMemory();
+        expectTrue(gs->stats().rtReadbacks == 3, "sprite reaching rows past the VRAM boundary retains GPU readback");
     }
-#endif
 }
 
 static void partialUploadTest(Config cfg) {
@@ -1843,9 +1853,7 @@ static void localCopyTest(Config cfg) {
     } else {
         std::printf("  [ok] patch drawn over the copy reaches memory\n");
     }
-#ifndef GSR_TEST_WEBGPU
     expectTrue(gs->stats().rtGpuCopies == 1, "the frame copy was done on the GPU, the self copy skipped");
-#endif
 }
 
 static void rtOverlapTest(Config cfg) {
@@ -1895,6 +1903,464 @@ static void rtOverlapTest(Config cfg) {
     }
     expectPixel(img, 20 * (int)cfg.scale, 20 * (int)cfg.scale, 255, 0, 0, 3,
                 "texture comes from the target at its exact base");
+}
+
+// Issue 6: the game renders shadows, distant characters and the orb liquid into small targets anywhere in its texture
+// memory and later reuses that memory for uploaded textures. A target object outlives the reuse and is allocated with
+// 512 rows, so an uploaded texture often starts on a page inside an old target. It must be decoded from memory: the
+// target only mirrors it at native resolution, and a texture that runs past the last target row lost its lower part
+// (the HUD atlas at row 480 of a 512 row target: the health orb was drawn empty). A drawn target is still sampled.
+static void staleTargetTextureTest(Config cfg) {
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    std::printf("uploaded textures inside an old render target (scale %u)\n", cfg.scale);
+    const int sc = (int)cfg.scale;
+    auto setup = [&](Gif& g) {
+        g.ad({{ZBUF_1, 140ull | (1ull << 32)},
+              {XYOFFSET_1, kOfs},
+              {SCISSOR_1, 127ull << 16 | (127ull << 48)},
+              {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+              {COLCLAMP, 1},
+              {PRMODECONT, 1},
+              {TEXA, 0x80 | (0x80ull << 32)}});
+    };
+    auto fill = [&](Gif& g, uint32_t fbp, uint32_t fbw, float size, uint8_t r, uint8_t gg, uint8_t b) {
+        g.ad({{FRAME_1, (uint64_t)fbp | ((uint64_t)fbw << 16)}, {PRIM, mkPrim(6, 0, 0, 0, 0, 0)}});
+        g.tag(2, true, false, 0, 0, 2, 0x51);
+        g.qw(r | ((uint64_t)gg << 32), b | (0x80ull << 32));
+        g.qw(xy(0, 0), 0);
+        g.qw(r | ((uint64_t)gg << 32), b | (0x80ull << 32));
+        g.qw(xy(size, size), 0);
+    };
+    // 128 x 128 CT32 image: upper half one colour, lower half another
+    auto halves = [](uint32_t top, uint32_t bottom) {
+        std::vector<uint8_t> px(128 * 128 * 4);
+        for (uint32_t y = 0; y < 128; ++y)
+            for (uint32_t x = 0; x < 128; ++x) {
+                const uint32_t c = y < 64 ? top : bottom;
+                std::memcpy(&px[(y * 128 + x) * 4], &c, 4);
+            }
+        return px;
+    };
+    auto show = [&](Gif& g, uint32_t tbp) { // the whole texture on the 64 x 64 display target
+        fill(g, 0, 1, 64, 0, 0, 0);
+        g.ad({{TEX1_1, 0},
+              {CLAMP_1, 0},
+              {TEX0_1, mkTex0(tbp, 2, 0, 7, 7, 0, 1, 0, 0, 0, 0, 0)},
+              {PRIM, mkPrim(6, 0, 1, 0, 0, 1)}});
+        sprite(g, 0, 0, 64, 64, 0x80, 0x80, 0x80, 0x80, 0, (int)mkPrim(6, 0, 1, 0, 0, 1), 0, 0, 128, 128);
+    };
+    auto present = [&](Image& img) {
+        gs->writePriv(0x12000000, 1);
+        gs->writePriv(0x12000070, 0ull | (1ull << 9));
+        gs->writePriv(0x12000080, (63ull * 4 + 3) << 32 | (63ull << 44) | (3ull << 23));
+        gs->vsync(true);
+        return gs->captureDisplay(img);
+    };
+    const uint32_t kGreen = 0x8000ff00u, kRed = 0x800000ffu, kWhite = 0x80ffffffu;
+    Image img;
+    {
+        // An old target at page 0x20 (blue, rows 0..127 drawn). The texture starts 30 pages further: row 480 of the
+        // target's 512, so its rows 32..127 lie past the target.
+        Gif g;
+        setup(g);
+        fill(g, 0x20, 2, 128, 0, 0, 255);
+        uploadImage(g, 0x20u * 32u + 30u * 32u, 2, 0, 0, 0, 128, 128, halves(kGreen, kRed));
+        show(g, 0x20u * 32u + 30u * 32u);
+        const uint64_t before = gs->stats().rtSamples;
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        if (!present(img)) {
+            ++g_fail;
+            std::printf("  capture failed\n");
+            return;
+        }
+        expectPixel(img, 32 * sc, 8 * sc, 0, 255, 0, 3, "texture inside an old target: rows inside it");
+        expectPixel(img, 32 * sc, 56 * sc, 255, 0, 0, 3, "texture inside an old target: rows past its end");
+        expectTrue(gs->stats().rtSamples == before, "texture inside an old target is decoded from memory");
+    }
+    {
+        // The game reuses the old target's own base for an uploaded texture.
+        Gif g;
+        setup(g);
+        uploadImage(g, 0x20u * 32u, 2, 0, 0, 0, 128, 128, halves(kWhite, kGreen));
+        show(g, 0x20u * 32u);
+        const uint64_t before = gs->stats().rtSamples;
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        if (!present(img)) {
+            ++g_fail;
+            return;
+        }
+        expectPixel(img, 32 * sc, 8 * sc, 255, 255, 255, 3, "texture uploaded over an old target: upper half");
+        expectPixel(img, 32 * sc, 56 * sc, 0, 255, 0, 3, "texture uploaded over an old target: lower half");
+        expectTrue(gs->stats().rtSamples == before, "texture uploaded over an old target is decoded from memory");
+    }
+    {
+        // Drawing into it again makes it a render target again: sampled from the GPU copy.
+        Gif g;
+        setup(g);
+        fill(g, 0x20, 2, 128, 255, 0, 255);
+        show(g, 0x20u * 32u);
+        const uint64_t before = gs->stats().rtSamples;
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        if (!present(img)) {
+            ++g_fail;
+            return;
+        }
+        expectPixel(img, 32 * sc, 32 * sc, 255, 0, 255, 3, "drawn target sampled as a texture");
+        expectTrue(gs->stats().rtSamples > before, "drawn target is sampled from the GPU copy");
+    }
+    {
+        // Rows that were read back hold draws; an upload that is patched into the target while it is dirty in other
+        // rows replaces them with the uploaded image. The texture must then be decoded, not sampled from the mirror.
+        Gif a;
+        setup(a);
+        fill(a, 0x20, 2, 128, 0, 0, 255);
+        gs->submitGifPacket(GifPath::Path3, a.d.data(), (uint32_t)a.d.size());
+        (void)gs->readVram(0, 0x20u * 32u, 2, 0, 0); // reads the target back: its rows now hold read back draws
+        Gif g;
+        setup(g);
+        // Dirty again in the first page row only (a shaded triangle: a solid fill of a clean target is mirrored into
+        // memory instead and leaves it clean).
+        g.ad({{FRAME_1, 0x20ull | (2ull << 16)}});
+        g.tag(3, true, true, mkPrim(3, 1, 0, 0, 0, 0), 0, 2, 0x51);
+        g.qw(255, 0 | (0x80ull << 32));
+        g.qw(xy(0, 0), 0);
+        g.qw(0 | (255ull << 32), 0 | (0x80ull << 32));
+        g.qw(xy(64, 0), 0);
+        g.qw(0, 255 | (0x80ull << 32));
+        g.qw(xy(0, 24), 0);
+        uploadImage(g, 0x20u * 32u, 2, 0, 0, 0, 128, 128, halves(kWhite, kGreen));
+        show(g, 0x20u * 32u);
+        const uint64_t before = gs->stats().rtSamples, uploadsBefore = gs->stats().targetUploads;
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        if (!present(img)) {
+            ++g_fail;
+            return;
+        }
+        expectTrue(gs->stats().targetUploads > uploadsBefore, "upload patched into the dirty target (no readback)");
+        expectPixel(img, 32 * sc, 8 * sc, 255, 255, 255, 3, "upload over read back rows: upper half");
+        expectPixel(img, 32 * sc, 56 * sc, 0, 255, 0, 3, "upload over read back rows: lower half");
+        expectTrue(gs->stats().rtSamples == before, "upload over read back rows of a dirty target is decoded");
+    }
+}
+
+// A small scratch target is allocated with 512 rows but the game draws only its first 64 or 128; the rows below are
+// texture memory it uploads to all the time. Those rows are refreshed on the GPU only when a use needs them
+// (rt_sync_rows.h). Checked here: an upload below the drawn rows costs no refresh while nothing looks at it; rows a
+// later draw pulls into the target's dirty range are current before a readback writes that range to memory; a
+// blended draw over uploaded rows blends with the upload.
+static void lazyTargetRowsTest(Config cfg) {
+    cfg.textureUpscale = 1;
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    std::printf("scratch target rows refreshed on demand (scale %u)\n", cfg.scale);
+    auto setup = [&](Gif& g) {
+        g.ad({{ZBUF_1, 140ull | (1ull << 32)},
+              {XYOFFSET_1, kOfs},
+              {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+              {COLCLAMP, 1},
+              {PRMODECONT, 1},
+              {TEXA, 0x80 | (0x80ull << 32)}});
+    };
+    // A shaded triangle in the pixel rows y .. y + 23 of the target (a solid fill of a clean target would be mirrored
+    // into memory and leave it clean).
+    auto shade = [&](Gif& g, uint32_t fbp, uint32_t y, uint32_t scissorY0, uint32_t scissorY1) {
+        g.ad({{FRAME_1, (uint64_t)fbp | (2ull << 16)},
+              {SCISSOR_1, 127ull << 16 | ((uint64_t)scissorY0 << 32) | ((uint64_t)scissorY1 << 48)}});
+        g.tag(3, true, true, mkPrim(3, 1, 0, 0, 0, 0), 0, 2, 0x51);
+        g.qw(255, 0 | (0x80ull << 32));
+        g.qw(xy(0, (float)y), 0);
+        g.qw(0 | (255ull << 32), 0 | (0x80ull << 32));
+        g.qw(xy(64, (float)y), 0);
+        g.qw(0, 255 | (0x80ull << 32));
+        g.qw(xy(0, (float)y + 24), 0);
+    };
+    auto halves = [](uint32_t top, uint32_t bottom) {
+        std::vector<uint8_t> px(128 * 128 * 4);
+        for (uint32_t y = 0; y < 128; ++y)
+            for (uint32_t x = 0; x < 128; ++x) {
+                const uint32_t c = y < 64 ? top : bottom;
+                std::memcpy(&px[(y * 128 + x) * 4], &c, 4);
+            }
+        return px;
+    };
+    const uint32_t kGreen = 0x8000ff00u, kRed = 0x800000ffu;
+    // Draws are batched until the state changes: a one pixel sprite into another target ends the batch before it, so
+    // the counters read after a packet include that packet's draws.
+    const auto submit = [&](Gif& g) {
+        g.ad({{FRAME_1, 0x1f0ull | (1ull << 16)}, {SCISSOR_1, 0}, {ALPHA_1, 0}});
+        sprite(g, 0, 0, 1, 1, 0, 0, 0, 0x80, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    };
+    {
+        // Rows 0..23 dirty, an upload to rows 256..383, then a draw into rows 448..471: the dirty range becomes
+        // 0..472 and the readback of it must not write the target's old rows 256..383 over the upload.
+        const uint32_t fbp = 0x40, texture = (fbp + 16u) * 32u;
+        Gif a;
+        setup(a);
+        shade(a, fbp, 0, 0, 127);
+        submit(a);
+        Gif b;
+        setup(b);
+        uploadImage(b, texture, 2, 0, 0, 0, 128, 128, halves(kGreen, kRed));
+        shade(b, fbp, 448, 448, 479);
+        submit(b);
+        expectTrue(gs->readVram(0, texture, 2, 5, 5) == kGreen, "upload inside a widened dirty range survives (top)");
+        expectTrue(gs->readVram(0, texture, 2, 5, 100) == kRed,
+                   "upload inside a widened dirty range survives (bottom)");
+        expectTrue((gs->readVram(0, fbp * 32u, 2, 1, 449) & 0xffffffu) != 0, "the later draw reached memory");
+        expectTrue((gs->readVram(0, fbp * 32u, 2, 1, 1) & 0xffffffu) != 0, "the first draw reached memory");
+    }
+    {
+        const uint32_t fbp = 0x80, texture = (fbp + 16u) * 32u;
+        Gif a;
+        setup(a);
+        shade(a, fbp, 0, 0, 127);
+        submit(a);
+        Gif b;
+        setup(b);
+        uploadImage(b, texture, 2, 0, 0, 0, 128, 128, halves(kGreen, kRed));
+        shade(b, fbp, 40, 0, 127);
+        const uint64_t before = gs->stats().rtUploads;
+        submit(b);
+        std::printf("  row refreshes for an upload below the drawn rows: %llu\n",
+                    (unsigned long long)(gs->stats().rtUploads - before));
+        expectTrue(gs->stats().rtUploads == before, "upload below the drawn rows refreshes no target row");
+        // A half transparent white sprite over the uploaded rows: the blend must see the upload.
+        Gif c;
+        setup(c);
+        c.ad({{FRAME_1, (uint64_t)fbp | (2ull << 16)},
+              {SCISSOR_1, 127ull << 16 | (256ull << 32) | (383ull << 48)},
+              {ALPHA_1, mkAlpha(0, 1, 0, 1, 0)}});
+        sprite(c, 0, 256, 128, 384, 255, 255, 255, 0x40, 0, (int)mkPrim(6, 0, 0, 0, 1, 0));
+        const uint64_t beforeBlend = gs->stats().rtUploads;
+        submit(c);
+        expectTrue(gs->stats().rtUploads == beforeBlend + 4, "the blended draw refreshes exactly its four page rows");
+        Image target;
+        if (!gs->captureFramebuffer(fbp, 2, 0, 128, 512, target)) {
+            ++g_fail;
+            std::printf("  capture failed\n");
+            return;
+        }
+        const int s = (int)cfg.scale;
+        expectPixel(target, 20 * s, 270 * s, 127, 255, 127, 2, "blend over uploaded rows: white on green");
+        expectPixel(target, 20 * s, 370 * s, 255, 127, 127, 2, "blend over uploaded rows: white on red");
+        expectPixel(target, 100 * s, 100 * s, 0, 0, 0, 1, "rows between the draws keep their memory content");
+        const uint32_t top = gs->readVram(0, texture, 2, 5, 5), bottom = gs->readVram(0, texture, 2, 5, 100);
+        expectTrue(std::abs((int)(top & 255) - 127) <= 2 && ((top >> 8) & 255) == 255, "blend reached memory (top)");
+        expectTrue((bottom & 255) == 255 && std::abs((int)((bottom >> 8) & 255) - 127) <= 2,
+                   "blend reached memory (bottom)");
+    }
+}
+
+// An image uploaded over rows of a drawn (GPU-owned) target is copied to the target at the internal scale: every
+// scaled texel must be the native pixel it covers, alpha included, and the rows around it untouched. At scale 3 and
+// above the rectangle is large enough for the GPU replication path (rt_upload_runs.h); GSR_RT_UPLOAD_GPU=0 takes the
+// CPU path, which must give the same picture.
+static void targetReplicationTest(Config cfg) {
+    for (uint32_t scale : {1u, 2u, 3u, 4u, 8u}) {
+        cfg.scale = scale;
+        cfg.textureUpscale = 1;
+        auto gs = Renderer::create(cfg);
+        if (!gs) {
+            ++g_fail;
+            continue;
+        }
+        constexpr uint32_t fbp = 0x100, base = fbp * 32;
+        Gif g;
+        g.ad({{FRAME_1, fbp | 1ull << 16},
+              {ZBUF_1, 140ull | 1ull << 32},
+              {XYOFFSET_1, kOfs},
+              {SCISSOR_1, 63ull << 16 | 63ull << 48},
+              {PRMODECONT, 1},
+              {COLCLAMP, 1},
+              {TEST_1, mkTest(0, 0, 0, 0, 0, 0, 1, 1)},
+              {0x49, 0},
+              {0x4a, 0}});
+        sprite(g, 0, 0, 64, 64, 10, 20, 30, 0x40, 0, (int)mkPrim(6, 0, 0, 0, 0, 0)); // the target is GPU-owned now
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        std::vector<uint8_t> image(64 * 32 * 4);
+        for (uint32_t y = 0; y < 32; ++y)
+            for (uint32_t x = 0; x < 64; ++x) {
+                uint8_t* p = image.data() + (size_t(y) * 64 + x) * 4;
+                p[0] = uint8_t(x * 4 + 1);
+                p[1] = uint8_t(y * 8 + 2);
+                p[2] = uint8_t((x ^ y) * 3);
+                p[3] = uint8_t(x + y);
+            }
+        Gif up;
+        uploadImage(up, base, 1, 0, 0, 32, 64, 32, image);
+        gs->submitGifPacket(GifPath::Path3, up.d.data(), (uint32_t)up.d.size());
+        Image target;
+        if (!gs->captureFramebuffer(fbp, 1, 0, 64, 64, target) || target.width != 64 * scale) {
+            expectTrue(false, "target captured");
+            continue;
+        }
+        uint32_t wrong = 0;
+        for (uint32_t y = 0; y < 64 * scale; ++y)
+            for (uint32_t x = 0; x < 64 * scale; ++x) {
+                const uint32_t nx = x / scale, ny = y / scale;
+                const uint8_t* got = target.rgba.data() + (size_t(y) * target.width + x) * 4;
+                uint8_t want[3] = {10, 20, 30};
+                if (ny >= 32) {
+                    const uint8_t* p = image.data() + (size_t(ny - 32) * 64 + nx) * 4;
+                    want[0] = p[0], want[1] = p[1], want[2] = p[2];
+                }
+                wrong += got[0] != want[0] || got[1] != want[1] || got[2] != want[2];
+            }
+        char what[120];
+        std::snprintf(what, sizeof what,
+                      "scale %u: every scaled texel of an uploaded rectangle is its native pixel (%u wrong)", scale,
+                      wrong);
+        expectTrue(wrong == 0, what);
+        bool alpha = true;
+        for (uint32_t y = 32; y < 64; ++y)
+            for (uint32_t x = 0; x < 64; ++x) {
+                const uint8_t* p = image.data() + (size_t(y - 32) * 64 + x) * 4;
+                const uint32_t pixel = p[0] | p[1] << 8 | p[2] << 16 | uint32_t(p[3]) << 24;
+                alpha &= gs->readVram(PSM_CT32, base, 1, x, y) == pixel;
+            }
+        expectTrue(alpha, "the uploaded pixels read back from memory unchanged, alpha included");
+    }
+}
+
+// The game draws a 4 x 4 constant colour probe into a 64 pixel wide target on the last page of GS memory (page 0x1ff)
+// and reads 32 x 32 pixels of it back to the EE every frame in some views. The target object is 64 rows tall there,
+// more than memory has, which used to rule out the exact CPU mirror of the sprite: every read waited for the GPU.
+static void lastPageMirrorTest(Config cfg) {
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    std::printf("constant sprite on the last memory page (scale %u)\n", cfg.scale);
+    Gif g;
+    g.ad({{ZBUF_1, 140ull | (1ull << 32)},
+          {XYOFFSET_1, kOfs},
+          {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+          {COLCLAMP, 1},
+          {PRMODECONT, 1},
+          {FRAME_1, 0x1ffull | (1ull << 16)},
+          {SCISSOR_1, 31ull << 16 | (31ull << 48)}});
+    sprite(g, 0, 0, 4, 4, 10, 20, 30, 0x80, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+    g.ad({{FRAME_1, 0x1f0ull | (1ull << 16)}, {SCISSOR_1, 0}}); // another target: ends the batch above
+    sprite(g, 0, 0, 1, 1, 0, 0, 0, 0x80, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+    gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    const uint64_t before = gs->stats().rtReadbacks;
+    expectTrue(gs->readVram(0, 0x1ffu * 32u, 1, 1, 1) == 0x801e140au, "probe pixel read from memory");
+    expectTrue(gs->readVram(0, 0x1ffu * 32u, 1, 3, 3) == 0x801e140au, "probe corner read from memory");
+    expectTrue(gs->readVram(0, 0x1ffu * 32u, 1, 4, 4) == 0, "pixel outside the probe untouched");
+    expectTrue(gs->stats().rtReadbacks == before, "reading the probe needs no GPU readback");
+}
+
+#if defined(GSR_TEST_WEBGPU)
+static void uploadImageTo(Renderer& gs) {
+    Gif g;
+    uploadImage(g, 0x100u * 32u, 1, 0, 0, 0, 16, 16, std::vector<uint8_t>(16 * 16 * 4, 33));
+    gs.submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+}
+#endif
+
+#if defined(GSR_TEST_WEBGPU)
+// A lost graphics device (GSR_TEST_DEVICE_LOSS destroys it at a frame boundary, as a driver reset would) must leave a
+// renderer that reports the loss and ignores further work: wgpu-native ends the process on some calls to a lost
+// device. Direct3D 11 has no such handling yet, so this runs on the WebGPU backend only.
+static void deviceLossTest(Config cfg) {
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    const auto drawSomething = [&] {
+        Gif g;
+        g.ad({{PRMODECONT, 1},
+              {FRAME_1, 0x100ull | (1ull << 16)},
+              {ZBUF_1, 140ull | 1ull << 32},
+              {XYOFFSET_1, kOfs},
+              {SCISSOR_1, 63ull << 16 | 63ull << 48},
+              {TEST_1, mkTest(0, 0, 0, 0, 0, 0, 1, 1)}});
+        sprite(g, 0, 0, 32, 32, 200, 100, 50, 0x80, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    };
+    drawSomething();
+    gs->vsync(false);
+    expectTrue(!gs->deviceLost(), "the device is alive before the loss");
+    for (int i = 0; i < 4; ++i) { // the loss happens at the end of frame 1
+        drawSomething();
+        gs->vsync(false);
+    }
+    std::string reason;
+    expectTrue(gs->deviceLost(&reason), "the renderer reports the lost device");
+    expectTrue(!reason.empty(), "with a reason");
+    // Everything a game frame does must now be harmless.
+    drawSomething();
+    uploadImageTo(*gs);
+    gs->flushToMemory();
+    (void)gs->readVram(PSM_CT32, 0x100u * 32u, 1, 1, 1);
+    Image image;
+    expectTrue(!gs->captureFramebuffer(0x100, 1, 0, 64, 64, image), "captures fail instead of touching the device");
+    gs->vsync(true);
+    gs->vsync(false);
+    expectTrue(gs->deviceLost(), "and it stays lost");
+}
+#endif
+
+// Object-motion scopes (the runtime brackets every object's draws for the temporal upscaler) must not cost a draw
+// call per object: three sprites with identical GS state under three scopes are one batch, and the picture is the
+// one the three separate draws gave.
+static void motionBatchTest(Config cfg) {
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    std::printf("object-motion scopes inside a batch (scale %u)\n", cfg.scale);
+    Gif setup;
+    setup.ad({{ZBUF_1, 140ull | (1ull << 32)},
+              {XYOFFSET_1, kOfs},
+              {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+              {COLCLAMP, 1},
+              {PRMODECONT, 1},
+              {FRAME_1, 0x40ull | (2ull << 16)},
+              {SCISSOR_1, 127ull << 16 | (127ull << 48)},
+              {ALPHA_1, mkAlpha(0, 1, 0, 1, 0)}});
+    gs->submitGifPacket(GifPath::Path3, setup.d.data(), (uint32_t)setup.d.size());
+    const uint64_t before = gs->stats().drawCalls;
+    const int blended = (int)mkPrim(6, 0, 0, 0, 1, 0); // blended: not a solid sprite the CPU mirror would take
+    for (uint32_t object = 1; object <= 3; ++object) {
+        ObjectMotionScope scope;
+        scope.flags = ObjectMotionScope::Begin | ObjectMotionScope::Valid | ObjectMotionScope::TopologyStable;
+        scope.objectId = object;
+        scope.meshId = 7;
+        gs->noteObjectMotion(scope);
+        Gif g;
+        const float x = 8.0f + 40.0f * (float)(object - 1);
+        sprite(g, x, 8, x + 32, 40, (uint8_t)(60 * object), 20, 200, 0x80, 0, blended);
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        scope.flags = ObjectMotionScope::End;
+        gs->noteObjectMotion(scope);
+    }
+    Image target;
+    if (!gs->captureFramebuffer(0x40, 2, 0, 128, 64, target)) {
+        ++g_fail;
+        std::printf("  capture failed\n");
+        return;
+    }
+    const int s = (int)cfg.scale;
+    expectPixel(target, 20 * s, 20 * s, 60, 20, 200, 1, "first object's sprite");
+    expectPixel(target, 60 * s, 20 * s, 120, 20, 200, 1, "second object's sprite");
+    expectPixel(target, 100 * s, 20 * s, 180, 20, 200, 1, "third object's sprite");
+    expectPixel(target, 44 * s, 20 * s, 0, 0, 0, 1, "gap between the sprites");
+    std::printf("  draw calls for three scoped sprites: %llu\n", (unsigned long long)(gs->stats().drawCalls - before));
+#if !defined(GSR_TEST_WEBGPU)
+    expectTrue(gs->stats().drawCalls - before == 1, "three objects with identical state are one draw call");
+#endif
 }
 
 // HUD clusters (hud_scale / hud_aspect_correct): sprites that overlap form one cluster (found from the previous frame)
@@ -2108,6 +2574,16 @@ static void mipChainLimitTest(Config cfg, uint32_t upscale) {
 }
 
 int main(int argc, char** argv) {
+#if defined(GSR_TEST_WEBGPU)
+    for (int i = 1; i < argc; ++i)
+        if (!std::strcmp(argv[i], "--device-loss-only")) {
+#if defined(_WIN32)
+            _putenv_s("GSR_TEST_DEVICE_LOSS", "1");
+#else
+            setenv("GSR_TEST_DEVICE_LOSS", "1", 1);
+#endif
+        }
+#endif
     Config cfg;
     bool alphaOnly = false, rtFilterOnly = false, inventoryAlphaOnly = false, rtShiftedRowOnly = false,
          rtCacheCoherenceOnly = false;
@@ -2131,6 +2607,8 @@ int main(int argc, char** argv) {
             outDir = argv[++i];
         else if (!std::strcmp(argv[i], "--log"))
             cfg.logUnsupported = true;
+        else if (!std::strcmp(argv[i], "--gpu-api") && i + 1 < argc) // WebGPU build: vulkan | d3d12 | opengl
+            cfg.gpuApi = parseRendererChoice(argv[++i]).gpuApi;
     }
     cfg.vsync = false;
 #if defined(GSR_PARTIAL_UPLOAD_ONLY)
@@ -2142,11 +2620,28 @@ int main(int argc, char** argv) {
 #if defined(GSR_TEST_WEBGPU)
     if (!cfg.forceWarp) {
         cfg.allowWarp = false;
-        if (!Renderer::create(cfg)) {
+        const auto probe = Renderer::create(cfg);
+        if (!probe) {
             std::printf("SKIP: no hardware WebGPU adapter (--warp runs on the software one)\n");
             return 77;
         }
+        // A named API falls back to the automatic one when it cannot start: that is not the run that was asked for.
+        const std::string adapter = probe->adapterName();
+        std::printf("adapter: %s\n", adapter.c_str());
+        if (cfg.gpuApi != Config::GpuApi::Auto &&
+            adapter.find(std::string("(") + gpuApiName(cfg.gpuApi) + ")") == std::string::npos) {
+            std::printf("SKIP: the renderer is not on %s\n", gpuApiName(cfg.gpuApi));
+            return 77;
+        }
     }
+#endif
+#if defined(GSR_TEST_WEBGPU)
+    for (int i = 1; i < argc; ++i)
+        if (!std::strcmp(argv[i], "--device-loss-only")) {
+            deviceLossTest(cfg);
+            std::printf("%d checks, %d failed\n", g_checks, g_fail);
+            return g_fail ? 1 : 0;
+        }
 #endif
     for (int i = 1; i < argc; ++i)
         if (!std::strcmp(argv[i], "--save-preview-only")) {
@@ -2390,6 +2885,11 @@ int main(int argc, char** argv) {
     partialUploadTest(cfg);
     localCopyTest(cfg);
     rtOverlapTest(cfg);
+    staleTargetTextureTest(cfg);
+    lazyTargetRowsTest(cfg);
+    lastPageMirrorTest(cfg);
+    targetReplicationTest(cfg);
+    motionBatchTest(cfg);
     hudClusterTest(cfg);
     loadingCanvasTest(cfg);
     mipChainLimitTest(cfg, 1);

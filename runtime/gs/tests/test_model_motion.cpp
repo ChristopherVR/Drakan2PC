@@ -4,7 +4,77 @@
 #include <iostream>
 #include <limits>
 using namespace gsr;
+// Motion-only snapshots (SceneModels::motionOnly): an instance that was left out of the previous snapshot while it
+// stood still brings its previous transform; the result must be what the full previous snapshot gives.
+static void motionOnlyContract() {
+    auto mesh = std::make_shared<SceneModelMesh>();
+    mesh->identity = 1;
+    mesh->topology = 123;
+    mesh->nativeId = 2;
+    mesh->triangles.resize(1);
+    mesh->triangles[0].position[1][0] = 10;
+    mesh->triangles[0].position[2][1] = 10;
+    SceneModelInstance stood;
+    stood.object = 100;
+    stood.generation = 1;
+    stood.transform[0] = stood.transform[5] = stood.transform[10] = 1;
+    SceneModelInstance moved = stood;
+    moved.transform[3] = 7;
+
+    auto fullBefore = std::make_shared<SceneModels>();
+    fullBefore->level = 1;
+    fullBefore->meshes.push_back(mesh);
+    fullBefore->instances.push_back(stood);
+    auto fullNow = std::make_shared<SceneModels>(*fullBefore);
+    fullNow->instances[0] = moved;
+    motion::Models full;
+    full.commit(fullBefore);
+    const auto want = full.prepare(*fullNow, false);
+    assert(want.matched == 1 && want.vertices.size() == 3);
+
+    auto leanBefore = std::make_shared<SceneModels>();
+    leanBefore->level = 1;
+    leanBefore->motionOnly = true; // the object stood still: left out
+    auto leanNow = std::make_shared<SceneModels>();
+    leanNow->level = 1;
+    leanNow->motionOnly = true;
+    leanNow->meshes.push_back(mesh);
+    SceneModelInstance carried = moved;
+    carried.hasPreviousTransform = true;
+    std::memcpy(carried.previousTransform, stood.transform, sizeof(stood.transform));
+    leanNow->instances.push_back(carried);
+    motion::Models lean;
+    lean.commit(leanBefore);
+    const auto got = lean.prepare(*leanNow, false);
+    assert(got.matched == 1 && got.vertices.size() == 3);
+    for (size_t v = 0; v < 3; ++v)
+        assert(!std::memcmp(got.vertices[v].current, want.vertices[v].current, 12) &&
+               !std::memcmp(got.vertices[v].previous, want.vertices[v].previous, 12));
+    // no carried transform: rejected, as an object that was not in the previous snapshot always was
+    leanNow->instances[0].hasPreviousTransform = false;
+    assert(lean.prepare(*leanNow, false).rejected == 1);
+    // the carried transform is ignored outside motion-only snapshots and when the previous snapshot has the object
+    leanNow->instances[0].hasPreviousTransform = true;
+    leanNow->motionOnly = false;
+    assert(lean.prepare(*leanNow, false).rejected == 1);
+    leanNow->motionOnly = true;
+    carried.previousTransform[3] = 99; // would give another previous position
+    leanNow->instances[0] = carried;
+    motion::Models both;
+    both.commit(fullBefore);
+    const auto preferred = both.prepare(*leanNow, false);
+    assert(preferred.vertices.size() == 3 && preferred.vertices[0].previous[0] == want.vertices[0].previous[0]);
+    // a see-through object before the move has no motion, exactly as with a previous entry
+    carried.previousTransform[3] = 0;
+    carried.previousOpacity = .5f;
+    leanNow->instances[0] = carried;
+    assert(lean.prepare(*leanNow, false).rejected == 1);
+    static_assert(sceneModelsMotionOnly(false, true) && !sceneModelsMotionOnly(true, true) &&
+                  !sceneModelsMotionOnly(false, false) && !sceneModelsMotionOnly(true, false));
+}
+
 int main() {
+    motionOnlyContract();
     motion::Models history;
     auto scene = std::make_shared<SceneModels>();
     scene->level = 1;

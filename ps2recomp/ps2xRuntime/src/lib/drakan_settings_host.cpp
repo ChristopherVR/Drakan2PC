@@ -2840,6 +2840,8 @@ struct DrakanSettingsHost final : CommonSettingsHost {
         c.dlss = drakan_dlss::available();
         c.dlssStatus = drakan_dlss::status();
         c.dlssNvidia = g_gs && g_gs->api() == gsr::Config::Api::D3D11;
+        c.terrainDetail = g_gs && g_gs->api() == gsr::Config::Api::D3D11;
+        c.materialDetail = g_gs && g_gs->api() == gsr::Config::Api::D3D11;
         c.dlssNeural = drakan_dlss::neuralAvailable();
         c.dlssNeuralStatus = drakan_dlss::neuralStatus();
         c.modernWater = g_gs && g_gs->waterRenderingAvailable(c.modernWaterStatus);
@@ -2930,6 +2932,15 @@ struct DrakanSettingsHost final : CommonSettingsHost {
         if (n.modernWater != p.modernWater || n.rayReflections != p.rayReflections || n.rayShadows != p.rayShadows ||
             n.rayGlobalIllumination != p.rayGlobalIllumination)
             g_gs->setWaterRendering(n.modernWater, n.rayReflections, n.rayShadows, n.rayGlobalIllumination);
+        if (n.terrainDetail != p.terrainDetail || n.terrainCliffs != p.terrainCliffs ||
+            n.terrainDetailStrength != p.terrainDetailStrength)
+            g_gs->setTerrainDetail(n.terrainDetail, n.terrainCliffs, n.terrainDetailStrength);
+        if (n.materialDetail != p.materialDetail || n.materialDetailStrength != p.materialDetailStrength ||
+            n.materialSpecular != p.materialSpecular)
+            g_gs->setMaterialDetail(n.materialDetail == "all"    ? 2u
+                                    : n.materialDetail == "hard" ? 1u
+                                                                 : 0u,
+                                    n.materialDetailStrength, n.materialSpecular);
         if (n.hdTextures != p.hdTextures)
             g_gs->setTextureReplace(n.hdTextures);
         if (n.textureDump != p.textureDump)

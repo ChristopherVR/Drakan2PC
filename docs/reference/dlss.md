@@ -4,6 +4,26 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## Batching, motion-only snapshots, render size and history resets, 12 November 2026
+
+- **Object-motion scopes do not end a draw batch** (`motion_segments.h`, `GSR_MOTION_BATCH=0` restores): the notes
+  that arrive while a batch is open travel with it and the backend tracks one history entry per segment between
+  them, exactly as for the separate draws. Surdana start: 224 to 226 draw calls per world before, 188 to 211 after.
+- **Model snapshots for motion only** (`scene_models.h`, `DRAKAN_SCENE_CAPTURE_MOTION_ONLY=0` restores): with no ray
+  effect on, the capture on the game's main thread leaves out every instance that stands still and does not deform;
+  one that starts to move brings its previous transform. Surdana: 1215 instances before, 9 to 11 after.
+- **Internal scale and render size.** `scale = auto` is `ceil(longer view side / 512)` whatever the upscaler: 8 at
+  3840x2160, an upscaler output of 4096x4096 and a quality-mode render rectangle of 2730x2730. The width needs that
+  scale (quality mode of a 3840 wide picture reads 2560 columns); the height is rendered at 1.9 times the screen's
+  lines because the GS frame is square and one scale serves both axes. `GSR_UPSCALE_VIEW_RENDER=1` (experimental,
+  off) sizes the render rectangle per axis against the screen (`upscale_render_size.h`, 2560x1440 here); the picture
+  changes slightly and no gain was proven. A scale per axis would be the fix.
+- **History resets.** The temporal and object-motion history is dropped when two world cameras are more than 30
+  vertical blanks apart (`kResetTickGap`, `DRAKAN_CAMERA_RESET_TICKS`). It was 6, which reset the history on every
+  world slower than a tenth of a second.
+
+Numbers and what is not verified: [journal](../journal/2026-11-12/perf-gpu.md), "DLSS follow-up".
+
 ## Level-transition lifetime, 5 November 2026
 
 A changed resident geometry identity explicitly resets previous-level temporal camera/image and object/model motion

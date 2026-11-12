@@ -14,6 +14,18 @@ bool d3d11WaitPresentHandle(void* wait, uint32_t timeoutMs);
 std::unique_ptr<BackendApi> createWgpuBackend(LocalMemory& mem, const Config& cfg, Stats& stats);
 #endif
 
+bool backendAvailable(Config::Api api) {
+#if GSR_HAVE_D3D11_BACKEND
+    if (api == Config::Api::D3D11)
+        return true;
+#endif
+#if GSR_HAVE_WEBGPU_BACKEND
+    if (api == Config::Api::WebGpu)
+        return true;
+#endif
+    return api == Config::Api::Auto;
+}
+
 #if !defined(GSR_BACKEND_FORWARDERS_ONLY) // tests that bring their own backend define it
 Backend::Backend(LocalMemory& mem, const Config& cfg, Stats& stats) {
     Config::Api want = cfg.api;
@@ -49,6 +61,17 @@ bool Backend::waitPresentHandle(void* wait, uint32_t timeoutMs) {
 }
 #endif
 
+// A backend whose graphics device is lost draws nothing more and must not be called into (wgpu-native aborts the
+// process on some calls to a lost device). The loss is looked for at the frame boundaries; every forwarder that
+// reaches the device returns at once afterwards. The host asks Renderer::deviceLost and ends the session.
+bool Backend::dead() {
+    if (!m_dead && m_api->deviceLost())
+        m_dead = true;
+    return m_dead;
+}
+bool Backend::deviceLost(std::string* reason) const {
+    return m_api->deviceLost(reason);
+}
 bool Backend::init() {
     return m_api->init();
 }
@@ -59,41 +82,65 @@ std::string Backend::adapterName() const {
     return m_api->adapterName();
 }
 void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
+    if (m_dead)
+        return;
     m_api->draw(st, clut, v, count);
 }
 bool Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
                         uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
+    if (m_dead)
+        return false;
     return m_api->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
 }
 void Backend::flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect) {
+    if (m_dead)
+        return;
     m_api->flushForRead(firstBlock, lastBlock, rect);
 }
 void Backend::flushToMemory(uint32_t firstBlock, uint32_t lastBlock) {
+    if (m_dead)
+        return;
     m_api->flushToMemory(firstBlock, lastBlock);
 }
 bool Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                 uint32_t h) {
+    if (m_dead)
+        return false;
     return m_api->beginTargetUpload(psm, bp, bw, x, y, w, h);
 }
 void Backend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                                    uint32_t h, bool apply, uint64_t written) {
+    if (m_dead)
+        return;
     m_api->completeTargetUpload(psm, bp, bw, x, y, w, h, apply, written);
 }
 void Backend::flushAll() {
+    if (m_dead)
+        return;
     m_api->flushAll();
 }
 void Backend::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                              const MovieImage& image, uint64_t imageId) {
+    if (m_dead)
+        return;
     m_api->drawMovieFrame(dbp, dbw, x, y, w, h, image, imageId);
 }
 void Backend::present(const DisplayState& d) {
+    if (dead())
+        return;
     m_api->present(d);
+    dead(); // a loss found by this call stops the next one
 }
 void Backend::latchDisplay(const DisplayState& d, uint32_t field) {
+    if (dead())
+        return;
     m_api->latchDisplay(d, field);
 }
 void Backend::presentLatched() {
+    if (dead())
+        return;
     m_api->presentLatched();
+    dead(); // a loss found by this call stops the next one
 }
 void* Backend::beginPresentWait() {
     return m_api->beginPresentWait();
@@ -102,12 +149,16 @@ void Backend::endPresentWait(bool ready) {
     m_api->endPresentWait(ready);
 }
 void Backend::setVsync(bool on) {
+    if (m_dead)
+        return;
     m_api->setVsync(on);
 }
 bool Backend::vsyncEnabled() const {
     return m_api->vsyncEnabled();
 }
 void Backend::applyLive(const LiveSettings& ls) {
+    if (m_dead)
+        return;
     m_api->applyLive(ls);
 }
 uint32_t Backend::internalScale() const {
@@ -120,22 +171,35 @@ void Backend::setOverlayCallback(std::function<void(const OverlayContext&)> cb) 
     m_api->setOverlayCallback(cb);
 }
 bool Backend::capture(const DisplayState& d, Image& out) {
+    if (m_dead)
+        return false;
     return m_api->capture(d, out);
 }
 bool Backend::captureLastGameplay(Image& out, float& aspect) {
+    if (m_dead)
+        return false;
     return m_api->captureLastGameplay(out, aspect);
 }
 bool Backend::captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h, Image& out) {
+    if (m_dead)
+        return false;
     return m_api->captureFramebuffer(fbp, fbw, psm, w, h, out);
 }
 void Backend::resize(uint32_t w, uint32_t h) {
+    if (m_dead)
+        return;
     m_api->resize(w, h);
 }
 void Backend::reset() {
+    if (m_dead)
+        return;
     m_api->reset();
 }
 void Backend::endFrame() {
+    if (dead())
+        return;
     m_api->endFrame();
+    dead(); // a loss found by this call stops the next one
 }
 void Backend::noteVuUpload(uint32_t vuAddr, uint32_t qwCount, const float* vuRows0to6) {
     m_api->noteVuUpload(vuAddr, qwCount, vuRows0to6);
@@ -145,6 +209,12 @@ void Backend::noteSceneCamera(const SceneGuideCamera& camera) {
 }
 void Backend::noteObjectMotion(const ObjectMotionScope& scope) {
     m_api->noteObjectMotion(scope);
+}
+bool Backend::deferObjectMotion() const {
+    return m_api->deferObjectMotion();
+}
+void Backend::setMotionNotes(const motion::Note* notes, uint32_t count) {
+    m_api->setMotionNotes(notes, count);
 }
 void Backend::noteSceneGeometry(const SceneGeometry& geometry) {
     m_api->noteSceneGeometry(geometry);

@@ -1,5 +1,5 @@
 #pragma once
-#include "nr_guides.h"
+#include "model_motion_types.h"
 #include <gsr/scene_models.h>
 #include <algorithm>
 #include <array>
@@ -69,18 +69,31 @@ public:
                 ambiguous.push_back(current[n]);
         std::sort(ambiguous.begin(), ambiguous.end());
         for (const auto& i : scene.instances) {
-            const auto p = std::lower_bound(previous.begin(), previous.end(), i.object,
-                                            [](const auto& entry, uint32_t object) { return entry.first < object; });
-            if (std::binary_search(ambiguous.begin(), ambiguous.end(), i.object) || p == previous.end() ||
-                p->first != i.object || !i.generation || i.generation != p->second->generation ||
-                i.mesh >= scene.meshes.size() || p->second->mesh >= previous_->meshes.size() ||
-                !std::isfinite(i.opacity) || !std::isfinite(p->second->opacity) || i.opacity < .999f ||
-                p->second->opacity < .999f) {
+            auto p = std::lower_bound(previous.begin(), previous.end(), i.object,
+                                      [](const auto& entry, uint32_t object) { return entry.first < object; });
+            // A motion-only snapshot left the object out while it stood still: the instance brings the transform it
+            // had then, and its mesh was this one (see SceneModelInstance::hasPreviousTransform).
+            SceneModelInstance stood;
+            std::pair<uint32_t, const SceneModelInstance*> standIn{i.object, &stood};
+            const bool leftOut = scene.motionOnly && i.hasPreviousTransform && i.mesh < scene.meshes.size() &&
+                                 (p == previous.end() || p->first != i.object);
+            if (leftOut) {
+                stood = i;
+                std::memcpy(stood.transform, i.previousTransform, sizeof(stood.transform));
+                stood.opacity = i.previousOpacity;
+                p = previous.end(); // not dereferenced below: `entry` is used instead
+            }
+            const auto* entry = leftOut ? &standIn : (p != previous.end() && p->first == i.object ? &*p : nullptr);
+            if (std::binary_search(ambiguous.begin(), ambiguous.end(), i.object) || !entry || !i.generation ||
+                i.generation != entry->second->generation || i.mesh >= scene.meshes.size() ||
+                (!leftOut && entry->second->mesh >= previous_->meshes.size()) || !std::isfinite(i.opacity) ||
+                !std::isfinite(entry->second->opacity) || i.opacity < .999f || entry->second->opacity < .999f) {
                 ++out.rejected;
                 continue;
             }
+            const auto* p2 = entry; // the previous instance, from the previous snapshot or the stand-in
             const auto& now = scene.meshes[i.mesh];
-            const auto& before = previous_->meshes[p->second->mesh];
+            const auto& before = leftOut ? now : previous_->meshes[p2->second->mesh];
             if (!now || !before || !now->topology || now->topology != before->topology ||
                 now->nativeId != before->nativeId || now->triangles.size() != before->triangles.size()) {
                 ++out.rejected;
@@ -88,7 +101,7 @@ public:
             }
             // Static models already have exact camera motion from depth.
             if (now->identity == before->identity &&
-                std::memcmp(i.transform, p->second->transform, sizeof(i.transform)) == 0)
+                std::memcmp(i.transform, p2->second->transform, sizeof(i.transform)) == 0)
                 continue;
             if (out.vertices.size() + now->triangles.size() * 3 > 1500000) {
                 ++out.rejected;
@@ -116,7 +129,7 @@ public:
                     dst.alphaTexture = alphaTexture;
                     for (unsigned r = 0; r < 3; ++r) {
                         const auto* t = i.transform;
-                        const auto* old = p->second->transform;
+                        const auto* old = p2->second->transform;
                         dst.current[r] = t[r * 4] * a.position[v][0] + t[r * 4 + 1] * a.position[v][1] +
                                          t[r * 4 + 2] * a.position[v][2] + t[r * 4 + 3];
                         dst.previous[r] = old[r * 4] * b.position[v][0] + old[r * 4 + 1] * b.position[v][1] +

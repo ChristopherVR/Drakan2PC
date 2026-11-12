@@ -6,6 +6,8 @@
 #include <vector>
 #include <span>
 
+#include "model_motion_types.h"
+
 // No renderer, NR bridge, Streamline or engine header dependencies.
 namespace gsr::nr::guides {
 struct Size {
@@ -66,14 +68,6 @@ struct Textures {
 };
 struct Shaders {
     std::vector<uint8_t> prepare, vertex, compose, modelVertex, modelPixel;
-};
-struct ModelMotionVertex {
-    float current[3]{}, previous[3]{}, uv[2]{};
-    uint32_t alphaTexture = ~0u;
-};
-struct ModelMotionTexture {
-    uint64_t identity = 0;
-    std::span<const uint32_t> pixels;
 };
 
 namespace detail {

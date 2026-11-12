@@ -307,6 +307,13 @@ void WgpuBackend::Impl::clusterHud() {
 }
 
 void WgpuBackend::Impl::endFrame() {
+    // Test aid: GSR_TEST_DEVICE_LOSS=<frame> destroys the device at that frame, as a driver reset would.
+    static const long long loseAt = [] {
+        const char* value = std::getenv("GSR_TEST_DEVICE_LOSS");
+        return value && *value ? std::atoll(value) : -1ll;
+    }();
+    if (loseAt >= 0 && (long long)frame == loseAt && gpu)
+        gpu->loseForTest();
     nativeSubtitleOpen = false;
     tutorialBandRows.endFrame();
     CpuProfile::Scope profile(cpuProfile, CpuProfile::EndFrame);

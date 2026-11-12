@@ -876,6 +876,22 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         gpu_.poll(false); // delivers the previous measurement (the renderer itself never polls)
     const bool timed = runtimeFlags().rayGpuTiming && gpu_.beginDispatchTiming();
     std::string timedNames;
+    // Each dispatch goes to the GPU as its own submission. In one submission with the frame's raster work the four
+    // passes are a single job for the driver, and at a large internal scale on a busy GPU that job ran for seconds:
+    // the device was then lost (docs/journal/2026-11-12/vulkan-backend.md). The uniform ring restarts with every
+    // submission, so the two blocks are set again. GSR_RAY_SPLIT_SUBMIT=0 keeps one submission.
+    static const bool splitSubmit = [] {
+        const char* value = std::getenv("GSR_RAY_SPLIT_SUBMIT");
+        return !value || value[0] != '0';
+    }();
+    const auto submitPass = [&] {
+        if (!splitSubmit || timed)
+            return; // the timing query set is resolved in the submission that wrote it
+        gpu_.flush();
+        gpu_.setUniforms(0, &cam, sizeof cam);
+        gpu_.setUniforms(1, &lit, sizeof lit);
+    };
+    submitPass(); // the raster work before the trace
     gpu_.setProgram(sky_.get());
     gpu_.dispatch(1, 1);
     timedNames += "sky";
@@ -885,6 +901,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         gpu_.setProgram(shadow_.get());
         gpu_.dispatch((lowW + 7) / 8, (lowH + 7) / 8);
         timedNames += " low";
+        submitPass();
         gpu_.setStorageTexture(0, output_.get());
         gpu_.setStorageTexture(1, dummyStorage_.get());
         gpu_.setTexture(2, shadowTex_.get());
@@ -896,6 +913,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
         gpu_.setProgram(transport_.get());
         gpu_.dispatch((transportW + 7) / 8, (transportH + 7) / 8);
         timedNames += " transport";
+        submitPass();
         gpu_.setStorageTexture(0, output_.get());
         gpu_.setStorageTexture(1, dummyStorage_.get());
         gpu_.setTexture(4, transportTex_.get());
@@ -904,6 +922,7 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
     gpu_.setProgram(main_.get());
     gpu_.dispatch((f.width + 7) / 8, (f.height + 7) / 8);
     timedNames += " main";
+    submitPass();
     if (timed) {
         char facts[320];
         std::snprintf(

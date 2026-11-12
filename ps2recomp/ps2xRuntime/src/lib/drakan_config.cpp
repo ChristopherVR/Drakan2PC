@@ -80,8 +80,9 @@ const Entry kEntries[] = {
      "off (env DRAKAN_DEBUG_MENU)"},
 
     {"video", "renderer", "webgpu",
-     "webgpu = the shared GPU renderer (default; Vulkan / D3D12 / OpenGL), d3d11 = Direct3D 11 (Windows; DLSS and "
-     "DXR ray tracing), sw = slow reference software renderer (env PS2X_GS)"},
+     "webgpu = the shared GPU renderer (default; Vulkan first, then D3D12 on Windows / OpenGL on Linux), vulkan = the "
+     "same renderer held to Vulkan, d3d11 = Direct3D 11 (Windows; DLSS and DXR ray tracing), sw = slow reference "
+     "software renderer (env PS2X_GS)"},
     {"video", "scale", "auto",
      "internal resolution multiplier 1..8; auto follows fitted output size, including width for the native 512-square "
      "display (env PS2X_GS_SCALE)"},
@@ -139,12 +140,35 @@ const Entry kEntries[] = {
      "the player; render only, nothing is saved (PAL only; env DRAKAN_FOLIAGE_WIND)"},
     {"video", "foliage_wind_strength", "1.0",
      "how far foliage leans and how hard the gusts blow, 0.25 .. 2 (env DRAKAN_FOLIAGE_STRENGTH)"},
+    {"video", "lod_distance", "4.0",
+     "characters and creatures keep their detailed model this many times further out, 1 (original PS2 distances) .. 8; "
+     "above 1 a simplified model that changes a character's look is never used (PAL only; env DRAKAN_LOD_DISTANCE)"},
+    {"video", "draw_distance", "1.0",
+     "people, creatures, plants and small objects are drawn this many times further out before they fade, 1 "
+     "(original) .. 4; the level's view distance still limits it (PAL only; env DRAKAN_DRAW_DISTANCE)"},
     {"video", "poly_near_clip", "1",
      "1 = clip the engine's projected polygons (ribbons, beams) against the camera near plane instead of drawing them "
      "whole; fixes starburst fans when the camera is inside an effect, 0 = original behaviour (PAL only; env "
      "DRAKAN_POLY_NEAR_CLIP)"},
     {"video", "hd_textures", "1",
      "1 = use replacement textures from texture_dir (also accepted: texture_replace) (env GSR_TEXREPLACE)"},
+    {"video", "terrain_detail", "1",
+     "1 = fine surface detail and large-scale variation on the ground and mountains, fixed in the world (Direct3D 11 "
+     "renderer); 0 = the terrain exactly as before (env GSR_TERRAIN_DETAIL)"},
+    {"video", "terrain_detail_strength", "1.00",
+     "strength of the terrain detail, 0.25 .. 2 (env GSR_TERRAIN_STRENGTH)"},
+    {"video", "terrain_cliffs", "0",
+     "1 = steep mountain faces take their ground texture from the side instead of from above, so it is not stretched "
+     "into streaks; patches of grass and rock on such faces then sit elsewhere than in the original picture "
+     "(Direct3D 11 renderer); 0 = as before (env GSR_TERRAIN_CLIFFS)"},
+    {"video", "material_detail", "off",
+     "relief shading inside HD textures from the material maps in texture_dir/materials (Direct3D 11 renderer): off = "
+     "the picture exactly as before | hard = terrain, stone, wood, metal | all = also characters and foliage (env "
+     "GSR_MATERIAL_DETAIL)"},
+    {"video", "material_detail_strength", "1.00",
+     "strength of the relief shading, 0.25 .. 2 (env GSR_MATERIAL_STRENGTH)"},
+    {"video", "material_specular", "0.00",
+     "highlight from the level's light on smooth materials, 0 .. 1; 0 = none (env GSR_MATERIAL_SPECULAR)"},
     {"video", "texture_dump", "0",
      "1 = write every decoded texture to <texture_dir>/dump/<hash>.png (for making replacements) (env GSR_TEXDUMP)"},
     {"video", "texture_dir", "textures", "texture pack / dump folder, relative to the exe folder (env GSR_TEXDIR)"},

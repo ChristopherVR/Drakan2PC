@@ -518,6 +518,10 @@ void D3D11Backend::Impl::endFrame() {
                 }
             }
     }
+    // Scratch targets drawn last frame but not in this one: stage their dirty rows now (see prefetchReadback).
+    for (auto& r : rts)
+        if (r->dirty && r->drawFrame + 1 == frame && lazySyncTarget(*r))
+            prefetchReadback(*r, true);
     ++frame;
     if (upMode) // safety net: a world that never got a UI draw / display, or a resolved target that is never
                 // displayed, does not stay in its phase
@@ -587,6 +591,22 @@ void D3D11Backend::Impl::endFrame() {
             depths.erase(depths.begin() + i);
         else
             ++i;
+    // GSR_RT_REFRESH_STATS: what the render targets and depth buffers hold on the GPU, about every 10 s.
+    static const bool memoryLog = std::getenv("GSR_RT_REFRESH_STATS") != nullptr;
+    if (memoryLog && frame % 608 == 0) {
+        uint64_t targetBytes = 0, depthBytes = 0;
+        unsigned dirtyCount = 0;
+        for (const auto& r : rts) {
+            const uint64_t pixels = uint64_t(r->w) * scale * r->h * scale;
+            targetBytes += pixels * 4 * (r->copy ? 2 : 1) + (r->motionTex ? pixels * 16 : 0);
+            dirtyCount += r->dirty;
+        }
+        for (const auto& d : depths)
+            depthBytes += uint64_t(d->w) * scale * d->h * scale * 4 * (d->copy ? 2 : 1);
+        std::fprintf(stderr, "[rt-memory] frame=%llu targets=%zu dirty=%u MiB=%.0f depth=%zu MiB=%.0f\n",
+                     (unsigned long long)frame, rts.size(), dirtyCount, targetBytes / 1048576.0, depths.size(),
+                     depthBytes / 1048576.0);
+    }
 }
 
 } // namespace gsr

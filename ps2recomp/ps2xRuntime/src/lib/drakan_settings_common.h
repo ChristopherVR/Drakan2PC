@@ -8,6 +8,7 @@
 #include "drakan_region.h"
 #include "drakan_save_guard.h"
 #include "drakan_foliage.h"
+#include "drakan_model_detail.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_subtitles.h"
 #include "drakan_tab_screen.h"
@@ -31,6 +32,7 @@ public:
         dsettings::HostCaps c;
         c.hdTextures = true;
         c.foliageWind = drakan_foliage::available();
+        c.modelDetail = drakan_model_detail::available();
         c.polyNearClip = drakan_polyclip::available();
         using drakan_region::Feature;
         using drakan_region::supports;
@@ -128,6 +130,8 @@ protected:
             drakan_polyclip::configure(n.polyNearClip);
         if (n.foliageWind != p.foliageWind || n.foliageWindStrength != p.foliageWindStrength)
             drakan_foliage::configure(n.foliageWind, n.foliageWindStrength);
+        if (n.lodDistance != p.lodDistance || n.drawDistance != p.drawDistance)
+            drakan_model_detail::configure(n.lodDistance, n.drawDistance);
     }
 
 private:

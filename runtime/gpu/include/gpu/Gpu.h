@@ -59,6 +59,8 @@ public:
     WGPUDevice device() const { return device_; }
     WGPUQueue queue() const { return queue_; }
     const std::string& adapterName() const { return adapterName_; }
+    // The driver's own description of itself as the graphics API reports it (may be empty).
+    const std::string& adapterDriver() const { return adapterDriver_; }
     Backend backend() const { return backend_; }
     bool softwareAdapter() const { return software_; }
     // D3D12 shaders go through FXC (DXC not beside the executable): large compute shaders may never compile.
@@ -70,6 +72,12 @@ public:
 
     // True once a validation / out-of-memory error was reported or the device was lost.
     bool failed() const;
+    // The device was lost (driver reset, time-out, out of video memory, adapter removed). wgpu-native aborts the
+    // process when a lost device is asked for a surface image, so callers must stop using the device once this is
+    // true; poll(false) lets a pending loss be reported.
+    bool deviceLost() const;
+    // Test aid: destroy the device and report it lost, as a real loss would.
+    void loseDeviceForTest();
     std::string lastError() const;
 
     // Process device callbacks; wait = block until submitted work finished.
@@ -101,6 +109,7 @@ private:
     WGPUQueue queue_ = nullptr;
     WGPULimits limits_ = WGPU_LIMITS_INIT;
     std::string adapterName_;
+    std::string adapterDriver_;
     Backend backend_ = Backend::Auto;
     bool software_ = false;
     bool fxc_ = false;

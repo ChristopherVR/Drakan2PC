@@ -400,6 +400,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_levelchange.cpp
     src/lib/drakan_dragon_flight.cpp
     src/lib/drakan_foliage.cpp
+    src/lib/drakan_model_detail.cpp
     src/lib/drakan_region.cpp
     src/lib/drakan_game.cpp
     src/lib/gs/ps2_gif_arbiter.cpp

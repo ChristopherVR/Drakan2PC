@@ -184,7 +184,13 @@ float4 sampleTexture(float2 uv, float q, uint flags, float2 duvdx, float2 duvdy)
 }
 
 )HLSL"
+#include "gs_terrain.inc"
 R"HLSL(
+#if defined(MATERIAL)
+)HLSL"
+#include "gs_material.inc"
+R"HLSL(
+#endif
 // ---------------------------------------------------------------- pixel shader
 struct PSOut
 {
@@ -200,6 +206,7 @@ float4 sourcePixel(VSOut i)
     float4 cv = floor(i.col + 0.5);
     float3 c = cv.rgb;
     float a = cv.a;
+    float2 dq = float2(ddx(i.stq.z), ddy(i.stq.z)); // terrain detail only; derivatives must stay out of flow control
 
     if (fl & F_TME)
     {
@@ -214,7 +221,45 @@ float4 sourcePixel(VSOut i)
             uv = float2(i.stq.x * iq * (float)wd, i.stq.y * iq * (float)ht);
         }
         if (fl & (1u<<24)) uv=clamp(uv,cb_spriteBounds.xy,cb_spriteBounds.zw);
-        float4 t = floor(sampleTexture(uv, q, fl, ddx(uv), ddy(uv)) * 255.0 + 0.5);
+        // One projection for everything but terrain layers with the side projection (terrain_detail.h), which adds
+        // up to two more; the terrain flags are never set unless a terrain setting is on.
+        float2 puv[3], pdx[3], pdy[3];
+        float pw[3];
+        puv[0] = uv; pdx[0] = ddx(uv); pdy[0] = ddy(uv); pw[0] = 1.0;
+        puv[1] = uv; pdx[1] = pdx[0]; pdy[1] = pdy[0]; pw[1] = 0.0;
+        puv[2] = uv; pdx[2] = pdx[0]; pdy[2] = pdy[0]; pw[2] = 0.0;
+        int projections = 1;
+        float terrainFactor = 1.0;
+        // (a layer pixel with vertex alpha 0 has no weight and fails the alpha test: nothing to compute for it)
+        if ((fl & (F_TERRAIN | F_TERRAIN_SIDE)) != 0u && cv.a >= 0.5)
+        {
+            TerrainPoint tp = terrainPoint(i.pos.xy, q, dq);
+            float medium;
+            if ((fl & F_TERRAIN) != 0u && t_d0.w > 0.5) terrainFactor = terrainDetail(tp, medium);
+            else medium = terrainMedium(tp);
+            if (fl & F_TERRAIN_SIDE)
+            {
+                pw[0] = terrainSide(tp, medium, puv[1], pdx[1], pdy[1], pw[1], puv[2], pdx[2], pdy[2], pw[2]);
+                projections = 3;
+            }
+        }
+        float4 ts = float4(0, 0, 0, 0);
+        [loop] for (int pi = 0; pi < projections; ++pi)
+        {
+            if (pw[pi] > 0.002) ts += pw[pi] * sampleTexture(puv[pi], q, fl, pdx[pi], pdy[pi]);
+        }
+        if ((fl & (F_TERRAIN | F_TERRAIN_SIDE)) != 0u && t_dy.w > 0.5)
+        {
+            // GSR_TERRAIN_DEBUG: 1 = which draws are terrain layers (red: side projection allowed), 2 = the weights
+            // of the three projections (blue: from above, red: plane x, green: plane z; grey: no side projection)
+            if (t_dy.w > 1.5) ts.rgb = (fl & F_TERRAIN_SIDE) ? float3(pw[1], pw[2], pw[0]) : float3(0.5, 0.5, 0.5);
+            else ts.rgb = lerp(ts.rgb, (fl & F_TERRAIN_SIDE) ? float3(1, 0.2, 0.2) : float3(0.2, 1, 0.2), 0.5);
+        }
+        float4 t = floor(ts * 255.0 + 0.5);
+#if defined(MATERIAL)
+        // material detail (material_detail.h): this variant is only bound for draws that take it
+        t.rgb = materialShade(t.rgb, uv, ddx(uv), ddy(uv), i.pos.xy, q);
+#endif
         uint tfx = (fl >> 4) & 3u;
         bool tcc = (fl & F_TCC) != 0u;
         if (tfx == 0u)
@@ -237,6 +282,7 @@ float4 sourcePixel(VSOut i)
             c = floor(t.rgb * cv.rgb / 128.0) + cv.a;
             a = tcc ? t.a : cv.a;
         }
+        if (fl & F_TERRAIN) c = floor(c * terrainFactor + 0.5);
         c = clamp(c, 0.0, 255.0);
         a = clamp(a, 0.0, 255.0);
     }

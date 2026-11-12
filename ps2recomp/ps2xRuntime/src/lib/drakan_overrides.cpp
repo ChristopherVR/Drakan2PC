@@ -62,7 +62,10 @@
 #include "drakan_texture_budget.h"
 #include "drakan_save_reference_probe.h"
 #include "drakan_foliage.h"
+#include "drakan_model_detail.h"
 #include "drakan_polyclip.h"
+#include "drakan_layer_seam_hook.h"
+#include "drakan_melee_trace.h"
 #include "drakan_levelchange.h"
 #include "drakan_region.h"
 #include "drakan_language_policy.h"
@@ -570,7 +573,124 @@ public:
         return static_cast<int>(replyCap);
     }
 
+    // A resource batch is a series of calls into the guest's RPC servers (hle::IEeCallSequence). Posting them one by
+    // one costs two thread hand-overs per call (this thread to the EE thread and back), about 2800 for a level load,
+    // and each waits for the EE thread to leave whatever host call it is in (the present hand-over of the loading
+    // screen): load times followed the frame rate of the loading screen and grew many times over on a busy machine.
+    // Here the first call is issued from this thread and every further one from the completion of the one before, on
+    // the EE thread, so a batch costs one hand-over. The calls, payloads and their order are unchanged.
+    // `DRAKAN_RES_CHAIN=0` posts call by call as before (docs/journal/2026-11-12/perf-loading-hitches.md).
+    void run(hle::IEeCallSequence& sequence) override {
+        static const bool chained = [] {
+            const char* v = std::getenv("DRAKAN_RES_CHAIN");
+            return !(v && v[0] == '0');
+        }();
+        if (!chained) {
+            hle::IEeRpcPoster::run(sequence);
+            return;
+        }
+        auto chain = std::make_shared<Chain>();
+        chain->sequence = &sequence;
+        // The servers' receive buffers are this sequence's until it is over.
+        std::scoped_lock serialize(m_serial[1], m_serial[2], m_serial[3]); // the three resource servers
+        advance(chain);
+        // Bounded like post(), in guest time, and counted anew whenever the sequence moves on.
+        constexpr auto kSlice = std::chrono::milliseconds(250);
+        constexpr double kBudgetSeconds = 20.0;
+        constexpr double kEeHz = 294912000.0;
+        double charged = 0.0;
+        uint64_t lastCycles = m_rt.eeScheduler().publishedCycles();
+        uint64_t lastProgress = 0;
+        std::unique_lock<std::mutex> lock(chain->m);
+        while (!chain->done) {
+            if (chain->cv.wait_for(lock, kSlice, [&] { return chain->done; }))
+                break;
+            const uint64_t cycles = m_rt.eeScheduler().publishedCycles();
+            if (chain->progress != lastProgress)
+                charged = 0.0;
+            else if (cycles != lastCycles)
+                charged += static_cast<double>(cycles - lastCycles) / kEeHz;
+            else if (!m_rt.eeScheduler().isExecutingGuest())
+                charged += std::chrono::duration<double>(kSlice).count();
+            lastCycles = cycles;
+            lastProgress = chain->progress;
+            if (charged >= kBudgetSeconds || m_rt.isStopRequested()) {
+                // The sequence object dies with the caller: the EE side must not touch it any more.
+                chain->abandoned = true;
+                logfmt("run: a guest handler of a resource batch did not return within 20 s (call %llu)",
+                       static_cast<unsigned long long>(chain->progress));
+                return;
+            }
+        }
+    }
+
 private:
+    struct Chain {
+        std::mutex m;
+        std::condition_variable cv;
+        hle::IEeCallSequence* sequence = nullptr;
+        uint64_t progress = 0; // calls issued
+        bool done = false, abandoned = false;
+    };
+    // Issues the sequence's next call; the completion of its guest handler (EE thread) hands the reply over and calls
+    // this again.
+    void advance(const std::shared_ptr<Chain>& chain) {
+        for (;;) {
+            hle::EeCall call;
+            uint32_t func = 0, buf = 0;
+            {
+                std::lock_guard<std::mutex> lock(chain->m);
+                if (chain->abandoned)
+                    return;
+                if (!chain->sequence->next(call)) {
+                    chain->done = true;
+                    chain->cv.notify_all();
+                    return;
+                }
+                ++chain->progress;
+                uint32_t sd = 0;
+                bool ok = ps2_syscalls::lookupRpcServer(call.sid, sd);
+                if (!ok)
+                    logfmt("post(sid=0x%x fno=%u) failed: EE server not registered", call.sid, call.fno);
+                if (ok) {
+                    std::memcpy(&func, m_rdram + (sd & 0x1FFFFFFFu) + 4, 4);
+                    std::memcpy(&buf, m_rdram + (sd & 0x1FFFFFFFu) + 8, 4);
+                    ok = func != 0 && buf != 0;
+                    if (!ok)
+                        logfmt("post(sid=0x%x): server has no handler/buffer", call.sid);
+                }
+                if (ok && !call.payload.empty()) {
+                    const uint32_t off = buf & 0x1FFFFFFFu;
+                    ok = static_cast<uint64_t>(off) + call.payload.size() <= PS2_RAM_SIZE;
+                    if (ok)
+                        std::memcpy(m_rdram + off, call.payload.data(), call.payload.size());
+                }
+                if (!ok) {
+                    chain->sequence->reply(-1, nullptr, 0); // as post() fails
+                    continue;
+                }
+            }
+            m_rt.eeScheduler().postGuestCall(
+                func, call.fno, buf, static_cast<uint32_t>(call.payload.size()), 0,
+                [this, chain, replyCap = call.replyCap, blocking = call.blocking](uint32_t v0) {
+                    {
+                        std::lock_guard<std::mutex> lock(chain->m);
+                        if (chain->abandoned)
+                            return;
+                        // the reply rules of post()
+                        const uint32_t off = v0 & 0x1FFFFFFFu;
+                        if (!blocking || replyCap == 0 || v0 == 0 ||
+                            static_cast<uint64_t>(off) + replyCap > PS2_RAM_SIZE)
+                            chain->sequence->reply(0, nullptr, 0);
+                        else
+                            chain->sequence->reply(static_cast<int>(replyCap), m_rdram + off, replyCap);
+                    }
+                    advance(chain);
+                },
+                serverPriority(call.sid));
+            return;
+        }
+    }
     std::mutex& mutexFor(uint32_t sid) { return m_serial[sid & 3u]; }
     PS2Runtime& m_rt;
     uint8_t* m_rdram;
@@ -685,6 +805,7 @@ struct HleHost {
         std::vector<uint8_t> send;
         uint32_t endFunction, endParameter;
         std::chrono::steady_clock::time_point submitted = std::chrono::steady_clock::now();
+        uint64_t submittedCycles = 0; // EE cycles accounted when the guest submitted the batch
     };
     // The real IOP needs milliseconds (queueing, CD/DVD read) before the first completion of a batch arrives, so the
     // game never sees a completion inside the few instructions after it submitted the request. Without this latency the
@@ -703,8 +824,25 @@ struct HleHost {
     // requester's own bookkeeping, and that depends on how far the guest got, not on how fast or loaded the host is. If
     // the guest is idle the scheduler skips the time at once. (Also the form that works for a single-threaded
     // cooperative scheduler.)
+    uint64_t latencyCycles() const {
+        return static_cast<uint64_t>(resLatency.count()) * (EeScheduler::kEeClockHz / 1000000ull);
+    }
+    // The latency is owed from the moment the guest submitted the batch. A batch that waited in the queue behind others
+    // (a level load submits hundreds at once) has usually served it already; waiting again cost one more hand-over
+    // with the EE thread per batch. The EE accounts cycles in small blocks, so the count read at submission may lag:
+    // only an elapsed time well past the latency (kLatencySlack more cycles) skips the wait.
+    // `DRAKAN_RES_LATENCY_ELAPSED=0` waits the full latency after every batch is taken, as before.
+    static constexpr uint64_t kLatencySlack = 16384;
+    bool latencyServed(const Job& job) const {
+        static const bool elapsedCounts = [] {
+            const char* v = std::getenv("DRAKAN_RES_LATENCY_ELAPSED");
+            return !(v && v[0] == '0');
+        }();
+        return elapsedCounts &&
+               runtime->eeScheduler().publishedCycles() - job.submittedCycles >= latencyCycles() + kLatencySlack;
+    }
     void waitGuestLatency() {
-        const uint64_t cycles = static_cast<uint64_t>(resLatency.count()) * (EeScheduler::kEeClockHz / 1000000ull);
+        const uint64_t cycles = latencyCycles();
         if (cycles == 0)
             return;
         struct Gate {
@@ -735,15 +873,103 @@ struct HleHost {
                     job = std::move(queue.front());
                     queue.pop_front();
                 }
-                waitGuestLatency();
+                const auto taken = std::chrono::steady_clock::now();
+                if (latencyServed(job))
+                    ioLatencySkips.fetch_add(1, std::memory_order_relaxed);
+                else
+                    waitGuestLatency();
+                const auto begun = std::chrono::steady_clock::now();
+                const hle::ResourceService::Stats before = ioTrace ? iop.res.stats() : hle::ResourceService::Stats{};
                 iop.call(hle::SID_RESOURCE, job.fno, job.send.data(), static_cast<uint32_t>(job.send.size()), nullptr,
                          0);
+                const auto done = std::chrono::steady_clock::now();
+                auto nanos = [](std::chrono::steady_clock::duration d) {
+                    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(d).count());
+                };
+                ioBatches.fetch_add(1, std::memory_order_relaxed);
+                ioQueueNanos.fetch_add(nanos(taken - job.submitted), std::memory_order_relaxed);
+                ioLatencyNanos.fetch_add(nanos(begun - taken), std::memory_order_relaxed);
+                ioServiceNanos.fetch_add(nanos(done - begun), std::memory_order_relaxed);
+                if (ioTrace) {
+                    // One line per batch on the frame audit's clock (scripts/perf/hitch_survey.py reads it): start,
+                    // service time, requests, bytes, file, guest latency wait.
+                    const hle::ResourceService::Stats after = iop.res.stats();
+                    hle::FileService::Open file;
+                    const bool known = iop.file.get(static_cast<hle::s32>(job.fno), file);
+                    const size_t slash = known ? file.node.key.find_last_of('\\') : std::string::npos;
+                    std::fprintf(
+                        stderr, "[ft] R %lld %llu %llu %llu %s wait=%llu\n",
+                        static_cast<long long>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(begun.time_since_epoch()).count()),
+                        static_cast<unsigned long long>(nanos(done - begun) / 1000),
+                        static_cast<unsigned long long>(after.requests - before.requests),
+                        static_cast<unsigned long long>(after.bytes - before.bytes),
+                        known ? file.node.key.c_str() + (slash == std::string::npos ? 0 : slash + 1) : "?",
+                        static_cast<unsigned long long>(nanos(begun - taken) / 1000));
+                }
                 if (job.endFunction != 0) {
                     runtime->eeScheduler().postGuestCall(job.endFunction, job.endParameter, 0, 0, 0, nullptr);
                 }
             }
         });
         worker.detach();
+    }
+
+    // Load-time measurement (`DRAKAN_IO_STATS=1`, docs/reference/env-flags.md): what the disc and resource services
+    // did, one `[io]` line per second in which something happened. `ioTrace` (`DRAKAN_FRAME_AUDIT` >= 2) adds a `[ft]
+    // R` line per resource batch.
+    std::atomic<uint64_t> ioBatches{0}, ioQueueNanos{0}, ioLatencyNanos{0}, ioServiceNanos{0}, ioLatencySkips{0};
+    std::atomic<uint64_t> ioFileCalls{0}, ioFileNanos{0}; // File Command calls, served on the calling guest thread
+    bool ioTrace = false;
+    void startIoStats() {
+        std::thread([this] {
+            struct Totals {
+                uint64_t isoReads, isoBytes, isoNanos, fileCalls, fileNanos, batches, queueNanos, latencyNanos,
+                    serviceNanos, requests, bytes, overridden, eeNanos, latencySkips;
+            };
+            auto read = [this] {
+                const hle::IsoFs::ReadStats d = fs.readStats();
+                const hle::ResourceService::Stats r = iop.res.stats();
+                return Totals{d.reads,
+                              d.bytes,
+                              d.nanos,
+                              ioFileCalls.load(),
+                              ioFileNanos.load(),
+                              ioBatches.load(),
+                              ioQueueNanos.load(),
+                              ioLatencyNanos.load(),
+                              ioServiceNanos.load(),
+                              r.requests,
+                              r.bytes,
+                              r.overridden,
+                              r.eeNanos,
+                              ioLatencySkips.load()};
+            };
+            Totals last = read();
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                const Totals now = read();
+                if (now.isoReads == last.isoReads && now.fileCalls == last.fileCalls && now.batches == last.batches)
+                    continue;
+                auto ms = [](uint64_t a, uint64_t b) { return static_cast<double>(a - b) / 1e6; };
+                std::fprintf(
+                    stderr,
+                    "[io] disc reads=%llu bytes=%llu ms=%.2f; file calls=%llu ms=%.2f; resource batches=%llu "
+                    "requests=%llu bytes=%llu overridden=%llu queue_ms=%.2f latency_ms=%.2f service_ms=%.2f "
+                    "ee_ms=%.2f latency_skips=%llu\n",
+                    static_cast<unsigned long long>(now.isoReads - last.isoReads),
+                    static_cast<unsigned long long>(now.isoBytes - last.isoBytes), ms(now.isoNanos, last.isoNanos),
+                    static_cast<unsigned long long>(now.fileCalls - last.fileCalls), ms(now.fileNanos, last.fileNanos),
+                    static_cast<unsigned long long>(now.batches - last.batches),
+                    static_cast<unsigned long long>(now.requests - last.requests),
+                    static_cast<unsigned long long>(now.bytes - last.bytes),
+                    static_cast<unsigned long long>(now.overridden - last.overridden),
+                    ms(now.queueNanos, last.queueNanos), ms(now.latencyNanos, last.latencyNanos),
+                    ms(now.serviceNanos, last.serviceNanos), ms(now.eeNanos, last.eeNanos),
+                    static_cast<unsigned long long>(now.latencySkips - last.latencySkips));
+                last = now;
+            }
+        }).detach();
     }
 };
 
@@ -821,7 +1047,9 @@ bool hleHandleRpc(PS2Runtime& runtime, uint8_t* rdram, R5900Context*, const ps2x
         g_host->startWorker();
         {
             std::lock_guard<std::mutex> lock(g_host->qm);
-            g_host->queue.push_back({request.function, std::move(send), 0u, 0u});
+            HleHost::Job job{request.function, std::move(send), 0u, 0u};
+            job.submittedCycles = runtime.eeScheduler().publishedCycles();
+            g_host->queue.push_back(std::move(job));
         }
         g_host->qcv.notify_one();
         // The real IOP server function only queues the batch (the loader thread answers later through 0x1302/0x1301),
@@ -830,8 +1058,16 @@ bool hleHandleRpc(PS2Runtime& runtime, uint8_t* rdram, R5900Context*, const ps2x
         return true;
     }
     std::vector<uint8_t> reply(std::max<uint32_t>(request.receive.size, 16u), 0);
+    const auto callStart = std::chrono::steady_clock::now();
     const int n = g_host->iop.call(request.sid, request.function, send.data(), static_cast<uint32_t>(send.size()),
                                    reply.data(), static_cast<uint32_t>(reply.size()));
+    if (request.sid == hle::SID_FILE) { // open / read / seek run here, on the guest thread that called
+        g_host->ioFileCalls.fetch_add(1, std::memory_order_relaxed);
+        g_host->ioFileNanos.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                                std::chrono::steady_clock::now() - callStart)
+                                                                .count()),
+                                      std::memory_order_relaxed);
+    }
     if (n > 0 && request.receive.address != 0 && request.receive.size != 0) {
         g_host->mem.write(request.receive.address, reply.data(),
                           std::min<size_t>({static_cast<size_t>(n), reply.size(), request.receive.size}));
@@ -1424,7 +1660,10 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_lifecycle::install(runtime);   // engine lifecycle events (PAL addresses; no-op elsewhere)
     drakan_levelchange::install(runtime); // host-triggered level change through the exit triggers (PAL)
     drakan_polyclip::install(runtime);    // near-plane clip for projected polygons (ribbons crossing the camera)
+    drakan_layer_seam::install(runtime);  // no hand-over to an outdoor layer from an interior (issue #6 cellar, PAL)
+    drakan_melee_trace::install(runtime); // DRAKAN_MELEE_TRACE: log the player's swings and contacts (diagnosis, PAL)
     drakan_foliage::install(runtime);     // living foliage: wind sway for grass and trees, off by default (PAL)
+    drakan_model_detail::install(runtime); // LOD and draw distance factors for models (PAL)
     // Arokh's flight look-ahead: objects he starts inside do not stop him (PAL; DRAKAN_DRAGON_RAY_TRACE).
     drakan_dragon_flight::install(runtime);
     if constexpr (supports(Feature::SoundDebug))
@@ -1734,6 +1973,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             drakan_settings_host::setGameChoice(setting, fromEnv, drakan_game::offerChoice(), card, refused);
         }
     }
+    {
+        // The fat male villagers' last LOD is mapped wrongly on the disc (a smear beyond 12000 units): keep their
+        // middle LOD instead (hle::CharacterLodFixOverride). DRAKAN_NPC_LOD_FIX=0 shows the disc's own LODs.
+        const char* lodFix = std::getenv("DRAKAN_NPC_LOD_FIX");
+        if (!lodFix || lodFix[0] != '0')
+            host->iop.res.addOverride(std::make_shared<hle::CharacterLodFixOverride>());
+    }
 #ifdef PS2X_HAVE_GSR
     {
         // Multiplayer: a match launched from the title menu loads its level through New Game with the level name
@@ -1939,6 +2185,10 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         host->resLatency = std::chrono::microseconds(std::atol(lat));
     if (std::getenv("DRAKAN_RES_NOFAIL"))
         host->iop.res.skipFailureCompletions = true;
+    if (const char* audit = std::getenv("DRAKAN_FRAME_AUDIT"))
+        host->ioTrace = std::atoi(audit) >= 2;
+    if (const char* stats = std::getenv("DRAKAN_IO_STATS"); stats && stats[0] && stats[0] != '0')
+        host->startIoStats();
     hle::setLogSink(logLine);
     hle::setVerbose(g_logBudget.load() > 0);
     std::fprintf(stderr, "[drakan] HLE: %zu files in '%s', language root %s, delivery %s\n", host->fs.entries().size(),

@@ -1,7 +1,9 @@
 #pragma once
 #include "gs_internal.h"
+#include "gs_mem.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <optional>
 #include <vector>
 
@@ -63,5 +65,76 @@ inline std::vector<SolidMirror> solidMirrors(const GsDrawState& s, const DrawVer
         result.push_back(*rect);
     }
     return result;
+}
+
+// ---- The mirror as both backends apply it (D3D11Backend::Impl::draw, WgpuBackend::Impl::draw) -----------------------
+// The backends keep the same bookkeeping per render target (RT: dirty rows, row stamps, world / temporal phase). The
+// decision and the memory writes below read those fields by name, so neither backend holds a copy of the rule.
+
+// GSR_RB_SOLID=0 turns the mirror off (every such draw then needs a GPU readback before the game reads it).
+inline bool solidMirrorEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("GSR_RB_SOLID");
+        return !value || value[0] != '0';
+    }();
+    return enabled;
+}
+
+// The rectangles of this draw that memory can hold instead of a later readback, or none.
+//   plainDraw   the backend drew it at the target's plain scale with no jitter and the full write mask
+//   rts         every target of the backend (smart pointers to RT); rowSpan(target, y0, y1, lo, hi) gives the VRAM
+//               blocks of its rows [y0, y1)
+// Only a clean scratch target qualifies: existing GPU-only pixels, world resolves, transformed HUD geometry and
+// in-flight uploads keep the readback. syncRT does not upload wrapped allocation rows, so the mirrored page rows must
+// lie inside memory; the allocation itself may run past the end (a target on the last page is 64 rows tall and only
+// its first page row exists, which is where the game's 4 x 4 probe at page 0x1ff is drawn and read every frame).
+template <class RT, class Targets, class RowSpan>
+std::vector<SolidMirror> planSolidMirror(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool haveTexture,
+                                         const RT& rt, bool uploadActive, bool plainDraw, const Targets& rts,
+                                         RowSpan&& rowSpan) {
+    if (!solidMirrorEnabled() || rt.dirty || uploadActive || rt.w > 128 || rt.wstate || rt.neuralState ||
+        rt.temporalEpoch || rt.surfaceSubmittedEpoch || rt.neuralOutputEpoch || !plainDraw)
+        return {};
+    std::vector<SolidMirror> mirrored = solidMirrors(s, v, count, haveTexture, rt.w, rt.h);
+    uint32_t first = ~0u, last = 0;
+    for (const auto& m : mirrored) {
+        const uint64_t endRow = (uint64_t(m.y) + m.h + rt.pageH() - 1) / rt.pageH();
+        if (uint64_t(rt.base()) + endRow * rt.fbw * 32 > kVramBlocks)
+            return {};
+        uint32_t lo, hi;
+        spanBlocks(PSM_CT32, rt.base(), rt.fbw, m.x, m.y, m.w, m.h, lo, hi);
+        first = std::min(first, lo);
+        last = std::max(last, hi);
+    }
+    if (mirrored.empty())
+        return mirrored;
+    for (const auto& other : rts) {
+        if (&*other == &rt || !other->dirty)
+            continue;
+        uint32_t lo, hi;
+        rowSpan(*other, other->dy0, std::min(other->dy1, other->h), lo, hi);
+        if (hi >= kVramBlocks || (lo <= last && hi >= first))
+            return {}; // another GPU owner must retain its normal coherence ordering
+    }
+    return mirrored;
+}
+
+// Write the planned rectangles to memory and mark the target current: its GPU pixels and memory now agree. Call
+// after the draw's own bookkeeping (writes, dirty rows).
+template <class RT>
+void applySolidMirror(LocalMemory& mem, const std::vector<SolidMirror>& mirrored, RT& rt) {
+    if (mirrored.empty())
+        return;
+    for (const auto& m : mirrored) {
+        for (uint32_t y = m.y; y < m.y + m.h; ++y)
+            for (uint32_t x = m.x; x < m.x + m.w; ++x)
+                mem.write(PSM_CT32, rt.base(), rt.fbw, x, y, m.rgba);
+        mem.touchRect(PSM_CT32, rt.base(), rt.fbw, m.x, m.y, m.w, m.h);
+        for (uint32_t row = m.y / rt.pageH();
+             row < (m.y + m.h + rt.pageH() - 1) / rt.pageH() && row < rt.rowStamp.size(); ++row)
+            rt.rowStamp[row] = mem.clock();
+    }
+    rt.seen = mem.clock();
+    rt.dirty = false;
 }
 } // namespace gsr

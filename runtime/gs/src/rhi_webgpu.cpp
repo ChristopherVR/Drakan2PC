@@ -9,6 +9,9 @@
 #include "rhi_open.h"
 
 #include <gpu/Gpu.h>
+#if defined(DRAKAN_WGPU_NATIVE)
+#include <webgpu/wgpu.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -298,10 +301,18 @@ public:
     std::string adapterName() const override {
         return context_.adapterName() + " (" + drakan::gpu::backendName(context_.backend()) + ")";
     }
-    void poll(bool wait) override { context_.poll(wait); }
+    bool lost() const override { return context_.deviceLost(); }
+    std::string lostReason() const override { return context_.lastError(); }
+    void loseForTest() override { context_.loseDeviceForTest(); }
+    void poll(bool wait) override {
+        if (!context_.deviceLost())
+            context_.poll(wait);
+    }
 
     bool hasSurface() const override { return surface_ != nullptr; }
     bool configureSurface(uint32_t w, uint32_t h, bool vsync) override {
+        if (gone())
+            return false;
         if (!surface_)
             return false;
         submit();
@@ -321,6 +332,24 @@ public:
         return i;
     }
     TexturePtr acquireSurface() override {
+#if defined(DRAKAN_WGPU_NATIVE)
+        // The next window image is only asked for once the GPU has finished the previous frame. wgpu waits for that
+        // itself inside wgpuSurfaceGetCurrentTexture, but for one second at most, and when the wait runs out (a
+        // large internal scale, compute ray tracing, a busy GPU) it gives the device up and ends the process. Waiting
+        // here has no time limit. GSR_PRESENT_WAIT=0 skips it (diagnosis).
+        static const bool presentWait = [] {
+            const char* value = std::getenv("GSR_PRESENT_WAIT");
+            return !value || value[0] != '0';
+        }();
+        if (presentWait && havePresent_ && !gone()) {
+            wgpuDevicePoll(device_, true, &presentSubmission_);
+            havePresent_ = false;
+        }
+        if (!gone())
+            context_.poll(false);
+#endif
+        if (gone())
+            return {};
         if (!surface_)
             return {};
 #if !defined(DRAKAN_WGPU_NATIVE)
@@ -347,6 +376,8 @@ public:
 #endif
     }
     void present() override {
+        if (gone())
+            return;
         if (!surface_)
             return;
 #if !defined(DRAKAN_WGPU_NATIVE)
@@ -360,6 +391,10 @@ public:
 #endif
         flush();
         surface_->present();
+#if defined(DRAKAN_WGPU_NATIVE)
+        presentSubmission_ = lastSubmission_; // the last work that wrote this frame's window image
+        havePresent_ = haveSubmission_;
+#endif
     }
     bool dualSourceBlending() const override { return context_.dualSourceBlending(); }
     uint32_t maxTextureSize() const override { return context_.limits().maxTextureDimension2D; }
@@ -377,6 +412,8 @@ public:
 #endif
 
     TexturePtr createTexture(const TextureDesc& in) override {
+        if (gone())
+            return {};
         TextureDesc d = in;
         d.width = std::max(1u, d.width);
         d.height = std::max(1u, d.height);
@@ -411,6 +448,8 @@ public:
     }
 
     ProgramPtr createProgram(const ProgramDesc& in, std::string* error) override {
+        if (gone())
+            return {};
         if (in.textureSlots > kMaxTextureSlots) {
             if (error)
                 *error = "RHI program exceeds the eight sampled-texture binding slots";
@@ -499,6 +538,8 @@ public:
     }
 
     BufferPtr createBuffer(uint64_t bytes, const char* label) override {
+        if (gone())
+            return {};
         bytes = std::max<uint64_t>(16, (bytes + 15) & ~15ull);
         auto desc = WGPU_BUFFER_DESCRIPTOR_INIT;
         desc.size = bytes;
@@ -511,6 +552,8 @@ public:
     }
 
     void writeBuffer(Buffer& buffer, uint64_t offset, const void* data, uint64_t bytes) override {
+        if (gone())
+            return;
         bytes &= ~3ull;
         if (!bytes || !data || offset + bytes > buffer.size())
             return;
@@ -543,6 +586,8 @@ public:
 
     void writeTexture(Texture& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t w, uint32_t h, const void* data,
                       uint32_t rowBytes) override {
+        if (gone())
+            return;
         if (!w || !h || !data)
             return;
         auto& t = static_cast<WTexture&>(texture);
@@ -595,6 +640,8 @@ public:
 
     void copyTexture(Texture& source, uint32_t sourceMip, uint32_t sx, uint32_t sy, Texture& dest, uint32_t destMip,
                      uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) override {
+        if (gone())
+            return;
         if (!w || !h)
             return;
         endPass();
@@ -611,6 +658,8 @@ public:
     }
 
     void clearColor(Texture& target, const float rgba[4]) override {
+        if (gone())
+            return;
         endPass();
         auto attachment = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
         attachment.view = static_cast<WTexture&>(target).view(0, 1);
@@ -626,6 +675,8 @@ public:
     }
 
     void clearDepth(Texture& target, float depth) override {
+        if (gone())
+            return;
         endPass();
         auto attachment = WGPU_RENDER_PASS_DEPTH_STENCIL_ATTACHMENT_INIT;
         attachment.view = static_cast<WTexture&>(target).view(0, 1);
@@ -641,6 +692,8 @@ public:
 
     bool readTexture(Texture& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                      std::vector<uint8_t>& out) override {
+        if (gone())
+            return false;
         struct Result {
             std::atomic<bool> done{false};
             bool ok = false;
@@ -659,6 +712,8 @@ public:
     }
     void readTextureAsync(Texture& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                           ReadCallback done) override {
+        if (gone())
+            return done(false, {});
         submit();
         const uint32_t bpp = texelBytes(texture.desc().format);
         if (texture.desc().format != Format::Depth32F)
@@ -706,6 +761,8 @@ public:
         uniformOffsets_[slot] = uint32_t(at);
     }
     void setTexture(uint32_t slot, Texture* texture, uint32_t mip, uint32_t mipCount) override {
+        if (gone())
+            return;
         if (slot >= kMaxTextureSlots)
             return;
         auto* t = static_cast<WTexture*>(texture);
@@ -714,6 +771,8 @@ public:
     }
 
     void draw(const void* vertices, uint32_t count) override {
+        if (gone())
+            return;
         if (!program_ || !count || !program_->desc.vertexStride)
             return;
         const uint64_t bytes = uint64_t(count) * program_->desc.vertexStride;
@@ -732,6 +791,8 @@ public:
     }
 
     void drawNoInput(uint32_t count) override {
+        if (gone())
+            return;
         if (!program_ || !count || !prepare())
             return;
         wgpuRenderPassEncoderDraw(pass_, count, 1, 0, 0);
@@ -746,6 +807,8 @@ public:
         bufferSizes_[slot] = b ? b->size() : 0;
     }
     void setStorageTexture(uint32_t slot, Texture* texture) override {
+        if (gone())
+            return;
         if (slot >= kMaxStorageTextureSlots)
             return;
         auto* t = static_cast<WTexture*>(texture);
@@ -753,6 +816,8 @@ public:
         storageKeys_[slot] = t ? t->viewKey(0, 1) : 0;
     }
     void dispatch(uint32_t x, uint32_t y, uint32_t z) override {
+        if (gone())
+            return;
         if (!program_ || !program_->compute || !x || !y || !z)
             return;
         WGPUBindGroup group = bindGroup();
@@ -781,6 +846,8 @@ public:
     }
 
     bool beginDispatchTiming() override {
+        if (gone())
+            return false;
         if (timing_ || timingBusy_ || !context_.timestampQuery())
             return false;
         if (!timingQueries_) {
@@ -802,6 +869,8 @@ public:
         return true;
     }
     void endDispatchTiming(std::function<void(std::vector<double>&&)> done) override {
+        if (gone())
+            return;
         if (!timing_)
             return;
         timing_ = false;
@@ -841,6 +910,8 @@ public:
     }
 
     void flush() override {
+        if (gone())
+            return;
         submit();
         // Bind groups reference views of textures the caller may now free; drop them at frame boundaries.
         if (bindGroups_.size() > 4096)
@@ -902,6 +973,9 @@ struct U { origin: vec4u }
         return scratch;
     }
 
+    // The device is lost: no call may reach it any more. Also lets a pending loss be reported (the device-lost
+    // callback runs from a poll), so it is found before the next call rather than inside it.
+    bool gone() const { return context_.deviceLost(); }
     WGPUCommandEncoder encoder() {
         if (!encoder_)
             encoder_ = wgpuDeviceCreateCommandEncoder(device_, nullptr);
@@ -915,16 +989,26 @@ struct U { origin: vec4u }
         }
     }
     void submit() {
+        if (gone())
+            return;
         endPass();
         uniforms_.upload(queue_);
         vertices_.upload(queue_);
         uploads_.upload(queue_);
         if (encoder_) {
             WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder_, nullptr);
+#if defined(DRAKAN_WGPU_NATIVE)
+            lastSubmission_ = wgpuQueueSubmitForIndex(queue_, 1, &commands);
+            haveSubmission_ = true;
+#else
             wgpuQueueSubmit(queue_, 1, &commands);
+#endif
             wgpuCommandBufferRelease(commands);
             wgpuCommandEncoderRelease(encoder_);
             encoder_ = nullptr;
+#if defined(DRAKAN_WGPU_NATIVE)
+            context_.poll(false); // a loss this submit ran into is reported now, not inside the next call
+#endif
         }
     }
     void clearBindGroups() {
@@ -1148,6 +1232,10 @@ struct U { origin: vec4u }
         return true;
     }
 
+#if defined(DRAKAN_WGPU_NATIVE)
+    WGPUSubmissionIndex lastSubmission_ = 0, presentSubmission_ = 0;
+    bool haveSubmission_ = false, havePresent_ = false;
+#endif
     std::unique_ptr<drakan::gpu::Context> ownedContext_; // devices from open()
     TexturePtr backBuffer_;                              // browser: the frame before it is copied to the canvas
     std::unique_ptr<drakan::gpu::Surface> surface_;

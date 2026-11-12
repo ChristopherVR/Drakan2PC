@@ -585,6 +585,11 @@ struct V {
 @fragment fn fs(i: V) -> @location(0) vec4f {
     let s = textureSampleLevel(Src, SmpLin, i.uv, 0.0);
     if (r.mode.x == 1u) { return r.color; }
+    if (r.mode.x == 2u) {
+        // Exact replication (render-target refresh): color.xy = the source rectangle's size in texels at the origin
+        // of Src; every target pixel takes the texel it lies in, all four channels unchanged.
+        return textureLoad(Src, vec2i(floor(i.uv * r.color.xy)), 0);
+    }
     return vec4f(s.rgb, r.color.w);
 }
 )WGSL";

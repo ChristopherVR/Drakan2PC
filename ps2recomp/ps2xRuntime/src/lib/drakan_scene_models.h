@@ -13,23 +13,39 @@
 #include <unordered_set>
 #include <functional>
 #include <string>
+#include <cstdlib>
+#include <vector>
 
 namespace drakan_scene_models {
 inline bool enabled = false;
 inline std::set<uint32_t> live;
 inline std::unordered_map<uint32_t, uint64_t> generations;
 inline uint64_t nextGeneration = 0;
+// Bumped with every change of `live` / `generations`: Capture walks a flat copy of both and rebuilds it when this (or
+// the size of `live`) differs. Code that edits the two containers directly must bump it as well.
+inline uint64_t liveEpoch = 0;
 inline void constructed(uint32_t p) {
     if (enabled) {
         p &= 0x1fffffffu;
         live.insert(p);
         generations[p] = ++nextGeneration;
+        ++liveEpoch;
     }
 }
 inline void destroyed(uint32_t p) {
     p &= 0x1fffffffu;
     live.erase(p);
     generations.erase(p);
+    ++liveEpoch;
+}
+// DRAKAN_SCENE_CAPTURE_FAST=0 keeps the per-capture work of the first implementation (every source array hashed in
+// full, the live set walked as a tree, untextured triangles recounted) for comparisons; see Capture::fast.
+inline bool captureFastDefault() {
+    static const bool on = [] {
+        const char* value = std::getenv("DRAKAN_SCENE_CAPTURE_FAST");
+        return !(value && value[0] == '0');
+    }();
+    return on;
 }
 struct Reader {
     const uint8_t* ram;
@@ -117,7 +133,12 @@ inline uint64_t hashBytes(uint64_t h, const void* p, size_t n) {
 // Resource addresses/IDs can be reused before the next level poll. Validate the pose-independent source once per
 // resource/LOD per capture: rebuilding strips/maps is expensive, hashing their owned metadata is not. Animated
 // position bytes are deliberately excluded so ordinary poses continue to use the indexed template fast path.
-inline uint64_t meshContentSignature(const Reader& r, uint32_t m, uint32_t slot, bool staticPositions = false) {
+// `sampling` 0 hashes every byte. N > 0 is the cheap form Capture uses between full checks: all metadata (types,
+// counts, pointers, LOD and part tables, the material library) in full, but of each large array (positions, faces, UVs,
+// strip orders and strip UVs) only its first and last 64 bytes and every Nth 64-byte block. A model streamed in over
+// another at the same address changes nearly every block; a single edited value is found by the next full check.
+inline uint64_t meshContentSignature(const Reader& r, uint32_t m, uint32_t slot, bool staticPositions = false,
+                                     unsigned sampling = 0) {
     if (!r.span(m, 0xc8))
         return 0;
     uint64_t hash = 14695981039346656037ull;
@@ -128,6 +149,24 @@ inline uint64_t meshContentSignature(const Reader& r, uint32_t m, uint32_t slot,
         hash = hashBytes(hash, &valid, sizeof(valid));
         if (valid)
             hash = hashBytes(hash, r.ram + address, size_t(bytes));
+    };
+    auto bulk = [&](uint64_t address, uint64_t bytes) {
+        if (!sampling || bytes <= 512) {
+            range(address, bytes);
+            return;
+        }
+        const bool valid = address <= UINT32_MAX && r.span(uint32_t(address), bytes);
+        hash = hashBytes(hash, &address, sizeof(address));
+        hash = hashBytes(hash, &bytes, sizeof(bytes));
+        hash = hashBytes(hash, &valid, sizeof(valid));
+        if (!valid)
+            return;
+        const uint8_t* p = r.ram + address;
+        hash = hashBytes(hash, p, 64);
+        hash = hashBytes(hash, p + bytes - 64, 64);
+        const uint64_t step = 64ull * sampling;
+        for (uint64_t at = step; at + 128 <= bytes; at += step)
+            hash = hashBytes(hash, p + at, 64);
     };
     range(m + 0x18, 0x2c); // type, source counts/pointers and material library
     uint32_t nv = r.u(m + 0x1c), nf = r.u(m + 0x20), first = 0, vertexFirst = 0;
@@ -154,9 +193,9 @@ inline uint64_t meshContentSignature(const Reader& r, uint32_t m, uint32_t slot,
     if (!nv || nv > 65535 || !nf || nf > 100000)
         return 0;
     if (staticPositions)
-        range(uint64_t(r.u(m + 0x24)) + uint64_t(vertexFirst) * 12, uint64_t(nv) * 12);
-    range(uint64_t(r.u(m + 0x28)) + uint64_t(first) * 12, uint64_t(nf) * 12);
-    range(uint64_t(r.u(m + 0x30)) + uint64_t(first) * 32, uint64_t(nf) * 32);
+        bulk(uint64_t(r.u(m + 0x24)) + uint64_t(vertexFirst) * 12, uint64_t(nv) * 12);
+    bulk(uint64_t(r.u(m + 0x28)) + uint64_t(first) * 12, uint64_t(nf) * 12);
+    bulk(uint64_t(r.u(m + 0x30)) + uint64_t(first) * 32, uint64_t(nf) * 32);
     range(r.u(m + 0x38), uint64_t(r.u(m + 0x40)) * 4);
     const auto slots = r.u(m + 0xa8);
     range(m + 0xa8, 4);
@@ -173,8 +212,8 @@ inline uint64_t meshContentSignature(const Reader& r, uint32_t m, uint32_t slot,
                     if (selectors > 256 || vertices > 1048576)
                         continue;
                     range(r.u(part + 12), uint64_t(selectors) * 2);
-                    range(r.u(part + 20), vertices);
-                    range(r.u(part + 28), uint64_t(vertices) * 8);
+                    bulk(r.u(part + 20), vertices);
+                    bulk(r.u(part + 28), uint64_t(vertices) * 8);
                 }
             }
         }
@@ -421,7 +460,56 @@ class Capture {
         std::shared_ptr<const gsr::SceneModelMesh> base;
         Corners corners;
         uint64_t source = 0;
+        uint32_t untextured = 0;
     };
+    struct StaticMesh {
+        std::shared_ptr<const gsr::SceneModelMesh> mesh;
+        uint32_t untextured = 0;
+    };
+    struct LiveObject {
+        uint32_t object = 0;
+        uint64_t generation = 0;
+        // Motion-only captures: where the object stood at capture `seen` (0 = not known), as a non-deforming
+        // instance of this resource and LOD slot. Equal values in the next capture mean it can be left out.
+        uint32_t seen = 0, resource = 0, slot = 0;
+        float transform[12]{};
+        float opacity = 0;
+    };
+    // One model source (resource, LOD slot, static or posed) and how its content check is going.
+    struct SourceCheck {
+        uint64_t full = 0;    // last full meshContentSignature
+        uint64_t sampled = 0; // the sampled signature taken with it
+        uint32_t stable = 0;  // consecutive full checks that returned `full`
+    };
+    static uint32_t countUntextured(const gsr::SceneModelMesh& mesh) {
+        uint32_t count = 0;
+        for (const auto& t : mesh.triangles)
+            count += t.material == ~0u;
+        return count;
+    }
+    // Full check of a source: always until it returned the same value kStableChecks times in a row, then when the
+    // sampled signature changes and on every kFullCheckPeriod-th capture (spread by source so they do not all fall on
+    // one frame). Returns the last full signature, i.e. exactly meshContentSignature() except that a small in-place
+    // edit of a long-unchanged source array is seen up to kFullCheckPeriod - 1 captures late.
+    static constexpr uint32_t kStableChecks = 4, kFullCheckPeriod = 16, kSampling = 8;
+    uint64_t sourceSignature(const Reader& r, uint64_t sourceKey, uint32_t m, uint32_t slot, bool staticPositions) {
+        if (!fast)
+            return meshContentSignature(r, m, slot, staticPositions);
+        auto& check = sourceChecks[sourceKey];
+        const uint64_t sampled = meshContentSignature(r, m, slot, staticPositions, kSampling);
+        if (check.stable >= kStableChecks && sampled == check.sampled &&
+            (captures + uint32_t(sourceKey >> 7)) % kFullCheckPeriod != 0)
+            return check.full;
+        const uint64_t full = meshContentSignature(r, m, slot, staticPositions);
+        check.stable = full == check.full && sampled == check.sampled ? check.stable + 1 : 0;
+        check.full = full;
+        check.sampled = sampled;
+        return full;
+    }
+    std::vector<LiveObject> liveList;
+    uint64_t liveListEpoch = ~0ull;
+    std::unordered_map<uint64_t, SourceCheck> sourceChecks;
+    uint32_t captures = 0;
     BackdropTracker backdrops;
     LightSelection lights;
     uint64_t level = ~0ull;
@@ -432,7 +520,7 @@ class Capture {
     std::map<uint32_t, uint32_t> refreshIndices;
     std::vector<std::shared_ptr<const gsr::SceneModelTexture>> textures;
     std::map<uint32_t, uint32_t> textureIndices;
-    std::unordered_map<uint64_t, std::shared_ptr<const gsr::SceneModelMesh>> meshes;
+    std::unordered_map<uint64_t, StaticMesh> meshes;
     std::unordered_map<uint64_t, PosedTemplate> templates;
     // Static meshes mesh() rejected. Retried when the resident-texture refresh completes (a resource can finish loading
     // later), not on every frame: about 80 instances per capture on Surdana fail the same way every time.
@@ -737,7 +825,8 @@ class Capture {
     // positions. Any pose the template cannot represent exactly (a position out of range, a triangle the first pose
     // dropped) takes the full build, so the result is always what mesh() would produce.
     std::shared_ptr<const gsr::SceneModelMesh> posedMesh(const Reader& r, uint32_t m, uint32_t id, uint32_t positions,
-                                                         uint32_t slot, uint64_t templateKey, uint64_t source) {
+                                                         uint32_t slot, uint64_t templateKey, uint64_t source,
+                                                         uint32_t& untextured) {
         if (auto found = templates.find(templateKey); found != templates.end() && found->second.source == source) {
             const auto& t = found->second;
             if (r.span(positions, uint64_t(t.corners.vertices) * 12)) {
@@ -763,14 +852,16 @@ class Capture {
                 if (valid) {
                     out->identity = hashBytes(hashBytes(14695981039346656037ull, &id, 4), out->triangles.data(),
                                               out->triangles.size() * sizeof(gsr::SceneModelTriangle));
+                    untextured = t.untextured; // a pose changes positions only
                     return out;
                 }
             }
         }
         Corners corners;
         auto out = mesh(r, m, id, positions, slot, &corners);
+        untextured = out ? countUntextured(*out) : 0;
         if (out && !corners.positionRejected && out->triangles.size() == corners.indices.size())
-            templates[templateKey] = PosedTemplate{out, std::move(corners), source};
+            templates[templateKey] = PosedTemplate{out, std::move(corners), source, untextured};
         else
             templates.erase(templateKey);
         return out;
@@ -781,9 +872,20 @@ public:
     TextureLoader loadTexture;
     // CPU time one capture may spend on the resident-texture refresh (tests set it very large for a synchronous pass).
     std::chrono::microseconds refreshBudget{250};
+    // false = the per-capture work of the first implementation (DRAKAN_SCENE_CAPTURE_FAST=0); the snapshots are the
+    // same either way, apart from the delay documented at sourceSignature().
+    bool fast = captureFastDefault();
+    // The snapshot only feeds object motion (gsr::sceneModelsMotionOnly, set by the caller before each capture):
+    // instances that do not deform and stand where they stood in the previous capture are left out, before their
+    // source is checked or their mesh looked up; one that starts to move brings its previous transform along
+    // (SceneModelInstance::hasPreviousTransform). Needs `fast` (the flat live list carries the state).
+    bool motionOnly = false;
     void reset() {
         level = ~0ull;
         ticks = 0;
+        sourceChecks.clear();
+        liveList.clear();
+        liveListEpoch = ~0ull;
         lights.reset();
         backdrops.clear();
         meshes.clear();
@@ -796,6 +898,7 @@ public:
         refreshIndices.clear();
         live.clear();
         generations.clear();
+        ++liveEpoch;
     }
     std::shared_ptr<gsr::SceneModels> capture(const uint8_t* ram, uint32_t bytes, uint64_t scene,
                                               bool includeSkyForComparison = false) {
@@ -888,6 +991,7 @@ public:
                     live.insert(p);
                     generations[p] = ++nextGeneration;
                 }
+            ++liveEpoch;
         }
         if (textures.empty()) {
             refreshing = true;
@@ -913,7 +1017,57 @@ public:
         std::unordered_map<uint64_t, uint64_t> sourceSignatures;
         sourceSignatures.reserve(resources.size());
         backdrops.prune();
-        for (auto object : live) {
+        ++captures;
+        const bool leaveOutStill = motionOnly && fast;
+        out->motionOnly = leaveOutStill;
+        if (!fast || liveListEpoch != liveEpoch || liveList.size() != live.size()) {
+            // Objects that stay alive keep where they stood (the list is sorted by address, like `live`).
+            std::vector<LiveObject> old;
+            if (leaveOutStill)
+                old.swap(liveList);
+            liveList.clear();
+            liveList.reserve(live.size());
+            size_t cursor = 0;
+            for (auto object : live) {
+                LiveObject entry;
+                entry.object = object;
+                entry.generation = generations[object];
+                while (cursor < old.size() && old[cursor].object < object)
+                    ++cursor;
+                if (cursor < old.size() && old[cursor].object == object && old[cursor].generation == entry.generation)
+                    entry = old[cursor];
+                liveList.push_back(entry);
+            }
+            liveListEpoch = liveEpoch;
+        }
+        // Object-to-world, determinant and opacity of an instance: 0 = invalid (rejected), 1 = drawn, 2 = invisible.
+        const auto placement = [&r](uint32_t object, gsr::SceneModelInstance& instance) {
+            bool valid = true;
+            for (unsigned row = 0; row < 3; ++row) {
+                for (unsigned col = 0; col < 3; ++col) {
+                    float v = r.f(object + 0x20 + (row * 3 + col) * 4);
+                    valid &= std::isfinite(v) && std::abs(v) < 10000;
+                    instance.transform[row * 4 + col] = v;
+                }
+                float v = r.f(object + 0x14 + row * 4);
+                valid &= std::isfinite(v) && std::abs(v) < 1e8;
+                instance.transform[row * 4 + 3] = v;
+            }
+            const auto* t = instance.transform;
+            const float det = t[0] * (t[5] * t[10] - t[6] * t[9]) - t[1] * (t[4] * t[10] - t[6] * t[8]) +
+                              t[2] * (t[4] * t[9] - t[5] * t[8]);
+            instance.opacity = r.f(object + 0x114);
+            if (!valid || !std::isfinite(det) || std::abs(det) < 1e-12 || !std::isfinite(instance.opacity))
+                return 0;
+            instance.opacity = std::clamp(instance.opacity, 0.f, 1.f);
+            return instance.opacity <= 0 ? 2 : 1;
+        };
+        for (auto& state : liveList) {
+            const uint32_t object = state.object;
+            const uint64_t generation = state.generation;
+            // Whatever ends this iteration early: the object is not known to stand anywhere unless set below.
+            const uint32_t seenBefore = state.seen;
+            state.seen = 0;
             if (drakan_local_character::g_view.hiddenModel(object))
                 continue;
             if (out->instances.size() >= 16384)
@@ -974,57 +1128,66 @@ public:
                     continue;
                 }
             }
+            gsr::SceneModelInstance instance;
+            instance.object = object;
+            instance.generation = generation;
+            const int placed = placement(object, instance);
+            if (leaveOutStill && !positions && placed == 1) {
+                const bool stoodBefore =
+                    seenBefore && seenBefore + 1 == captures && state.resource == it->second && state.slot == slot;
+                const bool still = stoodBefore && state.opacity == instance.opacity &&
+                                   std::memcmp(state.transform, instance.transform, sizeof(state.transform)) == 0;
+                if (stoodBefore && !still) {
+                    instance.hasPreviousTransform = true;
+                    std::memcpy(instance.previousTransform, state.transform, sizeof(state.transform));
+                    instance.previousOpacity = state.opacity;
+                }
+                state.seen = captures;
+                state.resource = it->second;
+                state.slot = slot;
+                std::memcpy(state.transform, instance.transform, sizeof(state.transform));
+                state.opacity = instance.opacity;
+                if (still) {
+                    ++out->unchangedInstances;
+                    continue;
+                }
+            }
             uint64_t sourceKey = templateKey ? templateKey : cacheKey;
             const bool staticPositions = positions == 0;
             sourceKey = hashBytes(sourceKey, &staticPositions, sizeof(staticPositions));
             auto [source, inserted] = sourceSignatures.try_emplace(sourceKey, 0);
             if (inserted)
-                source->second = meshContentSignature(r, it->second, slot, staticPositions);
+                source->second = sourceSignature(r, sourceKey, it->second, slot, staticPositions);
             if (!source->second) {
                 ++out->rejectedInstances;
                 continue;
             }
             cacheKey = hashBytes(cacheKey, &source->second, sizeof(source->second));
             std::shared_ptr<const gsr::SceneModelMesh> geometry;
+            uint32_t untextured = 0;
             if (positions)
-                geometry = posedMesh(r, it->second, it->first, positions, slot, templateKey, source->second);
-            else if (auto found = meshes.find(cacheKey); found != meshes.end())
-                geometry = found->second;
-            else if (!missing.contains(cacheKey)) {
+                geometry =
+                    posedMesh(r, it->second, it->first, positions, slot, templateKey, source->second, untextured);
+            else if (auto found = meshes.find(cacheKey); found != meshes.end()) {
+                geometry = found->second.mesh;
+                untextured = found->second.untextured;
+            } else if (!missing.contains(cacheKey)) {
                 geometry = mesh(r, it->second, it->first, positions, slot);
-                if (geometry)
-                    meshes[cacheKey] = geometry;
-                else
+                if (geometry) {
+                    untextured = countUntextured(*geometry);
+                    meshes[cacheKey] = StaticMesh{geometry, untextured};
+                } else
                     missing.insert(cacheKey);
             }
             if (!geometry || geometry->triangles.empty()) {
                 ++out->rejectedInstances;
                 continue;
             }
-            gsr::SceneModelInstance instance;
-            instance.object = object;
-            instance.generation = generations[object];
-            bool valid = true;
-            for (unsigned row = 0; row < 3; ++row) {
-                for (unsigned col = 0; col < 3; ++col) {
-                    float v = r.f(object + 0x20 + (row * 3 + col) * 4);
-                    valid &= std::isfinite(v) && std::abs(v) < 10000;
-                    instance.transform[row * 4 + col] = v;
-                }
-                float v = r.f(object + 0x14 + row * 4);
-                valid &= std::isfinite(v) && std::abs(v) < 1e8;
-                instance.transform[row * 4 + 3] = v;
-            }
-            const auto* t = instance.transform;
-            const float det = t[0] * (t[5] * t[10] - t[6] * t[9]) - t[1] * (t[4] * t[10] - t[6] * t[8]) +
-                              t[2] * (t[4] * t[9] - t[5] * t[8]);
-            instance.opacity = r.f(object + 0x114);
-            if (!valid || !std::isfinite(det) || std::abs(det) < 1e-12 || !std::isfinite(instance.opacity)) {
+            if (placed == 0) {
                 ++out->rejectedInstances;
                 continue;
             }
-            instance.opacity = std::clamp(instance.opacity, 0.f, 1.f);
-            if (instance.opacity <= 0)
+            if (placed == 2)
                 continue;
             if (r.span(0x4dadc4, 12)) {
                 const float camera[]{r.f(0x4dadc4), r.f(0x4dadc8), r.f(0x4dadcc)};
@@ -1037,8 +1200,7 @@ public:
                 instance.mesh = uint32_t(out->meshes.size());
                 used[cacheKey] = instance.mesh;
                 out->meshes.push_back(geometry);
-                for (const auto& t : geometry->triangles)
-                    out->untexturedTriangles += t.material == ~0u;
+                out->untexturedTriangles += fast ? untextured : countUntextured(*geometry);
             }
             out->instances.push_back(instance);
         }

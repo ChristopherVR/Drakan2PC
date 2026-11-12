@@ -1,6 +1,7 @@
 // Per-draw state setup and submission (Impl::draw) and draw-level diagnostics (WebGPU backend; policy as
 // d3d11_draw.cpp).
 #include "wgpu_backend_impl.h"
+#include "gs_solid_mirror.h"
 
 #include <optional>
 
@@ -195,7 +196,11 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
     }
     const uint32_t needH = (uint32_t)std::max(1, std::min(sy1 + 1, 2048));
     RT* rt = getRT(fbp, fbw, fpsm, needH);
-    syncRT(*rt);
+    if (rt_sync::lazySyncTarget(*rt))
+        syncRows(*rt, rt_sync::drawRows((uint32_t)std::max(sy0, 0), (uint32_t)std::max(sy1, 0), rt->dirty, rt->dy0,
+                                        rt->dy1, rt->pageH(), (uint32_t)rt->rowStamp.size()));
+    else
+        syncRT(*rt);
     if (gridCapture.open && !gridCapture.rt && rt->w >= 480 && rt->h >= 320)
         gridCaptureStart(*rt); // the first display draw of a captured grid: save what it will cover
     // Native EndWorld precedes the final CPU-clipped water packet drain.
@@ -1004,6 +1009,13 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
     }
 
     st.drawCalls++;
+    // Constant-colour sprites into a clean scratch target are written to memory as well, so the game's next read of
+    // those blocks needs no GPU readback (one blocking readback per gameplay frame without it). The rule and the
+    // memory writes are gs_solid_mirror.h, shared with D3D11Backend::Impl::draw.
+    const auto mirrored = planSolidMirror(
+        s, v, count, haveTex, *rt, uploadActive,
+        dsx == scale && dsy == scale && k.h[0] == 0 && k.h[1] == 0 && writeMask == 15, rts,
+        [&](const RT& other, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) { rowSpan(other, y0, y1, lo, hi); });
     if (writeMask) {
         ++rt->writes;
         rt->drawFrame = frame;
@@ -1017,6 +1029,7 @@ void WgpuBackend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const Dr
         }
     }
     rt->copyValid = false;
+    applySolidMirror(mem, mirrored, *rt);
     if ((!rtDump.empty() && rtDump.count(di)) ||
         (rtDumpFrame >= 0 && (int64_t)frame >= rtDumpFrame && (int64_t)frame <= rtDumpFrameLast)) {
         // debug: GSR_RTDUMP=<draw>[,<draw>...] writes the scissor area of the target as rtdump_<draw>.png

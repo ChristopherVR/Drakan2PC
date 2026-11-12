@@ -8,7 +8,7 @@ bool Key::operator<(const Key& b) const {
     return std::tie(object, generation, mesh, part, pass, batch) <
            std::tie(b.object, b.generation, b.mesh, b.part, b.pass, b.batch);
 }
-void History::recycle(std::map<Key, Entry>& entries) {
+void History::recycle(Entries& entries) {
     for (auto& item : entries)
         if (pool_.size() < 4096 && item.second.vertices.capacity())
             pool_.push_back(std::move(item.second.vertices));

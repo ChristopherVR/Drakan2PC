@@ -26,6 +26,9 @@ void pump();
 // itself stays up until destroy().
 bool closeRequested();
 void requestClose(); // thread safe: ends the host loop as if the X button was pressed
+// A message the player must read (a dialog on Windows, the log elsewhere and in scripted runs). Blocks until it is
+// dismissed; safe from any thread.
+void notice(const char* utf8Title, const char* utf8Text);
 // While Windows runs its modal move / size loop the message pump does not return; this callback (window thread, ~125
 // Hz) keeps presenting. Unused elsewhere.
 void setModalTick(void (*fn)(void*), void* ctx);

@@ -24,8 +24,15 @@ struct View {
     uint32_t width = 0, height = 0;
     float projectionX = 0, projectionY = 0;
 };
+// Vertical blanks (60 per second) between two world cameras after which the temporal history is dropped. It was 6:
+// a world that takes longer than a tenth of a second, i.e. anything under 10 world frames per second, then reset the
+// upscaler's history and the object-motion history on every such frame (in a busy scene at 8 to 10 fps between a
+// tenth and two thirds of all worlds had no object motion at all), exactly where the picture needs the history most.
+// A slow frame is not a cut: menus, loading screens and level changes are caught by GuiChange / NonWorld /
+// FirstWorld, a moved camera by Jump / Turn. Half a second still drops the history after a real pause.
+inline constexpr uint64_t kResetTickGap = 30;
 inline uint32_t reasons(bool world, bool hadWorld, bool hasTicks, const View& now, const View& old, float distance2,
-                        float forwardDot) {
+                        float forwardDot, uint64_t tickGap = kResetTickGap) {
     uint32_t result = 0;
     if (!world)
         result |= NonWorld;
@@ -33,7 +40,7 @@ inline uint32_t reasons(bool world, bool hadWorld, bool hasTicks, const View& no
         result |= FirstWorld;
     if (now.gui != old.gui)
         result |= GuiChange;
-    if (hasTicks && now.tick - old.tick > 6)
+    if (hasTicks && now.tick - old.tick > tickGap)
         result |= TickGap;
     if (hasTicks && now.tick < old.tick)
         result |= BackwardsTick;

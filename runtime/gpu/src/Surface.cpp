@@ -164,6 +164,10 @@ WGPUTexture Surface::acquire() {
         wgpuTextureRelease(current_);
         current_ = nullptr;
     }
+    // Asking a lost device for an image is fatal inside wgpu-native ("Parent device is lost").
+    context_.poll(false);
+    if (context_.deviceLost())
+        return nullptr;
     auto frame = WGPU_SURFACE_TEXTURE_INIT;
     wgpuSurfaceGetCurrentTexture(surface_, &frame);
     switch (frame.status) {
@@ -185,7 +189,7 @@ WGPUTexture Surface::acquire() {
 }
 
 void Surface::present() {
-    if (!current_)
+    if (!current_ || context_.deviceLost())
         return;
 #if !defined(__EMSCRIPTEN__)
     wgpuSurfacePresent(surface_); // the browser presents when the frame's task returns

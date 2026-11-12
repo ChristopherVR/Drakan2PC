@@ -17,6 +17,10 @@
 #include "upscale_controls.h"
 #include "cpu_profile.h"
 #include "rt_upload.h"
+#include "rt_upload_runs.h"
+#include "rt_texture_source.h"
+#include "rt_sync_rows.h"
+#include "rt_local_copy.h"
 #include "temporal_presentation.h"
 #include "runtime_flags.h"
 #include "rhi.h"
@@ -193,6 +197,9 @@ struct RT {
     uint64_t drawFrame = 0;
     uint32_t dy0 = 0, dy1 = 0;
     std::vector<uint64_t> rowStamp;
+    std::vector<uint8_t> rowFromMemory; // see the D3D11 RT: 1 = row filled from memory, 0 = holds read-back draws
+    // A row-range refresh (syncRows) left rows outside its range unchecked: `seen` must not short-cut the next scan.
+    bool partialSync = false;
     uint64_t seen = 0;
     uint64_t lastUse = 0;
     bool copyValid = false;
@@ -242,6 +249,9 @@ public:
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
+    bool deviceLost(std::string* reason = nullptr) const override;
+    bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
+                   uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) override;
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
                            uint32_t h) override;
     void completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
@@ -536,6 +546,12 @@ struct WgpuBackend::Impl {
     rhi::Texture* nativeGather(RT& rt, uint32_t rows, uint32_t y0);
     void readbackRT(RT& rt);
     void syncRT(RT& rt);
+    void syncRows(RT& rt, rt_sync::Rows rows);
+    bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
+                   uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h);
+    void uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
+    std::vector<uint32_t> uploadPixels, scaledUploadPixels; // uploadTargetRect scratch
+    rhi::TexturePtr uploadStage; // native pixels of a refreshed rectangle before the GPU replicates them
     void flushToMemory(uint32_t first, uint32_t last);
     void flushForRead(uint32_t first, uint32_t last, const VramRect* rect = nullptr);
     bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;
@@ -574,6 +590,7 @@ struct WgpuBackend::Impl {
         uint32_t factor = 1;
     };
     RT* findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox, float& oy);
+    std::pair<uint32_t, uint32_t> rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const;
     bool resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint = false);
     uint64_t rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const;
 

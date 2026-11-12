@@ -47,6 +47,10 @@ struct Config {
     // The GS backend: Auto = WebGPU when the build has it (every platform), else Direct3D 11 (Windows builds have
     // both).
     enum class Api : uint8_t { Auto, D3D11, WebGpu } api = Api::Auto;
+    // The graphics API under the WebGPU backend (wgpu-native; ignored by Direct3D 11 and in the browser). Auto takes
+    // Vulkan first, then Direct3D 12 on Windows or OpenGL on Linux. A named API that cannot start falls back to Auto
+    // with a log line; Renderer::adapterName() ends in the API that is really in use, e.g. "(Vulkan)".
+    enum class GpuApi : uint8_t { Auto, Vulkan, D3D12, OpenGL } gpuApi = GpuApi::Auto;
     std::function<void(const TextureEvent&)> onTexture;
     std::function<void(const UploadEvent&)> onUpload;
     std::function<void(const ClutEvent&)> onClut;
@@ -115,6 +119,17 @@ struct Config {
     uint32_t upscalePreset =
         0; // 0 = SDK default for the mode, 10..13 = render preset J K L M. Env GSR_UPSCALE_PRESET=auto|j|k|l|m
     float upscaleSharpness = 0.0f;   // optional post sharpen of the upscaled 3D image, 0..1
+    // ---- terrain detail (drakan.ini [video]; runtime/gs/src/terrain_detail.h). Off = the picture without it. ----
+    bool terrainDetail = false; // terrain_detail: world-space detail and large-scale breakup on terrain layers. Env
+                                // GSR_TERRAIN_DETAIL=0|1
+    bool terrainCliffs = false; // terrain_cliffs: steep terrain faces sample their texture from the side. Env
+                                // GSR_TERRAIN_CLIFFS=0|1
+    float terrainDetailStrength = 1.0f; // terrain_detail_strength: 0..2. Env GSR_TERRAIN_STRENGTH
+    // ---- material detail (drakan.ini [video]; runtime/gs/src/material_detail.h). 0 = the picture without it. ----
+    uint32_t materialDetail = 0; // material_detail: 0 off, 1 hard surfaces (terrain, stone, wood, metal, generic),
+                                 // 2 all classes. Needs <textureDir>/materials. Env GSR_MATERIAL_DETAIL=off|hard|all
+    float materialDetailStrength = 1.0f; // material_detail_strength: 0..2. Env GSR_MATERIAL_STRENGTH
+    float materialSpecular = 0.0f;       // material_specular: 0..1 highlight from the light. Env GSR_MATERIAL_SPECULAR
     bool textureUpscaleSync = false; // true: wait for upscale / replacement jobs inside the draw (deterministic
                                      // screenshots, replays); default: asynchronous worker threads, the native texture
                                      // is used until the result is ready. Env GSR_TEXUP_SYNC=1
@@ -144,6 +159,9 @@ struct Stats {
     uint64_t texPalettePlanes = 0, texPaletteHd = 0;
     uint64_t movieFrames = 0;   // HD movie frames drawn over native ones (Renderer::noteMovieFrame)
     uint64_t texMipClamped = 0; // texture resolves whose TEX1.MXL asked for more levels than the size has (cut)
+    // Bytes of pixel data the CPU sent to render targets to refresh them from GS memory (row refreshes and uploads
+    // applied to a target), after any CPU side replication to the internal scale (Direct3D 11).
+    uint64_t targetRefreshBytes = 0;
 };
 
 // Result of Renderer::captureDisplay()
@@ -258,6 +276,11 @@ public:
     void setTextureReplace(
         bool on); // HD texture replacement on/off; (re)scans Config::textureDir. Flushes the texture caches
     void setTextureDump(bool on);
+    // Terrain detail (Config::terrainDetail, terrainCliffs, terrainDetailStrength); takes effect with the next frame.
+    void setTerrainDetail(bool detail, bool cliffs, float strength);
+    // Material detail (Config::materialDetail, materialDetailStrength, materialSpecular). A mode change decodes the
+    // textures again (their material maps are loaded or dropped); strength changes take effect with the next frame.
+    void setMaterialDetail(uint32_t mode, float strength, float specular);
     void rescanTextures(); // re-read the texture folder (new pack files / exclude.txt) and flush the caches
     // Internal resolution multiplier 1..8. All render targets are flushed to GS local memory and re-created at the new
     // size on demand (their content survives at the old resolution's detail, upscaled); depth buffers and the in-flight
@@ -315,6 +338,9 @@ public:
                            bool rayGlobalIllumination = false);
     bool waterRenderingRequested() const;
     bool sceneModelsRequested() const;
+    // The requested snapshot only feeds object motion: the capture may leave out instances that stand still
+    // (scene_models.h, sceneModelsMotionOnly).
+    bool sceneModelsMotionOnly() const;
     bool waterRenderingAvailable(std::string& status) const;
     std::string waterRenderingStatus() const;
     std::string rayTracingStatus() const;
@@ -357,6 +383,9 @@ public:
     const Stats& stats() const;
     std::string adapterName() const;
     Config::Api api() const; // the renderer actually in use (never Auto)
+    // The renderer lost its graphics device (driver reset or time-out, out of video memory, adapter removed) and
+    // draws nothing more; *reason gets the driver's text. The host should tell the player and end the session.
+    bool deviceLost(std::string* reason = nullptr) const;
     bool valid() const;
 
     struct Impl;

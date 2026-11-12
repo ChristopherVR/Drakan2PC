@@ -91,6 +91,12 @@ struct RuntimeFlags {
     std::optional<uint32_t> texUpFactor; // GSR_TEXUP: auto=0 off=1 else atoi; overrides Config::textureUpscale
     std::optional<uint32_t> texUpFilter; // GSR_TEXUP_FILTER: xbrz=1 smooth=2 else 0 (texup::Algo values)
     std::optional<uint32_t> aniso;       // GSR_ANISO: atoi
+    // terrain detail (terrain_detail.h)
+    std::optional<bool> terrainDetail, terrainCliffs; // GSR_TERRAIN_DETAIL / GSR_TERRAIN_CLIFFS: first character '1'
+    std::optional<float> terrainStrength;             // GSR_TERRAIN_STRENGTH: atof
+    uint32_t terrainDebug = 0;                        // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
+    bool terrainAudit = false;                        // GSR_TERRAIN_AUDIT: log what the classification matched
+    bool terrainGpuTiming = false;                    // GSR_TERRAIN_GPU_TIMING: GPU time of the terrain layer draws
     struct MipBias {
         bool automatic = false; // value was "auto" (case-insensitive)
         float value = 0.0f;     // atof otherwise

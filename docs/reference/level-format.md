@@ -204,6 +204,20 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
   alone 91 %); its upper byte is 0 on every disc vertex [disc, 2026-11-02].
 * **`visible` [disc]**: every layer lists itself (483 of 483 in LEVEL1NA, first in 175); 90 % of links are symmetric. An
   appended layer that did not list itself hung the game when the player came near it [game, 2026-11-02].
+  At run time the list is also the search set of the **cell lookup** `0x14b6b8` (x, y, z, world `0x4dc110`, old layer,
+  flags): an actor's layer index (actor `+0x7c`) is refiled by `0x1496a0` with the lookup from its old layer at its
+  bounding-sphere centre (`+0xe8`), and the view layer `0x4dade4` (whose `visible` list the terrain draw `0x152330`
+  walks) is updated every frame by `0x112488` at a point 32 units behind the camera. Only listed layers can be entered;
+  when none holds the point the result is -1, and the next refile "from no layer" (`0x1499c8` for actors, the next
+  `0x112488` call for the view, whose old layer is the view struct `0x4dad58 +0x8c`; `0x1435c8` sets it to -1 once per
+  level load, from `0x218700`) searches all layers. For the player the update `0x321258` handles an actor at -1 itself:
+  it puts her at the position saved at the end of the last frame (player `+0xbe4`) minus a step from `0x325d30` and
+  files her again (`0x1499c8` from `0x321548`); a large step moves her 1000 units and more in one frame. Inside an
+  interior the search from -1 can return the outdoor layer above it, which does not list the interior back: Rynn is
+  moved outdoors or the view keeps drawing the outdoor world from below. This is the Surdana cellar fault of issue #6; the port refuses that hand-over for the controlled actor and the
+  view (`drakan_layer_seam.h`, [journal](../journal/2026-11-12/issue6-cellar-glitch.md)) [game, 2026-11-12]. A level
+  should list every layer an actor can walk into, and walls should not let the sphere centre or the camera reach past
+  the layer they bound.
 * **Inline blob [?]**: each definition is followed by a variable-length blob (92 bytes for a flat 3x4 layer, 7 KB for 21x47)
   that starts `{u16 seq, u16 0x18, u32 0x40}` (the 0x0c in section 9 is not what the layers show; 0x18 was seen on every layer
   checked), then header words (w, h, texture-ref count and list, w+1, h+1, count), per-vertex byte arrays and, in most
@@ -312,7 +326,12 @@ All records of a model share its SRSC id.
 
 * **0x0200 [disc]**: `string name, u32 shading, u32 0, [f32 distance if shading & 0x20000], u32 count, count x {u16 id, u16 db}`.
   The texture list lives here (PC has a separate 0x0206); the float (49000.0, 20000.0, 140000.0 seen) is probably a fade/cull
-  distance **[?]**. `db` 0 = the model container's own TXD, else an index into its `.DB`.
+  distance **[?]**. `db` 0 = the model container's own TXD, else an index into its `.DB`. One list serves every LOD: the
+  0x0204 texture index and the 0x0211 batch texture of every LOD list index this same list. Low-detail sheets of a
+  character are extra entries at its end (FattyChick: indices 3, 4 = 0x1986, 0x1987, used only by LODs 1 and 2; northman4,
+  NicholsTheBold, ConcubineNew2/3/Bride, Guard2/3 the same), never a separate per-LOD list. **[game]** The resident model
+  keeps one texture library (`model+0x38`, count `+0x40`) and each prepared LOD slot's strip parts index it (BigBrownGuy,
+  2026-11-12 RAM dump: library 0x5187e, 0x51884, 0x51885; slot 2 part material 2 = 0x51885).
 * **0x0203 [disc]**: `u16 n, f32 xyz[n], then n x {i8 nx, i8 ny, i8 nz, 0x7f}`: positions are plain `vect3f` (12 bytes) and the
   "16-byte vertex" of earlier notes is a separate 4-byte-per-vertex array after them. The trailer decodes as unit normals
   (|v| about 127) **[inf]**.
@@ -362,8 +381,10 @@ All records of a model share its SRSC id.
   the strips reproduce the 0x0204 triangle set exactly on every model without a tail section (about 1500 models in LEVEL1ON,
   WORLDCON, RESOURES, SYSTEM). Strip orientation is per strip, 62 % opposite to the 0x0204 winding, 38 % equal (the engine does not
   seem to care). Skinned models: every vertex exists once, groups are joint clusters, one batch loads several groups packed from
-  slot 0. Not understood: a tail section after the last batch (second LOD on the two-LOD Rynn/armour models, 24 large models in
-  all), the leading word 2 on them, 0x0214. Encoder: `editor/packages/formats/src/ootfdisplaylist.ts`; notes
+  slot 0. The leading word is the number of lists, one per LOD of the 0x0208 table: each further list repeats the layout from
+  `u32 V, u32 0` on, with group starts relative to that LOD's first vertex (2026-11-10: the 49 multi-LOD models of NPCS.MOD
+  decode to the last byte this way; on the two checked, BigBrownGuy and MediumGuy, every list gives the 0x0204 triangle count
+  of its LOD; `decodeDisplayList` still reads the first list only and reports the rest as `tail`). Not understood: the tail on large models that is not a further list, 0x0214. Encoder: `editor/packages/formats/src/ootfdisplaylist.ts`; notes
   [ootf-displaylist-decoded](../journal/2026-11-01/ootf-displaylist-decoded.md).
 * **Unit [inf]**: model space is in terrain cells (bounds of the Birch tree 3.8 x 4.9 x 3.8, a crate 0.3 x 0.2 x 0.2): multiply
   by 2048 for world units. No comparison with a live actor dump was made; the numbers are plausible against each other

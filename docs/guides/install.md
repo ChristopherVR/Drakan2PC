@@ -26,7 +26,7 @@ There are two sets of requirements. **Building** the game is a one-time job that
 | Operating system | Windows 10 or 11, 64-bit |
 | Memory | **8 GB** recommended. The game itself uses about 1 GB at the title screen and about 3 GB in a level with HD textures and ray tracing on |
 | CPU | A 64-bit CPU with **4 or more cores** recommended; the game keeps two to three cores busy |
-| Graphics | A GPU with **Vulkan or Direct3D 12** drivers for the default WebGPU renderer. A Direct3D 11 GPU can use the **Direct3D 11** renderer instead (PC Settings > Display > Renderer). Optional effects: DLSS needs an NVIDIA RTX GPU; hardware ray tracing needs a DirectX Raytracing GPU and the Direct3D 11 renderer; ray tracing on the WebGPU renderer runs on any GPU but costs much more frame rate |
+| Graphics | A GPU with **Vulkan or Direct3D 12** drivers for the default WebGPU renderer. A Direct3D 11 GPU can use the **Direct3D 11** renderer instead (PC Settings > Display > Renderer). The same list has **Vulkan**, which keeps the WebGPU renderer on Vulkan instead of letting it choose. Optional effects: DLSS needs an NVIDIA RTX GPU; hardware ray tracing needs a DirectX Raytracing GPU and the Direct3D 11 renderer; ray tracing on the WebGPU renderer runs on any GPU but costs much more frame rate |
 | Disk space | About 0.5 GB for the play folder, plus about 1.2 GB if you generate HD textures; the ISO must stay where it is |
 
 Measured on an RTX 5080 PC (29–30 October 2026); slower hardware will run the optional effects at a lower frame rate.

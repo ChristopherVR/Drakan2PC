@@ -41,6 +41,10 @@ void pump() {
 bool closeRequested() {
     return drakanWebStopRequested();
 }
+void notice(const char* utf8Title, const char* utf8Text) {
+    std::fprintf(stderr, "[notice] %s: %s\n", utf8Title, utf8Text);
+}
+
 void requestClose() {
     drakan_web_stop();
 }

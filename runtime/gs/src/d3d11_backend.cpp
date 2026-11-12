@@ -19,6 +19,10 @@ D3D11Backend::~D3D11Backend() {
                          m_impl->texPeakBytes / 1048576.0, m_impl->texBudget / 1048576.0,
                          (unsigned long long)m_impl->st.texVolatile, (unsigned long long)m_impl->st.texPalettePlanes,
                          (unsigned long long)m_impl->st.texPaletteHd);
+        if (m_impl->upLog || std::getenv("GSR_MATERIAL_LOG"))
+            std::fprintf(stderr, "[material] exit: mode %u, %llu material maps loaded (%.1f MB), %llu draws shaded\n",
+                         (unsigned)m_impl->materialMode, (unsigned long long)m_impl->materialGpu.texturesLoaded,
+                         m_impl->materialGpu.bytes / 1048576.0, (unsigned long long)m_impl->materialGpu.draws);
         m_impl->joinPrewarm(); // its shader objects and ray device use the device
         m_impl->tp.reset();    // release feature + NGX before context/device teardown
         m_impl->combinedSr.reset();
@@ -37,7 +41,26 @@ std::string D3D11Backend::adapterName() const {
     return m_impl->adapter;
 }
 void D3D11Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
+    m_impl->pendingMotionBase = v;
+    m_impl->pendingMotionCount = count;
     m_impl->draw(st, clut, v, count);
+    // Notes the draw did not walk (no temporal world, a skipped or split draw): the scope still advances.
+    if (m_impl->pendingMotionNotes)
+        for (uint32_t i = 0; i < m_impl->pendingMotionNoteCount; ++i)
+            m_impl->applyObjectMotion(m_impl->pendingMotionNotes[i].scope);
+    m_impl->pendingMotionNotes = nullptr;
+    m_impl->pendingMotionNoteCount = 0;
+}
+bool D3D11Backend::deferObjectMotion() const {
+    static const bool enabled = [] {
+        const char* value = std::getenv("GSR_MOTION_BATCH");
+        return !value || value[0] != '0';
+    }();
+    return enabled;
+}
+void D3D11Backend::setMotionNotes(const motion::Note* notes, uint32_t count) {
+    m_impl->pendingMotionNotes = count ? notes : nullptr;
+    m_impl->pendingMotionNoteCount = count;
 }
 void D3D11Backend::flushToMemory(uint32_t a, uint32_t b) {
     m_impl->flushToMemory(a, b);
@@ -236,14 +259,17 @@ void D3D11Backend::noteSceneCamera(const SceneGuideCamera& camera) {
                      camera.viewportOffset[2]);
 }
 void D3D11Backend::noteObjectMotion(const ObjectMotionScope& scope) {
+    m_impl->applyObjectMotion(scope);
+}
+void D3D11Backend::Impl::applyObjectMotion(const ObjectMotionScope& scope) {
     if (scope.flags & ObjectMotionScope::Begin) {
-        ++m_impl->motionPackets;
+        ++motionPackets;
         const uint32_t need = ObjectMotionScope::Valid | ObjectMotionScope::TopologyStable;
         const uint32_t bad = ObjectMotionScope::Reset | ObjectMotionScope::Clipped | ObjectMotionScope::Ambiguous |
                              ObjectMotionScope::Rejected;
-        m_impl->motionEligiblePackets += (scope.flags & need) == need && !(scope.flags & bad);
+        motionEligiblePackets += (scope.flags & need) == need && !(scope.flags & bad);
     }
-    m_impl->objectScope = (scope.flags & ObjectMotionScope::End) ? ObjectMotionScope{} : scope;
+    objectScope = (scope.flags & ObjectMotionScope::End) ? ObjectMotionScope{} : scope;
 }
 std::string D3D11Backend::upscaleStatus() const {
     return m_impl->upStatusText;

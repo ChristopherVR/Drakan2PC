@@ -26,11 +26,11 @@ Windows APIs or dependencies were added to portable runtime code. See
 | --- | --- | --- | --- |
 | Build | MSVC, `game` preset | Clang, `linux-game` preset | Pinned Emscripten, `web-game` preset |
 | Window / presentation | Win32 window (`drakan_window.cpp`) | GLFW window without a client API (`drakan_window_glfw.cpp`, raylib's GLFW, X11) | The page's canvas (`drakan_window_web.cpp`), owned by the renderer's GPU pthread as an OffscreenCanvas |
-| GS rendering | Shared WebGPU renderer (default; Vulkan, D3D12 fallback; portable temporal AA, compute ray tracing) or D3D11 with the optional NVIDIA features and DXR (PC Settings > Display > Renderer) | Shared WebGPU renderer (wgpu-native: Vulkan, GL fallback); software GS with `renderer = sw` | Shared WebGPU renderer (the browser's WebGPU, through the threaded `rhi` proxy); WebGPU required |
+| GS rendering | Shared WebGPU renderer (default; Vulkan, D3D12 fallback; portable temporal AA, compute ray tracing), the same renderer held to Vulkan (`renderer = vulkan`), or D3D11 with the optional NVIDIA features and DXR (PC Settings > Display > Renderer) | Shared WebGPU renderer (wgpu-native: Vulkan, GL fallback; `renderer = vulkan` holds it to Vulkan); software GS with `renderer = sw` | Shared WebGPU renderer (the browser's WebGPU, through the threaded `rhi` proxy); WebGPU required |
 | Audio | WASAPI | ALSA; PulseAudio plugin fallback when provided by WSLg | Shared PCM ring and AudioWorklet |
 | Controls | Input module (`runtime/input`): Raw Input / XInput host | The same input module: GLFW host (`drakan_input_glfw.cpp`: keys, raw mouse motion, GLFW gamepads) | The same input module: DOM host (`drakan_input_web.cpp`: keys, pointer lock, Gamepad API) |
 | ISO | Random reads from disk | Random reads from disk | Bounded range requests to the local launcher |
-| Cards | Existing native card paths / launch overrides | `mc0` beside the deployed executable | `/persist/mc0` in IndexedDB |
+| Cards | `mc0` beside the deployed executable (`drakan_card_root.h`; `DRAKAN_MEMCARD_DIR` overrides) | `mc0` beside the deployed executable | `/persist/mc0` in IndexedDB |
 | Configuration location | Executable directory | `/proc/self/exe`, with launch-directory fallback | Virtual filesystem; `/persist/drakan.ini` |
 | Modern title / pause / save / PC Settings | `SettingsOverlay` (Win32 platform; D3D11 or WebGPU renderer) | The same `SettingsOverlay` (GLFW platform, WebGPU renderer) | The same `SettingsOverlay` (event-fed platform, WebGPU renderer) |
 

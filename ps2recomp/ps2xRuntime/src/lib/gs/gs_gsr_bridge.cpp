@@ -20,6 +20,8 @@
 #include "gs_gsr_batch.h"
 
 #include <gsr/gsr.h>
+#include <gsr/renderer_choice.h>
+#include <gsr/renderer_session.h>
 #include <gsr/scene_guide_camera.h>
 #include <gsr/object_motion_scope.h>
 #include <gsr/scene_geometry.h>
@@ -133,7 +135,19 @@ constexpr size_t kStageFlushBytes = 256u << 10;
 
 } // namespace
 
+// The record of how renderer sessions end (gsr/renderer_session.h): beside the log, so a test run's record never
+// meets the player's.
+static std::string rendererSessionPath() {
+    const char* logDir = std::getenv("DRAKAN_LOG_DIR");
+    std::string dir = logDir && *logDir ? std::string(logDir) : drakan_cfg::exeDir();
+    if (!dir.empty() && dir.back() != '/' && dir.back() != '\\')
+        dir += '/';
+    return dir + "renderer_session.txt";
+}
+
 struct GsrBridge::Impl {
+    gsr::session::Record session; // this session's record (rendererSessionPath)
+    bool deviceLostHandled = false;
     void* parent = nullptr; // the top-level game window (drakan_window): the swapchain lives directly on it
     GSRegisters* priv = nullptr;
     std::unique_ptr<gsr::Renderer> gs;
@@ -671,6 +685,11 @@ void GsrBridge::Impl::waitForHandoff(uint64_t serial, bool nativeCompletion) {
 GsrBridge::GsrBridge() : m_impl(new Impl) {}
 
 GsrBridge::~GsrBridge() {
+    if (m_impl && m_impl->gs && !m_impl->deviceLostHandled) { // an orderly end of the renderer session
+        m_impl->session.end = gsr::session::End::Clean;
+        m_impl->session.abnormalInRow = 0;
+        gsr::session::save(rendererSessionPath(), m_impl->session);
+    }
     if (m_impl) {
         {
             std::lock_guard<std::mutex> lock(m_impl->qmtx);
@@ -816,6 +835,18 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
                                  ? drakan_cfg::getBool("video", "hd_textures", nullptr, true)
                                  : drakan_cfg::getBool("video", "texture_replace", nullptr, true);
         cfg.textureDump = drakan_cfg::getBool("video", "texture_dump", nullptr, false);
+        cfg.terrainDetail = drakan_cfg::getBool("video", "terrain_detail", nullptr, true);
+        cfg.terrainCliffs = drakan_cfg::getBool("video", "terrain_cliffs", nullptr, false);
+        cfg.terrainDetailStrength =
+            (float)std::clamp(drakan_cfg::getFloat("video", "terrain_detail_strength", nullptr, 1.0), 0.0, 2.0);
+        {
+            const std::string mode = drakan_cfg::getString("video", "material_detail", nullptr, "off");
+            cfg.materialDetail = mode == "all" || mode == "2" ? 2u : mode == "hard" || mode == "1" ? 1u : 0u;
+            cfg.materialDetailStrength =
+                (float)std::clamp(drakan_cfg::getFloat("video", "material_detail_strength", nullptr, 1.0), 0.0, 2.0);
+            cfg.materialSpecular =
+                (float)std::clamp(drakan_cfg::getFloat("video", "material_specular", nullptr, 0.0), 0.0, 1.0);
+        }
         std::string td = drakan_cfg::getString("video", "texture_dir", nullptr, "textures");
         if (td.empty())
             td = "textures";
@@ -825,9 +856,33 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         cfg.textureBudgetMB =
             (uint32_t)std::max(0, drakan_cfg::getInt("video", "texture_budget_mb", nullptr, 0)); // 0 = auto
     }
-    { // [video] renderer: d3d11 picks the Direct3D 11 backend (Windows builds have both); anything else is WebGPU
+    { // [video] renderer: d3d11 picks the Direct3D 11 backend (Windows builds have both); anything else is WebGPU,
+        // on the named graphics API (vulkan, d3d12, opengl) or on its automatic choice
         const std::string api = drakan_cfg::getString("video", "renderer", "PS2X_GS", "webgpu");
-        cfg.api = compareNoCase(api.c_str(), "d3d11") == 0 ? gsr::Config::Api::D3D11 : gsr::Config::Api::WebGpu;
+        const gsr::RendererChoice choice = gsr::parseRendererChoice(api);
+        if (!choice.known)
+            std::fprintf(stderr, "[gsr] unknown renderer '%s': using the default (webgpu)\n", api.c_str());
+        cfg.api = choice.api;
+        cfg.gpuApi = choice.gpuApi;
+        if (choice.gpuApi != gsr::Config::GpuApi::Auto)
+            std::fprintf(stderr, "[gsr] renderer '%s': the WebGPU renderer is asked for %s\n", api.c_str(),
+                         gsr::gpuApiName(choice.gpuApi));
+    }
+    { // How the previous session ended may move this start to another renderer once (gsr/renderer_session.h).
+        const bool haveD3D11 = gsr::backendAvailable(gsr::Config::Api::D3D11);
+        // drakan.1.log is the previous session's log (drakan_log.cpp rotates it at start), beside the record.
+        const std::string sessionPath = rendererSessionPath();
+        const std::string previousLog = gsr::session::tail(
+            sessionPath.substr(0, sessionPath.size() - sizeof("renderer_session.txt") + 1) + "drakan.1.log");
+        const gsr::session::Record previous = gsr::session::interpret(gsr::session::load(sessionPath), previousLog);
+        const gsr::session::Decision start = gsr::session::decide(previous, cfg.api, haveD3D11);
+        if (!start.notice.empty()) {
+            std::fprintf(stderr, "[gsr] %s\n", start.notice.c_str());
+            drakan_win::notice("Drakan: renderer", start.notice.c_str());
+        }
+        cfg.api = start.api;
+        s.session = gsr::session::begin(previous, cfg.api);
+        gsr::session::save(rendererSessionPath(), s.session);
     }
     drakan_dlss::configure(cfg); // [video] dlss / dlss_preset / dlss_sharpness
     cfg.allowWarp = true;
@@ -1333,6 +1388,25 @@ bool GsrBridge::isFullscreen() const {
 void GsrBridge::hostTick() {
     drakan_runtime_profile::profile().report();
     Impl& s = *m_impl;
+    // A lost graphics device cannot be drawn with again: record it, tell the player and end the session in order
+    // (the next start reads the record). The renderer already ignores every call.
+    if (!s.deviceLostHandled && s.gs) {
+        std::string reason;
+        if (s.gs->deviceLost(&reason)) {
+            s.deviceLostHandled = true;
+            s.session.end = gsr::session::End::DeviceLost;
+            s.session.reason = reason;
+            gsr::session::save(rendererSessionPath(), s.session);
+            std::fprintf(stderr, "[gsr] the graphics device was lost (%s): ending the session\n", reason.c_str());
+            const std::string text =
+                "The graphics device was lost (" + (reason.empty() ? std::string("no reason given") : reason) +
+                "). This is a driver reset, a time-out or exhausted video memory.\n\nThe game will close now. The "
+                "next start uses Direct3D 11 once where it is available; lowering the "
+                "internal resolution or switching ray tracing off makes this less likely.";
+            drakan_win::notice("Drakan: graphics device lost", text.c_str());
+            drakan_win::requestClose();
+        }
+    }
     drakan_ws::hostTick(); // wide / 4:3 decision -> presenter aspect + HUD de-stretch
     drakan_dlss::hostTick();
     drakan_pause::hostTick(s.parent); // window focus / overlay -> pause gate for the guest and the SPU2 output

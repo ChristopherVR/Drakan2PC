@@ -1,6 +1,9 @@
 // Render-target and depth-buffer management, blend/depth state caches, readback to GS memory.
 #include "d3d11_backend_impl.h"
 
+#include <array>
+#include <map>
+
 namespace gsr {
 
 namespace {
@@ -23,6 +26,28 @@ void traceReadback(const char* kind, uint64_t frame, const RT& rt, uint32_t firs
                      rt.wstate, first, last, static_cast<unsigned long long>(rt.writes),
                      static_cast<unsigned long long>(rt.cleanWrites), rt.cleanWords.size());
     }
+}
+// GSR_RT_REFRESH_STATS: at exit, how often each target was refreshed from memory, by rectangle size and path.
+void noteRefresh(const RT& rt, uint32_t width, uint32_t height, bool gpu, size_t bytes) {
+    static const bool enabled = std::getenv("GSR_RT_REFRESH_STATS") != nullptr;
+    if (!enabled)
+        return;
+    struct Table {
+        struct Row {
+            uint64_t count = 0, bytes = 0;
+        };
+        std::map<std::array<uint32_t, 5>, Row> rows;
+        ~Table() {
+            for (const auto& [key, row] : rows)
+                std::fprintf(stderr, "[rt-refresh] fbp=%x fbw=%u rect=%ux%u path=%s count=%llu MiB=%.1f\n", key[0],
+                             key[1], key[2], key[3], key[4] ? "gpu" : "cpu", (unsigned long long)row.count,
+                             row.bytes / 1048576.0);
+        }
+    };
+    static Table table;
+    auto& row = table.rows[{rt.fbp, rt.fbw, width, height, gpu ? 1u : 0u}];
+    ++row.count;
+    row.bytes += bytes;
 }
 } // namespace
 
@@ -51,6 +76,7 @@ void D3D11Backend::Impl::allocRT(RT& rt, uint32_t newH) {
     const uint32_t oldRows = (uint32_t)rt.rowStamp.size();
     rt.h = newH;
     rt.rowStamp.resize(newH / rt.pageH(), 0);
+    rt.rowFromMemory.resize(rt.rowStamp.size(), 1);
     (void)oldRows;
     rt.seen = 0; // force a stamp scan for the new rows
 }
@@ -206,7 +232,7 @@ void D3D11Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
     dev->CreateTexture2D(&d, nullptr, &staging);
 }
 
-void D3D11Backend::Impl::prefetchReadback(RT& rt) {
+void D3D11Backend::Impl::prefetchReadback(RT& rt, bool stale) {
     static const bool enabled = [] {
         const char* value = std::getenv("GSR_RB_PREFETCH");
         return !value || value[0] != '0';
@@ -214,11 +240,16 @@ void D3D11Backend::Impl::prefetchReadback(RT& rt) {
     // Learn from actual reads. Copy small scratch targets immediately after
     // their draws, before later unrelated GPU work can get ahead of the read.
     // World/effects targets have writes outside draw(), so never predict them.
-    if (!enabled || rt.readbackFrame == ~0ull || frame > rt.readbackFrame + 2 || !rt.dirty || rt.wstate ||
-        rt.neuralState || rt.temporalEpoch || rt.surfaceSubmittedEpoch || rt.neuralOutputEpoch)
+    // stale: a scratch target the game stopped drawing into (endFrame). The next upload into its memory reads it
+    // back (beginTargetUpload no longer patches a stale target), usually many frames later: with the copy made now
+    // that readback maps a finished copy instead of waiting for everything the GPU still has queued.
+    const bool predicted = stale || (rt.readbackFrame != ~0ull && frame <= rt.readbackFrame + 2);
+    if (!enabled || !predicted || !rt.dirty || rt.wstate || rt.neuralState || rt.temporalEpoch ||
+        rt.surfaceSubmittedEpoch || rt.neuralOutputEpoch)
         return;
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
-    if (y1 <= y0 || uint64_t(rt.w) * (y1 - y0) > 16384)
+    // One copy per stale event may be larger (a 256 x 256 light or shadow target) than one after every draw.
+    if (y1 <= y0 || uint64_t(rt.w) * (y1 - y0) > (stale ? 65536u : 16384u))
         return;
     ID3D11Texture2D* compact = scale > 1 && nativeReadbackEnabled
                                    ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, y1 - y0, scale, y0)
@@ -248,7 +279,7 @@ void D3D11Backend::Impl::prefetchReadback(RT& rt) {
     copy.y1 = y1;
     copy.readScale = readScale;
     copy.renderScale = scale;
-    traceReadback("prefetch", frame, rt);
+    traceReadback(stale ? "prefetch-stale" : "prefetch", frame, rt);
 }
 
 void D3D11Backend::Impl::readbackRT(RT& rt) {
@@ -269,10 +300,10 @@ void D3D11Backend::Impl::readbackRT(RT& rt) {
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
     const uint32_t rows = y1 - y0;
     rt.readbackFrame = frame;
-    traceReadback("readback", frame, rt);
     auto& copy = rt.readbackCopy;
     const bool prefetched =
         copy.texture && copy.writes == rt.writes && copy.y0 == y0 && copy.y1 == y1 && copy.renderScale == scale;
+    traceReadback(prefetched ? "readback-prefetched" : "readback", frame, rt);
     ID3D11Texture2D* compact = !prefetched && scale > 1 && nativeReadbackEnabled
                                    ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, rows, scale, y0)
                                    : nullptr;
@@ -320,8 +351,10 @@ void D3D11Backend::Impl::readbackRT(RT& rt) {
     }
     mem.touchRect(rt.psm, rt.base(), rt.fbw, 0, y0, rt.w, rows);
     const uint32_t ph = rt.pageH();
-    for (uint32_t r = y0 / ph; r < (y1 + ph - 1) / ph && r < rt.rowStamp.size(); ++r)
+    for (uint32_t r = y0 / ph; r < (y1 + ph - 1) / ph && r < rt.rowStamp.size(); ++r) {
         rt.rowStamp[r] = mem.clock();
+        rt.rowFromMemory[r] = 0; // these rows keep the draws that were just read back
+    }
     rt.seen = mem.clock();
     rt.dirty = false;
     st.rtReadbacks++;
@@ -340,6 +373,22 @@ void D3D11Backend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32
                     unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x + col, y + row));
     const uint32_t* pixels = uploadPixels.data();
     const size_t scaledCount = count * scale * scale;
+    // Above scale 1 the GPU replicates the pixels (rt_upload_d3d11.h); tiny rectangles are not worth a compute pass.
+    if (rt_upload::gpuReplication(scale, scaledCount)) { // the rule is shared (rt_upload_runs.h)
+        bool done = true;
+        for (uint32_t band = 0; band < height && done; band += TargetUploadGpu::kBandRows) {
+            const uint32_t rows = std::min(TargetUploadGpu::kBandRows, height - band);
+            done = targetUploadGpu.upload(dev.Get(), ctx.Get(), rt.tex.Get(), pixels + size_t(band) * width, x,
+                                          y + band, width, rows, scale);
+        }
+        if (done) {
+            cpuProfile.uploaded(count * sizeof(uint32_t));
+            st.targetRefreshBytes += count * sizeof(uint32_t);
+            noteRefresh(rt, width, height, true, count * sizeof(uint32_t));
+            return;
+        }
+        // a failed band wrote nothing: the CPU path below rewrites the whole rectangle
+    }
     if (scale > 1) {
         if (scaledUploadPixels.size() < scaledCount)
             scaledUploadPixels.resize(scaledCount);
@@ -350,15 +399,30 @@ void D3D11Backend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32
     D3D11_BOX box{x * scale, y * scale, 0, (x + width) * scale, (y + height) * scale, 1};
     ctx->UpdateSubresource(rt.tex.Get(), 0, &box, pixels, width * scale * 4, 0);
     cpuProfile.uploaded(scaledCount * sizeof(uint32_t));
+    st.targetRefreshBytes += scaledCount * sizeof(uint32_t);
+    noteRefresh(rt, width, height, false, scaledCount * sizeof(uint32_t));
+}
+
+// True for the game's small scratch targets (shadows, distant characters, HUD liquid): never shown, never part of a
+// world pass. Only their uses may refresh a row range (syncRows); every other target is always refreshed whole.
+bool D3D11Backend::Impl::lazySyncTarget(const RT& rt) const {
+    return rt_sync::lazySyncTarget(rt); // the rule is shared with the WebGPU backend (rt_sync_rows.h)
 }
 
 void D3D11Backend::Impl::syncRT(RT& rt) {
+    syncRows(rt, {0, (uint32_t)rt.rowStamp.size()});
+}
+
+// Refresh the page rows [rows.first, rows.end) the CPU wrote since the target last had them. Rows outside keep their
+// stamp (rt.partialSync), so the stamp scan of a later call still finds them stale.
+void D3D11Backend::Impl::syncRows(RT& rt, rt_sync::Rows rows) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::SyncRT);
-    if (rt.seen == mem.clock())
+    const bool whole = rows.first == 0 && rows.end >= rt.rowStamp.size();
+    if (rt.seen == mem.clock() && !rt.partialSync)
         return;
     const uint32_t ph = rt.pageH();
     const uint32_t pagesPerRow = rt.fbw;
-    for (uint32_t r = 0; r < rt.rowStamp.size(); ++r) {
+    for (uint32_t r = rows.first; r < rows.end && r < rt.rowStamp.size(); ++r) {
         const uint32_t lo = rt.base() + r * pagesPerRow * 32u;
         if (lo >= kVramBlocks)
             break;
@@ -368,6 +432,7 @@ void D3D11Backend::Impl::syncRT(RT& rt) {
         const uint32_t rows = y1 - y0;
         uploadTargetRect(rt, 0, y0, rt.w, rows);
         rt.rowStamp[r] = mem.clock();
+        rt.rowFromMemory[r] = 1;
         rt.copyValid = false;
         // A CPU row refresh establishes equality, unlike a draw. Keep prior
         // known-equal blocks in other rows instead of discarding that proof
@@ -384,7 +449,11 @@ void D3D11Backend::Impl::syncRT(RT& rt) {
         ++rt.writes;
         st.rtUploads++;
     }
-    rt.seen = mem.clock();
+    if (whole) {
+        rt.seen = mem.clock();
+        rt.partialSync = false;
+    } else
+        rt.partialSync = true;
 }
 
 void D3D11Backend::Impl::flushToMemory(uint32_t first, uint32_t last) {
@@ -497,58 +566,20 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
 // memory range (it would need the memory the copy no longer writes), and neither target is mid temporal world pass.
 bool D3D11Backend::Impl::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
                                    uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
-    static const bool enabled = [] {
-        const char* e = std::getenv("GSR_GPU_COPY"); // 0 = copy through memory as before
-        return !(e && e[0] == '0');
-    }();
-    if (!enabled || !readbackSkipEnabled() || spsm != PSM_CT32 || dpsm != PSM_CT32 || sx || sy || dx || dy || !w || !h)
+    // The decision and the bookkeeping are shared with the WebGPU backend (rt_local_copy.h).
+    const auto planned = rt_copy::plan(
+        rts, spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h,
+        [&](const RT& t, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) { rowSpan(t, y0, y1, lo, hi); });
+    if (!planned)
         return false;
-    RT *src = nullptr, *dst = nullptr;
-    for (auto& r : rts) {
-        if (r->psm != PSM_CT32 || r->w != w || !r->tex)
-            continue;
-        if (r->base() == sbp && r->fbw == sbw)
-            src = r.get();
-        if (r->base() == dbp && r->fbw == dbw)
-            dst = r.get();
-    }
-    if (!src || !dst || src == dst || h > src->h || h > dst->h || src->wstate == 1 || dst->wstate == 1)
-        return false;
-    uint32_t slo, shi, dlo, dhi;
-    spanBlocks(PSM_CT32, sbp, sbw, 0, 0, w, h, slo, shi);
-    spanBlocks(PSM_CT32, dbp, dbw, 0, 0, w, h, dlo, dhi);
-    if (!(shi < dlo || dhi < slo))
-        return false; // the ranges overlap each other
-    for (auto& r : rts) {
-        if (r.get() == src || r.get() == dst)
-            continue;
-        uint32_t lo, hi;
-        rowSpan(*r, 0, r->h, lo, hi);
-        if (!(hi < slo || lo > shi) || !(hi < dlo || lo > dhi))
-            return false; // another target aliases the memory involved
-    }
+    RT *src = planned.src, *dst = planned.dst;
+    const uint32_t slo = planned.sourceFirst, shi = planned.sourceLast;
     syncRT(*src); // rows of the source the CPU wrote since the target was last current
     if (h < dst->h)
         syncRT(*dst); // rows below the copy stay as they are
     D3D11_BOX box{0, 0, 0, w * scale, h * scale, 1};
     ctx->CopySubresourceRegion(dst->tex.Get(), 0, 0, 0, 0, src->tex.Get(), 0, &box);
-    // Memory is not written (the GPU owns the destination); the stamps still move so anything decoded from those
-    // blocks is rebuilt, and the destination's rows count as current so syncRT does not push stale memory over them.
-    mem.touchRect(PSM_CT32, dbp, dbw, 0, 0, w, h);
-    const uint32_t ph = dst->pageH();
-    for (uint32_t r = 0; r * ph < h && r < dst->rowStamp.size(); ++r)
-        dst->rowStamp[r] = mem.clock();
-    if (!dst->dirty) {
-        dst->dirty = true;
-        dst->dy0 = 0;
-        dst->dy1 = h;
-    } else {
-        dst->dy0 = 0;
-        dst->dy1 = std::max(dst->dy1, h);
-    }
-    dst->copyValid = false;
-    dst->drawFrame = frame;
-    ++dst->writes;
+    rt_copy::finish(mem, *dst, dbp, dbw, w, h, frame);
     ++st.rtGpuCopies;
     static const bool verify = std::getenv("GSR_RB_VERIFY") != nullptr;
     if (verify) {
@@ -748,6 +779,8 @@ void D3D11Backend::Impl::completePartialUpload(bool apply, uint64_t written) {
                 if (full)
                     rt.cleanBlocks[block / 64] |= 1ull << (block % 64);
                 rt.rowStamp[by / ph] = mem.clock();
+                if (!rt_source::rowInRange(by / ph, ph, rt.dy0, std::min(rt.dy1, rt.h)))
+                    rt.rowFromMemory[by / ph] = 1; // as in completeTargetUpload
                 touched = true;
             }
         if (touched) {
@@ -819,29 +852,25 @@ void D3D11Backend::Impl::completeTargetUpload(uint32_t, uint32_t, uint32_t, uint
             rt.cleanBlocks.assign(kVramBlocks / 64, 0);
             rt.cleanWords.clear();
         }
-        for (uint32_t by = y0; by < y1; by += g.blockH)
-            for (uint32_t bx = 0; bx < rt.w;) {
-                if (!uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, bx, by))) {
-                    bx += g.blockW;
-                    continue;
-                }
-                uint32_t end = bx + g.blockW; // run of covered blocks in this block row
-                while (end < rt.w && uploadCovers(blockOf(rt.psm, rt.base(), rt.fbw, end, by)))
-                    end += g.blockW;
-                const uint32_t runW = std::min(end, rt.w) - bx, runH = std::min(by + g.blockH, rt.h) - by;
-                touched = true;
+        // The runs of covered blocks and their vertical joins are shared with the WebGPU backend (rt_upload_runs.h).
+        touched = rt_upload::uploadedRuns(
+            rt, y0, y1, apply, [&](uint32_t block) { return uploadCovers(block); },
+            [&](uint32_t bx, uint32_t by, uint32_t, uint32_t, uint32_t end) {
                 if (apply)
                     for (uint32_t cx = bx; cx < std::min(end, rt.w); cx += g.blockW) {
                         const uint32_t cb = blockOf(rt.psm, rt.base(), rt.fbw, cx, by);
                         rt.cleanBlocks[cb / 64] |= 1ull << (cb % 64);
                     }
                 // The GPU copy is (or will be) current for these rows; never refresh them from memory.
-                if (by / ph < rt.rowStamp.size())
+                if (by / ph < rt.rowStamp.size()) {
                     rt.rowStamp[by / ph] = mem.clock();
-                if (apply)
-                    uploadTargetRect(rt, bx, by, runW, runH);
-                bx = end;
-            }
+                    // A row outside the dirty range now holds the uploaded image (it may have held read back draws):
+                    // without this, a texture uploaded there was still sampled from the target's mirror of it.
+                    if (apply && !rt_source::rowInRange(by / ph, ph, rt.dy0, std::min(rt.dy1, rt.h)))
+                        rt.rowFromMemory[by / ph] = 1;
+                }
+            },
+            [&](uint32_t x, uint32_t y, uint32_t w, uint32_t h) { uploadTargetRect(rt, x, y, w, h); });
         if (touched && apply) {
             rt.copyValid = false;
             ++rt.writes;
@@ -888,6 +917,11 @@ void D3D11Backend::Impl::trimDirtyRows(RT& rt) {
         if (y1 > top)
             verifyRTBlocks(rt, 0, ~0u, y1, std::min(rt.dy1, rt.h));
     }
+    // Rows that leave the dirty range here hold the uploaded image, not draws.
+    const uint32_t ph = rt.pageH(), oldEnd = std::min(rt.dy1, rt.h);
+    for (uint32_t r = rt.dy0 / ph; r < (oldEnd + ph - 1) / ph && r < rt.rowFromMemory.size(); ++r)
+        if (y0 >= y1 || (r + 1) * ph <= y0 || r * ph >= y1)
+            rt.rowFromMemory[r] = 1;
     if (y0 >= y1) {
         rt.dirty = false;
         rt.seen = mem.clock();
@@ -1062,6 +1096,8 @@ RT* D3D11Backend::Impl::findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t ps
         // (e.g. logical1024 sampling only512) on their existing fast path.
         if (px != 0 && w > r->w - px)
             continue;
+        if (!rt_source::targetOwnsTexture(rowsFromMemory(*r, py, h), off != 0, py, h, r->h))
+            continue;
         int score = 0;
         if (off == 0)
             score = 1000;
@@ -1079,6 +1115,23 @@ RT* D3D11Backend::Impl::findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t ps
         oy = by;
     }
     return best;
+}
+
+// Page rows of the texture [py, py + h) inside the target (first = total, second = rows whose GPU copy merely mirrors
+// memory: outside the dirty range and filled from memory, or about to be because memory is newer).
+std::pair<uint32_t, uint32_t> D3D11Backend::Impl::rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const {
+    const uint32_t ph = rt.pageH(), end = std::min(py + h, rt.h);
+    const uint32_t dirtyEnd = std::min(rt.dy1, rt.h);
+    uint32_t total = 0, fromMemory = 0;
+    for (uint32_t r = py / ph; r * ph < end && r < rt.rowStamp.size(); ++r) {
+        ++total;
+        if (rt.dirty && rt_source::rowInRange(r, ph, rt.dy0, dirtyEnd))
+            continue; // drawn since the last readback: the GPU owns it
+        const uint32_t lo = rt.base() + r * rt.fbw * 32u;
+        if (rt.rowFromMemory[r] || (lo < kVramBlocks && mem.maxStamp(lo, rt.fbw * 32u) > rt.rowStamp[r]))
+            ++fromMemory;
+    }
+    return {total, fromMemory};
 }
 
 ID3D11ShaderResourceView* D3D11Backend::Impl::snapshot(RT& rt, const D3D11_BOX* box) {

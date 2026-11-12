@@ -137,10 +137,11 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
     }
     if (caps.rendererChoice)
         b.choice("video.renderer", "Renderer",
-                 "WebGPU is the shared renderer (Vulkan or Direct3D 12) with portable temporal AA and compute ray "
-                 "tracing. Direct3D 11 adds NVIDIA DLSS, DLSS ray reconstruction and hardware (DXR) ray tracing. "
-                 "Takes effect after a restart.",
-                 {{"webgpu", "WebGPU (default)"}, {"d3d11", "Direct3D 11"}}, true);
+                 "WebGPU is the shared renderer with portable temporal AA and compute ray tracing; it picks Vulkan "
+                 "when the graphics driver has it and Direct3D 12 otherwise. Vulkan is the same renderer held to "
+                 "Vulkan (it falls back to the automatic choice when Vulkan cannot start). Direct3D 11 adds NVIDIA "
+                 "DLSS, DLSS ray reconstruction and hardware (DXR) ray tracing. Takes effect after a restart.",
+                 {{"webgpu", "WebGPU (default)"}, {"vulkan", "Vulkan"}, {"d3d11", "Direct3D 11"}}, true);
     {
         const bool windowed = v.windowMode == WindowMode::Windowed;
         SettingRow& r = b.row(kKeyWindowSize, SettingKind::Choice, windowed ? "Window size" : "Output resolution",
@@ -343,6 +344,41 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
     b.toggle("video.hd_textures", "HD texture replacement",
              "Load replacement textures from the overrides folder instead of the disc textures.", true,
              caps.hdTextures);
+    b.toggle("video.terrain_detail", "Terrain detail",
+             caps.terrainDetail
+                 ? "Adds fine surface detail and large-scale variation to the ground and mountains, fixed in the "
+                   "world. Off shows the terrain exactly as before."
+                 : "Adds fine surface detail to the ground and mountains. Needs the Direct3D 11 renderer.",
+             false, caps.terrainDetail);
+    b.slider("video.terrain_detail_strength", "Terrain detail strength",
+             "How strong the added terrain detail is (1 = default).", v.terrainDetailStrength, 0.25f, 2.0f, "%.2f",
+             0.05f, caps.terrainDetail && v.terrainDetail)
+        .needs = "Needs terrain detail.";
+    b.toggle("video.terrain_cliffs", "Cliff textures",
+             caps.terrainDetail
+                 ? "Steep mountain faces take their ground texture from the side instead of from above, so it is no "
+                   "longer stretched into streaks. Patches of grass and rock on such faces then sit elsewhere than "
+                   "in the original picture. Off shows the terrain exactly as before."
+                 : "Removes the stretched textures on steep mountain faces. Needs the Direct3D 11 renderer.",
+             false, caps.terrainDetail);
+    b.choice("video.material_detail", "Material detail",
+             caps.materialDetail
+                 ? "Shades the relief inside HD textures (stones, planks, rock) from the level's light, using the "
+                   "material maps made with the HD textures. Hard surfaces: terrain, stone, wood, metal. All: also "
+                   "characters and foliage. Off shows the picture exactly as before."
+                 : "Shades the relief inside HD textures. Needs the Direct3D 11 renderer.",
+             {{"off", "Off"}, {"hard", "Hard surfaces"}, {"all", "All"}}, false, caps.materialDetail && v.hdTextures)
+        .needs = "Needs HD texture replacement and the material maps (made with the HD textures).";
+    b.slider("video.material_detail_strength", "Material detail strength",
+             "How strong the relief shading is (1 = default).", v.materialDetailStrength, 0.25f, 2.0f, "%.2f", 0.05f,
+             caps.materialDetail && v.hdTextures && v.materialDetail != "off")
+        .needs = "Needs material detail.";
+    b.slider("video.material_specular", "Material highlights",
+             "A highlight from the level's light on smooth materials (0 = none). The roughness of a material is "
+             "an estimate, so this can look glossy; off by default.",
+             v.materialSpecular, 0.0f, 1.0f, "%.2f", 0.05f,
+             caps.materialDetail && v.hdTextures && v.materialDetail != "off")
+        .needs = "Needs material detail.";
     b.toggle("video.texture_dump", "Texture dump",
              "Write every decoded texture to disk. For texture artists; costs performance.", false, caps.textureDump);
 
@@ -366,6 +402,22 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
              "opaque materials; scene and material coverage remains partial.",
              false, caps.modernWater || v.rayGlobalIllumination);
 
+    pg.sections.push_back({"Models", {}});
+    b.sec = &pg.sections.back();
+    b.slider("video.lod_distance", "Character detail distance",
+             caps.modelDetail ? "How far away characters and creatures keep their detailed model: 1 = the original "
+                                "PlayStation 2 distances (a villager is simplified from 6000 units, Rynn from 2300), "
+                                "4 = four times further. Above 1, a simplified model that changes a character's look "
+                                "(other clothes, another hair colour) is never used."
+                              : "Needs the PAL executable layout; not available for this disc.",
+             v.lodDistance, 1.0f, 8.0f, "x%.1f", 0.5f, caps.modelDetail);
+    b.slider("video.draw_distance", "Object draw distance",
+             caps.modelDetail ? "How far away people, creatures, plants and small objects are drawn before they fade "
+                                "out: 1 = the original distances, 2 = twice as far. The level's view distance still "
+                                "limits it. Costly: 1.5 is about 40 percent more geometry in a meadow."
+                              : "Needs the PAL executable layout; not available for this disc.",
+             v.drawDistance, 1.0f, 4.0f, "x%.2f", 0.25f, caps.modelDetail);
+
     pg.sections.push_back({"Vegetation", {}});
     b.sec = &pg.sections.back();
     b.toggle("video.foliage_wind", "Living foliage (experimental)",
@@ -379,7 +431,11 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
              "%.2f", 0.05f, caps.foliageWind && v.foliageWind)
         .needs = "Needs living foliage.";
 
-    pg.sections.push_back({"NVIDIA DLSS", {}});
+    // The DLSS setting drives NVIDIA DLSS only on a renderer that has it (caps.dlssNvidia: Direct3D 11). On the shared
+    // renderer (WebGPU on Vulkan / Direct3D 12 / OpenGL) the same setting switches a temporal anti-aliasing pass on, at
+    // full internal resolution: the page says so instead of offering DLSS modes that would not be DLSS.
+    const bool portableAa = caps.dlss && !caps.dlssNvidia;
+    pg.sections.push_back({portableAa ? "Anti-aliasing" : "NVIDIA DLSS", {}});
     b.sec = &pg.sections.back();
     // Neural rendering rows only appear for a renderer that reports the capability; this build has no such backend.
     if (caps.dlssNeural)
@@ -393,7 +449,28 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
             b.row("video.dlss_neural_status", SettingKind::Info, "Runtime status", caps.dlssNeuralStatus, false, true);
         r.text = caps.dlssNeuralStatus;
     }
-    {
+    if (portableAa) {
+        static const char* ids[] = {"dlaa", "quality", "balanced", "performance"};
+        static const char* names[] = {"DLAA", "Quality", "Balanced", "Performance"};
+        SettingRow& r = b.row(
+            "video.dlss", SettingKind::Choice, "Temporal anti-aliasing",
+            "This renderer has no NVIDIA DLSS. On runs a temporal anti-aliasing pass over the 3D world at full "
+            "internal "
+            "resolution: smoother edges, no upscaling and no gain in frame rate. NVIDIA DLSS Super Resolution needs "
+            "the Direct3D 11 renderer (Renderer, above); the DLSS mode chosen there is kept.",
+            false, true);
+        r.choices.push_back({"off", "Off", true});
+        bool kept = false;
+        for (int i = 1; i < 4; ++i)
+            if (v.dlss == ids[i]) { // a DLSS mode from the Direct3D 11 renderer: the same pass here, the value is kept
+                r.choices.push_back({ids[i], std::string("On (DLSS ") + names[i] + " on Direct3D 11)", true});
+                kept = true;
+            }
+        if (!kept)
+            r.choices.push_back({"dlaa", "On", true});
+        r.currentLabel = v.dlss == "off" ? "Off" : r.choices.back().label;
+        Builder::select(r);
+    } else {
         SettingRow& r = b.row("video.dlss", SettingKind::Choice, "DLSS SR (experimental)",
                               caps.dlssStatus.empty()
                                   ? "NVIDIA DLSS Super Resolution for the 3D world only (needs an RTX GPU). World/HUD "
@@ -428,16 +505,16 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                      "Super Resolution preset hint, subject to SDK/runtime support. Auto uses the SDK "
                      "default. Presets do not select DLSS 5 neural rendering.",
                      {{"auto", "Auto"}, {"j", "Preset J"}, {"k", "Preset K"}, {"l", "Preset L"}, {"m", "Preset M"}},
-                     false, caps.dlss && v.dlss != "off");
-        r.needs = "Needs DLSS SR (not Off).";
+                     false, caps.dlss && !portableAa && v.dlss != "off");
+        r.needs = portableAa ? "Needs NVIDIA DLSS (the Direct3D 11 renderer)." : "Needs DLSS SR (not Off).";
         if (r.current < 0)
             r.current = 0;
     }
     b.slider("video.dlss_sharpness", "DLSS sharpness",
              "Extra sharpening after Super Resolution and optional neural rendering, before the HUD (0 = none). "
              "Applies live without resetting temporal history.",
-             v.dlssSharpness, 0.0f, 1.0f, "%.2f", 0.05f, caps.dlss && v.dlss != "off")
-        .needs = "Needs DLSS SR (not Off).";
+             v.dlssSharpness, 0.0f, 1.0f, "%.2f", 0.05f, caps.dlss && !portableAa && v.dlss != "off")
+        .needs = portableAa ? "Needs NVIDIA DLSS (the Direct3D 11 renderer)." : "Needs DLSS SR (not Off).";
 }
 
 void audioPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& env) {

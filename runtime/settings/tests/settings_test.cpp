@@ -843,6 +843,48 @@ int main(int argc, char** argv) {
         CHECK(!next.loaded().video.foliageWind && next.loaded().video.foliageWindStrength == 0.5f);
     }
     {
+        // Terrain detail is on by default, cliff textures (a change of look) off; the strength is a float.
+        SettingsStore st;
+        st.loadFromText("", "");
+        CHECK(st.loaded().video.terrainDetail && !st.loaded().video.terrainCliffs &&
+              st.loaded().video.terrainDetailStrength == 1.0f);
+        st.loadFromText("[video]\nterrain_detail=0\nterrain_cliffs=1\nterrain_detail_strength=1.5\n", "");
+        CHECK(!st.loaded().video.terrainDetail && st.loaded().video.terrainCliffs &&
+              st.loaded().video.terrainDetailStrength == 1.5f);
+        auto n = st.loaded();
+        n.video.terrainDetail = true;
+        n.video.terrainDetailStrength = 0.5f;
+        auto keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "video.terrain_detail") != keys.end());
+        CHECK(std::find(keys.begin(), keys.end(), "video.terrain_detail_strength") != keys.end());
+        CHECK(std::find(keys.begin(), keys.end(), "video.terrain_cliffs") == keys.end());
+        std::string a, b;
+        st.render(n, a, b);
+        SettingsStore next;
+        next.loadFromText(a, b);
+        CHECK(next.loaded().video.terrainDetail && next.loaded().video.terrainCliffs &&
+              next.loaded().video.terrainDetailStrength == 0.5f);
+    }
+    {
+        // Model detail: defaults, floats round-trip through the ini, 1 is the original.
+        SettingsStore st;
+        st.loadFromText("", "");
+        CHECK(st.loaded().video.lodDistance == 4.0f && st.loaded().video.drawDistance == 1.0f);
+        st.loadFromText("[video]\nlod_distance=1\ndraw_distance=2.5\n", "");
+        CHECK(st.loaded().video.lodDistance == 1.0f && st.loaded().video.drawDistance == 2.5f);
+        auto n = st.loaded();
+        n.video.lodDistance = 8.0f;
+        n.video.drawDistance = 1.5f;
+        auto keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "video.lod_distance") != keys.end());
+        CHECK(std::find(keys.begin(), keys.end(), "video.draw_distance") != keys.end());
+        std::string a, b;
+        st.render(n, a, b);
+        SettingsStore next;
+        next.loadFromText(a, b);
+        CHECK(next.loaded().video.lodDistance == 8.0f && next.loaded().video.drawDistance == 1.5f);
+    }
+    {
         // Polygon near-plane clip: on by default, round-trips through the ini.
         SettingsStore st;
         st.loadFromText("", "");

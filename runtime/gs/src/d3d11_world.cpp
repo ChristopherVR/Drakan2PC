@@ -12,7 +12,7 @@ bool D3D11Backend::Impl::enterWorld(RT& rt, DepthBuf& db, uint32_t zbp, float zm
     }
     if (!camCur.haveVP || !camCur.haveSO)
         return false;
-    rt.wgeom = tp->geometry(fw, fh, scale, upMode);
+    rt.wgeom = worldGeometry(fw, fh);
     for (auto& other : rts)
         if (other.get() != &rt)
             finalizeWorld(*other);
@@ -167,7 +167,7 @@ void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, ui
         shader_compile::Timed timed("temporal pipeline");
         tp = std::make_unique<TemporalPipeline>(dev.Get(), ctx.Get());
     }
-    const auto geometry = tp->geometry(rt.wgeom.frameW, rt.wgeom.frameH, scale, upMode);
+    const auto geometry = worldGeometry(rt.wgeom.frameW, rt.wgeom.frameH);
     const sr_combined::Config config{
         {geometry.renderW, geometry.renderH}, {geometry.outW, geometry.outH}, upMode, upPreset};
     if (!combinedSr->configure(config)) {
@@ -237,6 +237,21 @@ void D3D11Backend::Impl::restoreTemporalAlpha(RT& rt, ID3D11ShaderResourceView* 
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
+// Geometry of a world frame under the upscaler. GSR_UPSCALE_VIEW_RENDER=1 (experimental, off by default) sizes the
+// render rectangle against the screen pixels the frame covers instead of the scaled target (upscale_render_size.h).
+TemporalPipeline::Geom D3D11Backend::Impl::worldGeometry(uint32_t fw, uint32_t fh) const {
+    static const bool viewRule = [] {
+        const char* value = std::getenv("GSR_UPSCALE_VIEW_RENDER");
+        return value && value[0] == '1';
+    }();
+    uint32_t viewW = 0, viewH = 0;
+    if (viewRule && vpW && vpH && latchedW && latchedH) {
+        viewW = (uint32_t)((uint64_t)vpW * std::min(fw, latchedW) / latchedW);
+        viewH = (uint32_t)((uint64_t)vpH * std::min(fh, latchedH) / latchedH);
+    }
+    return tp->geometry(fw, fh, scale, upMode, viewW, viewH);
+}
+
 bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
                                              float sx, float sy) {
     const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;
@@ -271,29 +286,52 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         ctx->ClearRenderTargetView(rt.motionRtv.Get(), clear);
         return false;
     };
-    motion::Key key{objectScope.objectId, objectScope.generation, objectScope.meshId,
-                    objectScope.partId,   objectScope.passKey,    0};
-    key.batch = motionOrdinals[key]++;
-    const uint32_t required = ObjectMotionScope::Valid | ObjectMotionScope::TopologyStable;
-    const uint32_t rejected = ObjectMotionScope::Reset | ObjectMotionScope::Clipped | ObjectMotionScope::Ambiguous |
-                              ObjectMotionScope::Rejected;
-    const bool known = (objectScope.flags & required) == required && !(objectScope.flags & rejected);
-    motionScopedBatches += known;
-    motionVertices.resize(count);
-    for (uint32_t i = 0; i < count; ++i) {
-        const auto& v = vertices[i];
-        const float iq = (s.flags & DF_FST) ? 1.0f : (v.q != 0 ? 1.0f / v.q : 0);
-        motionVertices[i] = {v.x, v.y, v.z, v.s * iq, v.t * iq};
-    }
-    uint64_t topology = objectScope.topologyHash;
-    for (uint64_t value : {uint64_t(count), s.tex0, s.alpha, uint64_t(s.flags), s.test})
-        topology = (topology ^ value) * 1099511628211ull;
-    const auto result = motionHistory.track(key, topology, motionVertices.data(), count, sx, sy, known, motionPrevious);
-    if (result.matched) {
-        ++motionMatchedBatches;
-        motionMatchedVertices += count;
+    // One history entry per run of vertices under one scope: the whole batch, or the segments between the scope
+    // notes that arrived while the batch was open (motion_segments.h). A segment is tracked exactly as the separate
+    // draw it used to be.
+    const auto trackSegment = [&](uint32_t first, uint32_t n, std::vector<motion::Previous>& output) {
+        motion::Key key{objectScope.objectId, objectScope.generation, objectScope.meshId,
+                        objectScope.partId,   objectScope.passKey,    0};
+        key.batch = motionOrdinals[key]++;
+        const uint32_t required = ObjectMotionScope::Valid | ObjectMotionScope::TopologyStable;
+        const uint32_t rejected = ObjectMotionScope::Reset | ObjectMotionScope::Clipped | ObjectMotionScope::Ambiguous |
+                                  ObjectMotionScope::Rejected;
+        const bool known = (objectScope.flags & required) == required && !(objectScope.flags & rejected);
+        motionScopedBatches += known;
+        if (!known || !key.object || !key.mesh) {
+            // History::track refuses these before it looks at a vertex: no previous position, nothing stored.
+            output.assign(n, {});
+            ++motionRejectedBatches;
+            return;
+        }
+        motionVertices.resize(n);
+        for (uint32_t i = 0; i < n; ++i) {
+            const auto& v = vertices[first + i];
+            const float iq = (s.flags & DF_FST) ? 1.0f : (v.q != 0 ? 1.0f / v.q : 0);
+            motionVertices[i] = {v.x, v.y, v.z, v.s * iq, v.t * iq};
+        }
+        uint64_t topology = objectScope.topologyHash;
+        for (uint64_t value : {uint64_t(n), s.tex0, s.alpha, uint64_t(s.flags), s.test})
+            topology = (topology ^ value) * 1099511628211ull;
+        const auto result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known, output);
+        if (result.matched) {
+            ++motionMatchedBatches;
+            motionMatchedVertices += n;
+        } else
+            ++motionRejectedBatches;
+    };
+    if (pendingMotionNotes && vertices == pendingMotionBase && count == pendingMotionCount) {
+        motionPrevious.clear();
+        motion::forEachSegment(
+            pendingMotionNotes, pendingMotionNoteCount, count,
+            [&](const ObjectMotionScope& scope) { applyObjectMotion(scope); },
+            [&](uint32_t first, uint32_t n) {
+                trackSegment(first, n, motionSegmentPrevious);
+                motionPrevious.insert(motionPrevious.end(), motionSegmentPrevious.begin(), motionSegmentPrevious.end());
+            });
+        pendingMotionNotes = nullptr; // consumed
     } else
-        ++motionRejectedBatches;
+        trackSegment(0, count, motionPrevious);
     const uint32_t bytes = count * sizeof(motion::Previous);
     // Ring buffer like the draw vertex buffer: a DISCARD per draw blocked Map once the GPU ran a frame behind.
     if (!motionVb || bytes > motionVbCapacity / 4) {

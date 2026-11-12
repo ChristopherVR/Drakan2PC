@@ -31,11 +31,22 @@ bool WgpuBackend::valid() const {
 std::string WgpuBackend::adapterName() const {
     return m_impl->adapter;
 }
+bool WgpuBackend::deviceLost(std::string* reason) const {
+    if (!m_impl->gpu || !m_impl->gpu->lost())
+        return false;
+    if (reason)
+        *reason = m_impl->gpu->lostReason();
+    return true;
+}
 void WgpuBackend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     m_impl->draw(st, clut, v, count);
 }
 void WgpuBackend::flushToMemory(uint32_t a, uint32_t b) {
     m_impl->flushToMemory(a, b);
+}
+bool WgpuBackend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
+                            uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
+    return m_impl->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
 }
 void WgpuBackend::flushForRead(uint32_t a, uint32_t b, const VramRect* rect) {
     m_impl->flushForRead(a, b, rect);

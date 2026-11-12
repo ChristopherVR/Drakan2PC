@@ -63,10 +63,13 @@ int main() {
     updateAnchorContext(true, false, -1, hadWorld, gui);
     check(hadWorld && gui == -1, "real world establishes anchor");
     check(reset(reasons(true, false, true, now, old, 0, 1)), "mode/reset invalidation still forces first-world reset");
-    now.tick = old.tick + 6;
-    check(!reset(reasons(true, true, true, now, old, 0, 1)), "exact six-tick threshold unchanged");
     now.tick = old.tick + 7;
-    check((reasons(true, true, true, now, old, 0, 1) & TickGap) != 0, "seven-tick gap still resets");
+    check(!reset(reasons(true, true, true, now, old, 0, 1)), "a slow world frame (under 10 fps) is not a cut");
+    check((reasons(true, true, true, now, old, 0, 1, 6) & TickGap) != 0, "the former six-tick rule on request");
+    now.tick = old.tick + kResetTickGap;
+    check(!reset(reasons(true, true, true, now, old, 0, 1)), "exact half-second threshold keeps the history");
+    now.tick = old.tick + kResetTickGap + 1;
+    check((reasons(true, true, true, now, old, 0, 1) & TickGap) != 0, "a longer gap still resets");
     now.tick = old.tick - 1;
     check((reasons(true, true, true, now, old, 0, 1) & (TickGap | BackwardsTick)) == (TickGap | BackwardsTick),
           "backwards unsigned-tick behavior preserved");

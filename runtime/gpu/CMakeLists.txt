@@ -25,4 +25,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
     add_test(NAME gpu COMMAND gpu_test)
     # 77 = no adapter on this machine (headless CI without a software Vulkan driver).
     set_tests_properties(gpu PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+    # A named API without a driver fails cleanly instead of aborting in wgpu-native (see the test's header).
+    add_executable(gpu_no_backend_test tests/gpu_no_backend_test.cpp)
+    target_link_libraries(gpu_no_backend_test PRIVATE drakan_gpu drakan::options)
+    drakan_stage_webgpu(gpu_no_backend_test)
+    add_test(NAME gpu_no_backend COMMAND gpu_no_backend_test)
+    set_tests_properties(gpu_no_backend PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
 endif()

@@ -212,6 +212,21 @@ void requestClose() {
         PostMessageW(g_hwnd, WM_NULL, 0, 0); // wake a blocked pump
 }
 
+void notice(const char* utf8Title, const char* utf8Text) {
+    std::fprintf(stderr, "[notice] %s: %s\n", utf8Title, utf8Text);
+    // Test runs have nobody to press OK.
+    if (std::getenv("DRAKAN_INPUT_SCRIPT") || std::getenv("DRAKAN_NO_ACTIVATE"))
+        return;
+    const auto wide = [](const char* utf8) {
+        const int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
+        std::wstring out(n > 0 ? size_t(n) : 1u, L'\0');
+        if (n > 0)
+            MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out.data(), n);
+        return out;
+    };
+    MessageBoxW(nullptr, wide(utf8Text).c_str(), wide(utf8Title).c_str(), MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+}
+
 void setModalTick(void (*fn)(void*), void* ctx) {
     g_modalCtx = ctx;
     g_modalTick = fn;

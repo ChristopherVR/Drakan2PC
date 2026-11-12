@@ -162,6 +162,10 @@ public:
     virtual ~Device() = default;
 
     virtual std::string adapterName() const = 0;
+    // The device is lost: nothing more can be drawn and no call may reach it (see drakan::gpu::Context::deviceLost).
+    virtual bool lost() const { return false; }
+    virtual std::string lostReason() const { return {}; }
+    virtual void loseForTest() {}
     virtual bool dualSourceBlending() const = 0;
     virtual uint32_t maxTextureSize() const = 0;
     // Compute programs with this many storage buffers of this size are available (false on GL-class backends, and on

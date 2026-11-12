@@ -36,9 +36,14 @@
 #include "upscale_controls.h"
 #include "cpu_profile.h"
 #include "rt_upload.h"
+#include "rt_upload_runs.h"
 #include "rt_readback.h"
+#include "rt_texture_source.h"
+#include "rt_sync_rows.h"
+#include "rt_local_copy.h"
 #include "partial_upload.h"
 #include "partial_upload_d3d11.h"
+#include "rt_upload_d3d11.h"
 #include "temporal_presentation.h"
 #include "surface_geometry.h"
 #include "ray_pass_loader.h"
@@ -46,6 +51,8 @@
 #include "shader_compile_d3d.h"
 #include "surface_builder.h"
 #include "runtime_flags.h"
+#include "terrain_detail.h"
+#include "material_detail.h"
 #include <gsr/scene_models.h>
 #include "resident_scene.h"
 #include <gsr/scene_guide_camera.h>
@@ -91,6 +98,8 @@ enum : uint32_t {
     PF_FBA = 1u << 18,
     PF_FB16 = 1u << 19,
     PF_TEXRT = 1u << 22,
+    PF_TERRAIN = 1u << 26,      // terrain layer: world-space detail (gs_terrain.inc)
+    PF_TERRAIN_SIDE = 1u << 27, // terrain layer whose steep faces may sample the texture from the side
 };
 
 struct PSConsts {
@@ -157,6 +166,9 @@ struct UpEntry {
     uint32_t mxl = 0; // last level of the copy (upscaledMipLevelMax): the draw's LOD clamp while it is bound
     uint64_t bytes = 0;
     uint64_t lastFrame = 0;
+    // Material map of the texture (material_detail.h, packTexels), null when it has none.
+    ComPtr<ID3D11ShaderResourceView> materialSrv;
+    uint8_t materialClass = 0;
 };
 struct UpDone {
     UpKey key;
@@ -165,6 +177,19 @@ struct UpDone {
     uint64_t us = 0;
     bool replaced = false;
     uint32_t gen = 0; // upscale cache generation the job was started in; stale results are dropped
+    // The GPU texture, created by pushDone on the thread that finished the job (device calls are free-threaded):
+    // creating a 2048 pixel image with its mip chain copies about 22 MiB inside the driver, which stalled the
+    // render thread for tens of milliseconds when pumpUp did it. `levels` is emptied once the texture exists.
+    ComPtr<ID3D11Texture2D> tex;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    uint32_t levelCount = 0;
+    uint64_t bytes = 0;
+    // Material map loaded by the same job (d3d11_material.cpp): levels until pushDone made the texture.
+    std::vector<std::vector<uint32_t>> materialLevels;
+    uint32_t materialW = 0, materialH = 0;
+    uint8_t materialClass = 0;
+    ComPtr<ID3D11ShaderResourceView> materialSrv;
+    uint64_t materialBytes = 0;
 };
 
 struct TexEntry {
@@ -225,7 +250,12 @@ struct RT {
     uint64_t drawFrame = 0; // frame of the last draw into this target
     uint32_t dy0 = 0, dy1 = 0;
     std::vector<uint64_t> rowStamp;
+    // Per page row, outside the dirty range: 1 = the GPU rows were last filled from memory (never drawn, or an upload
+    // was pushed up by syncRT / trimmed clean), 0 = they hold draws that were read back. See findRTForTexture.
+    std::vector<uint8_t> rowFromMemory;
     uint64_t seen = 0;
+    // A row-range refresh (syncRows) left rows outside its range unchecked: `seen` must not short-cut the next scan.
+    bool partialSync = false;
     uint64_t lastUse = 0;
     bool copyValid = false;
     // Blocks an applied upload made identical on the GPU and in memory (completeTargetUpload), valid while rt.writes
@@ -329,6 +359,8 @@ public:
     void noteVuUpload(uint32_t vuAddr, uint32_t qwCount, const float* vuRows0to6) override;
     void noteSceneCamera(const SceneGuideCamera& camera) override;
     void noteObjectMotion(const ObjectMotionScope& scope) override;
+    bool deferObjectMotion() const override;
+    void setMotionNotes(const motion::Note* notes, uint32_t count) override;
     void noteSceneGeometry(const SceneGeometry& geometry) override;
     void noteSceneModels(std::shared_ptr<const SceneModels> models) override;
     std::string upscaleStatus() const override;
@@ -396,7 +428,7 @@ struct D3D11Backend::Impl {
         motion::Models::Scratch scratch;
         bool ready = false;
     } pendingModels;
-    std::map<motion::Key, uint32_t> motionOrdinals;
+    std::unordered_map<motion::Key, uint32_t, motion::KeyHash> motionOrdinals;
     uint64_t motionEpoch = 0, motionGuideSerial = 0, worldPhaseSerial = 0;
     RT* temporalOwner = nullptr;
     uint64_t temporalOwnerEpoch = 0;
@@ -414,7 +446,12 @@ struct D3D11Backend::Impl {
     uint64_t motionPackets = 0, motionEligiblePackets = 0, motionScopedBatches = 0;
     uint32_t motionValidationSamples = 0;
     std::vector<motion::Vertex> motionVertices;
-    std::vector<motion::Previous> motionPrevious;
+    std::vector<motion::Previous> motionPrevious, motionSegmentPrevious;
+    // Scope notes of the batch being drawn (BackendApi::setMotionNotes), null once prepareObjectMotion walked them.
+    const motion::Note* pendingMotionNotes = nullptr;
+    uint32_t pendingMotionNoteCount = 0, pendingMotionCount = 0;
+    const DrawVertex* pendingMotionBase = nullptr;
+    void applyObjectMotion(const ObjectMotionScope& scope);
     bool camPrevValid = false, upReset = true, upFault = false;
     uint32_t worldFrames = 0; // world frames resolved so far (Halton index)
     TemporalPipeline::Geom lastWorldGeom;
@@ -540,6 +577,72 @@ struct D3D11Backend::Impl {
     bool cbPSValid = false;
     uint32_t vbCapacity = 0, vbOffset = 0;
     ComPtr<ID3D11SamplerState> smpPt, smpLin;
+    // ---- terrain detail (d3d11_terrain.cpp; policy and maths in terrain_detail.h) ----
+    terrain::Settings terrainCfg;
+    struct TerrainGpu {
+        ComPtr<ID3D11Buffer> cb;
+        ComPtr<ID3D11ShaderResourceView> noise;
+        // Smooth normals of the resident height field (terrain::NormalGrid), rebuilt when the level geometry changes.
+        ComPtr<ID3D11ShaderResourceView> grid;
+        terrain::NormalGrid gridInfo; // texels released after the upload
+        uint64_t gridVersion = ~0ull;
+        ComPtr<ID3D11SamplerState> sampler;
+        bool failed = false, contentValid = false;
+        terrain::ShaderConsts content{};
+        terrain::Unproject unproject;
+        // what `unproject` was built from
+        uint64_t cameraSerial = ~0ull, xyoffset = 0;
+        float key[4]{};
+        terrain::Settings settings;
+        uint64_t draws = 0, sideDraws = 0; // classified draws since start (GSR_TERRAIN_AUDIT prints them)
+        // GSR_TERRAIN_GPU_TIMING: timestamp queries around every terrain layer draw, read a few frames later.
+        struct Timed {
+            ComPtr<ID3D11Query> begin, end, disjoint;
+            uint64_t frame = 0;
+            bool pending = false;
+        };
+        std::vector<Timed> timed;
+        size_t timedNext = 0;
+        bool timingOpen = false;
+        double timedMs = 0, timedCpuMs = 0; // GPU time of the draws, CPU time inside prepareTerrain
+        terrain::Settings timedSettings;
+        uint64_t timedDraws = 0, timedFrames = 0, timedFrame = ~0ull, timedLost = 0;
+    } terrainGpu;
+    void initTerrain();
+    void beginTerrainTiming();
+    void endTerrainTiming(); // after the last Draw of a draw() whose prepareTerrain opened a timing
+    // Flags to add to the pixel flags of this draw (0 = not a terrain layer or the feature is off); binds the terrain
+    // constants, noise volume and sampler when it returns flags, and stores the side projection density in k.g[3].
+    uint32_t prepareTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool haveTex, bool texIsTarget,
+                            const RT& rt, bool depthMasked, float dsx, float dsy, PSConsts& k);
+    void auditTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool classified, bool depthMasked,
+                      const terrain::Unproject& u, float dsx, float dsy, const PSConsts& k);
+    // ---- material detail (d3d11_material.cpp; table, rule and maths in material_detail.h) ----
+    material::Mode materialMode = material::Mode::Off;
+    material::Settings materialSettings;
+    material::Table materialTable; // <texture_dir>/materials/materials.txt
+    struct MaterialGpu {
+        ComPtr<ID3D11PixelShader> psHw, psSb;
+        ComPtr<ID3D11Buffer> cb;
+        ComPtr<ID3D11SamplerState> sampler[4]; // wrapS | wrapT << 1 (0 repeat, 1 clamp)
+        bool failed = false, contentValid = false;
+        material::Consts content{};
+        uint64_t draws = 0, texturesLoaded = 0, bytes = 0;
+    } materialGpu;
+    void initMaterial();
+    void scanMaterials();
+    bool ensureMaterialGpu();
+    // The material record to load with a texture job (null: none, class off, feature off).
+    const material::Record* materialFor(uint64_t packHash) const;
+    // Worker side: read <dir>/materials/<hash>_n.png / _orm.png into d.materialLevels.
+    void loadMaterialLevels(UpDone& d, const std::string& packDir, uint64_t packHash, const material::Record& record,
+                            uint32_t logicalW, uint32_t logicalH) const;
+    void createMaterialTexture(UpDone& d) const;
+    // Binds the material pixel shader, constants, map and sampler for this draw and returns true, or returns
+    // false and leaves the pipeline alone.
+    bool prepareMaterial(const GsDrawState& s, ID3D11ShaderResourceView* materialSrv, uint8_t materialClass,
+                         bool haveTex, bool texIsTarget, const RT& rt, bool depthTested, uint32_t pixelFlags,
+                         float dsx, float dsy, bool hwBlend);
     ComPtr<ID3D11RasterizerState> rast;
     std::unordered_map<uint32_t, ComPtr<ID3D11BlendState>> blendStates;
     std::unordered_map<uint32_t, ComPtr<ID3D11DepthStencilState>> depthStates;
@@ -631,6 +734,7 @@ struct D3D11Backend::Impl {
     NativeReadback nativeReadback;
     PartialUpload partialUpload;
     PartialUploadGpu partialUploadGpu;
+    TargetUploadGpu targetUploadGpu;
     bool uploadPartial = false;
     bool nativeReadbackEnabled = runtimeFlags().nativeReadback;
     uint32_t stagingW = 0, stagingH = 0;
@@ -678,7 +782,8 @@ struct D3D11Backend::Impl {
                       const GsDrawState& s, bool ui, bool volatileSlot, const uint64_t* decodedHash);
 
     // ---------------------------------------------------------------------------------------------
-    bool compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out);
+    bool compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out,
+                 bool material = false);
     bool init();
     void createSwapchain();
     std::wstring neuralDirectory() const;
@@ -702,9 +807,11 @@ struct D3D11Backend::Impl {
     static uint32_t unpackPixel(uint32_t psm, uint32_t v);
     void ensureStaging(uint32_t w, uint32_t h);
     void readbackRT(RT& rt);
-    void prefetchReadback(RT& rt);
+    void prefetchReadback(RT& rt, bool stale = false);
     void uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height);
     void syncRT(RT& rt);
+    void syncRows(RT& rt, rt_sync::Rows rows);
+    bool lazySyncTarget(const RT& rt) const;
     void flushToMemory(uint32_t first, uint32_t last);
     void flushForRead(uint32_t first, uint32_t last, const VramRect* rect = nullptr);
     bool blocksAreClean(const RT& rt, uint32_t first, uint32_t last) const;
@@ -750,8 +857,11 @@ struct D3D11Backend::Impl {
         uint8_t minimumAlpha = 0;
         uint32_t reflectionTexture = ~0u;
         uint32_t factor = 1; // physical texture size / logical size
+        ID3D11ShaderResourceView* materialSrv = nullptr; // material map of the bound HD texture
+        uint8_t materialClass = 0;
     };
     RT* findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox, float& oy);
+    std::pair<uint32_t, uint32_t> rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const;
     bool resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint = false);
     uint64_t rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const;
 
@@ -778,6 +888,7 @@ struct D3D11Backend::Impl {
     bool restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolved);
     void enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_t xyoffset);
     void restoreTemporalAlpha(RT& rt, ID3D11ShaderResourceView* alpha, uint32_t width, uint32_t height);
+    TemporalPipeline::Geom worldGeometry(uint32_t fw, uint32_t fh) const;
     bool prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count, float sx,
                              float sy);
     void validateObjectMotion(RT& rt, const nr::guides::Frame& guide, const nr::guides::FrameConstants& constants);

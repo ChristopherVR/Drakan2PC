@@ -293,8 +293,14 @@ void emitViewport(uint8_t* ram, R5900Context* c, PS2Runtime* rt, bool preview) {
                                     lastWorld.frameHeight,
                                     lastWorld.projectionScale[0],
                                     lastWorld.projectionScale[1]};
-    const uint32_t resetReason =
-        policy::reasons(world, hadWorld, ticks != nullptr, currentView, previousView, distance2, forwardDot);
+    // DRAKAN_CAMERA_RESET_TICKS=6 restores the former gap rule for comparisons.
+    static const uint64_t resetTickGap = [] {
+        const char* value = std::getenv("DRAKAN_CAMERA_RESET_TICKS");
+        const long ticksValue = value ? std::atol(value) : 0;
+        return ticksValue > 0 ? uint64_t(ticksValue) : policy::kResetTickGap;
+    }();
+    const uint32_t resetReason = policy::reasons(world, hadWorld, ticks != nullptr, currentView, previousView,
+                                                 distance2, forwardDot, resetTickGap);
     if (policy::reset(resetReason))
         p.flags |= Packet::Reset;
     if (world) {

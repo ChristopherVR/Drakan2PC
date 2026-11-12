@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include "gsr/gsr.h"
 #include "gs_mem.h"
+#include "motion_segments.h"
 
 #include <cstdint>
 #include <string>
@@ -91,8 +92,14 @@ struct LiveSettings {
         F_NATIVE_MENU = 1u << 19,
         F_WATER = 1u << 20,
         F_NEURAL_RES = 1u << 21,
+        F_TERRAIN = 1u << 22,
+        F_MATERIAL = 1u << 23,
     };
     uint32_t mask = 0;
+    bool terrainDetail = false, terrainCliffs = false;
+    float terrainStrength = 1.0f;
+    uint32_t materialDetail = 0; // material::Mode
+    float materialStrength = 1.0f, materialSpecular = 0.0f;
     float forcedAspect = 0.0f;
     bool stretch = false;
     uint32_t filter = 0, deinterlace = 0, aniso = 0, upFactor = 0, upFilter = 0, scale = 1, latency = 1;
@@ -139,7 +146,15 @@ public:
     virtual bool init() = 0;
     virtual bool valid() const = 0;
     virtual std::string adapterName() const = 0;
+    // The backend lost its graphics device and cannot draw any more (reason for the log and the player). Backend
+    // stops forwarding work once this is true; the host ends the session (gsr::Renderer::deviceLost).
+    virtual bool deviceLost(std::string* /*reason*/ = nullptr) const { return false; }
     virtual void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) = 0;
+    // Object-motion notes inside a batch (motion_segments.h). A backend that returns true from deferObjectMotion
+    // gets the notes of an open batch through setMotionNotes right before that batch's draw() (valid for that one
+    // call, which must apply every one of them); otherwise the core ends the batch at each note as before.
+    virtual bool deferObjectMotion() const { return false; }
+    virtual void setMotionNotes(const motion::Note* /*notes*/, uint32_t /*count*/) {}
     virtual void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) = 0;
     // Same, for a reader of local memory (CLUT load, texture decode, local->host read): a backend may skip a readback
     // when every block asked for is known to be identical on the GPU and in memory. Writers must use flushToMemory.
@@ -259,6 +274,8 @@ public:
     void noteVuUpload(uint32_t vuAddr, uint32_t qwCount, const float* vuRows0to6);
     void noteSceneCamera(const SceneGuideCamera& camera);
     void noteObjectMotion(const ObjectMotionScope& scope);
+    bool deferObjectMotion() const;
+    void setMotionNotes(const motion::Note* notes, uint32_t count);
     void noteSceneGeometry(const SceneGeometry& geometry);
     void noteSceneModels(std::shared_ptr<const SceneModels> models);
     std::string upscaleStatus() const;
@@ -272,10 +289,13 @@ public:
     std::string rayTracingStatus() const;
 
     Config::Api api() const { return m_kind; }
+    bool deviceLost(std::string* reason = nullptr) const;
 
 private:
     std::unique_ptr<BackendApi> m_api;
     Config::Api m_kind = Config::Api::Auto;
+    bool m_dead = false; // the backend reported its device lost: nothing is forwarded any more
+    bool dead();         // latches m_dead (asked at the frame boundaries, where a loss is detected)
 };
 
 } // namespace gsr

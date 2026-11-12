@@ -1,6 +1,7 @@
 // TemporalPipeline: jitter, camera motion vectors from depth, resolve (Upscaler or bilinear fallback). See temporal.h
 // and docs/reference/dlss.md.
 #include "temporal.h"
+#include "upscale_render_size.h"
 #include "runtime_flags.h"
 #include "shader_compile_d3d.h"
 
@@ -375,16 +376,16 @@ float TemporalPipeline::ratioForMode(uint32_t mode) {
     }
 }
 
-TemporalPipeline::Geom TemporalPipeline::geometry(uint32_t fw, uint32_t fh, uint32_t scale, uint32_t mode) const {
+TemporalPipeline::Geom TemporalPipeline::geometry(uint32_t fw, uint32_t fh, uint32_t scale, uint32_t mode,
+                                                  uint32_t viewW, uint32_t viewH) const {
     Geom g;
     g.frameW = fw;
     g.frameH = fh;
     g.outW = fw * scale;
     g.outH = fh * scale;
-    const float r = ratioForMode(mode);
-    auto even = [](float v) { return std::max(16u, (uint32_t)(v + 0.5f) & ~1u); };
-    g.renderW = mode == 1 ? g.outW : std::min(g.outW, even(g.outW * r));
-    g.renderH = mode == 1 ? g.outH : std::min(g.outH, even(g.outH * r));
+    const auto render = upscale::renderSize(g.outW, g.outH, ratioForMode(mode), mode == 1, viewW, viewH);
+    g.renderW = render.width;
+    g.renderH = render.height;
     return g;
 }
 
@@ -398,7 +399,9 @@ void TemporalPipeline::jitter(uint32_t idx, const Geom& g, float& jx, float& jy)
         }
         return r;
     };
-    const float ratio = (float)g.outW / (float)std::max(1u, g.renderW);
+    // The larger of the two axis ratios: the view rule (upscale_render_size.h) can give them different ones.
+    const float ratio =
+        std::max((float)g.outW / (float)std::max(1u, g.renderW), (float)g.outH / (float)std::max(1u, g.renderH));
     const uint32_t phases = std::clamp<uint32_t>((uint32_t)std::ceil(8.0f * ratio * ratio), 8u, 64u);
     const uint32_t i = idx % phases + 1;
     jx = halton(i, 2) - 0.5f;

@@ -102,8 +102,23 @@ bool WgpuBackend::Impl::init() {
         open.height = cfg.windowHeight;
         open.vsync = cfg.vsync;
     }
+    // The player's graphics API (Config::gpuApi; drakan.ini renderer = vulkan). The browser has only its own WebGPU.
+    using GpuBackend = drakan::gpu::Backend;
+    const GpuBackend wanted = cfg.gpuApi == Config::GpuApi::Vulkan   ? GpuBackend::Vulkan
+                              : cfg.gpuApi == Config::GpuApi::D3D12  ? GpuBackend::D3D12
+                              : cfg.gpuApi == Config::GpuApi::OpenGL ? GpuBackend::GL
+                                                                     : GpuBackend::Auto;
+    open.options.backend = wanted;
     std::string error;
     gpu = rhi::Device::open(open, &error);
+    if (!gpu && wanted != GpuBackend::Auto) {
+        // No driver, no usable adapter or a device that would not start: the automatic choice may still have one.
+        std::fprintf(stderr, "[gsr-webgpu] %s is not available (%s); falling back to the automatic graphics API\n",
+                     drakan::gpu::backendName(wanted), error.c_str());
+        open.options.backend = GpuBackend::Auto;
+        error.clear();
+        gpu = rhi::Device::open(open, &error);
+    }
     if (!gpu) {
         std::fprintf(stderr, "[gsr-webgpu] %s\n", error.c_str());
         return false;
@@ -148,6 +163,8 @@ bool WgpuBackend::Impl::init() {
                  progHw ? "fixed-function" : "shader");
     if (modernWater || rayShadows || rayReflections || rayGlobalIllumination)
         startRayPrewarm();
+    if (cfg.neuralRendering) // the setting stays in drakan.ini for the Direct3D 11 renderer
+        std::fprintf(stderr, "[gsr-webgpu] DLSS 5 neural rendering is ignored: it needs renderer = d3d11\n");
     { // temporal AA: config + environment (GSR_UPSCALE / GSR_UPSCALE_PRESET / GSR_UPSCALE_SHARP), as on D3D11
         const RuntimeFlags& f = runtimeFlags();
         const uint32_t m = f.upscaleMode ? *f.upscaleMode : cfg.upscaleMode;

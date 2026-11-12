@@ -708,7 +708,10 @@ bool WgpuBackend::Impl::resolveTexture(const GsDrawState& s, const ClutBuf& clut
     // framebuffer-as-texture
     float ox, oy;
     if (RT* rt = findRTForTexture(tbp, tbw, psm, W, H, ox, oy)) {
-        syncRT(*rt);
+        if (rt_sync::lazySyncTarget(*rt))
+            syncRows(*rt, rt_sync::sampleRows((uint32_t)oy, H, rt->pageH(), (uint32_t)rt->rowStamp.size()));
+        else
+            syncRT(*rt);
         if (texLog)
             std::fprintf(
                 stderr,

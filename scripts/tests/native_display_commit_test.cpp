@@ -278,6 +278,8 @@ bool smoothHighlightInitial() {
 } // namespace drakan_ws
 namespace drakan_win {
 void setHideCursor(bool) {}
+void requestClose() {}
+void notice(const char*, const char*) {}
 void setModalTick(void (*)(void*), void*) {}
 Surface surface() {
     return {};

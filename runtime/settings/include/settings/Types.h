@@ -38,7 +38,7 @@ struct VideoSettings {
     bool sharpPresent = true;
     // ---- new keys (added to drakan.ini by this library; the runtime owner / gs owner consumes them) ----
     int worldRate = 0;               // world_rate: 0 = uncapped (default), 30 original, 60 capped (restart required)
-    std::string renderer = "webgpu"; // renderer: webgpu (default) | d3d11 (Windows) | sw (restart required)
+    std::string renderer = "webgpu"; // renderer: webgpu (default) | vulkan | d3d11 (Windows) | sw (restart required)
     int frameLimit = 0;              // frame_limit: presentation fps cap, 0 = off; does not raise world update rate
     int anisotropic = 16;            // anisotropic: 1 (off) 2 4 8 16
     int textureUpscale = 0;          // texture_upscale: 0 (auto) 1 (off) 2 4
@@ -47,6 +47,12 @@ struct VideoSettings {
     bool mipBiasAuto = true;                      // mip_bias = auto: renderer follows the internal resolution
     bool hdTextures = true;                       // hd_textures: use replacement textures from overrides/
     bool textureDump = false;                     // texture_dump: write decoded textures to disk
+    bool terrainDetail = true;           // terrain_detail: world-space detail and breakup on the ground and mountains
+    bool terrainCliffs = false;          // terrain_cliffs: steep terrain faces sample their texture from the side
+    float terrainDetailStrength = 1.0f;  // terrain_detail_strength: 0.25 .. 2 (1 = default)
+    std::string materialDetail = "off";  // material_detail: off | hard | all (relief from the material maps)
+    float materialDetailStrength = 1.0f; // material_detail_strength: 0.25 .. 2 (1 = default)
+    float materialSpecular = 0.0f;       // material_specular: 0 .. 1 highlight on smooth materials
     float hudScale = 0.0f;           // hud_scale: 0 = auto (by output size), else 0.5 .. 1.5 (1 = original 4:3 size)
     bool hudAspectCorrect = true;    // hud_aspect_correct: HUD / menu sprites keep their 4:3 proportions in widescreen
     bool smoothMenuHighlight = true; // smooth_menu_highlight: soften the fire-automaton highlight of the menu entries
@@ -64,6 +70,10 @@ struct VideoSettings {
     bool polyNearClip = true; // poly_near_clip: clip effect polygons at the camera (fixes streaks and flashes)
     bool foliageWind = false; // foliage_wind: grass and trees sway in the wind, grass bends away from the player
     float foliageWindStrength = 1.0f; // foliage_wind_strength: 0.25 .. 2
+    // lod_distance: characters keep their detailed model this many times further out, 1 (original) .. 8
+    float lodDistance = 4.0f;
+    // draw_distance: objects with an own draw distance are drawn this many times further out, 1 (original) .. 4
+    float drawDistance = 1.0f;
     bool dlssNeural = false;          // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
     std::string dlssNeuralResolution = "output"; // dlss_neural_resolution: output | render (NR on the SR output, or
                                                  // on the reduced raster before SR; only differs with a reduced mode)

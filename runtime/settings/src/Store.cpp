@@ -359,7 +359,7 @@ const std::vector<Field>& fields() {
         {"video", "renderer", false, [](const Settings& s) { return s.video.renderer; },
          [](Settings& s, const std::string& v) {
              const std::string u = lower(trim(v));
-             if (u == "webgpu" || u == "d3d11" || u == "sw")
+             if (u == "webgpu" || u == "vulkan" || u == "d3d11" || u == "sw")
                  s.video.renderer = u;
          },
          nullptr},
@@ -414,6 +414,29 @@ const std::vector<Field>& fields() {
          "texture LOD bias: auto follows internal resolution, negative = sharper, positive = softer"},
         {"video", "hd_textures", false, GETB(video.hdTextures), SETB(video.hdTextures),
          "1 = use replacement textures from the overrides folder"},
+        {"video", "terrain_detail", false, GETB(video.terrainDetail), SETB(video.terrainDetail),
+         "1 = fine detail and large-scale variation on the ground and mountains, 0 = the terrain as before"},
+        {"video", "terrain_detail_strength", false, GETF(video.terrainDetailStrength, "%.2f"),
+         SETF(video.terrainDetailStrength), "strength of the terrain detail, 0.25 .. 2 (1 = default)"},
+        {"video", "terrain_cliffs", false, GETB(video.terrainCliffs), SETB(video.terrainCliffs),
+         "1 = steep terrain faces take their texture from the side (no stretching; moves patches there), 0 = as "
+         "before"},
+        {"video", "material_detail", false, GETS(video.materialDetail),
+         [](Settings& s, const std::string& v) {
+             const std::string u = lower(v);
+             if (u == "off" || u == "0")
+                 s.video.materialDetail = "off";
+             else if (u == "hard" || u == "1" || u == "on")
+                 s.video.materialDetail = "hard";
+             else if (u == "all" || u == "2")
+                 s.video.materialDetail = "all";
+         },
+         "relief shading from the HD pack's material maps: off (the picture as before) | hard (terrain, stone, wood, "
+         "metal) | all (also characters and foliage)"},
+        {"video", "material_detail_strength", false, GETF(video.materialDetailStrength, "%.2f"),
+         SETF(video.materialDetailStrength), "strength of the relief shading, 0.25 .. 2 (1 = default)"},
+        {"video", "material_specular", false, GETF(video.materialSpecular, "%.2f"), SETF(video.materialSpecular),
+         "highlight from the level's light on smooth materials, 0 .. 1 (0 = none)"},
         {"video", "texture_dump", false, GETB(video.textureDump), SETB(video.textureDump),
          "1 = write decoded textures to disk (for making replacements)"},
         {"video", "hud_scale", false,
@@ -457,7 +480,9 @@ const std::vector<Field>& fields() {
                  s.video.dlss = "quality";
          },
          "NVIDIA DLSS Super Resolution for the 3D world (the HUD stays native): off | dlaa | quality | balanced | "
-         "performance. Needs an RTX GPU and nvngx_dlss.dll next to the exe"},
+         "performance. Needs an RTX GPU, nvngx_dlss.dll next to the exe and renderer = d3d11; on the other renderers "
+         "any "
+         "value but off runs a temporal anti-aliasing pass at full resolution instead (no upscaling)"},
         {"video", "dlss_preset", false, GETS(video.dlssPreset),
          [](Settings& s, const std::string& v) {
              std::string u = lower(trim(v));
@@ -484,6 +509,12 @@ const std::vector<Field>& fields() {
          "player (render only, nothing is saved)"},
         {"video", "foliage_wind_strength", false, GETF(video.foliageWindStrength, "%.2f"),
          SETF(video.foliageWindStrength), "how far foliage leans and how hard gusts blow, 0.25 .. 2 (1 = default)"},
+        {"video", "lod_distance", false, GETF(video.lodDistance, "%.2f"), SETF(video.lodDistance),
+         "characters and creatures keep their detailed model this many times further out, 1 (original PS2 distances) "
+         ".. 8; above 1 a simplified model that changes a character's look is never used"},
+        {"video", "draw_distance", false, GETF(video.drawDistance, "%.2f"), SETF(video.drawDistance),
+         "people, creatures, plants and small objects are drawn this many times further out, 1 (original) .. 4; the "
+         "level's view distance still limits it"},
         {"video", "dlss_neural", false, GETB(video.dlssNeural), SETB(video.dlssNeural),
          "DLSS 5 neural rendering: 0 off, 1 on; independent of Super Resolution; requires a supported NVIDIA GPU and "
          "matching signed runtime bundle"},
@@ -793,6 +824,12 @@ std::string settingLabel(const std::string& key) {
         {"video.texture_upscale_filter", "Texture upscale filter"},
         {"video.mip_bias", "Mip bias"},
         {"video.hd_textures", "HD texture replacement"},
+        {"video.terrain_detail", "Terrain detail"},
+        {"video.terrain_detail_strength", "Terrain detail strength"},
+        {"video.terrain_cliffs", "Cliff textures"},
+        {"video.material_detail", "Material detail"},
+        {"video.material_detail_strength", "Material detail strength"},
+        {"video.material_specular", "Material highlights"},
         {"video.texture_dump", "Texture dump"},
         {"video.modern_water", "Modern water"},
         {"video.ray_reflections", "Ray-traced reflections"},
@@ -801,6 +838,8 @@ std::string settingLabel(const std::string& key) {
         {"video.poly_near_clip", "Clip effects at the camera"},
         {"video.foliage_wind", "Living foliage"},
         {"video.foliage_wind_strength", "Foliage wind strength"},
+        {"video.lod_distance", "Character detail distance"},
+        {"video.draw_distance", "Object draw distance"},
         {"video.dlss", "DLSS"},
         {"video.dlss_preset", "DLSS model"},
         {"video.dlss_sharpness", "DLSS sharpness"},

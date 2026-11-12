@@ -29,6 +29,7 @@ namespace drakan::gpu {
 
 struct Context::State {
     std::atomic<bool> failed{false};
+    std::atomic<bool> lost{false}; // the device is gone: no further call may reach it
     mutable std::mutex mutex;
     std::string lastError;
     void report(const char* kind, WGPUStringView message) {
@@ -212,6 +213,17 @@ bool Context::init(const ContextOptions& options, std::string* error) {
     };
     wantTimestamps_ = options.timestampQuery;
 #if defined(DRAKAN_WGPU_NATIVE)
+    // DRAKAN_GPU_LOG=error|warn|info|debug: wgpu-native's own messages as "[wgpu] ..." lines (diagnosis only).
+    if (const char* level = std::getenv("DRAKAN_GPU_LOG"); level && *level) {
+        wgpuSetLogCallback([](WGPULogLevel, WGPUStringView message,
+                              void*) { std::fprintf(stderr, "[wgpu] %s\n", str(message).c_str()); },
+                           nullptr);
+        const std::string text = level;
+        wgpuSetLogLevel(text == "debug"  ? WGPULogLevel_Debug
+                        : text == "info" ? WGPULogLevel_Info
+                        : text == "warn" ? WGPULogLevel_Warn
+                                         : WGPULogLevel_Error);
+    }
     Backend wanted = options.backend;
     if (const char* env = std::getenv("DRAKAN_GPU_BACKEND"); env && *env && wanted == Backend::Auto)
         wanted = parseBackend(env);
@@ -247,6 +259,15 @@ bool Context::init(const ContextOptions& options, std::string* error) {
     if (!instance_)
         return fail("cannot create a WebGPU instance");
 
+    WGPUInstanceEnumerateAdapterOptions enumerate{};
+    enumerate.backends = extras.backends;
+    std::vector<WGPUAdapter> adapters(wgpuInstanceEnumerateAdapters(instance_, &enumerate, nullptr));
+    wgpuInstanceEnumerateAdapters(instance_, &enumerate, adapters.data());
+    // No adapter means no backend of the instance started (e.g. Vulkan asked for and no Vulkan driver installed):
+    // creating a surface on such an instance aborts inside wgpu-native, so report it before the probe below.
+    if (adapters.empty())
+        return fail(std::string("no usable GPU adapter (backend ") + backendName(wanted) + ")");
+
     // A surface for the target window lets adapter selection skip adapters that cannot present to it.
     WGPUSurface probe = nullptr;
     if (options.compatibleWith && options.compatibleWith->kind != NativeWindow::Kind::None) {
@@ -255,11 +276,6 @@ bool Context::init(const ContextOptions& options, std::string* error) {
             surface->surface_ = nullptr; // keep the handle for the probe below
         }
     }
-
-    WGPUInstanceEnumerateAdapterOptions enumerate{};
-    enumerate.backends = extras.backends;
-    std::vector<WGPUAdapter> adapters(wgpuInstanceEnumerateAdapters(instance_, &enumerate, nullptr));
-    wgpuInstanceEnumerateAdapters(instance_, &enumerate, adapters.data());
     unsigned best = ~0u;
     for (WGPUAdapter candidate : adapters) {
         auto info = WGPU_ADAPTER_INFO_INIT;
@@ -283,6 +299,7 @@ bool Context::init(const ContextOptions& options, std::string* error) {
             candidate = nullptr;
             best = rank;
             adapterName_ = str(info.device);
+            adapterDriver_ = str(info.description);
             backend_ = backend;
             software_ = info.adapterType == WGPUAdapterType_CPU;
         }
@@ -349,8 +366,10 @@ void Context::requestDevice(std::function<void(bool, const std::string&)> done) 
     desc.deviceLostCallbackInfo.userdata1 = state_.get();
     desc.deviceLostCallbackInfo.callback = [](WGPUDevice const*, WGPUDeviceLostReason reason, WGPUStringView message,
                                               void* user, void*) {
-        if (reason != WGPUDeviceLostReason_Destroyed && reason != WGPUDeviceLostReason_CallbackCancelled)
+        if (reason != WGPUDeviceLostReason_Destroyed && reason != WGPUDeviceLostReason_CallbackCancelled) {
+            static_cast<State*>(user)->lost = true;
             static_cast<State*>(user)->report("device lost", message);
+        }
     };
     struct Request {
         Context* self;
@@ -368,9 +387,11 @@ void Context::requestDevice(std::function<void(bool, const std::string&)> done) 
         c.device_ = device;
         c.queue_ = wgpuDeviceGetQueue(device);
         wgpuDeviceGetLimits(device, &c.limits_);
-        std::fprintf(stderr, "[gpu] device: %s via %s%s%s%s\n", c.adapterName_.c_str(), backendName(c.backend_),
+        // Name, API and driver text are the adapter's own answers (wgpuAdapterGetInfo), not this build's choice.
+        std::fprintf(stderr, "[gpu] device: %s via %s%s%s%s%s%s\n", c.adapterName_.c_str(), backendName(c.backend_),
                      c.software_ ? " (software)" : "", c.dualSource_ ? ", dual-source blending" : "",
-                     c.timestamps_ ? ", timestamp queries" : "");
+                     c.timestamps_ ? ", timestamp queries" : "", c.adapterDriver_.empty() ? "" : ", driver ",
+                     c.adapterDriver_.c_str());
         r->done(true, {});
     };
     wgpuAdapterRequestDevice(adapter_, &desc, callback);
@@ -393,6 +414,23 @@ bool Context::failed() const {
     return state_->failed.load();
 }
 
+bool Context::deviceLost() const {
+    return state_->lost.load();
+}
+
+void Context::loseDeviceForTest() {
+    if (state_->lost.exchange(true))
+        return;
+    std::fprintf(stderr, "[gpu] device lost: destroyed on request (test)\n");
+    {
+        std::lock_guard lock(state_->mutex);
+        state_->lastError = "destroyed on request (test)";
+    }
+    state_->failed = true;
+    if (device_)
+        wgpuDeviceDestroy(device_);
+}
+
 std::string Context::lastError() const {
     std::lock_guard lock(state_->mutex);
     return state_->lastError;
@@ -400,6 +438,8 @@ std::string Context::lastError() const {
 
 void Context::poll(bool wait) {
 #if defined(DRAKAN_WGPU_NATIVE)
+    if (state_->lost.load())
+        return; // a lost device is not called into again
     wgpuDevicePoll(device_, wait, nullptr);
 #else
     (void)wait;

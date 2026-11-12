@@ -32,6 +32,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_foliage_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_foliage_test COMMAND world_foliage_test)
 
+    # Model detail options (header only): LOD distance factor, look-changing LODs, draw distance factor.
+    add_executable(world_model_detail_test tests/model_detail_test.cpp)
+    target_link_libraries(world_model_detail_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_model_detail_test COMMAND world_model_detail_test)
+
     # Near-plane clip of the engine's projected polygons (header only): bit-identical front polygons, clipped straddlers.
     add_executable(world_polyclip_test tests/polyclip_test.cpp)
     target_link_libraries(world_polyclip_test PRIVATE drakan_world drakan::options)

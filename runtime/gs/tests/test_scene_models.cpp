@@ -1,6 +1,7 @@
 #include "drakan_scene_models.h"
 #include "drakan_scene_assets.h"
 #include "drakan_shadow_ownership.h"
+#include "model_motion.h"
 #include <fstream>
 #include <cassert>
 #include <cmath>
@@ -188,8 +189,186 @@ int main(int argc, char** argv) {
             refreshed = warm.capture(ram.data(), uint32_t(ram.size()), 7);
         assert(refreshed->textures.size() == 1 && refreshed->textures[0]->flags == 0x10000);
         assert(first->textures[0]->flags == 0); // queued snapshots remain immutable
+        {
+            // Capture::fast (the default) against the first implementation's per-capture work (fast = false): a second,
+            // static model with large source arrays next to the posed one, the same memory through both captures.
+            constexpr uint32_t model2 = 0x160000, object2 = 0x121000, faces2 = 0x161000, uv2 = 0x163000;
+            constexpr uint32_t positions2 = 0x165000, faceCount = 200, vertexCount = 16;
+            put(0x4dae20 + 0x24, model2);
+            put(model2, 3u);
+            put(model2 + 8, 3u);
+            put(model2 + 0x18, 0x51cc98u);
+            put(model2 + 0x1c, vertexCount);
+            put(model2 + 0x20, faceCount);
+            put(model2 + 0x24, positions2);
+            put(model2 + 0x28, faces2);
+            put(model2 + 0x30, uv2);
+            put(model2 + 0x38, library);
+            put(model2 + 0x40, 2u);
+            unsigned face = 0;
+            for (uint16_t a = 0; a < vertexCount && face < faceCount; ++a)
+                for (uint16_t b = a + 1; b < vertexCount && face < faceCount; ++b)
+                    for (uint16_t c = b + 1; c < vertexCount && face < faceCount; ++c, ++face) {
+                        const uint16_t corners[6] = {a, b, c, 0, uint16_t(face & 1), 0};
+                        std::memcpy(ram.data() + faces2 + face * 12, corners, sizeof(corners));
+                        for (unsigned v = 0; v < 8; ++v)
+                            put(uv2 + face * 32 + v * 4, float(face) + v / 8.f);
+                    }
+            assert(face == faceCount);
+            for (unsigned v = 0; v < vertexCount; ++v)
+                for (unsigned c = 0; c < 3; ++c)
+                    put(positions2 + v * 12 + c * 4, float(v * 3 + c));
+            put(object2, 0x51b8b0u);
+            put(object2 + 4, 1u);
+            put(object2 + 8, 3u);
+            put(object2 + 0x20, 1.f);
+            put(object2 + 0x30, 1.f);
+            put(object2 + 0x40, 1.f);
+            put(object2 + 0x114, 1.f);
+            Capture quick, plain;
+            plain.fast = false;
+            assert(quick.fast); // DRAKAN_SCENE_CAPTURE_FAST is not set in the test environment
+            auto equal = [](const gsr::SceneModels& x, const gsr::SceneModels& y) {
+                if (x.instances.size() != y.instances.size() || x.meshes.size() != y.meshes.size() ||
+                    x.untexturedTriangles != y.untexturedTriangles || x.rejectedInstances != y.rejectedInstances)
+                    return false;
+                for (size_t i = 0; i < x.instances.size(); ++i)
+                    if (x.instances[i].object != y.instances[i].object ||
+                        x.instances[i].generation != y.instances[i].generation ||
+                        x.instances[i].mesh != y.instances[i].mesh ||
+                        std::memcmp(x.instances[i].transform, y.instances[i].transform,
+                                    sizeof(x.instances[i].transform)))
+                        return false;
+                for (size_t i = 0; i < x.meshes.size(); ++i)
+                    if (x.meshes[i]->identity != y.meshes[i]->identity ||
+                        x.meshes[i]->topology != y.meshes[i]->topology ||
+                        x.meshes[i]->triangles.size() != y.meshes[i]->triangles.size())
+                        return false;
+                return true;
+            };
+            // Both captures share the live set: the second one's level change rescans it, so start both first.
+            quick.capture(ram.data(), uint32_t(ram.size()), 7);
+            plain.capture(ram.data(), uint32_t(ram.size()), 7);
+            size_t staticMesh = ~size_t(0);
+            for (unsigned frame = 0; frame < 48; ++frame) {
+                put(pose, float(frame)); // a new pose every capture
+                if (frame == 20)
+                    put(object2 + 0x14, 250.f); // the static instance moves
+                const auto a = quick.capture(ram.data(), uint32_t(ram.size()), 7);
+                const auto b = plain.capture(ram.data(), uint32_t(ram.size()), 7);
+                assert(a->instances.size() == 2 && a->meshes.size() == 2);
+                assert(equal(*a, *b));
+                for (const auto& instance : a->instances)
+                    if (instance.object == object2)
+                        staticMesh = instance.mesh;
+            }
+            assert(staticMesh != ~size_t(0));
+            {
+                // Motion-only capture (no ray effect reads the snapshot) against the full one: the model-motion
+                // consumer must produce the same vertices from both, world after world, while the static model stands
+                // (left out), starts to move after standing (it brings its previous transform), keeps moving, stops,
+                // is hidden and comes back somewhere else (no previous transform may be invented for that).
+                Capture full, lean;
+                lean.motionOnly = true;
+                gsr::motion::Models fullHistory, leanHistory;
+                full.capture(ram.data(), uint32_t(ram.size()), 7);
+                lean.capture(ram.data(), uint32_t(ram.size()), 7);
+                unsigned leftOut = 0, carried = 0, moving = 0;
+                size_t stillVertices = 0;
+                for (unsigned frame = 0; frame < 40; ++frame) {
+                    put(pose, float(100 + frame));
+                    if (frame == 10 || frame == 11 || frame == 12 || frame == 25)
+                        put(object2 + 0x14, 300.f + float(frame));
+                    if (frame == 32)
+                        put(object2 + 4, 0u);
+                    if (frame == 34) {
+                        put(object2 + 4, 1u);
+                        put(object2 + 0x14, 900.f);
+                    }
+                    const auto a = full.capture(ram.data(), uint32_t(ram.size()), 7);
+                    const auto b = lean.capture(ram.data(), uint32_t(ram.size()), 7);
+                    assert(!a->motionOnly && b->motionOnly);
+                    assert(a->instances.size() == b->instances.size() + b->unchangedInstances);
+                    const auto fa = fullHistory.prepare(*a, false), fb = leanHistory.prepare(*b, false);
+                    assert(fa.matched == fb.matched && fa.vertices.size() == fb.vertices.size());
+                    for (size_t v = 0; v < fa.vertices.size(); ++v)
+                        assert(!std::memcmp(fa.vertices[v].current, fb.vertices[v].current, 12) &&
+                               !std::memcmp(fa.vertices[v].previous, fb.vertices[v].previous, 12) &&
+                               !std::memcmp(fa.vertices[v].uv, fb.vertices[v].uv, 8));
+                    const bool moved = frame == 10 || frame == 11 || frame == 12 || frame == 25;
+                    if (moved) {
+                        // the posed model and the moved static one both have motion; the first move after standing
+                        // still and the one at 25 rely on the carried transform
+                        assert(fa.vertices.size() > stillVertices);
+                        ++moving;
+                    } else if (frame == 5)
+                        stillVertices = fa.vertices.size();
+                    if (frame == 34) // back from hidden: no previous position, as in the full snapshot
+                        assert(fa.vertices.size() == stillVertices);
+                    leftOut += b->unchangedInstances;
+                    for (const auto& instance : b->instances)
+                        carried += instance.hasPreviousTransform;
+                    fullHistory.commit(a);
+                    leanHistory.commit(b);
+                }
+                assert(moving == 4 && leftOut >= 30 && carried == 4);
+                put(object2 + 0x14, 250.f);
+                quick.capture(ram.data(), uint32_t(ram.size()), 7);
+                plain.capture(ram.data(), uint32_t(ram.size()), 7);
+            }
+            auto cold = [&] {
+                // (its level change renumbers the live set; the other captures pick that up with their next call)
+                Capture fresh;
+                fresh.fast = false;
+                return fresh.capture(ram.data(), uint32_t(ram.size()), 7);
+            };
+            // A value in the middle of a long unchanged array (outside the sampled blocks): the first implementation
+            // sees it at once, the fast capture within one full-check period (16 captures). Three rounds at different
+            // phases of that period, so at least one of them is really late.
+            unsigned late = 0;
+            for (unsigned round = 0; round < 3; ++round) {
+                for (unsigned frame = 0; frame < 21; ++frame) {
+                    quick.capture(ram.data(), uint32_t(ram.size()), 7);
+                    plain.capture(ram.data(), uint32_t(ram.size()), 7);
+                }
+                put(uv2 + 288, 77.f + round); // the first S value of face 9
+                const auto changed = cold();
+                assert(equal(*plain.capture(ram.data(), uint32_t(ram.size()), 7), *changed));
+                unsigned waited = 0;
+                while (!equal(*quick.capture(ram.data(), uint32_t(ram.size()), 7), *changed))
+                    assert(++waited <= 16);
+                late = std::max(late, waited);
+                // The source is checked in full again until it has settled, so an edit right after is seen at once.
+                put(uv2 + 288, 177.f + round);
+                assert(equal(*quick.capture(ram.data(), uint32_t(ram.size()), 7),
+                             *plain.capture(ram.data(), uint32_t(ram.size()), 7)));
+            }
+            assert(late > 0);
+            for (unsigned frame = 0; frame < 24; ++frame) {
+                quick.capture(ram.data(), uint32_t(ram.size()), 7);
+                plain.capture(ram.data(), uint32_t(ram.size()), 7);
+            }
+            // A sampled block (the start of the face array, as when another model is streamed in over this one) is
+            // seen by the very next capture.
+            put(faces2 + 4, uint16_t(5));
+            assert(equal(*quick.capture(ram.data(), uint32_t(ram.size()), 7),
+                         *plain.capture(ram.data(), uint32_t(ram.size()), 7)));
+            // Objects that come and go through the engine hooks reach the flat copy of the live set.
+            enabled = true;
+            destroyed(object2);
+            auto without = quick.capture(ram.data(), uint32_t(ram.size()), 7);
+            assert(without->instances.size() == 1 &&
+                   equal(*without, *plain.capture(ram.data(), uint32_t(ram.size()), 7)));
+            constructed(object2);
+            auto again = quick.capture(ram.data(), uint32_t(ram.size()), 7);
+            assert(again->instances.size() == 2 && equal(*again, *plain.capture(ram.data(), uint32_t(ram.size()), 7)));
+            enabled = false;
+            std::cout << "Fast capture equals the per-capture checks (posed and static models, " << late
+                      << " captures late for an unsampled in-place edit)\n";
+        }
         live.clear();
         generations.clear();
+        ++liveEpoch;
         std::cout << "Same-address pose templates track UV/topology/material replacement; equal-pixel flags refresh\n";
     }
     {

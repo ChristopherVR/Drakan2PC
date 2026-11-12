@@ -161,15 +161,23 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                 capture.loadTexture = [](uint32_t id, const std::string& path) {
                     return reflectionAssets.load(id, path);
                 };
+                // With no ray effect on, only object motion reads the snapshot: models that stand still are
+                // left out (DRAKAN_SCENE_CAPTURE_MOTION_ONLY=0 captures everything, for comparisons).
+                static const bool motionOnlyAllowed = [] {
+                    const char* value = std::getenv("DRAKAN_SCENE_CAPTURE_MOTION_ONLY");
+                    return !value || value[0] != '0';
+                }();
+                capture.motionOnly = motionOnlyAllowed && lease->gs->sceneModelsMotionOnly();
                 auto models =
                     capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity, includeSkyForComparison);
                 shadowFrame.begin(models);
                 if (!wasOn || checks % 120 == 0)
                     std::fprintf(stderr,
                                  "[resident-models] level=%llx instances=%zu meshes=%zu textures=%zu rejected=%u "
-                                 "untextured=%u\n",
+                                 "untextured=%u motionOnly=%d leftOutStill=%u\n",
                                  (unsigned long long)identity, models->instances.size(), models->meshes.size(),
-                                 models->textures.size(), models->rejectedInstances, models->untexturedTriangles);
+                                 models->textures.size(), models->rejectedInstances, models->untexturedTriangles,
+                                 int(models->motionOnly), models->unchangedInstances);
                 send([models = std::move(models)](GsrBridge& bridge) { bridge.noteSceneModels(models); });
             }
         } catch (const std::bad_alloc&) {

@@ -213,6 +213,29 @@ void testRoundTrip() {
     // Dependent rows say what they wait for.
     const gameui::SettingsSchema sc3 = buildSettingsSchema(Settings{}, env(h));
     CHECK(!sc3.find("video.dlss_preset")->enabled && !sc3.find("video.dlss_preset")->needs.empty());
+    { // On a renderer without NVIDIA DLSS the DLSS setting is shown as what it does there: temporal anti-aliasing.
+        auto shared = env(h);
+        shared.caps.dlss = true;
+        shared.caps.dlssNvidia = false;
+        Settings owner;
+        owner.video.dlss = "quality";
+        const auto sc = buildSettingsSchema(owner, shared);
+        const auto* row = sc.find("video.dlss");
+        CHECK(row && row->label == "Temporal anti-aliasing");
+        CHECK(row->help.find("no upscaling") != std::string::npos);
+        CHECK(row->help.find("Direct3D 11") != std::string::npos);
+        CHECK(row->choices.size() == 2 && row->choices[0].value == "off" && row->choices[1].value == "quality");
+        CHECK(row->currentValue == "quality"); // the Direct3D 11 mode is kept, not rewritten
+        CHECK(!sc.find("video.dlss_preset")->enabled);
+        CHECK(sc.find("video.dlss_preset")->needs.find("Direct3D 11") != std::string::npos);
+        CHECK(!sc.find("video.dlss_sharpness")->enabled);
+        owner.video.dlss = "off";
+        const auto off = buildSettingsSchema(owner, shared);
+        CHECK(off.find("video.dlss")->choices.size() == 2 && off.find("video.dlss")->choices[1].value == "dlaa");
+        // With NVIDIA DLSS the row is the DLSS one.
+        shared.caps.dlssNvidia = true;
+        CHECK(buildSettingsSchema(owner, shared).find("video.dlss")->label == "DLSS SR (experimental)");
+    }
     auto unavailable = env(h);
     unavailable.caps.modernWater = false;
     const auto unsupported = buildSettingsSchema(Settings{}, unavailable);

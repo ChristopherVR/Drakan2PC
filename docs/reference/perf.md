@@ -644,3 +644,73 @@ worker are not. Auto scale picks 8 at 3840x2160 (16:9, `ceil(3840 / 512)`), and 
 object motion costs 1.2 to 2.3 ms per frame; a per-frame 32x32 GS-to-EE readback (guest `f_0x1dda88`, FINISH wait
 in `f_0x1dbfa8`) serialises EE and renderer (36 % of the EE thread at 1E with DLSS off). HD textures cost nothing
 measurable. Ranked fixes and numbers: [journal](../journal/2026-11-08/perf-review.md).
+
+## Start-up, load times and hitches (2026-11-12)
+
+Measured and changed outside the frame loop; numbers, conditions and what is not established are in the
+[journal](../journal/2026-11-12/perf-loading-hitches.md).
+
+* Mod packs at start-up: `ModManager::installFiles` reads all pack members in one parallel batch (indexed zip
+  directory, the file held open for the batch, table-driven inflate), then rebuilds the containers. The log line
+  `mods: pack files installed in N ms: ...` gives the cost at every start (two packs with 17126 members: about 1 s,
+  before 6 s and more).
+* A level load is about 500 resource batches and 1100 requests but only a few ms of disc reads; its time was the thread
+  hand-overs between the resource worker and the EE thread. A batch's EE calls now run on the EE thread as one
+  `hle::IEeCallSequence` (`DRAKAN_RES_CHAIN=0` = one call at a time) and the 50 us resource latency counts from the
+  submission (`DRAKAN_RES_LATENCY_ELAPSED=0` = after the batch is taken). New code that needs several dependent guest
+  calls should build a sequence rather than post call by call.
+* Measure: `play_run.py --timestamps --env DRAKAN_IO_STATS=1 --env DRAKAN_LIFECYCLE_LOG=1` and
+  `scripts/perf/load_phases.py`; hitches with `DRAKAN_FRAME_AUDIT=2` and `scripts/perf/hitch_survey.py` (frames over 2x
+  and 4x the median with GS record, present, resource batch and log lines inside them).
+* The long frames of a walk are GPU readbacks on the GS worker (`readbackMap`), not file or resource work.
+
+## CPU side of a gameplay frame (2026-11-12)
+
+Measured with the owner's settings in a 1280x960 window on the loaded shared machine (3 to 10 other games), so the
+solid figures are CPU time per world frame and the single-threaded VU1 replay; world fps gains were not established.
+Details, tables and the open items: [journal](../journal/2026-11-12/perf-cpu.md).
+
+* The frame is serialised by the game's per-frame 32x32 GS read-back: the EE polls CSR.FINISH (`f_0x1dbfa8`, loop at
+  0x1dc688) until the VU1 and GS workers have finished the frame. 40 to 70 % of the EE thread's wall time is that wait
+  (poll, read-back drain, VU1 sync), which is why no thread is saturated while the CPU side limits the frame rate.
+  Not solved (needs to know what the image is for).
+* VU1 loop path (`vu/aot/ps2_vu1_lanes.h`, `fmacBad`): finite FMAC results of 2^120 and above stay in SIMD when their
+  value is provably the plain one. Converted Order of the Flame terrain carries +-FLT_MAX texture coordinates and sent
+  every step of the texture-matrix loop 0x04D8 to the scalar exact path: VU1 replay of the Ruined Village 3.4 -> 0.9
+  ns per pair, VU1 worker CPU per world frame 18.7 -> 8.7 ms (Volcanic 22.6 -> 10.9 ms). Values are identical
+  (`vu_lanes_tests`, replay against the reference). `DRAKAN_VU_LANES_STRICT=1` = the old rule.
+* Scene model capture (`drakan_scene_models.h`, runs on the EE thread whenever DLSS SR, neural rendering or a ray effect
+  is on): flat copy of the live set, cached untextured counts, sampled source signatures with a full check every 16th
+  capture. Surdana: 16 to 19 % of the EE thread -> 8.6 to 9.8 %. `DRAKAN_SCENE_CAPTURE_FAST=0` = per-capture work.
+* DMA chain copies (`runtime/ps2_chain_buffers.h`): gathered in a scratch vector, one exact allocation for the block
+  that travels, blocks of 32 KB and more reused. About 470 chains of 9.4 KB per world frame; allocation and copy below
+  the kick 5.4 -> 1.6 % of the EE thread in the Ruined Village. `PS2X_DMA_CHAIN_POOL=0` = growing vector per chain.
+* Tried and left off: letting the FINISH poll give up its time slice (`PS2X_FINISH_YIELD=1`). In the two quietest runs
+  it collapsed the frame rate (93 -> 28 and 52 -> 8 world fps): the slice goes to any ready thread, background workers
+  of the game included.
+* Tools: `PS2X_HOSTPROF_BUSY=1` (sample only threads that use CPU; check the sample count, the sampler starves on a
+  loaded machine), `dma_chains/s`, `dma_chainMB/s`, `dma_pooled/s`, `ee_ms/flip2` and thread names in the `[perf]`
+  line, `scripts/perf/cpu_scene_bench.py` (interleaved scene benchmark: world fps, frame interval percentiles, CPU per
+  world frame for the EE thread, the VU1 worker and the rest), `DRAKAN_DEBUG_SKIP_FN` (diagnostic).
+
+## Render target refreshes (2026-11-12)
+
+Render target objects are at least 512 rows tall and the game uploads textures into the memory under its 128 pixel
+scratch targets every frame, and into the frame buffers on the title, loading screens and in movies. On Direct3D 11:
+
+* a scratch target (under 480 pixels wide, never displayed, no world state) is refreshed from GS memory only in the
+  page rows a draw or a texture sample needs (`rt_sync_rows.h`, `GSR_RT_LAZY_SYNC`); other targets are refreshed whole;
+* above internal scale 1 the refreshed pixels are sent at native size and replicated by a compute pass
+  (`rt_upload_d3d11.h`, `GSR_RT_UPLOAD_GPU`); adjacent block runs of an upload are joined first;
+* a scratch target the game stopped drawing into is staged for readback at the end of that frame, so the readback an
+  upload into its memory forces later maps a finished copy (`GSR_RB_PREFETCH`);
+* HD and upscaled textures are created on the texture worker, the render thread only adopts them.
+* the game's 4x4 depth probe on the last memory page, which the EE reads back every frame in some views, is served
+  from the CPU mirror of constant sprites (`GSR_RB_SOLID`); the probe is drawn untextured because the depth buffer
+  cannot be sampled as a texture, so its value is a constant today.
+
+At scale 8 the bytes sent to refresh targets fell from 8.6 to 22.6 MiB per frame to under 1 MiB per frame over five
+whole captures, with identical pictures. `GSR_RT_REFRESH_STATS=1` prints the refreshes per target and the memory the
+targets hold. `scripts/perf/gs_replay_ab.py` re-measures on a recorded stream (`gsr_replay --bench / --hashes`).
+Numbers, conditions, the WebGPU work left and what is not fixed (the blocking readback):
+[journal](../journal/2026-11-12/perf-gpu.md).

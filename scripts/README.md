@@ -42,11 +42,25 @@ either.
   and check strafing attacks and live disable/re-enable without UI automation or modifying the player's INI.
   Reports: `harness/combat_ram_report.py`, `harness/combat_audio_report.py`, `harness/combat_trace_summary.py`, `harness/combat_parry_report.py`, `perf/frame_rate_report.py`.
 - Stability: `harness/stability/stab_matrix2.sh`, `stab_experiments.sh`, `stab_audit.py`, `stab_difftest.ps1`, `stab_check_runtime.ps1`.
+- Load times: `harness/play_run.py --timestamps --env DRAKAN_IO_STATS=1 --env DRAKAN_LIFECYCLE_LOG=1` then
+  `perf/load_phases.py <run> [...]` (start-up parts, every loading screen, level load / save / restore, exit; medians
+  over several runs and `--label` groups for alternating A/B runs). Hitches: `--env DRAKAN_FRAME_AUDIT=2` with
+  `harness/recipes/perf_walk.txt` (any level) or `perf_walk_surdana.txt`, then `perf/hitch_survey.py <run>` (frames
+  over 2x and 4x the median with the cause the log shows). `perf/evict_file_cache.py <files or folders>` drops files
+  from the Windows file cache for a cold run. Commands and caveats: `docs/journal/2026-11-12/perf-loading-hitches.md`.
 - Perf: `perf/perf_run.ps1` (timed run), `perf/perf_stab.ps1` (freeze check), `perf/perf_summary.py`,
   `perf/runtime_perf_summary.py`, `perf/pacing_summary.py`, `perf/hostprof*.py` (resolve `hostprof.csv` against a linker `.map`).
   `perf/software_frame_report.py <receipt.json>` checks a measured Linux/browser gameplay window
   for frame throughput, interval deadlines, unique texture uploads and game-clock speed. It exits
   nonzero for failed or incomplete evidence; a pass applies only to the recorded scene.
+  `perf/cpu_scene_bench.py --exe <exe> --scene <name> --variant A:KEY=VALUE --variant B --repeats 3` runs gameplay
+  scenes interleaved (A B A B ...) through `play_run.py` and prints, per variant, world fps, the frame interval
+  distribution and CPU milliseconds per world frame (EE thread, VU1 worker, all others); `--summarise <folder>` prints
+  the tables of an earlier run again (`docs/reference/perf.md`, "CPU side of a gameplay frame").
+  `perf/gs_replay_ab.py --replay <gsr_replay.exe> --capture <gscap.bin> --a KEY=VALUE [--a-replay <older exe>]`
+  replays a recorded GS stream (`PS2X_GS_CAPTURE`) through the renderer alone, alternating two environments or two
+  builds, and prints renderer thread CPU per frame, counters and whether every hashed frame is the same picture
+  (`docs/reference/perf.md`, "Render target refreshes").
 
 ## Notes
 
@@ -55,7 +69,7 @@ either.
   `pacing_summary.py` summarises pacing logs privately; `frame_rate_report.py` compares two harness runs. All four parse
   overlapping `worldUpdates`/vblank counters.
 - `stab_matrix.sh` (the first matrix runner) is archived; `stab_matrix2.sh` supersedes it (per-boot verdicts, slot isolation).
-- Machine-local layout assumed by the harnesses: `iso/SCES_500.06`, saves under `iso/mc0`, dev trees in `build/recomp_*`.
+- Machine-local layout assumed by the harnesses: `iso/SCES_500.06`, saves under `iso/mc0`, dev trees in `build/recomp_*`. The game's card is `<folder of the exe>/mc0` (not the ELF's folder any more); a run without `DRAKAN_MEMCARD_DIR` copies the save folders that card lacks from `<elf dir>/mc0`.
 
 ### Disc settings and camera checks
 

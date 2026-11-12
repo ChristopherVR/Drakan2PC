@@ -247,7 +247,11 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     }
     const uint32_t needH = (uint32_t)std::max(1, std::min(sy1 + 1, 2048));
     RT* rt = getRT(fbp, fbw, fpsm, needH);
-    syncRT(*rt);
+    if (lazySyncTarget(*rt))
+        syncRows(*rt, rt_sync::drawRows((uint32_t)std::max(sy0, 0), (uint32_t)std::max(sy1, 0), rt->dirty, rt->dy0,
+                                        rt->dy1, rt->pageH(), (uint32_t)rt->rowStamp.size()));
+    else
+        syncRT(*rt);
     if (gridCapture.open && !gridCapture.rt && rt->w >= 480 && rt->h >= 320)
         gridCaptureStart(*rt); // the first display draw of a captured grid: save what it will cover
     // Native EndWorld precedes the final CPU-clipped water packet drain.
@@ -753,6 +757,9 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
             k.spriteBounds[3] = b.v1;
         }
     }
+    // Terrain layers (terrain_detail.h): world-space detail and the side projection of steep faces. Adds nothing
+    // unless a terrain setting is on.
+    k.a[0] |= prepareTerrain(s, v, count, haveTex, haveTex && tb.isRT, *rt, zmsk, dsx, dsy, k);
     bool drawMotion;
     {
         CpuProfile::Scope motionProfile(cpuProfile, CpuProfile::DrawObjectMotion);
@@ -1176,6 +1183,13 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     ctx->PSSetShaderResources(0, 2, srvs);
     ID3D11SamplerState* smps[2] = {smpPt.Get(), smpLin.Get()};
     ctx->PSSetSamplers(0, 2, smps);
+    // Material detail (material_detail.h): binds its own pixel shader variant for the draws that take it. Does
+    // nothing unless the setting is on and the bound HD texture has a material map.
+    const bool materialDraw = haveTex && tb.materialSrv &&
+                              prepareMaterial(s, tb.materialSrv, tb.materialClass, haveTex, tb.isRT, *rt,
+                                              zte && ztst >= 2, k.a[0], dsx, dsy, useHw);
+    ID3D11PixelShader* const colorShader =
+        materialDraw ? (useHw ? materialGpu.psHw.Get() : materialGpu.psSb.Get()) : (useHw ? psHw.Get() : psSb.Get());
     ctx->RSSetState(rast.Get());
     D3D11_VIEWPORT vp{0, 0, (float)rt->w * dsx, (float)rt->h * dsy, 0, 1};
     ctx->RSSetViewports(1, &vp);
@@ -1224,7 +1238,7 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
         const UINT zero = 0;
         ctx->IASetVertexBuffers(1, 1, &nullBuffer, &zero, &zero);
         ctx->VSSetShader(vs.Get(), nullptr, 0);
-        ctx->PSSetShader(useHw ? psHw.Get() : psSb.Get(), nullptr, 0);
+        ctx->PSSetShader(colorShader, nullptr, 0);
         // The next pass's setup() uploads its constants and blend/depth state.
     };
 
@@ -1242,40 +1256,15 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     ID3D11ShaderResourceView* nulls[2] = {nullptr, nullptr};
     ctx->PSSetShaderResources(0, 2, nulls);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    if (terrainGpu.timingOpen)
+        endTerrainTiming(); // GSR_TERRAIN_GPU_TIMING
 
     st.drawCalls++;
-    static const bool mirrorSolid = [] {
-        const char* value = std::getenv("GSR_RB_SOLID");
-        return !value || value[0] != '0';
-    }();
-    // Only mirror a clean scratch target: existing GPU-only pixels, world
-    // resolves, transformed HUD geometry and in-flight uploads keep readback.
-    // syncRT does not upload wrapped allocation rows, so exclude those too.
-    auto mirrored = mirrorSolid && !rt->dirty && !uploadActive && rt->w <= 128 && !rt->wstate && !rt->neuralState &&
-                            !rt->temporalEpoch && !rt->surfaceSubmittedEpoch && !rt->neuralOutputEpoch &&
-                            uint64_t(rt->base()) + uint64_t(rt->fbw) * 32 * (rt->h / rt->pageH()) <= kVramBlocks &&
-                            dsx == scale && dsy == scale && k.h[0] == 0 && k.h[1] == 0 && writeMask == 15
-                        ? solidMirrors(s, v, count, haveTex, rt->w, rt->h)
-                        : std::vector<SolidMirror>{};
-    if (!mirrored.empty()) {
-        uint32_t first = ~0u, last = 0;
-        for (const auto& m : mirrored) {
-            uint32_t lo, hi;
-            spanBlocks(PSM_CT32, rt->base(), rt->fbw, m.x, m.y, m.w, m.h, lo, hi);
-            first = std::min(first, lo);
-            last = std::max(last, hi);
-        }
-        for (const auto& other : rts) {
-            if (other.get() == rt || !other->dirty)
-                continue;
-            uint32_t lo, hi;
-            rowSpan(*other, other->dy0, std::min(other->dy1, other->h), lo, hi);
-            if (hi >= kVramBlocks || (lo <= last && hi >= first)) {
-                mirrored.clear(); // another GPU owner must retain its normal coherence ordering
-                break;
-            }
-        }
-    }
+    // The mirror rule and its memory writes are shared with the WebGPU backend (gs_solid_mirror.h).
+    const auto mirrored = planSolidMirror(
+        s, v, count, haveTex, *rt, uploadActive,
+        dsx == scale && dsy == scale && k.h[0] == 0 && k.h[1] == 0 && writeMask == 15, rts,
+        [&](const RT& other, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) { rowSpan(other, y0, y1, lo, hi); });
     if (writeMask) {
         ++rt->writes;
         rt->drawFrame = frame;
@@ -1290,16 +1279,7 @@ void D3D11Backend::Impl::draw(const GsDrawState& s, const ClutBuf& clut, const D
     }
     rt->copyValid = false;
     if (!mirrored.empty()) {
-        for (const auto& m : mirrored) {
-            for (uint32_t y = m.y; y < m.y + m.h; ++y)
-                for (uint32_t x = m.x; x < m.x + m.w; ++x)
-                    mem.write(PSM_CT32, rt->base(), rt->fbw, x, y, m.rgba);
-            mem.touchRect(PSM_CT32, rt->base(), rt->fbw, m.x, m.y, m.w, m.h);
-            for (uint32_t row = m.y / rt->pageH(); row < (m.y + m.h + rt->pageH() - 1) / rt->pageH(); ++row)
-                rt->rowStamp[row] = mem.clock();
-        }
-        rt->seen = mem.clock();
-        rt->dirty = false;
+        applySolidMirror(mem, mirrored, *rt);
         static const bool verify = std::getenv("GSR_RB_VERIFY") != nullptr;
         if (verify)
             verifyRTBlocks(*rt, 0, ~0u, 0, ~0u);

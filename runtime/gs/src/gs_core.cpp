@@ -6,6 +6,7 @@
 #include "gs_image_upload.h"
 #include "title_backdrop.h"
 #include <gsr/scene_guide_camera.h>
+#include <gsr/scene_models.h>
 
 #include <algorithm>
 #include <memory>
@@ -160,6 +161,9 @@ struct Renderer::Impl {
     std::atomic<bool> hasPend{false};
     std::atomic<bool> waterRequested{false};
     std::atomic<bool> modelNeuralRequested{false}, modelSrRequested{false};
+    // The terrain's side projection reads the resident height field (terrain_detail.h); like the temporal consumers
+    // it needs no models that stand still.
+    std::atomic<bool> terrainGeometryRequested{false};
     bool vsyncReq = true;
     void applyPending() // mtx held
     {
@@ -368,14 +372,23 @@ struct Renderer::Impl {
         }
     }
 
+    // Object-motion notes that arrived while the batch was open (Renderer::noteObjectMotion).
+    motion::Deferred motionNotes;
+
     void flushBatch() {
         if (!batchActive || batch.empty()) {
             batch.clear();
             batchActive = false;
+            for (uint32_t i = 0; i < motionNotes.size(); ++i)
+                backend->noteObjectMotion(motionNotes.data()[i].scope);
+            motionNotes.clear();
             return;
         }
         applyMovieFrames();
+        if (!motionNotes.empty())
+            backend->setMotionNotes(motionNotes.data(), motionNotes.size());
         backend->draw(batchState, clut, batch.data(), (uint32_t)batch.size());
+        motionNotes.clear();
         batch.clear();
         batchActive = false;
     }
@@ -1571,6 +1584,7 @@ std::unique_ptr<Renderer> Renderer::create(const Config& cfg) {
     r->m_impl->cfg = cfg;
     r->m_impl->modelNeuralRequested.store(cfg.neuralRendering);
     r->m_impl->modelSrRequested.store(cfg.upscaleMode != 0);
+    r->m_impl->terrainGeometryRequested.store(cfg.terrainCliffs || runtimeFlags().terrainCliffs.value_or(false));
     if (runtimeFlags().seamFix)
         r->m_impl->cfg.fixSpriteSeams = *runtimeFlags().seamFix;
     r->m_impl->vsyncReq = cfg.vsync;
@@ -1586,6 +1600,9 @@ bool Renderer::valid() const {
 }
 std::string Renderer::adapterName() const {
     return m_impl->backend->adapterName();
+}
+bool Renderer::deviceLost(std::string* reason) const {
+    return m_impl->backend->deviceLost(reason);
 }
 Config::Api Renderer::api() const {
     return m_impl->backend->api();
@@ -1907,6 +1924,23 @@ void Renderer::setAnisotropic(uint32_t t) {
         p.aniso = t;
     });
 }
+void Renderer::setTerrainDetail(bool detail, bool cliffs, float strength) {
+    m_impl->terrainGeometryRequested.store(cliffs, std::memory_order_release);
+    m_impl->queue([&](LiveSettings& p) {
+        p.mask |= LiveSettings::F_TERRAIN;
+        p.terrainDetail = detail;
+        p.terrainCliffs = cliffs;
+        p.terrainStrength = strength;
+    });
+}
+void Renderer::setMaterialDetail(uint32_t mode, float strength, float specular) {
+    m_impl->queue([&](LiveSettings& p) {
+        p.mask |= LiveSettings::F_MATERIAL;
+        p.materialDetail = mode;
+        p.materialStrength = strength;
+        p.materialSpecular = specular;
+    });
+}
 void Renderer::setMipBias(float b, bool a) {
     m_impl->queue([&](LiveSettings& p) {
         p.mask |= LiveSettings::F_MIP;
@@ -2052,6 +2086,12 @@ void Renderer::noteSceneModels(std::shared_ptr<const SceneModels> models) {
 }
 void Renderer::noteObjectMotion(const ObjectMotionScope& scope) {
     std::lock_guard<std::recursive_mutex> lock(m_impl->mtx);
+    // The scope does not end the batch when the backend tracks motion per segment: objects that share every GS
+    // register stay one draw call (motion_segments.h).
+    if (m_impl->batchActive && !m_impl->batch.empty() && m_impl->backend->deferObjectMotion()) {
+        m_impl->motionNotes.add((uint32_t)m_impl->batch.size(), scope);
+        return;
+    }
     m_impl->flushBatch();
     m_impl->backend->noteObjectMotion(scope);
 }
@@ -2155,7 +2195,14 @@ bool Renderer::waterRenderingRequested() const {
 }
 bool Renderer::sceneModelsRequested() const {
     return waterRenderingRequested() || m_impl->modelNeuralRequested.load(std::memory_order_acquire) ||
-           m_impl->modelSrRequested.load(std::memory_order_acquire);
+           m_impl->modelSrRequested.load(std::memory_order_acquire) ||
+           m_impl->terrainGeometryRequested.load(std::memory_order_acquire);
+}
+bool Renderer::sceneModelsMotionOnly() const {
+    return gsr::sceneModelsMotionOnly(waterRenderingRequested(),
+                                      m_impl->modelNeuralRequested.load(std::memory_order_acquire) ||
+                                          m_impl->modelSrRequested.load(std::memory_order_acquire) ||
+                                          m_impl->terrainGeometryRequested.load(std::memory_order_acquire));
 }
 void Renderer::setWaterRendering(bool water, bool reflections, bool shadows, bool globalIllumination) {
     m_impl->waterRequested.store(water || shadows || reflections || globalIllumination, std::memory_order_release);

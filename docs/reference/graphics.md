@@ -355,3 +355,119 @@ textures are first uploaded to emulated local memory by the PATH3/IMAGE transfer
 5. Identify the FMV path (IPU `sceIpu*` in 0x1767a0-0x177828, PSS demux) - needs an MPEG-2 software decoder on PC.
 6. The SPR/DMA aliasing rules (0x70000000 vs 0x80000000, 0x2.../0x3... uncached aliases) must be in the memory model before
    any DMA is run.
+
+## 9. Renderer backends today
+
+The plan of section 7 was carried out: the VU1 / GIF front end drives `runtime/gs` (`gsr_core`), which renders through
+one of two hardware backends chosen at start-up from `[video] renderer` in `drakan.ini` (env `PS2X_GS`):
+
+| `renderer` | Backend | Graphics API | Platforms |
+| --- | --- | --- | --- |
+| `webgpu` (default) | `WgpuBackend` (`wgpu_*.cpp`) on `gsr::rhi` and wgpu-native | Vulkan first; Direct3D 12 on Windows or OpenGL on Linux when no Vulkan adapter is usable | Windows, Linux, browser (the browser's own WebGPU) |
+| `vulkan` | the same backend, with the adapter search held to Vulkan (`gsr::Config::gpuApi`) | Vulkan; falls back to the `webgpu` behaviour with a `[gsr-webgpu] Vulkan is not available (...)` line | Windows, Linux |
+| `d3d11` | `D3D11Backend` (`d3d11_*.cpp`) | Direct3D 11 (D3D12 interop for DXR and neural rendering) | Windows |
+| `sw` | the software GS (reference) | none | all |
+
+`d3d12` and `opengl` name the other two wgpu-native APIs for diagnosis (ini / env only, not in PC Settings).
+`gsr/renderer_choice.h` maps the names; `[gpu] device: <adapter> via <API>, ..., driver <text>` in the log is what the
+adapter itself reported. There is no hand-written Vulkan backend: Vulkan is reached through wgpu-native. Rules both
+backends follow live in backend-neutral headers with their own tests (`gs_solid_mirror.h`, `rt_sync_rows.h`,
+`rt_local_copy.h`, `rt_upload_runs.h`, `rt_texture_source.h`); a backend file should only hold API calls, and a new
+rule goes into such a header first. A lost graphics device ends the session in order (`gsr::Renderer::deviceLost`,
+`gsr/renderer_session.h`). DLSS, DLSS ray
+reconstruction and hardware ray queries need a raw D3D or Vulkan device, which `webgpu.h` does not expose, so they stay
+on `d3d11`; the feature matrix and measurements are in
+[vulkan-backend.md](../journal/2026-11-12/vulkan-backend.md).
+
+## 10. Model detail: LOD and draw distance factors
+
+The engine's model budgets are numbers compared in four guest functions, and the port scales them without touching
+code or data (`ps2xRuntime/src/lib/drakan_model_detail.cpp`, rules in `runtime/world/include/world/ModelDetail.h`,
+PAL addresses only):
+
+| Guest function | Compares | Port setting |
+| --- | --- | --- |
+| `0x102c90` LOD selector of skinned models (a0 controller, a1 model, f12 squared camera distance; table at model `+0xbc`, 16 bytes per LOD, squared distances; hysteresis 2^20) | f12 with the table | `[video] lod_distance` divides f12 by factor squared; a LOD that uses materials LOD 0 does not use is never reached above 1 |
+| `0x18b760` near / far model of static objects (model `+0xb4`, `+0xb8`) | f12 with one squared distance | same factor |
+| `0x18ba28` draw-distance test (a0 object): hidden when the camera is beyond `min(object +0xf8, level view distance * 2048) + radius`; flag 0x200 (fade) beyond 0.75 of it | object `+0xf8` | `[video] draw_distance` multiplies `+0xf8` for the call |
+| `0x189b38` render method (passes `+0xf8` to the VU1 distance fade) | object `+0xf8` | same factor, for the call |
+
+Object `+0xf8` comes from the model's 0x0200 float (`shading & 0x20000`), from `radius * 70.71` (`0x17f8d8`) or from a
+setter (`0x17d2c8`); the mode is in object `+4` bits 0x30000000 and 0x5f0ac723 means no limit. Only skinned models
+have LOD tables (57 on the PAL disc). Both renderers draw what VU1 emits, so the settings need no backend code.
+Numbers, pictures and what is not established: [gfx-models](../journal/2026-11-12/gfx-models.md).
+
+## Material detail: per-pixel relief on the GS path (2026-11-12)
+
+What a GS draw carries: screen-space vertices (x, y, z, fog), one vertex colour (the game's lighting, baked or summed
+by VU1), ST and Q, one texture, the blend / test state. No normal, tangent, world position or light. The engine's
+world camera (`SceneGuideCamera`) is published separately, and with DLSS or a ray effect on the lighting snapshot
+(`SceneLighting`: the sun vector, colour and ambient of the terrain layer under the eye, read from the layer record at
+`+0x124`, `+0x130`, `+0x13c`, plus its point lights).
+
+That is enough for a per-pixel surface frame without touching the vertex stream (`gs_material.inc`): Q is 1 / w and
+linear in screen space, so the view-space position of a pixel is `ray(pixel) / Q`; its screen derivatives give the
+face normal, and with the UV derivatives the directions of u and v on the surface. `material_detail` uses the frame to
+shade the relief of a texture's material map (`hd-textures.md` 12) from the sun, as a factor on the texel before the
+vertex colour and fog. The flat-normal term is left out, so nothing is lit twice: the vertex colour keeps the scene
+lighting, the factor only moves light between the slopes inside a texture. The normal is per face (no smoothing across
+triangles), which is exact for the detail term because it only uses the tangent directions.
+
+Split: `runtime/gs/src/material_detail.h` holds the table, the draw rule, the constants, the packed texel and a CPU
+mirror of the shader (no graphics API; `gsr_test_material_detail`); `d3d11_material.cpp` holds the Direct3D 11 objects
+and the per-draw binding. The material pixel shader is a second variant of `PSMain` (`MATERIAL` defined), bound only
+for draws that take it: with the setting off the pipeline is the one without the feature. Constant buffer b4, map t3,
+sampler s3 (the terrain detail uses b3 / t2 / s2). Near terrain is drawn from the game's run-time splat composites,
+which have no pack image and therefore no material map; measurements, pictures and limits:
+[gfx-materials](../journal/2026-11-12/gfx-materials.md).
+
+## Terrain detail: world-space detail and side projection on the GS path (2026-11-12)
+
+Two player settings for the height-field terrain (ground, hillsides, mountains), both exact no-ops when off:
+`terrain_detail` (default on, with `terrain_detail_strength`) and `terrain_cliffs` (default off: it changes the look
+of steep faces). Direct3D 11 only so far. Facts, pictures, cost and limits:
+[gfx-terrain](../journal/2026-11-12/gfx-terrain.md).
+
+**How terrain reaches the renderer.** Every chunk of a terrain layer (up to 12 x 12 cells of 2048 units) is drawn
+through VU1 as perspective textured triangles, once per texture, with the blend weight in the vertex alpha: the
+group's far colour map (256 px, 4 texels per cell, drawn at every distance as the base), a run-time composite of the
+chunk's layers (32 bit, 128 px over 2 or 4 cells, i.e. 64 or 32 texels per cell; in the measured Surdana frame from
+about 5000 units outwards) and, near the camera, the ground tiles themselves (8 bit, 128 or 256 px per cell). All of
+these passes share one GS state: `ALPHA` 0x44, alpha test "greater than 0", depth test GEQUAL with depth writes,
+`MODULATE`, both axes repeating. `terrain::classify` (`runtime/gs/src/terrain_detail.h`) tests exactly that;
+`GSR_TERRAIN_AUDIT=1` checks it against the geometry (terrain vertices lie on the 2048 unit grid). Vertex colours carry
+the baked lighting, the fog value comes per vertex, and nothing in the stream says "terrain" or carries a normal or a
+world position.
+
+**World position per pixel.** The vertex Q is 1 / clip w at full float precision and is linear in screen space, so a
+pixel's camera-relative world position follows from its pixel position, Q and the engine camera the host publishes
+(`SceneGuideCamera`): `rel = (1 / Q) * (d0 + px * dx + py * dy) + base` (`terrain::Unproject`, built through view
+space; going through the inverse of the whole world-to-clip matrix loses three digits). Render scale and the temporal
+upscaler's jitter are folded into the constants, so the position is the same under DLSS.
+
+**Terrain detail.** The layer colour is multiplied, before fog, by a factor from three octaves of one procedural
+tiling noise volume (64^3, two 8 bit channels, generated at start-up, about 600 KiB with mips; no art asset) sampled at
+the world position: periods 224, 1408 and 9728 units, each in its own rotated frame. The second channel is the noise
+one step towards a fixed light in the volume's frame, so the difference of the channels is a relief term at no extra
+fetch (three fetches per pixel and layer pass in all). The two finer octaves and the relief fade to 30 % between 3000
+and 17000 units from the camera; the slow octave (amplitudes 0.14, 0.06 and 0.05 of the colour, relief 0.30) breaks up the visible tile repeat and keeps its strength. A volume
+needs no projection and no normal, so the detail cannot stretch on a cliff or show a seam at a triangle, cell, chunk
+or layer border, and every splat pass of a pixel gets the same factor, so the blend of the layers is the original
+blend times that factor. The mean of both channels is mid grey at every mip level: far terrain converges to the
+picture without detail. Pixels with vertex alpha 0 (no weight, dropped by the alpha test) skip the work.
+
+**Cliff textures.** On steep faces the layer texture is sampled from the side (world height against x or z, at the
+density of the mapping from above) instead of from above, where one texel covers `1 / normal.y` texels of slope.
+The weight comes from the normal of the height field itself, not of the drawn triangle (triangles are 4 m wide and a
+per-triangle weight shows every edge): `terrain::buildNormalGrid` turns the resident height field the ray effects
+already capture into a grid of vertex normals (up to four stacked layers per grid vertex), uploaded as a float
+texture array once per level, and the shader interpolates it at the pixel. The side projection starts at a slope of
+50 degrees and is complete at 66 degrees. Textures with a tile period of 2048 * 2^n units up to 8 cells take part,
+which includes the run-time composite: on a steep face the side projection shows another part of that composite, so
+patches of grass and rock sit elsewhere than in the original picture. That is why the setting is off by default. The
+far colour map stays mapped from above.
+
+**Shader and bindings.** `gs_terrain.inc` is included into `kHlslMain`; the terrain code runs behind two pixel flag
+bits (`PF_TERRAIN`, `PF_TERRAIN_SIDE`) that `D3D11Backend::Impl::prepareTerrain` (`d3d11_terrain.cpp`) sets per draw.
+Constant buffer b3, noise volume t2, normal grid t4, sampler s2. The texture is sampled in one loop over up to three
+projections; a draw without the side flag runs one iteration with weight 1.

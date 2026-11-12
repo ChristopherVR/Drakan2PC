@@ -26,8 +26,11 @@ D3D11Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cf
     drawLogLast = f.drawLogLast;
 }
 
-bool D3D11Backend::Impl::compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out) {
-    D3D_SHADER_MACRO macros[] = {{"HW_BLEND", defines}, {nullptr, nullptr}};
+bool D3D11Backend::Impl::compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out,
+                                 bool material) {
+    // MATERIAL adds the material detail variant of the pixel shader (gs_material.inc); without it the source is
+    // the one every other draw uses.
+    D3D_SHADER_MACRO macros[] = {{"HW_BLEND", defines}, {material ? "MATERIAL" : nullptr, "1"}, {nullptr, nullptr}};
     ComPtr<ID3DBlob> err;
     HRESULT hr = shader_compile::compile(kHlslMain, std::strlen(kHlslMain), "gs_shaders", macros, entry, target,
                                          D3DCOMPILE_OPTIMIZATION_LEVEL3, &out, &err);
@@ -362,6 +365,7 @@ void D3D11Backend::Impl::startPrewarm() {
         nr::guides::prewarm(device);
         NativeReadback::prewarm(device);
         PartialUploadGpu::prewarm(device);
+        TargetUploadGpu::prewarm(device);
         prewarmMovieShader(device);
         prewarmBackdropShader(device);
         std::fprintf(stderr, "[gsr-shader] background prewarm done in %.0f ms\n",
@@ -599,6 +603,12 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
         cfg.deinterlace = std::min(ls.deinterlace, 2u);
     if (ls.mask & L::F_SHARP)
         cfg.sharpPresent = ls.sharp;
+    if (ls.mask & L::F_TERRAIN) {
+        cfg.terrainDetail = ls.terrainDetail;
+        cfg.terrainCliffs = ls.terrainCliffs;
+        cfg.terrainDetailStrength = ls.terrainStrength;
+        initTerrain();
+    }
     if (ls.mask & L::F_ANISO) {
         cfg.anisotropic = std::min(ls.aniso, 16u);
         aniso = cfg.anisotropic;
@@ -630,6 +640,17 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
         cfg.textureDump = texDump;
         rescan = true;
         flush = true;
+    }
+    if (ls.mask & L::F_MATERIAL) {
+        const material::Mode before = materialMode;
+        cfg.materialDetail = std::min(ls.materialDetail, 2u);
+        cfg.materialDetailStrength = ls.materialStrength;
+        cfg.materialSpecular = ls.materialSpecular;
+        initMaterial();
+        if (materialMode != before) { // other classes, or maps to load / drop: decode the textures again
+            rescan = true;
+            flush = true;
+        }
     }
     if (ls.mask & L::F_NATIVE_MENU) {
         nativeMenu = ls.nativeMenu;

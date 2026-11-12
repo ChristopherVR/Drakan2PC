@@ -33,6 +33,8 @@ struct HostCaps {
     bool anisotropic = false;                        // gs owner: anisotropic
     bool mipBias = false;                            // gs owner: mip_bias
     bool hdTextures = false;                         // hle override layer: hd_textures
+    bool terrainDetail = false; // gs owner: terrain_detail / terrain_cliffs / terrain_detail_strength (Direct3D 11)
+    bool materialDetail = false; // gs owner: material_detail / _strength / material_specular (Direct3D 11)
     bool textureDump = false;
     bool languageSelect = false; // language tree switch (always needs a restart)
     bool audioDeviceSelect = true;
@@ -49,6 +51,7 @@ struct HostCaps {
     std::string modernWaterStatus;
     bool polyNearClip = false;   // polygon near-plane clip hook installed (PAL addresses): poly_near_clip
     bool foliageWind = false;    // living foliage hook installed (PAL addresses): foliage_wind / foliage_wind_strength
+    bool modelDetail = false;    // model detail hooks installed (PAL addresses): lod_distance / draw_distance
     bool rendererChoice = false; // the build has both GS renderers (Windows: WebGPU and Direct3D 11): video.renderer
     std::string rayTracingStatus;
     std::vector<std::string> textureUpscaleFilters; // e.g. {"default","bicubic","xbrz"}
