@@ -1,4 +1,5 @@
 // Unit tests with a fake guest. Plain asserts, no framework. Exit code != 0 on failure.
+#include "input/CameraCarry.h"
 #include "input/DrakanInput.h"
 #include <cmath>
 #include <cstdio>
@@ -3034,6 +3035,82 @@ static void testFreeMouseCombat() {
     CHECK(!m.freeCombatActive());
 }
 
+// Issue 6 item 1: a turn carries the camera round Rynn only as far out as the native camera target; the travel lag
+// keeps its place, so a quick turn at the head of a staircase cannot swing it through a wall (input/CameraCarry.h).
+static void testCameraTravelLag() {
+    // Policy. Rynn's pivot at the origin, the native target 1000 units behind her (-x), the camera trailing it by a
+    // further 600 units along the way she came.
+    const float pivot[3] = {0, 240, 0}, target[3] = {-1000, 300, 0}, camera[3] = {-1600, 300, 0};
+    float turning[3], lag[3];
+    CHECK(splitTravelLag(true, 1, camera, target, pivot, turning, lag));
+    NEAR(turning[0], -1000.0, 1e-6);
+    NEAR(turning[1], 60.0, 1e-6);
+    NEAR(lag[0], -600.0, 1e-6);
+    NEAR(lag[1], 0.0, 1e-6);
+    CHECK(!splitTravelLag(false, 1, camera, target, pivot, turning, lag)); // [mouse] camera_lag_in_place = 0
+    CHECK(!splitTravelLag(true, 0, camera, target, pivot, turning, lag));  // only the tick before counts
+    CHECK(!splitTravelLag(true, 2, camera, target, pivot, turning, lag));
+    CHECK(!splitTravelLag(true, 105, camera, target, pivot, turning, lag)); // never reported
+    const float farTarget[3] = {270000, 200000, 260000};
+    CHECK(!splitTravelLag(true, 1, camera, farTarget, pivot, turning, lag)); // she was placed elsewhere since
+    const float bad[3] = {0, std::numeric_limits<float>::quiet_NaN(), 0};
+    CHECK(!splitTravelLag(true, 1, camera, bad, pivot, turning, lag));
+    CHECK(!splitTravelLag(true, 1, bad, target, pivot, turning, lag));
+
+    // Module, the staircase case: she turns 90 degrees in one tick.
+    const auto run = [&](bool lagInPlace, bool report, float& x, float& z) {
+        Config c = Config::defaults();
+        CHECK(c.cameraLagInPlace);
+        c.cameraLagInPlace = lagInPlace;
+        InputModule m;
+        m.initHeadless(c);
+        FakeGuest g;
+        setupCamera(g, 0, .6283f);
+        g.write32(CAM + 0x14c, 6);
+        g.write32(0x4fb730, 1);
+        g.writeF(CAM + 0x210, 2.0f);
+        g.writeF(CAM + 0x20c, 2.0f);
+        const uint32_t camObj = 0x790000, playerHandle = 0x780000;
+        g.write32(CAM + 0x148, camObj);
+        g.write32(0x600000 + 0x4b0, playerHandle);
+        g.write32(playerHandle + 0xfc, playerHandle + 0x100);
+        g.write32(playerHandle + 0x100 + 0x10, PLAYER);
+        g.writeF(0x600000 + 0x24, 1.0f / 60.0f);
+        g.writeF(HEAD + 0x20, 1.0f); // heading row 0 = +x
+        g.writeF(HEAD + 0x28, 0.0f);
+        g.writeF(camObj + 0x14, -1600.0f); // the camera: 1000 units behind her plus 600 units of travel lag
+        g.writeF(camObj + 0x18, 300.0f);
+        m.beginFrame(FrameInput{});
+        m.beforeCameraFollow(g, CAM); // records her heading
+        if (report)
+            m.noteCameraTarget(target); // what the glue reads inside the native tick
+        g.writeF(HEAD + 0x20, 0.0f);    // row 0 -> +z: the carry puts what turns with her at +z
+        g.writeF(HEAD + 0x28, 1.0f);
+        m.beginFrame(FrameInput{});
+        m.beforeCameraFollow(g, CAM);
+        x = g.readF(camObj + 0x14);
+        z = g.readF(camObj + 0x1c);
+        NEAR(g.readF(camObj + 0x18), 300.0, 1e-3); // a turn does not change the height
+        // No further turn: nothing moves, with or without a new report.
+        if (report)
+            m.noteCameraTarget(target);
+        m.beginFrame(FrameInput{});
+        m.beforeCameraFollow(g, CAM);
+        NEAR(g.readF(camObj + 0x14), x, 1e-2);
+        NEAR(g.readF(camObj + 0x1c), z, 1e-2);
+    };
+    float x = 0, z = 0;
+    run(true, true, x, z); // the target part swings to +z, the lag stays behind where she came from (-x)
+    NEAR(x, -600.0, 1e-2);
+    NEAR(z, 1000.0, 1e-2);
+    run(false, true, x, z); // switched off: the whole 1600 units swing round, as before
+    NEAR(x, 0.0, 1e-2);
+    NEAR(z, 1600.0, 1e-2);
+    run(true, false, x, z); // no target from the native tick (another disc, a tick without the tests): as before
+    NEAR(x, 0.0, 1e-2);
+    NEAR(z, 1600.0, 1e-2);
+}
+
 static void testCameraFollowAndPitchGain() {
     Config c = Config::defaults();
     NEAR(c.cameraFollow, 5.0, 1e-6);
@@ -3273,6 +3350,7 @@ int main() {
     }
     testRefreshAlignedMouseWindow();
     testCameraFollowAndPitchGain();
+    testCameraTravelLag();
     testFreeMouseCombat();
     testHeldMouseBowSight();
     testOotfMouseBowSight();

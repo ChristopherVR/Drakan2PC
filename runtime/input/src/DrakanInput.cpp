@@ -1,4 +1,5 @@
 #include "input/DrakanInput.h"
+#include "input/CameraCarry.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -786,6 +787,7 @@ void rotateAbout(float v[3], const float a[3], float angle) {
 
 void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     std::lock_guard<std::mutex> lock(m_);
+    ++cameraTick_;
     bowShoulderUndo(g, cam); // the native tick (and the orbit below) work on the unshifted camera
     const float rate = cfg_.cameraFollow;
     const uint32_t ctx = g.read32(cfg_.addrCtxPtr);
@@ -826,13 +828,23 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
         if (!(anchorY > -2000.0f && anchorY < 2000.0f))
             anchorY = 0;
         const float pivot[3] = {pos[0], pos[1] + anchorY, pos[2]};
-        float off[3], right[3], back[3];
+        float off[3], right[3], back[3], camera[3], lag[3] = {0, 0, 0};
         for (int i = 0; i < 3; ++i) {
-            off[i] = g.readF(obj + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i)) - pivot[i];
+            camera[i] = g.readF(obj + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i));
+            off[i] = camera[i] - pivot[i];
             right[i] = g.readF(obj + camera_.layout.transformRight +
                                12 * static_cast<uint32_t>(i)); // camera axes: columns of +0x20
             back[i] = g.readF(obj + camera_.layout.transformBack + 12 * static_cast<uint32_t>(i));
         }
+        // Only the part up to the native target of the last tick turns with her; the travel lag keeps its place
+        // (input/CameraCarry.h). Without that target the whole offset turns, as it always did.
+        float turning[3];
+        if (splitTravelLag(cfg_.cameraLagInPlace, cameraTick_ - cameraTargetTick_, camera, cameraTarget_, pivot,
+                           turning, lag))
+            for (int i = 0; i < 3; ++i)
+                off[i] = turning[i];
+        else
+            lag[0] = lag[1] = lag[2] = 0.0f;
         // Heading row 0 turns the opposite way to bearings atan2(dz, dx) (measured: heading -68.8 degrees moves the
         // settled camera bearing by +68.8 degrees); a positive turn about +y lowers atan2(dz, dx), so the heading
         // change is the angle about +y.
@@ -864,7 +876,8 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
             finite = finite && std::isfinite(v);
         if (finite)
             for (int i = 0; i < 3; ++i)
-                g.writeF(obj + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i), pivot[i] + off[i]);
+                g.writeF(obj + camera_.layout.transformPosition + 4 * static_cast<uint32_t>(i),
+                         pivot[i] + off[i] + lag[i]);
     }
     orbitValid_ = true;
     orbitCam_ = cam;
@@ -878,6 +891,13 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     }
     // The tick eases cam+0x210 towards the strength (and resets it after a collision push); rewrite it every tick.
     g.writeF(cam + camera_.layout.cameraFollowRate, rate);
+}
+
+void InputModule::noteCameraTarget(const float target[3]) {
+    std::lock_guard<std::mutex> lock(m_);
+    for (int i = 0; i < 3; ++i)
+        cameraTarget_[i] = target[i];
+    cameraTargetTick_ = cameraTick_;
 }
 
 bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t limitsAddr, bool dragon) {
@@ -1315,6 +1335,9 @@ void beforeCameraUpdateLook(IGuest& g, bool d, uint32_t p) {
 }
 void beforeCameraFollow(IGuest& g, uint32_t cam) {
     module().beforeCameraFollow(g, cam);
+}
+void noteCameraTarget(const float target[3]) {
+    module().noteCameraTarget(target);
 }
 void beforePadMgrUpdate(IGuest& g, bool d) {
     module().beforePadMgrUpdate(g, d);

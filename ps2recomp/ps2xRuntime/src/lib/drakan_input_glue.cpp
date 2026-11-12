@@ -109,6 +109,13 @@ constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x
 
 PS2Runtime::RecompiledFunction g_origPadMgrUpdate = nullptr, g_origCameraLook = nullptr;
 PS2Runtime::RecompiledFunction g_origCameraFollow = nullptr, g_origBowLaunch = nullptr;
+// The follow tick's own world tests (SCES-500.06) and the target they returned in the tick that is running (EE
+// thread).
+PS2Runtime::RecompiledFunction g_origCameraRays = nullptr, g_origCameraObjects = nullptr;
+constexpr uint32_t kCameraRays = 0x21ad48u, kCameraObjects = 0x21b280u;
+uint32_t g_followCamera = 0;
+bool g_followTarget = false;
+float g_followTargetAt[3] = {};
 PS2Runtime::RecompiledFunction g_origBowAttackReset = nullptr, g_origBowShotMotion = nullptr;
 PS2Runtime::RecompiledFunction g_origBowSightController = nullptr, g_origBowSightGuard = nullptr;
 PS2Runtime::RecompiledFunction g_origBowSightClose = nullptr, g_origBowSightFinalize = nullptr;
@@ -1069,8 +1076,39 @@ void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t cam = getRegU32(c, 4);
     RecompGuest g(rdram, c, rt);
     beforeCameraFollow(g, cam);
+    g_followCamera = cam; // the two hooks below read the target the tick's own world tests return
+    g_followTarget = false;
     g_origCameraFollow(rdram, c, rt);
-    afterCameraFollow(g, cam); // the over-the-shoulder view while the bow is aimed
+    g_followCamera = 0;
+    if (g_followTarget)
+        noteCameraTarget(g_followTargetAt); // the next tick's carry turns only the part up to it
+    afterCameraFollow(g, cam);              // the over-the-shoulder view while the bow is aimed
+}
+// The follow tick tests its target against the world twice: FUN_0021ad48 (a0 camera, a1 target in / out, a2 origin,
+// a3 = 1: rays to the near-plane corners), then FUN_0021b280 (same arguments, a3 = 0: the sweep against objects,
+// which finds the walls of an interior). The target as the first call receives it, replaced by what the second call
+// leaves in it, is the place the native camera eases to.
+void hookCameraRays(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == kCameraRays && g_followCamera && !g_followTarget && getRegU32(c, 4) == g_followCamera &&
+        getRegU32(c, 7) != 0) {
+        RecompGuest g(rdram, c, rt);
+        const uint32_t target = getRegU32(c, 5);
+        for (uint32_t i = 0; i < 3; ++i)
+            g_followTargetAt[i] = g.readF(target + 4 * i);
+        g_followTarget = true;
+    }
+    g_origCameraRays(rdram, c, rt);
+}
+void hookCameraObjects(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const bool tick = c->pc == kCameraObjects && g_followCamera && g_followTarget &&
+                      getRegU32(c, 4) == g_followCamera && getRegU32(c, 7) == 0;
+    const uint32_t target = getRegU32(c, 5), ra = getRegU32(c, 31);
+    g_origCameraObjects(rdram, c, rt);
+    if (tick && c->pc == ra) { // not a call that was suspended and resumed: then the first call's target stands
+        RecompGuest g(rdram, c, rt);
+        for (uint32_t i = 0; i < 3; ++i)
+            g_followTargetAt[i] = g.readF(target + 4 * i);
+    }
 }
 void hookBowSightController(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x311220u) {
@@ -1350,6 +1388,12 @@ void drakanInstallDirectMouse(PS2Runtime& rt) {
         rt.replaceFunction(guestAddress(kCameraUpdateLook), &hookCameraUpdateLook);
     if (!(skip & 32))
         rt.replaceFunction(guestAddress(kCameraFollowTick), &hookCameraFollow);
+    if (!(skip & 32) && build().identityAddresses && rt.hasFunction(kCameraRays) && rt.hasFunction(kCameraObjects)) {
+        g_origCameraRays = rt.lookupFunction(kCameraRays);
+        g_origCameraObjects = rt.lookupFunction(kCameraObjects);
+        rt.replaceFunction(kCameraRays, &hookCameraRays);
+        rt.replaceFunction(kCameraObjects, &hookCameraObjects);
+    }
     ilog("[input] %s: profile-driven direct mouse look active\n", build().id);
 }
 

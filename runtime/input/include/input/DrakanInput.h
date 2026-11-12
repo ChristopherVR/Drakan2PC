@@ -62,6 +62,9 @@ public:
     // cam+0x210 to `[mouse] camera_follow` (the native value goes back after ownership has been gone for a while).
     // Turns and looking up / down stay locked to her; her travel keeps the native easing and collision handling.
     void beforeCameraFollow(IGuest& g, uint32_t cam);
+    // The camera target the native tick's own world tests returned this tick (the glue reads it from inside
+    // FUN_0041f848). The carry of the next tick turns only the part up to it (input/CameraCarry.h).
+    void noteCameraTarget(const float target[3]);
     // After FUN_0041f848: while the bow is aimed with the held button, the camera is moved over Rynn's right shoulder
     // (src/BowAim.cpp). The shift only changes the presented view: beforeCameraFollow takes it back out before the
     // next native tick, so the native easing and collision always work on the unshifted position.
@@ -255,6 +258,10 @@ private:
     // Over-the-shoulder view while aiming (afterCameraFollow): the shift applied to the camera transform after the
     // last native tick, the position it produced (taken back out only if nothing else moved the camera since) and
     // the eased amount 0..1.
+    // The carry and the native target (input/CameraCarry.h): camera ticks counted, and the target the native tick
+    // reported with the tick it came in.
+    int cameraTick_ = 0, cameraTargetTick_ = -100;
+    float cameraTarget_[3] = {};
     uint32_t bowShiftCam_ = 0, bowShiftObj_ = 0;
     float bowShift_[3] = {}, bowShiftPos_[3] = {}, bowShiftAmount_ = 0;
     bool bowShiftApplied_ = false;
@@ -381,6 +388,7 @@ void beforeCameraUpdateLook(IGuest& g, bool dragonMode, uint32_t playerAddr = 0)
 void beforePadMgrUpdate(IGuest& g, bool dragon);
 void afterPadMgrUpdate(IGuest& g);
 void beforeCameraFollow(IGuest& g, uint32_t cam);
+void noteCameraTarget(const float target[3]);
 void afterCameraFollow(IGuest& g, uint32_t cam);
 void updateBowAim(IGuest& g);
 void beforeBowLaunch(IGuest& g, uint32_t bow);
