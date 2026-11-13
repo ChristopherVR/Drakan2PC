@@ -95,6 +95,15 @@ bound on the VU1 worker alone, so it was not changed. The frame queue is now the
 `[video] frame_queue` (default 0); a played session with it passes, but under GPU contention it made frames slower (up
 to 2.3 times in one pair), so it stays off. See [CPU side](../journal/2026-11-14/ootf-cpu-frame.md).
 
+**November 14 Ruined Village 60 fps (round 5):** the exact 60 was a snap to the guest vblank (a 16,667 us host timer):
+the game's flip worker only flips a handed-over frame when the next request or a vblank wakes it, and when the main thread
+blocks first (probe read-back, waiting for the present of that very frame) the vblank decides; with a natural frame a little
+under 16.7 ms the rate locked to it (round 4 sweep: 50 % of flip intervals at 16.67 ms with DLSS quality). With the current
+exe and `dist` pack the whole frame is faster (off 11.3 to 10.1 ms) and the start pose runs 68.6 / 95.9 fps (DLSS quality /
+off, quiet, 3 runs) on the unchanged path, so it no longer sits at 60. New switch `[video] flip_on_submit` (default 0) wakes
+the flip worker at the hand-over: no flip waits for a vblank, even intervals, Ruined Village 1 % low 23.1 to 17.3 ms, median
+unchanged, but Surdana 13 to 15 % slower, so it stays off. See [60 fps](../journal/2026-11-14/ootf-60fps.md).
+
 **November 6 localized installs (issue #3):** the converter now detects the PC install's language from Dragon.rrc, keys
 arenas, music, the intro, the Book and the first level on the level name ids instead of English folder and level names,
 keeps German Windows-1252 punctuation in converted text, writes ASCII titles the runtime accepts (`Höhle` -> `Hoehle`), and
