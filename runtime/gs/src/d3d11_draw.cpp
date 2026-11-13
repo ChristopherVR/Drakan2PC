@@ -294,9 +294,27 @@ void D3D11Backend::Impl::setPass(const PSConsts& k, const rhi::BlendState& blend
 void D3D11Backend::Impl::drawVertices(uint32_t count) {
     if (!vbMapped) // the vertices of a failed Map never reached the buffer
         return;
-    if (drawStateVerify)
-        verifyDrawState();
-    ctx.raw()->Draw(count, 0);
+    if (joinDraws.empty()) {
+        if (drawStateVerify)
+            verifyDrawState();
+        ctx.raw()->Draw(count, 0);
+    } else
+        drawJoinedSegments();
+}
+
+// A joined draw (gs_draw.inl, drawSegments): the segments in order, each with its texture in slot 0. The joined draw
+// blends in the fixed-function blender, so slot 1 (the destination copy) is empty.
+void D3D11Backend::Impl::drawJoinedSegments() {
+    ID3D11DeviceContext* const c = ctx.raw();
+    for (const auto& d : joinDraws) {
+        if (drawState.set(draw_state::Slot::Textures, draw_state::pair(word(d.texture), 0))) {
+            ID3D11ShaderResourceView* srvs[2] = {d.texture, nullptr};
+            c->PSSetShaderResources(0, 2, srvs);
+        }
+        if (drawStateVerify)
+            verifyDrawState();
+        c->Draw(d.count, d.first);
+    }
 }
 
 // The velocity pass of the colour pass just drawn, with the constants setPass uploaded for it. The final draw
@@ -326,9 +344,12 @@ void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi:
         c->VSSetShader(vsMotion.Get(), nullptr, 0);
     if (drawState.set(Slot::PixelShader, word(psMotion.Get())))
         c->PSSetShader(psMotion.Get(), nullptr, 0);
-    if (drawStateVerify)
-        verifyDrawState();
-    c->Draw(count, 0);
+    if (joinDraws.empty()) {
+        if (drawStateVerify)
+            verifyDrawState();
+        c->Draw(count, 0);
+    } else
+        drawJoinedSegments(); // the motion vertex stream is indexed like the colour one
     if (!restore)
         return;
     if (!drawState.enabled())

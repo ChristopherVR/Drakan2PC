@@ -318,6 +318,10 @@ int main(int argc, char** argv) {
         (unsigned long long)s.gifTags, (unsigned long long)s.vertices, (unsigned long long)s.drawCalls,
         (unsigned long long)s.textureDecodes, (unsigned long long)s.textureCacheHits, (unsigned long long)s.rtSamples,
         (unsigned long long)s.rtReadbacks);
+    if (s.joinedDraws || s.joinRefused)
+        std::printf("terrain batching: %llu joined draws of %llu passes, %llu refused\n",
+                    (unsigned long long)s.joinedDraws, (unsigned long long)s.joinedPasses,
+                    (unsigned long long)s.joinRefused);
     std::printf("texture upscale: %llu upscaled (%.1f ms total, %.2f ms each, %.1f MB), %llu replaced, %llu dumped, "
                 "cache %.1f MB\n",
                 (unsigned long long)s.texUpscaled, s.texUpscaleUs / 1000.0,

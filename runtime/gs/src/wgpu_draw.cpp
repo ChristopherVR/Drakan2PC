@@ -32,7 +32,15 @@ void WgpuBackend::Impl::setPass(const PSConsts& k, const rhi::BlendState& blend,
 }
 
 void WgpuBackend::Impl::drawVertices(uint32_t count) {
-    gpu->draw(drawVertexCopy.data(), count);
+    if (joinDraws.empty()) {
+        gpu->draw(drawVertexCopy.data(), count);
+        return;
+    }
+    // A joined draw (gs_draw.inl, drawSegments): the segments in order, each with its own texture.
+    for (const auto& d : joinDraws) {
+        gpu->setTexture(0, d.texture ? d.texture : dummy.get());
+        gpu->draw(drawVertexCopy.data() + d.first, d.count);
+    }
 }
 
 bool WgpuBackend::Impl::readTarget(RT& rt, uint32_t w, uint32_t h, Image& out, bool keepAlpha) {

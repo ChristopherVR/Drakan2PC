@@ -130,6 +130,11 @@ struct Config {
     // draw and keeps a draw's targets bound until something else needs the context (draw_state_cache.h). Same picture
     // either way. Env GSR_DRAW_STATE_CACHE=0|1 wins.
     bool drawStateCache = true;
+    // terrain_batching (drakan.ini [video]): consecutive textured draws that differ only in their texture (the ground
+    // passes of converted levels, one per texture of a small chunk) are kept in one batch and handed to the backend
+    // together, which draws them with one set of state and one texture switch per pass (gs_draw.inl, drawSegments).
+    // Same picture either way. Env GSR_TERRAIN_BATCHING=0|1 wins.
+    bool terrainBatching = false;
     // ---- material detail (drakan.ini [video]; runtime/gs/src/material_detail.h). 0 = the picture without it. ----
     uint32_t materialDetail = 0; // material_detail: 0 off, 1 hard surfaces (terrain, stone, wood, metal, generic),
                                  // 2 all classes. Needs <textureDir>/materials. Env GSR_MATERIAL_DETAIL=off|hard|all
@@ -169,6 +174,9 @@ struct Stats {
     // Bytes of pixel data the CPU sent to render targets to refresh them from GS memory (row refreshes and uploads
     // applied to a target), after any CPU side replication to the internal scale (Direct3D 11).
     uint64_t targetRefreshBytes = 0;
+    // terrain_batching: batches of passes that differed only in their texture, drawn as one (joinedDraws), the passes
+    // they held (joinedPasses), and the batches the backend drew pass by pass after all (joinRefused).
+    uint64_t joinedDraws = 0, joinedPasses = 0, joinRefused = 0;
 };
 
 // Result of Renderer::captureDisplay()

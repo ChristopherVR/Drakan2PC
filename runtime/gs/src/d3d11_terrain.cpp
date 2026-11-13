@@ -63,6 +63,10 @@ bool createTerrainGpu(ID3D11Device* dev, ComPtr<ID3D11Buffer>& cb, ComPtr<ID3D11
 }
 } // namespace
 
+bool D3D11Backend::Impl::terrainLayersActive() const {
+    return (terrainCfg.any() || runtimeFlags().terrainAudit || runtimeFlags().terrainGpuTiming) && !terrainGpu.failed;
+}
+
 uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool haveTex,
                                             bool texIsTarget, const RT& rt, bool depthMasked, float dsx, float dsy,
                                             PSConsts& k) {

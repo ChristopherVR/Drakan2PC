@@ -746,13 +746,14 @@ GsrBridge::~GsrBridge() {
             stderr,
             "[gsr] exit: frames=%llu gifPackets=%llu tags=%llu vertices=%llu draws=%llu texDecodes=%llu "
             "texRevalidated=%llu readbacks=%llu dirtyCleared=%llu skipped=%llu gpuCopies=%llu targetUploads=%llu "
-            "aliasedTextures=%llu l2h=%llu\n",
+            "aliasedTextures=%llu l2h=%llu joinedDraws=%llu joinedPasses=%llu joinRefused=%llu\n",
             (unsigned long long)m_impl->frames, (unsigned long long)s.gifPackets, (unsigned long long)s.gifTags,
             (unsigned long long)s.vertices, (unsigned long long)s.drawCalls, (unsigned long long)s.textureDecodes,
             (unsigned long long)s.textureRevalidated, (unsigned long long)s.rtReadbacks,
             (unsigned long long)s.rtDirtyCleared, (unsigned long long)s.rtReadbacksSkipped,
             (unsigned long long)s.rtGpuCopies, (unsigned long long)s.targetUploads,
-            (unsigned long long)s.aliasedTextures, (unsigned long long)s.transfersL2H);
+            (unsigned long long)s.aliasedTextures, (unsigned long long)s.transfersL2H,
+            (unsigned long long)s.joinedDraws, (unsigned long long)s.joinedPasses, (unsigned long long)s.joinRefused);
         m_impl->gs.reset();
     }
     drakan_win::setModalTick(nullptr, nullptr);
@@ -868,6 +869,7 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         cfg.terrainDetail = drakan_cfg::getBool("video", "terrain_detail", nullptr, false);
         cfg.terrainCliffs = drakan_cfg::getBool("video", "terrain_cliffs", nullptr, false);
         cfg.drawStateCache = drakan_cfg::getBool("video", "draw_state_cache", nullptr, true);
+        cfg.terrainBatching = drakan_cfg::getBool("video", "terrain_batching", nullptr, false);
         cfg.terrainDetailStrength =
             (float)std::clamp(drakan_cfg::getFloat("video", "terrain_detail_strength", nullptr, 1.0), 0.0, 2.0);
         {

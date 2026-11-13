@@ -54,6 +54,10 @@ bool WgpuBackend::deviceLost(std::string* reason) const {
 void WgpuBackend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     m_impl->draw(st, clut, v, count);
 }
+void WgpuBackend::drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v,
+                               uint32_t count) {
+    m_impl->drawSegments(segments, segmentCount, v, count);
+}
 void* WgpuBackend::beginPresentWait() {
     return nullptr;
 }

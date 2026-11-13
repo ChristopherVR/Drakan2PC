@@ -176,6 +176,10 @@ const Entry kEntries[] = {
      "1 = the Direct3D 11 renderer sets only the drawing state that changed since the previous draw (less work per "
      "draw, most with DLSS on ground made of many small pieces); 0 = every state set for every draw, as before. Same "
      "picture either way; needs a restart (env GSR_DRAW_STATE_CACHE)"},
+    {"video", "terrain_batching", "0",
+     "1 = ground passes that differ only in their texture are drawn together with one set of drawing state (less "
+     "work per frame on ground made of many small pieces); 0 = every pass drawn on its own, as before. Same picture "
+     "either way; needs a restart (env GSR_TERRAIN_BATCHING)"},
     {"video", "terrain_detail_strength", "1.00",
      "strength of the terrain detail, 0.25 .. 2 (env GSR_TERRAIN_STRENGTH)"},
     {"video", "terrain_distance", "1.0",

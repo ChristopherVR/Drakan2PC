@@ -313,6 +313,14 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
     return true;
 }
 
+// A joined draw (gs_draw.inl, drawSegments) is tracked as one batch: the same as its segments only while nothing is
+// tracked (no temporal world, or an open scope without object or mesh, which History::track refuses whatever the
+// vertices; its ordinals are never looked up).
+bool D3D11Backend::Impl::joinKeepsMotion() const {
+    const bool active = motionWorldOpen && (neuralEnabled || upMode);
+    return !active || !objectScope.objectId || !objectScope.meshId;
+}
+
 bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
                                              float sx, float sy) {
     const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;

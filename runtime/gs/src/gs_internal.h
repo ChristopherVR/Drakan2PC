@@ -99,6 +99,14 @@ struct ClutBuf {
     uint32_t serial = 0;
 };
 
+// One segment of a joined batch (draw_join.h): vertices [first, first + count) of the batch, drawn with `state` and
+// `clut`.
+struct DrawSegment {
+    uint32_t first = 0, count = 0;
+    const GsDrawState* state = nullptr;
+    const ClutBuf* clut = nullptr;
+};
+
 struct DisplayCircuit {
     bool enable = false;
     uint32_t fbp = 0, fbw = 0, psm = 0, dbx = 0, dby = 0;
@@ -201,6 +209,13 @@ public:
     // found at the frame boundaries) is latched exactly as before.
     std::atomic<bool> lostNow{false};
     virtual void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) = 0;
+    // A batch of consecutive draws that differ only in their texture (draw_join.h): `segments` in order over the
+    // `count` vertices at `v`. Never called with object-motion notes. The default draws them one by one.
+    virtual void drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v,
+                              uint32_t /*count*/) {
+        for (uint32_t i = 0; i < segmentCount; ++i)
+            draw(*segments[i].state, *segments[i].clut, v + segments[i].first, segments[i].count);
+    }
     // Object-motion notes inside a batch (motion_segments.h). A backend that returns true from deferObjectMotion
     // gets the notes of an open batch through setMotionNotes right before that batch's draw() (valid for that one
     // call, which must apply every one of them); otherwise the core ends the batch at each note as before.
@@ -297,6 +312,7 @@ public:
 
     // draw a triangle list
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
+    void drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v, uint32_t count);
     bool vertexPrograms(vpath::Fallback* why, bool batchPath = false) const;
     vpath::Capability vertexPathCapability() const;
     void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch);

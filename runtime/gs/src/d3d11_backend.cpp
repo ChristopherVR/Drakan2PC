@@ -92,6 +92,12 @@ void D3D11Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVe
     m_impl->pendingMotionNotes = nullptr;
     m_impl->pendingMotionNoteCount = 0;
 }
+void D3D11Backend::drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v,
+                                uint32_t count) {
+    m_impl->pendingMotionNotes = nullptr; // the core never joins a batch with object-motion notes
+    m_impl->pendingMotionNoteCount = 0;
+    m_impl->drawSegments(segments, segmentCount, v, count);
+}
 bool D3D11Backend::deferObjectMotion() const {
     static const bool enabled = [] {
         const char* value = std::getenv("GSR_MOTION_BATCH");

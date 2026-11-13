@@ -1,6 +1,7 @@
 // GS front end: GIF tag parsing, register file, vertex queue / primitive assembly, local memory transfers,
 // CLUT buffer, privileged registers. Draw calls are batched and handed to the D3D11 backend.
 #include "gs_internal.h"
+#include "draw_join.h"
 #include "vertex_program_draw.h"
 #include "cpu_profile.h"
 #include "runtime_flags.h"
@@ -227,6 +228,11 @@ struct Renderer::Impl {
     VertexBatch batch;
     GsDrawState batchState{};
     bool batchActive = false;
+    // [video] terrain_batching (draw_join.h): draws that differ only in their texture stay in the batch as segments.
+    bool joinOn = false;
+    draw_join::Segments joinSegments;
+    std::vector<DrawSegment> joinViews;
+    std::vector<motion::Note> joinNotes;
 
     // CLUT
     ClutBuf clut;
@@ -819,12 +825,50 @@ struct Renderer::Impl {
             return;
         }
         applyMovieFrames();
-        if (!motionNotes.empty())
-            backend->setMotionNotes(motionNotes.data(), motionNotes.size());
-        backend->draw(batchState, clut, batch.data(), (uint32_t)batch.size());
+        if (!joinSegments.empty())
+            drawJoined();
+        else {
+            if (!motionNotes.empty())
+                backend->setMotionNotes(motionNotes.data(), motionNotes.size());
+            backend->draw(batchState, clut, batch.data(), (uint32_t)batch.size());
+        }
         motionNotes.clear();
         batch.clear();
         batchActive = false;
+    }
+
+    // The open batch has segments (draw_join.h). Object-motion notes only arrive after the newest segment began (no
+    // segment is added while one is pending), so they belong to the last segment: then the segments are drawn one by
+    // one, exactly as without joining.
+    void drawJoined() {
+        joinSegments.views(clut, (uint32_t)batch.size(), joinViews);
+        joinSegments.clear();
+        const uint32_t n = (uint32_t)joinViews.size();
+        if (n > 1 && motionNotes.empty()) {
+            backend->drawSegments(joinViews.data(), n, batch.data(), (uint32_t)batch.size());
+            return;
+        }
+        for (uint32_t i = 0; i < n; ++i) {
+            const DrawSegment& seg = joinViews[i];
+            if (i + 1 == n && !motionNotes.empty()) {
+                joinNotes.assign(motionNotes.data(), motionNotes.data() + motionNotes.size());
+                for (auto& note : joinNotes)
+                    note.vertex = note.vertex > seg.first ? note.vertex - seg.first : 0;
+                backend->setMotionNotes(joinNotes.data(), (uint32_t)joinNotes.size());
+            }
+            backend->draw(*seg.state, *seg.clut, batch.data() + seg.first, seg.count);
+        }
+    }
+
+    // Whether the next primitive (state `next`) joins the open batch as a new segment instead of ending it.
+    bool joinNext(const GsDrawState& next) {
+        if (!joinOn || !batchActive || batch.empty() || programActive || !motionNotes.empty() || joinSegments.full() ||
+            !draw_join::onlyTextureDiffers(batchState, next))
+            return false;
+        joinSegments.open(batchState);
+        joinSegments.add((uint32_t)batch.size(), next);
+        batchState = next;
+        return true;
     }
 
     void signalVblank() {
@@ -952,8 +996,12 @@ struct Renderer::Impl {
             stateCachePrim = primType;
             stateIsBatch = batchActive && std::memcmp(&stateCache, &batchState, sizeof(stateCache)) == 0;
         }
-        if (batchActive && !stateIsBatch)
-            flushBatch();
+        if (batchActive && !stateIsBatch) {
+            if (joinNext(stateCache))
+                stateIsBatch = true;
+            else
+                flushBatch();
+        }
         if (batch.size() + 12 > kMaxBatchVerts)
             flushBatch();
         if (!batchActive) {
@@ -1281,7 +1329,6 @@ struct Renderer::Impl {
         }
         if (!load)
             return;
-        flushBatch();
         const uint32_t cpsm = (uint32_t)bitsOf(tex0, 51, 4);
         const uint32_t csm = (uint32_t)bitsOf(tex0, 55, 1);
         const uint32_t csa = (uint32_t)bitsOf(tex0, 56, 5);
@@ -1290,21 +1337,35 @@ struct Renderer::Impl {
         const uint32_t rpsm = is16 ? (cpsm == PSM_CT16S ? PSM_CT16S : PSM_CT16) : (cpsm == 1 ? PSM_CT24 : PSM_CT32);
         const uint32_t count = is8 ? 256 : 16;
         const uint32_t base = is8 ? 0 : csa * 16;
+        // the blocks the entries below are read from
+        uint32_t lo, hi;
+        if (csm == 0)
+            spanBlocks(rpsm, cbp, 1, 0, 0, is8 || is16 ? 16 : 8, is8 ? 16 : is16 ? 1 : 2, lo, hi);
+        else {
+            const uint32_t cbw = (uint32_t)bitsOf(texclut, 0, 6);
+            const uint32_t cou = (uint32_t)bitsOf(texclut, 6, 6);
+            const uint32_t cov = (uint32_t)bitsOf(texclut, 12, 10);
+            spanBlocks(rpsm, cbp, cbw ? cbw : 1, (cou * 16) & 2047, cov, count, 1, lo, hi);
+        }
+        // [video] terrain_batching: a palette load between passes that may join keeps the batch open; the passes drawn
+        // so far keep a copy of their palette (draw_join.h). Not when the palette lies where the batch draws (its
+        // read below would then have to see those draws).
+        bool keepBatch = false;
+        if (joinOn && batchActive && !batch.empty() && !programActive && !joinSegments.full() &&
+            draw_join::texturedTriangles(batchState)) {
+            uint32_t first, last;
+            draw_join::targetBlocks(batchState, first, last);
+            keepBatch = !draw_join::overlaps(lo, hi, first, last);
+        }
+        if (keepBatch) {
+            joinSegments.open(batchState);
+            joinSegments.keepPalette(clut);
+        } else
+            flushBatch();
 
         // make sure GPU-drawn data is visible in memory: exactly the blocks the entries below are read from (a fixed
         // 64-block range reached into the HUD orb target next to the HUD palette and read it back every frame)
-        {
-            uint32_t lo, hi;
-            if (csm == 0)
-                spanBlocks(rpsm, cbp, 1, 0, 0, is8 || is16 ? 16 : 8, is8 ? 16 : is16 ? 1 : 2, lo, hi);
-            else {
-                const uint32_t cbw = (uint32_t)bitsOf(texclut, 0, 6);
-                const uint32_t cou = (uint32_t)bitsOf(texclut, 6, 6);
-                const uint32_t cov = (uint32_t)bitsOf(texclut, 12, 10);
-                spanBlocks(rpsm, cbp, cbw ? cbw : 1, (cou * 16) & 2047, cov, count, 1, lo, hi);
-            }
-            backend->flushForRead(lo, hi);
-        }
+        backend->flushForRead(lo, hi);
 
         clut.is16 = is16;
         clut.cpsm = rpsm;
@@ -2041,6 +2102,7 @@ std::unique_ptr<Renderer> Renderer::create(const Config& cfg) {
     std::unique_ptr<Renderer> r(new Renderer());
     r->m_impl = std::make_unique<Impl>();
     r->m_impl->cfg = cfg;
+    r->m_impl->joinOn = runtimeFlags().terrainBatching.value_or(cfg.terrainBatching);
     r->m_impl->modelNeuralRequested.store(cfg.neuralRendering);
     r->m_impl->modelSrRequested.store(cfg.upscaleMode != 0);
     r->m_impl->terrainGeometryRequested.store(cfg.terrainCliffs || runtimeFlags().terrainCliffs.value_or(false));

@@ -139,6 +139,7 @@ public:
     bool valid() const override;
     std::string adapterName() const override;
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
+    void drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
     bool deviceLost(std::string* reason = nullptr) const override;
@@ -592,6 +593,19 @@ struct WgpuBackend::Impl {
     void setUpscale(uint32_t mode, uint32_t preset, float sharp);
     void noteVuUpload(uint32_t a, uint32_t n, const float* rows);
     void draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
+    // [video] terrain_batching (draw_join.h, gs_draw.inl): the segments of a joined batch, set by drawSegments around
+    // its draw(); joinDraws (the kept segments with their textures) replace the one draw of drawVertices and
+    // drawVelocity while set.
+    void drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v, uint32_t count);
+    bool resolveJoined(TexBind& tb);
+    const DrawSegment* joinSegments = nullptr;
+    uint32_t joinCount = 0;
+    bool joinRefused = false;
+    std::vector<uint8_t> joinKept;
+    std::vector<TexBind> joinTextures;
+    std::vector<JoinDraw<GpuView>> joinDraws;
+    bool terrainLayersActive() const; // behind kCaps.terrainDetail: declared, never called
+    bool joinKeepsMotion() const;     // behind kCaps.motionVectors: declared, never called
 
     // ---------------------------------------------------------------------------------------------
     // display

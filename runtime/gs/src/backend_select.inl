@@ -86,6 +86,11 @@ void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex*
         return;
     m_api->draw(st, clut, v, count);
 }
+void Backend::drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v, uint32_t count) {
+    if (stopped())
+        return;
+    m_api->drawSegments(segments, segmentCount, v, count);
+}
 bool Backend::vertexPrograms(vpath::Fallback* why, bool batchPath) const {
     if (stoppedNow()) {
         if (why)

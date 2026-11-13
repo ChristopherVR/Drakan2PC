@@ -182,6 +182,125 @@ void GSR_IMPL::printLodStat() {
                  100 * lodAcc.histD[6] / A, 100 * lodAcc.histD[7] / A);
 }
 
+namespace draw_blend {
+// The fixed-function form of the GS blend ALPHA (ABE set): op, source and destination factor (the second colour
+// output's alpha is the GS coefficient). False when the blend must run in the shader.
+inline bool fixedForm(const GsDrawState& s, rhi::BlendOp& bop, rhi::BlendFactor& sf, rhi::BlendFactor& df) {
+    const uint32_t A = (uint32_t)bitsOf(s.alpha, 0, 2), B = (uint32_t)bitsOf(s.alpha, 2, 2),
+                   C = (uint32_t)bitsOf(s.alpha, 4, 2), D = (uint32_t)bitsOf(s.alpha, 6, 2);
+    const bool cok = (C != 1);
+    const rhi::BlendFactor Cf = rhi::BlendFactor::Src1Alpha, iCf = rhi::BlendFactor::OneMinusSrc1Alpha;
+    bool mapped = true;
+    if (A == 0 && B == 1 && D == 1) {
+        sf = Cf;
+        df = iCf;
+    } else if (A == 0 && B == 2 && D == 1) {
+        sf = Cf;
+        df = rhi::BlendFactor::One;
+    } else if (A == 1 && B == 0 && D == 0) {
+        sf = iCf;
+        df = Cf;
+    } else if (A == 0 && B == 1 && D == 2) {
+        bop = rhi::BlendOp::Subtract;
+        sf = Cf;
+        df = Cf;
+    } else if (A == 2 && B == 0 && D == 1) {
+        bop = rhi::BlendOp::ReverseSubtract;
+        sf = Cf;
+        df = rhi::BlendFactor::One;
+    } else if (A == 1 && B == 2 && D == 0) {
+        sf = rhi::BlendFactor::One;
+        df = Cf;
+    } else if (A == 0 && B == 2 && D == 2) {
+        sf = Cf;
+        df = rhi::BlendFactor::Zero;
+    } else if (A == 1 && B == 2 && D == 2) {
+        sf = rhi::BlendFactor::Zero;
+        df = Cf;
+    } else
+        mapped = false;
+    // With COLCLAMP = 0 the GS wraps the blend result modulo 256. For the two lerp forms (Cs-Cd)*As+Cd and
+    // (Cd-Cs)*As+Cs the result stays inside [min(Cs,Cd), max(Cs,Cd)] whenever As <= 0x80 (always the case for
+    // vertex/texture alpha in this game), so the fixed-function blender is exact there and, unlike the shader
+    // path with its pre-draw destination copy, handles overlapping primitives of one draw correctly. The game
+    // never writes COLCLAMP (power-on value 0), so without this nearly every alpha blended draw took the slow
+    // path.
+    const bool lerpForm = (A == 0 && B == 1 && D == 1) || (A == 1 && B == 0 && D == 0);
+    return cok && mapped && !(s.flags & DF_PABE) && ((s.flags & DF_COLCLAMP) || lerpForm);
+}
+} // namespace draw_blend
+
+// [video] terrain_batching (draw_join.h): the segments of a batch whose draws differ only in their texture. Drawn as
+// one draw (one classification, binding and constants upload, the texture switched between the segments in their
+// order) when that gives the same picture as one draw per segment, else one draw per segment. What makes one draw
+// the same: the blend runs in the fixed-function blender (it blends the primitives of a draw in their order; the
+// shader blend reads a copy of the target taken before the draw), no alpha-failure pass (it would run after all the
+// segments instead of after each), a depth-tested world draw (the classification does not depend on the vertices),
+// and none of the per-draw users of the vertices that see a batch differently from its parts (surfaces, terrain
+// layers, object motion under a scope). The texture checks follow in draw() (resolveJoined).
+void GSR_IMPL::drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v, uint32_t count) {
+    const GsDrawState& s = *segments[0].state;
+    const uint32_t atst = (uint32_t)bitsOf(s.test, 1, 3), afail = (uint32_t)bitsOf(s.test, 12, 2);
+    const bool failPass = (s.test & 1) && afail != 0 && atst != 1;
+    rhi::BlendOp bop = rhi::BlendOp::Add;
+    rhi::BlendFactor sf = rhi::BlendFactor::One, df = rhi::BlendFactor::Zero;
+    // Outside the engine's world phase the HUD maps, the loading-screen backdrop and the world-tail resolve look at
+    // the vertices of a draw: only when none of them can apply (no HUD resize, not the loading screen, no world
+    // resolve pending). What else differs outside the world phase is decided by the state or by the texture (menu
+    // and font artwork, refused in resolveJoined) or happens once a frame (the canvas clears).
+    const bool phaseFree = engineWorldOpen || (!pendingTemporalEnd && sceneCamera.guiScreen != 14 &&
+                                               hudScale >= 0.999f && std::fabs(hudSize - 1.0f) <= 0.001f);
+    bool join = segmentCount > 1 && phaseFree && fixedFunctionBlend() && (s.frame >> 32) == 0 &&
+                !((s.test >> 14) & 1) && !failPass && ((s.test >> 16) & 1) && bitsOf(s.test, 17, 2) >= 2 &&
+                (!(s.flags & DF_ABE) || draw_blend::fixedForm(s, bop, sf, df)) && !modernWater && !rayShadows &&
+                !rayReflections && !rayGlobalIllumination && !runtimeFlags().surfaceAudit &&
+                !runtimeFlags().surfacePick && drawStop < 0 && skipA < 0;
+    if constexpr (kCaps.vertexPrograms)
+        join = join && !programBatch;
+    if constexpr (kCaps.terrainDetail)
+        join = join && !terrainLayersActive();
+    if constexpr (kCaps.motionVectors)
+        join = join && joinKeepsMotion();
+    if (join) {
+        joinSegments = segments;
+        joinCount = segmentCount;
+        joinRefused = false;
+        draw(s, *segments[0].clut, v, count);
+        joinSegments = nullptr;
+        joinCount = 0;
+        joinDraws.clear();
+        if (!joinRefused)
+            return;
+        st.joinRefused++;
+    }
+    for (uint32_t i = 0; i < segmentCount; ++i)
+        draw(*segments[i].state, *segments[i].clut, v + segments[i].first, segments[i].count);
+}
+
+// The textures of the segments of a joined draw that are not clipped away (joinKept), in order; `tb` gets the first.
+// False (the draw is refused and drawSegments draws the segments one by one) when one does not resolve or would bind
+// differently from the first: a render target, menu or font artwork, a material map, another upscale factor or mip
+// count (the constants of the draw hold one of each).
+bool GSR_IMPL::resolveJoined(TexBind& tb) {
+    joinTextures.resize(joinCount);
+    bool first = true;
+    for (uint32_t i = 0; i < joinCount; ++i) {
+        if (!joinKept[i])
+            continue;
+        TexBind& t = joinTextures[i];
+        t = TexBind{};
+        if (!resolveTexture(*joinSegments[i].state, *joinSegments[i].clut, t, false) || t.isRT || t.fontAtlas ||
+            t.menuArtwork || t.titleArtwork || t.materialSrv)
+            return false;
+        if (first) {
+            tb = t;
+            first = false;
+        } else if (t.factor != tb.factor || t.mxl != tb.mxl)
+            return false;
+    }
+    return !first;
+}
+
 void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::Draw);
     if (!ok || count == 0)
@@ -327,6 +446,41 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     cy1 = std::min(cy1, (int)rt->h - 1);
     if (cx1 < cx0 || cy1 < cy0)
         return;
+    // A joined draw (drawSegments): each segment is clipped as its own draw was. One that its draw would have left
+    // out is left out (no texture, no draw); the dirty rows are those of the others.
+    uint32_t joinKeptCount = 0;
+    if (joinCount > 1) {
+        joinKept.assign(joinCount, 0);
+        int ux0 = 1 << 30, uy0 = 1 << 30, ux1 = -1, uy1 = -1;
+        for (uint32_t i = 0; i < joinCount; ++i) {
+            const DrawVertex* sv = v + joinSegments[i].first;
+            float mnx = 1e30f, mny = 1e30f, mxx = -1e30f, mxy = -1e30f;
+            for (uint32_t j = 0; j < joinSegments[i].count; ++j) {
+                mnx = std::min(mnx, sv[j].x);
+                mxx = std::max(mxx, sv[j].x);
+                mny = std::min(mny, sv[j].y);
+                mxy = std::max(mxy, sv[j].y);
+            }
+            const int x0 = std::max(std::max(sx0, (int)std::floor(mnx)), 0);
+            const int y0 = std::max(std::max(sy0, (int)std::floor(mny)), 0);
+            const int x1 = std::min(std::min(sx1, (int)std::ceil(mxx)), (int)rt->w - 1);
+            const int y1 = std::min(std::min(sy1, (int)std::ceil(mxy)), (int)rt->h - 1);
+            if (joinSegments[i].count == 0 || x1 < x0 || y1 < y0)
+                continue;
+            joinKept[i] = 1;
+            ++joinKeptCount;
+            ux0 = std::min(ux0, x0);
+            uy0 = std::min(uy0, y0);
+            ux1 = std::max(ux1, x1);
+            uy1 = std::max(uy1, y1);
+        }
+        if (!joinKeptCount)
+            return;
+        cx0 = ux0;
+        cy0 = uy0;
+        cx1 = ux1;
+        cy1 = uy1;
+    }
 
     // --- depth
     const uint32_t zbp = (uint32_t)bitsOf(s.zbuf, 0, 9);
@@ -345,7 +499,11 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     const bool tme = s.flags & DF_TME;
     bool haveTex = false;
     if (tme)
-        haveTex = resolveTexture(s, clut, tb, oneToOneSprite(s, v, count));
+        haveTex = joinCount > 1 ? resolveJoined(tb) : resolveTexture(s, clut, tb, oneToOneSprite(s, v, count));
+    if (joinCount > 1 && !haveTex) {
+        joinRefused = true;
+        return;
+    }
     const auto title =
         startupTitle.select(haveTex && tb.titleArtwork, rt->w, rt->h, nativeMenu && nativeMenuScreen == 8,
                             cfg.forcedAspect, cfg.stretchToWindow, swapH ? float(swapW) / float(swapH) : 4.0f / 3);
@@ -620,45 +778,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     rhi::BlendFactor sf = rhi::BlendFactor::One, df = rhi::BlendFactor::Zero;
     bool bEnable = false;
     if (abe) {
-        const bool cok = (C != 1);
-        const rhi::BlendFactor Cf = rhi::BlendFactor::Src1Alpha, iCf = rhi::BlendFactor::OneMinusSrc1Alpha;
-        bool mapped = true;
-        if (A == 0 && B == 1 && D == 1) {
-            sf = Cf;
-            df = iCf;
-        } else if (A == 0 && B == 2 && D == 1) {
-            sf = Cf;
-            df = rhi::BlendFactor::One;
-        } else if (A == 1 && B == 0 && D == 0) {
-            sf = iCf;
-            df = Cf;
-        } else if (A == 0 && B == 1 && D == 2) {
-            bop = rhi::BlendOp::Subtract;
-            sf = Cf;
-            df = Cf;
-        } else if (A == 2 && B == 0 && D == 1) {
-            bop = rhi::BlendOp::ReverseSubtract;
-            sf = Cf;
-            df = rhi::BlendFactor::One;
-        } else if (A == 1 && B == 2 && D == 0) {
-            sf = rhi::BlendFactor::One;
-            df = Cf;
-        } else if (A == 0 && B == 2 && D == 2) {
-            sf = Cf;
-            df = rhi::BlendFactor::Zero;
-        } else if (A == 1 && B == 2 && D == 2) {
-            sf = rhi::BlendFactor::Zero;
-            df = Cf;
-        } else
-            mapped = false;
-        // With COLCLAMP = 0 the GS wraps the blend result modulo 256. For the two lerp forms (Cs-Cd)*As+Cd and
-        // (Cd-Cs)*As+Cs the result stays inside [min(Cs,Cd), max(Cs,Cd)] whenever As <= 0x80 (always the case for
-        // vertex/texture alpha in this game), so the fixed-function blender is exact there and, unlike the shader
-        // path with its pre-draw destination copy, handles overlapping primitives of one draw correctly. The game
-        // never writes COLCLAMP (power-on value 0), so without this nearly every alpha blended draw took the slow
-        // path.
-        const bool lerpForm = (A == 0 && B == 1 && D == 1) || (A == 1 && B == 0 && D == 0);
-        if (!cok || !mapped || pabe || (!(s.flags & DF_COLCLAMP) && !lerpForm))
+        if (!draw_blend::fixedForm(s, bop, sf, df))
             useHw = false;
         bEnable = useHw;
     }
@@ -1180,6 +1300,12 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         CpuProfile::Scope bindProfile(cpuProfile, CpuProfile::DrawBind);
         bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr, haveTex && tb.isRT);
     }
+    // A joined draw: drawVertices and drawVelocity draw the kept segments in order, each with its own texture.
+    joinDraws.clear();
+    if (joinCount > 1)
+        for (uint32_t i = 0; i < joinCount; ++i)
+            if (joinKept[i])
+                joinDraws.push_back({joinTextures[i].srv, joinSegments[i].first, joinSegments[i].count});
     // Material detail (material_detail.h): binds its own pixel program variant for the draws that take it. Does
     // nothing unless the setting is on and the bound HD texture has a material map.
     bool materialDraw = false;
@@ -1242,7 +1368,13 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         endDraw();
     }
 
-    st.drawCalls++;
+    if (joinCount > 1) {
+        st.drawCalls += joinKeptCount; // as many as the segments' own draws
+        st.joinedDraws++;
+        st.joinedPasses += joinKeptCount;
+        joinDraws.clear();
+    } else
+        st.drawCalls++;
     // Constant-colour sprites into a clean scratch target are written to memory as well, so the game's next read of
     // those blocks needs no GPU readback (one blocking readback per gameplay frame without it): gs_solid_mirror.h.
     const auto mirrored = planSolidMirror(

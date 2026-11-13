@@ -50,6 +50,13 @@ struct BackendCaps {
 
 // ---- draw (gs_draw.inl) ----
 
+// One segment of a joined draw (draw_join.h): vertices [first, first + count) of the draw with their own texture.
+template <class View>
+struct JoinDraw {
+    View texture = nullptr;
+    uint32_t first = 0, count = 0;
+};
+
 // PS constant flag bits (mirror gs_shaders.h and gs_shaders_wgsl.h)
 enum : uint32_t {
     PF_TME = 1u << 0,
