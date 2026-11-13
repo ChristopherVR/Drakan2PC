@@ -259,11 +259,13 @@ struct StandardCases {
     Cases cases;
     size_t generated = 0, probes = 0, recorded = 0;
 };
-inline StandardCases standardCases() {
+// `reduced`: a tenth of the generated vertices and probes (the same seeds, so a prefix of the full set's kinds), for a
+// software adapter where the full set does not finish in a test's time.
+inline StandardCases standardCases(bool reduced = false) {
     StandardCases s;
-    addGenerated(s.cases, 400000, 20261112u);
+    addGenerated(s.cases, reduced ? 40000u : 400000u, 20261112u);
     s.generated = s.cases.vertices.size();
-    addProbes(s.cases, 200000, 20261113u);
+    addProbes(s.cases, reduced ? 20000u : 200000u, 20261113u);
     s.probes = s.cases.vertices.size() - s.generated;
     if (const char* path = std::getenv("GSR_VP_RECORDS"))
         addRecords(s.cases, path);

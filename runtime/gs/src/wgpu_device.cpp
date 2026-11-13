@@ -30,6 +30,8 @@ WgpuBackend::Impl::~Impl() {
     pool.reset();     // workers first: they reference members below
     rayLoader.join(); // the ray programs' compile uses the device
     rayLoader.take(); // and an unadopted result dies before it
+    // the vertex-program build thread uses the device too (wgpu_vertex_program.cpp)
+    programGpu.reset();
     // GPU objects before the device that created them, then the surface, then the context.
     texCache.clear();
     upCache.clear();

@@ -18,12 +18,15 @@
 // constant is seen. When a backend gains the shader path, the `gpu` runs here become its proof without a change.
 //
 //   gsr_test_vertex_records [--scale N] [--frames N] [--gpu-api vulkan|d3d12] [--warp] [--out DIR [--pictures]]
+//                           [--scene NAME]
+// --scene NAME: only that scene, records under each evaluation mode (a stress loop; the rest is not run).
 // Exit 77: no hardware adapter (or not the graphics API asked for).
 #include "gsr/gsr.h"
 #include "gsr/renderer_choice.h"
 #include "gsr/vertex_batch.h"
 #include "gsr/vertex_path.h"
 #include "gsr/vertex_program.h"
+#include "crash_dump.h"
 #include "vertex_program_cases.h"
 
 #include <cmath>
@@ -1556,6 +1559,8 @@ struct NamedScene {
 const NamedScene kScenes[] = {{"world", worldScene},         {"many", manyScene},   {"interleaved", interleavedScene},
                               {"generated", generatedScene}, {"batch", batchScene}, {"batchmix", batchMixScene}};
 
+const char* g_onlyScene = nullptr; // --scene
+
 void resetPath() {
     vpath::configure(vpath::pack(vpath::Eval::Microprogram, vpath::kAllStages), 0);
 }
@@ -1595,6 +1600,8 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
     const vpath::Eval kModes[] = {vpath::Eval::Records, vpath::Eval::Gpu, vpath::Eval::Microprogram};
     for (const NamedScene& ns : kScenes)
         for (const vpath::Eval mode : kModes) {
+            if (g_onlyScene && std::strcmp(g_onlyScene, ns.name) != 0)
+                continue;
             vpath::configure(vpath::pack(mode, vpath::kAllStages), 0);
             Sequence q{ns.name, ns.build, nullptr, 2, 1, rungs, Stream::Records, false};
             const Result r = runSequence(cfg, q);
@@ -1609,6 +1616,8 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
             }
             ++g_totals.scenes;
         }
+    if (g_onlyScene)
+        return;
 
     // The mode flipping at frame boundaries (DRAKAN_VERTEX_TOGGLE): the second renderer gets records in the frames
     // the control word asks for them and packets in the others, like the game.
@@ -1792,14 +1801,83 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
     resetPath();
 }
 
+// --device-loss: the GPU path when the device is lost while it draws. GSR_TEST_DEVICE_LOSS (set by main before any
+// renderer exists) destroys the device at the end of frame kLossFrame, as a driver reset would; records keep
+// arriving. Before the loss the shader draws them (GSR_VERTEX_PROGRAM_WAIT=1: no frame drawn from the CPU while the
+// shader is built); after it every record is counted as "device lost", nothing reaches the device, the renderer
+// reports the loss, and it is destroyed in order. Exit 77 when the backend has no vertex path.
+constexpr uint32_t kLossFrame = 3, kLossFrames = 8;
+int deviceLossRun(Config cfg) {
+    cfg.scale = 1;
+    const auto gs = Renderer::create(cfg);
+    if (!gs) {
+        std::printf("SKIP: no renderer\n");
+        return 77;
+    }
+    const vpath::Capability cap = gs->vertexPathCapability();
+    if (!cap.backendHasPath || !cap.adapterExact) {
+        std::printf("SKIP: the backend has no vertex path (%s)\n", gs->adapterName().c_str());
+        return 77;
+    }
+    display(*gs);
+    vpath::configure(vpath::pack(vpath::Eval::Gpu, cap.shaderStages), 0);
+    uint64_t shaderBefore = 0, lostAfter = 0, shaderAfter = 0, recordsAfter = 0;
+    const uint32_t lost = static_cast<uint32_t>(vpath::Fallback::DeviceLost);
+    for (uint32_t f = 0; f < kLossFrames; ++f) {
+        const Scene s = worldScene(f);
+        uint64_t runs = 0;
+        for (const Item& it : s.items)
+            runs += it.isRun;
+        const CounterShot before = counters();
+        sendScene(*gs, s, true);
+        const CounterShot after = counters();
+        gs->vsync(true);
+        std::printf("  frame %u: %llu records, %llu vertices drawn by the shader, %llu evaluated on the CPU, %llu "
+                    "counted as \"device lost\"%s\n",
+                    f, static_cast<unsigned long long>(runs), static_cast<unsigned long long>(after.gpu - before.gpu),
+                    static_cast<unsigned long long>(after.cpu - before.cpu),
+                    static_cast<unsigned long long>(after.fallback[lost] - before.fallback[lost]),
+                    gs->deviceLost() ? ", device lost" : "");
+        if (f < kLossFrame) {
+            shaderBefore += after.gpu - before.gpu;
+        } else if (f > kLossFrame) {
+            lostAfter += after.fallback[lost] - before.fallback[lost];
+            shaderAfter += after.gpu - before.gpu;
+            recordsAfter += runs;
+        }
+    }
+    expect(shaderBefore > 0, "the shader drew records before the loss");
+    expect(gs->deviceLost(), "the renderer reports the lost device");
+    expectEqual(lostAfter, recordsAfter, "every record after the loss counted as \"device lost\"");
+    expectEqual(shaderAfter, 0, "no vertex drawn by the shader after the loss");
+    std::printf("device loss with the vertex path on: %llu vertices drawn by the shader before frame %u, %llu of %llu "
+                "records after it counted as \"device lost\"; %d failed checks\n",
+                static_cast<unsigned long long>(shaderBefore), kLossFrame, static_cast<unsigned long long>(lostAfter),
+                static_cast<unsigned long long>(recordsAfter), g_failures);
+    resetPath();
+    return g_failures ? 1 : 0; // the renderer is destroyed on return (an orderly end after the loss)
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    crash_dump::install("gsr_test_vertex_records");
     Config cfg;
     uint32_t onlyScale = 0, toggleFrames = 64;
     bool lengthGiven = false;
+    bool deviceLoss = false;
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--warp"))
+        if (!std::strcmp(argv[i], "--device-loss")) {
+            deviceLoss = true;
+            const std::string frame = std::to_string(kLossFrame);
+#if defined(_WIN32)
+            _putenv_s("GSR_TEST_DEVICE_LOSS", frame.c_str());
+            _putenv_s("GSR_VERTEX_PROGRAM_WAIT", "1");
+#else
+            setenv("GSR_TEST_DEVICE_LOSS", frame.c_str(), 1);
+            setenv("GSR_VERTEX_PROGRAM_WAIT", "1", 1);
+#endif
+        } else if (!std::strcmp(argv[i], "--warp"))
             cfg.forceWarp = true;
         else if (!std::strcmp(argv[i], "--scale") && i + 1 < argc)
             onlyScale = static_cast<uint32_t>(std::atoi(argv[++i]));
@@ -1808,6 +1886,8 @@ int main(int argc, char** argv) {
             lengthGiven = true;
         } else if (!std::strcmp(argv[i], "--out") && i + 1 < argc)
             g_outDir = argv[++i];
+        else if (!std::strcmp(argv[i], "--scene") && i + 1 < argc)
+            g_onlyScene = argv[++i];
         else if (!std::strcmp(argv[i], "--pictures"))
             g_dumpPictures = true;
         else if (!std::strcmp(argv[i], "--gpu-api") && i + 1 < argc)
@@ -1851,6 +1931,8 @@ int main(int argc, char** argv) {
             std::printf("software adapter: reduced case (scale 1, switching sequences of %u frames)\n", toggleFrames);
         }
     }
+    if (deviceLoss)
+        return deviceLossRun(cfg);
     for (const uint32_t scale : {1u, 3u, 8u})
         if (!onlyScale || onlyScale == scale)
             runScale(cfg, scale, toggleFrames);

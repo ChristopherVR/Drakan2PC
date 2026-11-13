@@ -276,12 +276,18 @@ bool Context::init(const ContextOptions& options, std::string* error) {
             surface->surface_ = nullptr; // keep the handle for the probe below
         }
     }
+    // DRAKAN_GPU_SOFTWARE_ONLY=1 (tests only): a context that accepts a CPU adapter takes nothing else, as on a
+    // machine without a graphics card (a CI runner), so a test's software case can be timed on a developer machine.
+    const char* softwareOnlyEnv = std::getenv("DRAKAN_GPU_SOFTWARE_ONLY");
+    const bool softwareOnly = options.allowSoftwareAdapter && softwareOnlyEnv && *softwareOnlyEnv == '1';
     unsigned best = ~0u;
     for (WGPUAdapter candidate : adapters) {
         auto info = WGPU_ADAPTER_INFO_INIT;
         const bool haveInfo = wgpuAdapterGetInfo(candidate, &info) == WGPUStatus_Success;
         bool usable = haveInfo;
         if (usable && info.adapterType == WGPUAdapterType_CPU && !options.allowSoftwareAdapter)
+            usable = false;
+        if (usable && softwareOnly && info.adapterType != WGPUAdapterType_CPU)
             usable = false;
         if (usable && probe) {
             auto caps = WGPU_SURFACE_CAPABILITIES_INIT;

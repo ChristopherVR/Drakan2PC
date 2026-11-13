@@ -97,6 +97,10 @@ if(TARGET drakan::gpu)
     drakan_stage_webgpu(gsr_test_rhi)
     add_test(NAME rhi COMMAND gsr_test_rhi)
     set_tests_properties(rhi PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    # the draw data of the vertex stage through the texture path a device without vertex storage buffers takes
+    add_test(NAME rhi_texture_draw_data COMMAND gsr_test_rhi)
+    set_tests_properties(rhi_texture_draw_data PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120
+      ENVIRONMENT "GSR_VERTEX_CONSTANTS=texture")
   endif()
 endif()
 
@@ -121,6 +125,19 @@ if(DRAKAN_BUILD_RUNTIME_TESTS AND NOT EMSCRIPTEN)
     if(WIN32)
       add_test(NAME vertex_stage_webgpu_d3d12 COMMAND gsr_test_vertex_stage_webgpu)
       set_tests_properties(vertex_stage_webgpu_d3d12 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300
+        ENVIRONMENT "DRAKAN_GPU_BACKEND=dx12")
+    endif()
+    # The WGSL of a vertex-program draw in a vertex stage (src/vertex_program_wgsl_draw.h, the WebGPU backend's path)
+    add_executable(gsr_test_vertex_program_webgpu tests/test_vertex_program_webgpu.cpp)
+    target_include_directories(gsr_test_vertex_program_webgpu PRIVATE src include)
+    target_link_libraries(gsr_test_vertex_program_webgpu PRIVATE drakan::gpu)
+    drakan_stage_webgpu(gsr_test_vertex_program_webgpu)
+    add_test(NAME vertex_program_webgpu_vulkan COMMAND gsr_test_vertex_program_webgpu)
+    set_tests_properties(vertex_program_webgpu_vulkan PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
+      ENVIRONMENT "DRAKAN_GPU_BACKEND=vulkan")
+    if(WIN32)
+      add_test(NAME vertex_program_webgpu_d3d12 COMMAND gsr_test_vertex_program_webgpu)
+      set_tests_properties(vertex_program_webgpu_d3d12 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600
         ENVIRONMENT "DRAKAN_GPU_BACKEND=dx12")
     endif()
   endif()
@@ -185,7 +202,8 @@ if(TARGET drakan::gs_rhi)
   add_library(gsr_webgpu_backend STATIC
     src/wgpu_backend.cpp src/wgpu_backend_impl.h src/gs_backend_shared.h src/gs_texture_cache.inl src/gs_draw.inl src/gs_targets.inl src/gs_pipeline_state.h src/wgpu_device.cpp src/wgpu_targets.cpp src/wgpu_textures.cpp
     src/wgpu_draw.cpp src/wgpu_present.cpp src/wgpu_capture.cpp src/wgpu_backdrop.cpp src/wgpu_movie.cpp
-    src/wgpu_temporal.cpp src/wgpu_ray.cpp src/wgpu_ray.h src/ray_trace.wgsl src/gs_shaders_wgsl.h)
+    src/wgpu_temporal.cpp src/wgpu_ray.cpp src/wgpu_ray.h src/ray_trace.wgsl src/gs_shaders_wgsl.h
+    src/wgpu_vertex_program.cpp src/vertex_program_wgsl_draw.h)
   # ray_trace.wgsl as a byte array (MSVC limits string literals to 16 KB); reconfigured when the shader changes.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_trace.wgsl")
   file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_trace.wgsl" GSR_RAY_WGSL HEX)
@@ -611,6 +629,11 @@ if(GSR_BUILD_TESTS)
     add_test(NAME vertex_records_webgpu_d3d12 COMMAND gsr_test_vertex_records_webgpu --gpu-api d3d12)
     set_tests_properties(vertex_records_webgpu_vulkan vertex_records_webgpu_d3d12 PROPERTIES
       SKIP_RETURN_CODE 77 TIMEOUT 900)
+    # a device lost while the shader draws records: the counted fallback and an orderly end
+    add_test(NAME vertex_records_device_loss_vulkan COMMAND gsr_test_vertex_records_webgpu --device-loss --gpu-api vulkan)
+    add_test(NAME vertex_records_device_loss_d3d12 COMMAND gsr_test_vertex_records_webgpu --device-loss --gpu-api d3d12)
+    set_tests_properties(vertex_records_device_loss_vulkan vertex_records_device_loss_d3d12 PROPERTIES
+      SKIP_RETURN_CODE 77 TIMEOUT 300)
   endif()
 endif()
 

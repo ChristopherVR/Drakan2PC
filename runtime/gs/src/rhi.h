@@ -80,11 +80,17 @@ struct ProgramDesc {
     bool samplers = false;
     bool vertexInput = true;   // false = fullscreen-style programs using @builtin(vertex_index) only
     uint32_t vertexStride = 0; // bytes per vertex
-    // vertex attributes: (shaderLocation, offset bytes, float components 1..4)
+    // vertex attributes: (shaderLocation, offset bytes, components 1..4, float or 32-bit integer components)
+    enum class AttributeType : uint8_t { Float, Uint, Sint };
     struct Attribute {
         uint32_t location, offset, components;
+        AttributeType type = AttributeType::Float;
     };
     std::vector<Attribute> attributes;
+    // Render programs only. drawData: the vertex stage reads the device's draw data at @binding(24) (see
+    // Device::drawDataPath). backgroundPipelines: pipelines are created off the recording thread (pipelineState).
+    bool drawData = false;
+    bool backgroundPipelines = false;
     bool dualSource = false;  // the fragment writes @blend_src(0/1) (needs Device::dualSourceBlending())
     bool writesDepth = false; // fragment writes @builtin(frag_depth)
     std::string computeEntry; // non-empty = compute program
@@ -193,6 +199,44 @@ public:
     virtual void draw(const void* vertices, uint32_t count) = 0;
     // Program without vertex input: draws `count` vertices (fullscreen triangle = 3).
     virtual void drawNoInput(uint32_t count) = 0;
+    // The program set last (null before any).
+    virtual Program* currentProgram() const { return nullptr; }
+
+    // ---- indexed draws with per-draw data for the vertex stage (vertex-program draws) ----
+    // Draw data: rows of 16 bytes a vertex stage reads, copied now and valid for the draws recorded until the next
+    // submission. A program with ProgramDesc::drawData declares it at @binding(24) as the path says:
+    //   StorageBuffer   var<storage, read> name: array<vec4u>               (row r = name[r])
+    //   Texture         var name: texture_2d<u32>, kDrawDataTextureWidth wide (row r at (r % width, r / width))
+    // None: the device has neither (the browser proxy), and the calls below do nothing.
+    enum class DrawDataPath : uint8_t { None, StorageBuffer, Texture };
+    static constexpr uint32_t kDrawDataTextureWidth = 4096;
+    virtual DrawDataPath drawDataPath() const { return DrawDataPath::None; }
+    // Room for one draw: vertex and index bytes, draw data bytes and a few uniform slots. Submits the recorded work
+    // first when a ring is too full, so that nothing between this call and the draw submits (a submission in between
+    // would let a later draw overwrite this draw's data). False: the draw is larger than the rings.
+    virtual bool reserveDraw(uint64_t vertexBytes, uint64_t indexBytes, uint64_t drawDataBytes) {
+        (void)vertexBytes, (void)indexBytes, (void)drawDataBytes;
+        return false;
+    }
+    // First row of the copied data, or ~0u when it does not fit without a submission (reserveDraw first).
+    virtual uint32_t writeDrawData(const void* data, uint32_t bytes) {
+        (void)data, (void)bytes;
+        return ~0u;
+    }
+    // A triangle list of `indexCount` 32-bit indices into `vertexCount` vertices (both copied now). False when
+    // nothing was drawn (no room without a submission, no pipeline, an empty scissor).
+    virtual bool drawIndexed(const void* vertices, uint32_t vertexCount, const uint32_t* indices, uint32_t indexCount) {
+        (void)vertices, (void)vertexCount, (void)indices, (void)indexCount;
+        return false;
+    }
+    // The render pipeline of the current program, targets and state. For a program with backgroundPipelines a
+    // missing pipeline is started on the device's worker (when concurrentPrograms(), else created now) and the answer
+    // is Pending until it exists; a draw before that draws nothing. Failed: its creation failed.
+    enum class PipelineState : uint8_t { Ready, Pending, Failed };
+    virtual PipelineState pipelineState() { return PipelineState::Ready; }
+    // Waits until no background pipeline is pending (tests, GSR_VERTEX_PROGRAM_WAIT).
+    virtual void waitPipelines() {}
+
     // Compute: the current (compute) program with the current uniforms, textures, buffers and storage textures.
     virtual void setBuffer(uint32_t slot, Buffer* buffer) = 0;
     virtual void setStorageTexture(uint32_t slot, Texture* texture) = 0;

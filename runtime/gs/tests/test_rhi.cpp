@@ -234,6 +234,78 @@ int main() {
         std::printf("dual-source blending unavailable on this adapter (shader blending path)\n");
     }
 
+    // 9. Vertex-program draws: integer attributes, draw data in the vertex stage (the path the device chose), an
+    // indexed draw, and pipelines created in the background (Pending, then Ready after waitPipelines).
+    if (device->drawDataPath() != Device::DrawDataPath::None) {
+        const bool storage = device->drawDataPath() == Device::DrawDataPath::StorageBuffer;
+        std::string wgsl = std::string("struct U { size: vec4f, color: vec4f, mode: vec4u }\n"
+                                       "@group(0) @binding(0) var<uniform> u: U;\n") +
+                           (storage ? "@group(0) @binding(24) var<storage, read> rows: array<vec4u>;\n"
+                                      "fn row(r: u32) -> vec4u { return rows[r]; }\n"
+                                    : "@group(0) @binding(24) var rows: texture_2d<u32>;\n"
+                                      "fn row(r: u32) -> vec4u { return textureLoad(rows, vec2u(r % 4096u, r / "
+                                      "4096u), 0); }\n") +
+                           R"(
+struct V { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) c: vec4u }
+@vertex fn vs(@location(0) p: vec2u, @location(1) s: vec2i) -> V {
+    var o: V;
+    o.pos = vec4f(f32(p.x) / u.size.x * 2.0 - 1.0, 1.0 - f32(p.y) / u.size.y * 2.0, 0.5, 1.0);
+    o.c = row(u.mode.x + u32(s.x)) + vec4u(u32(s.y + 7));
+    return o;
+}
+@fragment fn fs(i: V) -> @location(0) vec4f { return vec4f(i.c) / 255.0; }
+)";
+        struct IntVertex {
+            uint32_t x, y;
+            int32_t row, add;
+        };
+        ProgramDesc d;
+        d.wgsl = wgsl;
+        d.uniformSlots = 1;
+        d.vertexStride = sizeof(IntVertex);
+        d.attributes = {{0, 0, 2, ProgramDesc::AttributeType::Uint}, {1, 8, 2, ProgramDesc::AttributeType::Sint}};
+        d.drawData = true;
+        d.backgroundPipelines = true;
+        d.label = "test draw data";
+        auto indexed = device->createProgram(d, &error);
+        check(indexed != nullptr, "draw data program");
+        if (indexed) {
+            const float clear[4] = {0, 0, 0, 0};
+            device->clearColor(*target, clear);
+            device->setTargets(target.get(), nullptr);
+            device->setProgram(indexed.get());
+            device->setBlend({});
+            device->setScissor({0, 0, W, H});
+            check(device->reserveDraw(4 * sizeof(IntVertex), 6 * 4, 48), "reserveDraw");
+            const uint32_t data[12] = {1, 2, 3, 4, 50, 60, 70, 80, 100, 110, 120, 130}; // rows 0..2
+            const uint32_t first = device->writeDrawData(data, sizeof(data));
+            check(first != ~0u, "writeDrawData");
+            Uniforms k{{float(W), float(H), 0, 0}, {0, 0, 0, 0}, {first + 1, 0, 0, 0}};
+            device->setUniforms(0, &k, sizeof(k));
+            // a quad over x 0..8 with rows 1 (+ 0 - 7 + 7) and one over x 8..16 with row 2 and -5
+            const IntVertex v[8] = {{0, 0, 0, -7}, {8, 0, 0, -7},  {0, 8, 0, -7}, {8, 8, 0, -7},
+                                    {8, 0, 1, -5}, {16, 0, 1, -5}, {8, 8, 1, -5}, {16, 8, 1, -5}};
+            const uint32_t idx[12] = {0, 1, 2, 1, 3, 2, 4, 5, 6, 5, 7, 6};
+            Device::PipelineState state = device->pipelineState();
+            check(state != Device::PipelineState::Failed, "background pipeline not failed");
+            if (state == Device::PipelineState::Pending) {
+                check(!device->drawIndexed(v, 8, idx, 12), "no draw while the pipeline is pending");
+                device->waitPipelines();
+                state = device->pipelineState();
+            }
+            check(state == Device::PipelineState::Ready, "background pipeline ready after waitPipelines");
+            check(device->drawIndexed(v, 8, idx, 12), "drawIndexed");
+            check(device->readTexture(*target, 0, 4, 4, 1, 1, image) && rgba(image.data(), 50, 60, 70, 80, 0),
+                  "draw data row and integer attributes, first quad");
+            check(device->readTexture(*target, 0, 12, 4, 1, 1, image) && rgba(image.data(), 102, 112, 122, 132, 0),
+                  "draw data row and integer attributes, second quad");
+            check(device->readTexture(*target, 0, 20, 4, 1, 1, image) && rgba(image.data(), 0, 0, 0, 0, 0),
+                  "indexed draw stays inside its triangles");
+            check(device->currentProgram() == indexed.get(), "currentProgram");
+        }
+        std::printf("draw data path: %s\n", storage ? "storage buffer" : "rgba32uint texture");
+    }
+
     check(!context->failed(), "no device errors");
     if (context->failed())
         std::fprintf(stderr, "last error: %s\n", context->lastError().c_str());

@@ -16,10 +16,17 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 
@@ -51,6 +58,11 @@ constexpr uint32_t kMaxStorageTextureSlots = 2;
 constexpr uint64_t kUniformRingBytes = 8ull << 20;
 constexpr uint64_t kVertexRingBytes = 32ull << 20;
 constexpr uint64_t kUploadRingBytes = 64ull << 20;
+// Draw data (Device::writeDrawData): a storage buffer, or an rgba32uint texture of kDrawDataTextureWidth texels per
+// row, with a CPU arena written at submit like the other rings.
+constexpr uint64_t kDrawDataRingBytes = 8ull << 20;
+constexpr uint32_t kDrawDataBinding = 24;
+constexpr uint32_t kReservedUniformSlots = 16; // reserveDraw: room for this many setUniforms calls of one draw
 
 WGPUTextureFormat wgpuFormat(Format format) {
     switch (format) {
@@ -208,13 +220,18 @@ struct PipelineKey {
 };
 static_assert(std::is_trivially_copyable_v<PipelineKey>);
 
-class WProgram final : public Program {
+class WProgram final : public Program, public std::enable_shared_from_this<WProgram> {
 public:
     ProgramDesc desc;
     WGPUShaderModule module = nullptr;
     WGPUBindGroupLayout groupLayout = nullptr;
     WGPUPipelineLayout layout = nullptr;
-    std::map<PipelineKey, WGPURenderPipeline> pipelines;
+    std::map<PipelineKey, WGPURenderPipeline> pipelines; // a null pipeline: its creation failed
+    // desc.backgroundPipelines: `pipelines` and `building` are shared with the device's pipeline worker.
+    std::mutex mutex;
+    std::set<PipelineKey> building;
+    // Identifies the program in cached bind groups: never reused, unlike the address of a released program.
+    const uint64_t id = nextTextureId();
     WGPUComputePipeline compute = nullptr;
     ~WProgram() override {
         if (compute)
@@ -271,8 +288,9 @@ public:
         : ownedContext_(std::move(owned)), surface_(std::move(surface)), context_(context), device_(context.device()) {
         queue_ = context.queue();
         uniforms_.create(device_, kUniformRingBytes, WGPUBufferUsage_Uniform, "gs uniforms");
-        vertices_.create(device_, kVertexRingBytes, WGPUBufferUsage_Vertex, "gs vertices");
+        vertices_.create(device_, kVertexRingBytes, WGPUBufferUsage_Vertex | WGPUBufferUsage_Index, "gs vertices");
         uploads_.create(device_, kUploadRingBytes, WGPUBufferUsage_CopySrc, "gs uploads");
+        createDrawData();
         auto sampler = WGPU_SAMPLER_DESCRIPTOR_INIT;
         sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = WGPUAddressMode_ClampToEdge;
         sampler.magFilter = sampler.minFilter = WGPUFilterMode_Nearest;
@@ -282,9 +300,14 @@ public:
         linear_ = wgpuDeviceCreateSampler(device_, &sampler);
     }
     ~WDevice() override {
+        stopPipelineWorker();
         flush();
         context_.poll(true);
         clearBindGroups();
+        if (drawTextureView_)
+            wgpuTextureViewRelease(drawTextureView_);
+        if (drawTexture_)
+            wgpuTextureRelease(drawTexture_);
         if (timingQueries_)
             wgpuQuerySetRelease(timingQueries_);
         if (timingResolve_)
@@ -515,6 +538,23 @@ public:
                 e.sampler.type = i ? WGPUSamplerBindingType_Filtering : WGPUSamplerBindingType_NonFiltering;
                 entries.push_back(e);
             }
+        if (!isCompute && in.drawData) {
+            if (drawDataPath_ == DrawDataPath::None) {
+                if (error)
+                    *error = "the device has no draw data for the vertex stage";
+                return {};
+            }
+            auto e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
+            e.binding = kDrawDataBinding;
+            e.visibility = WGPUShaderStage_Vertex;
+            if (drawDataPath_ == DrawDataPath::StorageBuffer) {
+                e.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+            } else {
+                e.texture.viewDimension = WGPUTextureViewDimension_2D;
+                e.texture.sampleType = WGPUTextureSampleType_Uint;
+            }
+            entries.push_back(e);
+        }
         if (isCompute) {
             for (uint32_t i = 0; i < std::min(in.storageBuffers, kMaxBufferSlots); ++i) {
                 auto e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
@@ -767,6 +807,7 @@ public:
         scissorDirty_ = true;
     }
     void setProgram(Program* program) override { program_ = static_cast<WProgram*>(program); }
+    Program* currentProgram() const override { return program_; }
     void setBlend(const BlendState& blend) override { blend_ = blend; }
     void setDepth(const DepthState& depth) override { depthState_ = depth; }
     void setTopology(Topology topology) override { topology_ = topology; }
@@ -817,6 +858,90 @@ public:
         if (!program_ || !count || !prepare())
             return;
         wgpuRenderPassEncoderDraw(pass_, count, 1, 0, 0);
+    }
+
+    DrawDataPath drawDataPath() const override { return drawDataPath_; }
+    bool reserveDraw(uint64_t vertexBytes, uint64_t indexBytes, uint64_t drawDataBytes) override {
+        if (gone())
+            return false;
+        const uint64_t vertexNeed = vertexBytes + indexBytes + 32;
+        const uint64_t uniformNeed = uint64_t(kReservedUniformSlots) * kUniformSlotBytes;
+        const uint64_t dataNeed = drawDataBytes + 16;
+        if (vertexNeed > vertices_.cpu.size() || uniformNeed > uniforms_.cpu.size() ||
+            (drawDataBytes && (drawDataPath_ == DrawDataPath::None || dataNeed > drawData_.cpu.size())))
+            return false;
+        if (vertices_.used + vertexNeed > vertices_.cpu.size() || uniforms_.used + uniformNeed > uniforms_.cpu.size() ||
+            (drawDataBytes && drawData_.used + dataNeed > drawData_.cpu.size()))
+            submit();
+        return true;
+    }
+    uint32_t writeDrawData(const void* data, uint32_t bytes) override {
+        if (gone() || drawDataPath_ == DrawDataPath::None || !data || !bytes || (bytes & 15u))
+            return ~0u;
+        const uint64_t at = drawData_.allocate(bytes, 16);
+        if (at == ~0ull)
+            return ~0u;
+        std::memcpy(drawData_.cpu.data() + at, data, bytes);
+        return uint32_t(at / 16);
+    }
+    bool drawIndexed(const void* vertices, uint32_t vertexCount, const uint32_t* indices,
+                     uint32_t indexCount) override {
+        if (gone())
+            return false;
+        if (!program_ || !vertexCount || !indexCount || !program_->desc.vertexStride)
+            return false;
+        // No submission here (see reserveDraw): a draw that does not fit draws nothing and says so.
+        const uint64_t vertexBytes = uint64_t(vertexCount) * program_->desc.vertexStride;
+        const uint64_t indexBytes = uint64_t(indexCount) * 4u;
+        const uint64_t mark = vertices_.used;
+        const uint64_t at = vertices_.allocate(vertexBytes, 16);
+        const uint64_t indexAt = at == ~0ull ? ~0ull : vertices_.allocate(indexBytes, 16);
+        if (indexAt == ~0ull) {
+            vertices_.used = mark;
+            return false;
+        }
+        std::memcpy(vertices_.cpu.data() + at, vertices, vertexBytes);
+        std::memcpy(vertices_.cpu.data() + indexAt, indices, indexBytes);
+        if (!prepare())
+            return false;
+        wgpuRenderPassEncoderSetVertexBuffer(pass_, 0, vertices_.buffer, at, vertexBytes);
+        wgpuRenderPassEncoderSetIndexBuffer(pass_, vertices_.buffer, WGPUIndexFormat_Uint32, indexAt, indexBytes);
+        wgpuRenderPassEncoderDrawIndexed(pass_, indexCount, 1, 0, 0, 0);
+        return true;
+    }
+    PipelineState pipelineState() override {
+        if (gone() || !program_)
+            return PipelineState::Failed;
+        if (!program_->desc.backgroundPipelines || program_->compute)
+            return PipelineState::Ready;
+        const PipelineKey key = currentKey();
+        {
+            std::lock_guard lock(program_->mutex);
+            if (auto found = program_->pipelines.find(key); found != program_->pipelines.end())
+                return found->second ? PipelineState::Ready : PipelineState::Failed;
+            if (program_->building.count(key))
+                return PipelineState::Pending;
+            program_->building.insert(key);
+        }
+        if (!concurrentPrograms()) { // the browser's device thread: created now (the browser compiles it later)
+            WGPURenderPipeline p = buildPipeline(*program_, key);
+            std::lock_guard lock(program_->mutex);
+            program_->building.erase(key);
+            program_->pipelines.emplace(key, p);
+            return p ? PipelineState::Ready : PipelineState::Failed;
+        }
+        startPipelineWorker();
+        {
+            std::lock_guard lock(pipelineMutex_);
+            pipelineJobs_.push_back({program_->shared_from_this(), key});
+            ++pipelinesPending_;
+        }
+        pipelineWake_.notify_one();
+        return PipelineState::Pending;
+    }
+    void waitPipelines() override {
+        std::unique_lock lock(pipelineMutex_);
+        pipelineIdle_.wait(lock, [&] { return pipelinesPending_ == 0; });
     }
 
     void setBuffer(uint32_t slot, Buffer* buffer) override {
@@ -1019,6 +1144,7 @@ struct U { origin: vec4u }
         uniforms_.upload(queue_);
         vertices_.upload(queue_);
         uploads_.upload(queue_);
+        uploadDrawData();
         if (encoder_) {
             WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder_, nullptr);
 #if defined(DRAKAN_WGPU_NATIVE)
@@ -1050,25 +1176,47 @@ struct U { origin: vec4u }
         return t ? std::max(1u, t->height() >> colorMip_) : 1;
     }
 
-    WGPURenderPipeline pipeline() {
+    PipelineKey currentKey() const {
         PipelineKey key;
         key.color = color_ ? wgpuFormat(color_->desc().format) : WGPUTextureFormat_Undefined;
         key.depth = depth_ ? wgpuFormat(depth_->desc().format) : WGPUTextureFormat_Undefined;
         key.blend = blend_;
         key.depthState = depth_ ? depthState_ : DepthState{};
         key.topology = topology_;
+        return key;
+    }
+    WGPURenderPipeline pipeline() {
+        const PipelineKey key = currentKey();
+        if (program_->desc.backgroundPipelines) { // only what the worker has finished (pipelineState starts it)
+            std::lock_guard lock(program_->mutex);
+            const auto found = program_->pipelines.find(key);
+            return found != program_->pipelines.end() ? found->second : nullptr;
+        }
         if (auto found = program_->pipelines.find(key); found != program_->pipelines.end())
             return found->second;
-        const auto& d = program_->desc;
+        WGPURenderPipeline p = buildPipeline(*program_, key);
+        program_->pipelines.emplace(key, p);
+        return p;
+    }
+    // The pipeline of `key` for `program`. Reads only immutable program state and the device: callable from the
+    // pipeline worker.
+    WGPURenderPipeline buildPipeline(const WProgram& program, const PipelineKey& key) const {
+        const auto& d = program.desc;
+        static constexpr WGPUVertexFormat kFloat[4] = {WGPUVertexFormat_Float32, WGPUVertexFormat_Float32x2,
+                                                       WGPUVertexFormat_Float32x3, WGPUVertexFormat_Float32x4};
+        static constexpr WGPUVertexFormat kUint[4] = {WGPUVertexFormat_Uint32, WGPUVertexFormat_Uint32x2,
+                                                      WGPUVertexFormat_Uint32x3, WGPUVertexFormat_Uint32x4};
+        static constexpr WGPUVertexFormat kSint[4] = {WGPUVertexFormat_Sint32, WGPUVertexFormat_Sint32x2,
+                                                      WGPUVertexFormat_Sint32x3, WGPUVertexFormat_Sint32x4};
         std::vector<WGPUVertexAttribute> attributes;
         for (const auto& a : d.attributes) {
             auto attribute = WGPU_VERTEX_ATTRIBUTE_INIT;
             attribute.shaderLocation = a.location;
             attribute.offset = a.offset;
-            attribute.format = a.components == 1   ? WGPUVertexFormat_Float32
-                               : a.components == 2 ? WGPUVertexFormat_Float32x2
-                               : a.components == 3 ? WGPUVertexFormat_Float32x3
-                                                   : WGPUVertexFormat_Float32x4;
+            const uint32_t n = std::clamp(a.components, 1u, 4u) - 1u;
+            attribute.format = a.type == ProgramDesc::AttributeType::Uint   ? kUint[n]
+                               : a.type == ProgramDesc::AttributeType::Sint ? kSint[n]
+                                                                            : kFloat[n];
             attributes.push_back(attribute);
         }
         auto vertexLayout = WGPU_VERTEX_BUFFER_LAYOUT_INIT;
@@ -1077,25 +1225,28 @@ struct U { origin: vec4u }
         vertexLayout.attributes = attributes.data();
         vertexLayout.stepMode = WGPUVertexStepMode_Vertex;
 
+        const BlendState& blendState = key.blend;
         auto blend = WGPU_BLEND_STATE_INIT;
-        blend.color.operation = wgpuOp(blend_.op);
-        blend.color.srcFactor = wgpuFactor(blend_.src);
-        blend.color.dstFactor = wgpuFactor(blend_.dst);
-        blend.alpha.operation = wgpuOp(blend_.alphaOp);
-        blend.alpha.srcFactor = wgpuFactor(blend_.alphaSrc);
-        blend.alpha.dstFactor = wgpuFactor(blend_.alphaDst);
+        blend.color.operation = wgpuOp(blendState.op);
+        blend.color.srcFactor = wgpuFactor(blendState.src);
+        blend.color.dstFactor = wgpuFactor(blendState.dst);
+        blend.alpha.operation = wgpuOp(blendState.alphaOp);
+        blend.alpha.srcFactor = wgpuFactor(blendState.alphaSrc);
+        blend.alpha.dstFactor = wgpuFactor(blendState.alphaDst);
         // Min / Max ignore the factors but WebGPU requires them to be One.
         for (WGPUBlendComponent* c : {&blend.color, &blend.alpha})
             if (c->operation == WGPUBlendOperation_Min || c->operation == WGPUBlendOperation_Max)
                 c->srcFactor = c->dstFactor = WGPUBlendFactor_One;
         auto colorTarget = WGPU_COLOR_TARGET_STATE_INIT;
         colorTarget.format = key.color;
-        colorTarget.blend = blend_.enable ? &blend : nullptr;
-        colorTarget.writeMask = blend_.writeMask;
+        colorTarget.blend = blendState.enable ? &blend : nullptr;
+        colorTarget.writeMask = blendState.writeMask;
+        const bool hasColor = key.color != WGPUTextureFormat_Undefined;
+        const bool hasDepth = key.depth != WGPUTextureFormat_Undefined;
         auto fragment = WGPU_FRAGMENT_STATE_INIT;
-        fragment.module = program_->module;
+        fragment.module = program.module;
         fragment.entryPoint = view(d.fragmentEntry.c_str());
-        fragment.targetCount = color_ ? 1 : 0;
+        fragment.targetCount = hasColor ? 1 : 0;
         fragment.targets = &colorTarget;
 
         auto depthStencil = WGPU_DEPTH_STENCIL_STATE_INIT;
@@ -1107,28 +1258,196 @@ struct U { origin: vec4u }
 
         auto desc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
         desc.label = view(d.label);
-        desc.layout = program_->layout;
-        desc.vertex.module = program_->module;
+        desc.layout = program.layout;
+        desc.vertex.module = program.module;
         desc.vertex.entryPoint = view(d.vertexEntry.c_str());
         if (d.vertexInput && d.vertexStride) {
             desc.vertex.bufferCount = 1;
             desc.vertex.buffers = &vertexLayout;
         }
-        desc.primitive.topology = topology_ == Topology::LineList    ? WGPUPrimitiveTopology_LineList
-                                  : topology_ == Topology::PointList ? WGPUPrimitiveTopology_PointList
-                                                                     : WGPUPrimitiveTopology_TriangleList;
+        desc.primitive.topology = key.topology == Topology::LineList    ? WGPUPrimitiveTopology_LineList
+                                  : key.topology == Topology::PointList ? WGPUPrimitiveTopology_PointList
+                                                                        : WGPUPrimitiveTopology_TriangleList;
         desc.primitive.cullMode = WGPUCullMode_None;
-        desc.depthStencil = depth_ ? &depthStencil : nullptr;
+        desc.depthStencil = hasDepth ? &depthStencil : nullptr;
         // A fragment stage is still needed for depth-only programs that write frag_depth.
-        desc.fragment = (color_ || d.writesDepth) ? &fragment : nullptr;
-        WGPURenderPipeline p = wgpuDeviceCreateRenderPipeline(device_, &desc);
-        program_->pipelines.emplace(key, p);
+        desc.fragment = (hasColor || d.writesDepth) ? &fragment : nullptr;
+        return wgpuDeviceCreateRenderPipeline(device_, &desc);
+    }
+
+    // ---- the pipeline worker (ProgramDesc::backgroundPipelines) ----
+    struct PipelineJob {
+        std::shared_ptr<WProgram> program;
+        PipelineKey key;
+    };
+    void startPipelineWorker() {
+        if (pipelineThread_.joinable())
+            return;
+        pipelineThread_ = std::thread([this] {
+            for (;;) {
+                PipelineJob job;
+                {
+                    std::unique_lock lock(pipelineMutex_);
+                    pipelineWake_.wait(lock, [&] { return pipelineStop_ || !pipelineJobs_.empty(); });
+                    if (pipelineStop_)
+                        return;
+                    job = std::move(pipelineJobs_.front());
+                    pipelineJobs_.pop_front();
+                }
+                WGPURenderPipeline p = nullptr;
+                if (!gone()) {
+                    const auto t0 = std::chrono::steady_clock::now();
+                    p = buildCheckedPipeline(*job.program, job.key);
+                    const double ms =
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                    std::fprintf(stderr, "[rhi] pipeline '%s' %s after %.0f ms in the background\n",
+                                 job.program->desc.label ? job.program->desc.label : "", p ? "ready" : "failed", ms);
+                }
+                // GSR_TEST_PIPELINE_DELAY_MS=<n> (tests only): hold a finished pipeline back for n ms before it is
+                // published, so the render thread keeps drawing while the pipeline is pending (a stress test of the
+                // hand-over window).
+                static const int delayMs = [] {
+                    const char* env = std::getenv("GSR_TEST_PIPELINE_DELAY_MS");
+                    return env ? std::atoi(env) : 0;
+                }();
+                if (delayMs > 0)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+                {
+                    std::lock_guard lock(job.program->mutex);
+                    job.program->building.erase(job.key);
+                    job.program->pipelines.emplace(job.key, p);
+                }
+                job.program.reset(); // before the count says idle: a waiter may release the program next
+                std::lock_guard lock(pipelineMutex_);
+                --pipelinesPending_;
+                if (!pipelinesPending_)
+                    pipelineIdle_.notify_all();
+            }
+        });
+    }
+    // buildPipeline inside error scopes (per thread in wgpu-native): a refused pipeline is null and logged here
+    // instead of becoming an uncaptured error of the device.
+    WGPURenderPipeline buildCheckedPipeline(const WProgram& program, const PipelineKey& key) const {
+#if defined(DRAKAN_WGPU_NATIVE)
+        wgpuDevicePushErrorScope(device_, WGPUErrorFilter_OutOfMemory);
+        wgpuDevicePushErrorScope(device_, WGPUErrorFilter_Validation); // wgpu-native has no Internal filter
+#endif
+        WGPURenderPipeline p = buildPipeline(program, key);
+#if defined(DRAKAN_WGPU_NATIVE)
+        struct Scope {
+            std::atomic<int> done{0};
+            std::string message;
+        } scopes[2];
+        for (Scope& scope : scopes) {
+            auto callback = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+            callback.mode = WGPUCallbackMode_AllowSpontaneous;
+            callback.userdata1 = &scope;
+            callback.callback = [](WGPUPopErrorScopeStatus, WGPUErrorType type, WGPUStringView message, void* user,
+                                   void*) {
+                auto& s = *static_cast<Scope*>(user);
+                if (type != WGPUErrorType_NoError)
+                    s.message = message.data ? std::string(message.data, message.length == WGPU_STRLEN
+                                                                             ? std::strlen(message.data)
+                                                                             : message.length)
+                                             : std::string("error");
+                s.done = 1;
+            };
+            wgpuDevicePopErrorScope(device_, callback);
+        }
+        // wgpu-native answers a pop at once; a scope that has not answered is treated as an error.
+        std::string error;
+        for (Scope& scope : scopes)
+            if (!scope.done.load())
+                error = "no answer from the error scope";
+            else if (!scope.message.empty())
+                error = scope.message;
+        if (!error.empty()) {
+            std::fprintf(stderr, "[rhi] pipeline '%s': %s\n", program.desc.label ? program.desc.label : "",
+                         error.c_str());
+            if (p)
+                wgpuRenderPipelineRelease(p);
+            p = nullptr;
+        }
+#endif
         return p;
+    }
+    void stopPipelineWorker() {
+        {
+            std::lock_guard lock(pipelineMutex_);
+            pipelineStop_ = true;
+            pipelinesPending_ -= uint32_t(pipelineJobs_.size());
+            pipelineJobs_.clear();
+        }
+        pipelineWake_.notify_all();
+        if (pipelineThread_.joinable())
+            pipelineThread_.join();
+        std::lock_guard lock(pipelineMutex_);
+        pipelinesPending_ = 0;
+        pipelineIdle_.notify_all();
+    }
+
+    // The draw data (Device::drawDataPath): a read-only storage buffer in the vertex stage where the device allows
+    // one (every core WebGPU device: maxStorageBuffersPerShaderStage applies to the vertex stage too; a
+    // compatibility-mode device may report none there), else an rgba32uint texture read with textureLoad.
+    // GSR_VERTEX_CONSTANTS=texture takes the texture path where both exist (diagnosis).
+    void createDrawData() {
+        const WGPULimits& l = context_.limits();
+        const char* ask = std::getenv("GSR_VERTEX_CONSTANTS");
+        const bool storage =
+            l.maxStorageBuffersPerShaderStage >= 1 && l.maxStorageBufferBindingSize >= kDrawDataRingBytes;
+        const uint32_t textureRows = uint32_t(kDrawDataRingBytes / (uint64_t(kDrawDataTextureWidth) * 16u));
+        const bool texture =
+            l.maxTextureDimension2D >= kDrawDataTextureWidth && l.maxSampledTexturesPerShaderStage >= 1;
+        const bool wantTexture = ask && !std::strcmp(ask, "texture");
+        DrawDataPath path = storage && !wantTexture ? DrawDataPath::StorageBuffer
+                            : texture               ? DrawDataPath::Texture
+                            : storage               ? DrawDataPath::StorageBuffer
+                                                    : DrawDataPath::None;
+        if (path == DrawDataPath::StorageBuffer) {
+            drawData_.create(device_, kDrawDataRingBytes, WGPUBufferUsage_Storage, "gs draw data");
+            if (!drawData_.buffer)
+                path = DrawDataPath::None;
+        } else if (path == DrawDataPath::Texture) {
+            auto desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+            desc.label = view("gs draw data");
+            desc.size = {kDrawDataTextureWidth, textureRows, 1};
+            desc.format = WGPUTextureFormat_RGBA32Uint;
+            desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+            drawTexture_ = wgpuDeviceCreateTexture(device_, &desc);
+            if (drawTexture_) {
+                drawTextureView_ = wgpuTextureCreateView(drawTexture_, nullptr);
+                drawData_.cpu.resize(kDrawDataRingBytes);
+            } else {
+                path = DrawDataPath::None;
+            }
+        }
+        drawDataPath_ = path;
+    }
+    void uploadDrawData() {
+        if (!drawData_.used)
+            return;
+        if (drawDataPath_ == DrawDataPath::StorageBuffer) {
+            drawData_.upload(queue_);
+            return;
+        }
+        if (drawDataPath_ == DrawDataPath::Texture) {
+            const uint32_t rowBytes = kDrawDataTextureWidth * 16u;
+            const uint32_t rows = uint32_t((drawData_.used + rowBytes - 1) / rowBytes);
+            auto destination = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
+            destination.texture = drawTexture_;
+            auto layout = WGPU_TEXEL_COPY_BUFFER_LAYOUT_INIT;
+            layout.bytesPerRow = rowBytes;
+            layout.rowsPerImage = rows;
+            const WGPUExtent3D size{kDrawDataTextureWidth, rows, 1};
+            wgpuQueueWriteTexture(queue_, &destination, drawData_.cpu.data(), uint64_t(rows) * rowBytes, &layout,
+                                  &size);
+        }
+        drawData_.used = 0;
     }
 
     WGPUBindGroup bindGroup() {
         const auto& d = program_->desc;
-        GroupKey key{program_, {}, {}, {}};
+        GroupKey key{program_->id, {}, {}, {}};
         for (uint32_t i = 0; i < std::min(d.textureSlots, kMaxTextureSlots); ++i)
             key.textures[i] = textureKeys_[i];
         const bool isCompute = program_->compute != nullptr;
@@ -1163,6 +1482,17 @@ struct U { origin: vec4u }
                 e.sampler = i ? linear_ : point_;
                 entries.push_back(e);
             }
+        if (!isCompute && d.drawData) {
+            auto e = WGPU_BIND_GROUP_ENTRY_INIT;
+            e.binding = kDrawDataBinding;
+            if (drawDataPath_ == DrawDataPath::StorageBuffer) {
+                e.buffer = drawData_.buffer;
+                e.size = kDrawDataRingBytes;
+            } else {
+                e.textureView = drawTextureView_;
+            }
+            entries.push_back(e);
+        }
         if (isCompute) {
             for (uint32_t i = 0; i < std::min(d.storageBuffers, kMaxBufferSlots); ++i) {
                 if (!buffers_[i])
@@ -1278,6 +1608,16 @@ struct U { origin: vec4u }
     bool timing_ = false, timingBusy_ = false;
     uint32_t timed_ = 0;
     Ring uniforms_, vertices_, uploads_;
+    Ring drawData_; // Device::writeDrawData: the storage buffer, or the CPU arena of drawTexture_
+    DrawDataPath drawDataPath_ = DrawDataPath::None;
+    WGPUTexture drawTexture_ = nullptr;
+    WGPUTextureView drawTextureView_ = nullptr;
+    std::thread pipelineThread_;
+    std::mutex pipelineMutex_;
+    std::condition_variable pipelineWake_, pipelineIdle_;
+    std::deque<PipelineJob> pipelineJobs_;
+    uint32_t pipelinesPending_ = 0;
+    bool pipelineStop_ = false;
     ProgramPtr depthProgram_;
 
     WTexture* color_ = nullptr;
@@ -1301,7 +1641,7 @@ struct U { origin: vec4u }
     WGPURenderPipeline boundPipeline_ = nullptr;
     WGPUBindGroup boundGroup_ = nullptr;
     struct GroupKey {
-        WProgram* program;
+        uint64_t program; // WProgram::id
         std::array<uint64_t, kMaxTextureSlots> textures;
         std::array<uint64_t, kMaxBufferSlots> buffers;
         std::array<uint64_t, kMaxStorageTextureSlots> storage;

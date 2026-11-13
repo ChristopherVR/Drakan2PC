@@ -142,6 +142,9 @@ public:
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
     bool deviceLost(std::string* reason = nullptr) const override;
+    bool vertexPrograms(vpath::Fallback* why) const override; // wgpu_vertex_program.cpp
+    vpath::Capability vertexPathCapability() const override;
+    void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch) override;
     bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,
                    uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) override;
     bool beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
@@ -197,7 +200,7 @@ struct WgpuBackend::Impl {
     // 11: a read of blocks an upload or a row refresh proved equal skips the readback. The skips are exact for GS
     // memory; with automatic texture upscaling a texture in memory a still-dirty target occupies stays at native
     // resolution where the readback path would have upscaled it (docs/journal/2026-11-12/renderer-shared-code.md).
-    static constexpr BackendCaps kCaps{.cleanRowRefresh = true, .partialUploads = true};
+    static constexpr BackendCaps kCaps{.vertexPrograms = true, .cleanRowRefresh = true, .partialUploads = true};
     // Behind kCaps.terrainDetail / kCaps.materialDetail: declared for the shared code, never called.
     void initTerrain();
     void initMaterial();
@@ -215,7 +218,13 @@ struct WgpuBackend::Impl {
     // Behind kCaps.motionVectors / temporalUpscaler / readbackPrefetch / readbackVerify: declared, never called.
     bool prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count, float sx,
                              float sy);
-    // Vertex-program draws (kCaps.vertexPrograms, vertex_program_draw.h): not implemented on this backend yet.
+    // Vertex-program draws (kCaps.vertexPrograms, vertex_program_draw.h; wgpu_vertex_program.cpp). No motion vectors
+    // here: prepareProgramMotion and drawProgramVelocity are behind kCaps.motionVectors and never called.
+    struct ProgramGpu;
+    std::shared_ptr<ProgramGpu> programGpu; // reset in ~Impl before the device (its build thread uses the device)
+    ProgramGpu& programState();
+    void programFailed(const char* what);
+    bool programTakes(vpath::Fallback* why);
     const VertexProgramBatch* programBatch = nullptr;
     bool prepareProgramMotion(RT& rt, const GsDrawState& s, const VertexProgramBatch& batch, float sx, float sy);
     void bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch);

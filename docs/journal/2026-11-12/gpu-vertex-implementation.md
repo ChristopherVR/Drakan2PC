@@ -218,6 +218,53 @@ Written by the `wdraw` subagent (opus); details in
   Direct3D 11 replays down as well. Not caused by this work and not fixed by it.
 * The browser is not built or run; what the proxy needs is listed in the linked note.
 
+### Landing of increment 7 (2026-11-13, by the orchestrator that took over)
+
+The commit of the `wdraw` subagent (`44b6bea7`, never on `main`) was applied to `main` unchanged, with these
+additions:
+
+* **CI.** `vertex_program_webgpu_d3d12` accepts a software adapter, and a CI runner gives WebGPU on Direct3D 12 the
+  Microsoft Basic Render Driver. On it the full test took 86 s in ctest and 142 s run directly on this machine. It now
+  runs a reduced set on a software adapter (`vpcases::standardCases(true)`: a tenth of the generated vertices and
+  probes) in 22 s. To time a software case on a machine with a graphics card, `DRAKAN_GPU_SOFTWARE_ONLY=1` (new, tests
+  only) makes a WebGPU context that accepts a software adapter take only that. Timed on the software adapter:
+  `rhi_texture_draw_data` 20 s, `vertex_stage_webgpu_d3d12` 27 s, `rhi` 14 s; `vertex_records --warp` (Direct3D 11)
+  144 s while the machine was loaded (75 s on CI the day before). `vertex_records_webgpu_*` and
+  `vertex_records_device_loss_*` skip without a hardware adapter.
+* **Two crashes of `vertex_records_webgpu_vulkan`, cause inferred, not shown.** During the first proof run this test
+  died with an access violation twice. Both times it was right after the log line "pipeline 'gs vertex program, hw
+  blend' ready after 7 ms in the background", in scene `many` under mode `gpu` at scale 1. The first was in the whole
+  `runtime-tests` run at about 08:20. The second was a separate run at about 08:32. At that time about 15 GPU
+  processes of several agents shared the GPU at about 12.5 GiB:
+  * At 08:30 the System log has five GPU driver resets (`nvlddmkm` event 153, 08:30:22 to 08:30:28), and the
+    Application log has a LiveKernelEvent 141 (video engine timeout) with `WATCHDOG-20261113-0830.dmp`.
+  * `vertex_records_webgpu_d3d12` ran 584 s in the same ctest run and ended in a fast-fail abort at that reset.
+  * The second crash falls in the recovery window after the reset; the first came about ten minutes before it,
+    while that run was going on.
+
+  After the load came down, the test was clean:
+  * 10 runs, 0 pixels differ in any of them: 2 full Release runs, 4 scale-1 runs and 4 full runs of a
+    RelWithDebInfo build, under `cdb`.
+  * A stress of the hand-over window: a test-only delay before a finished pipeline is published
+    (`GSR_TEST_PIPELINE_DELAY_MS`, 0, 3, 15, 40 and 120 ms). 30 runs of scene `many` alone, with and without
+    `GSR_VERTEX_PROGRAM_WAIT`. Then 10 runs of every scene at scale 1 without it, where the pipeline becomes ready
+    in the middle of 64-frame switching sequences: 137 to 1,035 batches per run evaluated on the CPU while pending,
+    then 1,883 to 2,723 by the shader, 488 colour frames per run, 0 differ. No crash and no driver reset during any
+    of these runs.
+
+  Read from the code:
+  * Pipelines are inserted into the program's map under its mutex before the pending count drops. The draw looks
+    them up under the same mutex.
+  * Under `GSR_VERTEX_PROGRAM_WAIT` the program thread is joined at once.
+  * Bind groups are keyed by a program id, not an address.
+
+  No unsynchronised publish was found. The likely cause is the known end of wgpu-native on a device lost to a
+  driver reset (see the device-loss point above); it is not shown.
+
+  So that the next such crash leaves a stack, the records tests and both replays now write a minidump when they die
+  of an unhandled exception (`tests/crash_dump.h`; `GSR_CRASH_DUMP_DIR`, `GSR_CRASH_DUMP=0`; nothing is written
+  otherwise). A fast-fail abort leaves none.
+
 ## Proof log
 
 | Date | What | Result |
@@ -242,6 +289,9 @@ Written by the `wdraw` subagent (opus); details in
 | 2026-11-13 | Increment 6, as reported by its author: paused toggles microprogram against shader in Surdana, the Inquisitor's Lair and the Northern Tundra (1280x960, DLSS off); paused Surdana with DLSS quality and a fixed jitter sample, ten worlds dumped; three more captures with records at scales 1 and 3 | 10 of 10 identical in each level; prepared colour, depth, motion, model motion and the raw velocity target: 0 pixels differ between 5 microprogram and 4 gpu worlds; 6 comparisons, 7,696 frames, 0 differ |
 | 2026-11-13 | Increment 6 on a game build of main (07ddda79) by the orchestrator: paused toggle in Surdana, 24 shots, twice (first run compiles the shader: 101,857 records `not ready`; second from the cache); a 30 s moving run and a still in the Lair arena at 3840x2160 with DLSS quality and `vertex_processing = gpu` | 24 of 24 identical in both runs (13 gpu / 11 microprogram and 10 / 14; 24.8 and 57.9 million vertices by the shader); 140.6 million vertices by the shader in the moving run, no fallback beyond `stage off`, `clipper` and 24 `not ready`; the 4K picture looked at: as expected |
 | 2026-11-13 | Increment 7 (WebGPU strips), by the orchestrator on the merged tree: the vertex stage against the CPU evaluation and against the renderer's own vertex shader, plain and jittered, on Vulkan and Direct3D 12 (1,215,215 vertices each); `vertex_records` on both with 514,398 vertices drawn by the shader; the Surdana capture with records on Vulkan and Direct3D 12 at scales 1, 3, 8; `runtime-tests` 186 of 186; "`cpu` equals before" on three backends, 45 comparisons (one Direct3D 12 replay at scale 8 lost its device under load and was identical when rerun alone) | 0 vertices differ; 0 of 10,354,032,640 colour and 0 of 2,036,858,880 depth-picture pixels differ; 6 x 1,423 frames, 0 differ, 23,518,719 vertices by the shader each; 45 comparisons, 162,585 frames, 0 differ |
+| 2026-11-13 | Increment 7 at its landing, by the orchestrator that took over, on main `0fb03d2d` with the commit applied, one GPU process at a time after 08:35: vertex stage and draw program on Vulkan and Direct3D 12 (`GSR_VP_RECORDS`); `vertex_records` on Vulkan and Direct3D 12; the Surdana capture with records at scales 1, 3, 8 on three backends; live paused toggles `gpu` against the microprogram every 64 frames in Surdana (1280x960, DLSS off) on Vulkan and on Direct3D 12 from a game build of the tree | 1,215,215 vertices each, 0 differ; 514,398 vertices by the shader, 0 of 10,354,032,640 colour and 0 of 2,036,858,880 depth-picture pixels differ, 7,872 checks, each backend; 9 x 1,423 frames, 0 differ, 23,518,719 vertices by the shader per replay, no fallback; Vulkan 24 of 24 identical (12 gpu, 12 microprogram; 46,995,581 vertices by the shader), Direct3D 12 24 of 24 (12 / 12; 53,577,990) |
+| 2026-11-13 | The same landing: "`cpu` equals before" on three backends, five captures at scales 1, 3, 8 without HD textures against the `1fa0fc3e` reference | 39 of 45 identical; the 6 that differ are the ones `dc6d3fa4` (WebGPU clean-block retention and partial uploads, on main before this) recorded as changed by design: Order of the Flame frames 1201 to 1260 at scales 3 and 8 and 396 cave frames at scale 8, on Vulkan and on Direct3D 12. The same cave and Order of the Flame replays at scales 3 and 8 on Vulkan and Direct3D 12 by a build of main `0538bb95` without the change give the same hashes as the change: 8 comparisons, 0 differ, so the 6 predate it. The reference of "`cpu` equals before" for WebGPU needs re-taking after `dc6d3fa4` |
+| 2026-11-13 | The same landing: `runtime-tests` on main `2653a797` with the change | 186 of 187; `world_readback` failed once (its ray pass stuck 21 s under load, Direct3D 11 and 12, not the vertex path) and passed alone twice. Python tests OK; guard 0 prohibited |
 
 ## Not verified (running list)
 

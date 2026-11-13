@@ -19,6 +19,7 @@
 #include "gsr/gsr.h"
 #include "gsr/renderer_choice.h"
 #include "gsr/vertex_path.h"
+#include "crash_dump.h"
 
 #include <algorithm>
 #include <chrono>
@@ -61,6 +62,7 @@ uint64_t fnv1a64(const uint8_t* p, size_t n) {
 using namespace gsr;
 
 int main(int argc, char** argv) {
+    crash_dump::install("gsr_replay");
     if (argc < 2) {
         std::printf(
             "usage: gsr_replay <capture.bin> [--out DIR] [--scale N] [--warp] [--max N] [--every N] [--first N]\n");
