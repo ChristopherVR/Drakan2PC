@@ -974,9 +974,9 @@ void register_ps2_runtime_kernel_tests() {
 
         tc.Run("SetupThread exposes stable main stack metadata through ReferThreadStatus", [](TestCase& t) {
             TestEnv env;
-            constexpr uint32_t kInitialLoaderSp = PS2_RAM_SIZE - 0x10u;
+            constexpr uint32_t kInitialLoaderSp = PS2_RETAIL_RAM_SIZE - 0x10u;
             constexpr uint32_t kMainStackSize = 0x00020000u;
-            constexpr uint32_t kExpectedStack = PS2_RAM_SIZE - kMainStackSize;
+            constexpr uint32_t kExpectedStack = PS2_RETAIL_RAM_SIZE - kMainStackSize;
             constexpr uint32_t kMainGp = 0x0036A7F0u;
 
             env.ctx.pc = 0x00100000u;

@@ -67,6 +67,7 @@
 #include "drakan_foliage.h"
 #include "drakan_model_detail.h"
 #include "drakan_terrain_distance.h"
+#include "drakan_terrain_pages.h"
 #include "drakan_polyclip.h"
 #include "drakan_view_layer_hook.h"
 #include "drakan_melee_trace.h"
@@ -1544,7 +1545,7 @@ void hookRegionPadMgr(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         for (const auto& name : ev.dumps) {
             if (name.rfind("ram", 0) == 0) {
                 if (FILE* f = std::fopen((out / (name + ".ram")).string().c_str(), "wb")) {
-                    std::fwrite(rdram, 1, PS2_RAM_SIZE, f);
+                    std::fwrite(rdram, 1, PS2_RETAIL_RAM_SIZE, f);
                     std::fclose(f);
                 }
             }
@@ -1731,6 +1732,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     if constexpr (supports(Feature::SceneHooks))
         drakan_dlss::installSceneHooks(runtime);
 #endif
+    // Terrain draw pages above the retail RAM (PAL). After every other wrapper of the guest free (object motion).
+    drakan_terrain_pages::install(runtime);
 
     const std::string iso = resolveIsoPath();
     const auto selectedLanguage =

@@ -25,9 +25,13 @@
 
 class GS;
 
-constexpr uint32_t PS2_RAM_SIZE = 32u * 1024u * 1024u; // 32MB
-constexpr uint32_t PS2_RAM_MASK = PS2_RAM_SIZE - 1u;   // Mask for 32MB alignment
-constexpr uint32_t PS2_RAM_BASE = 0x00000000;          // Physical base of RDRAM
+// The retail EE has 32 MB. The game sees only that much (stack, heap end and GetMemorySize keep the retail layout,
+// PS2_RETAIL_RAM_SIZE); the host maps 64 MB so the runtime can place data of its own above the retail RAM (the terrain
+// draw page pool, drakan_terrain_pages.h). Guest addresses wrap at PS2_RAM_SIZE.
+constexpr uint32_t PS2_RETAIL_RAM_SIZE = 32u * 1024u * 1024u; // 32MB, what the game is told and laid out in
+constexpr uint32_t PS2_RAM_SIZE = 64u * 1024u * 1024u;        // 64MB mapped
+constexpr uint32_t PS2_RAM_MASK = PS2_RAM_SIZE - 1u;
+constexpr uint32_t PS2_RAM_BASE = 0x00000000; // Physical base of RDRAM
 constexpr uint32_t PS2_SCRATCHPAD_BASE = 0x70000000;
 constexpr uint32_t PS2_SCRATCHPAD_ALIAS_BASE = 0xF0000000;
 constexpr uint32_t PS2_SCRATCHPAD_SIZE = 16u * 1024u;  // 16KB

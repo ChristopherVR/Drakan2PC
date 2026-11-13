@@ -42,6 +42,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_terrain_distance_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_terrain_distance_test COMMAND world_terrain_distance_test)
 
+    # Terrain draw page pool (header only): best-fit allocator over the extra guest RAM, routing rule, churn.
+    add_executable(world_terrain_page_pool_test tests/terrain_page_pool_test.cpp)
+    target_link_libraries(world_terrain_page_pool_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_terrain_page_pool_test COMMAND world_terrain_page_pool_test)
+
     # Near-plane clip of the engine's projected polygons (header only): bit-identical front polygons, clipped straddlers.
     add_executable(world_polyclip_test tests/polyclip_test.cpp)
     target_link_libraries(world_polyclip_test PRIVATE drakan_world drakan::options)

@@ -368,7 +368,7 @@ public:
     void handleTLBWR(uint8_t* rdram, R5900Context* ctx);
     void handleTLBP(uint8_t* rdram, R5900Context* ctx);
     void clearLLBit(R5900Context* ctx);
-    void configureGuestHeap(uint32_t guestBase, uint32_t guestLimit = PS2_RAM_SIZE);
+    void configureGuestHeap(uint32_t guestBase, uint32_t guestLimit = PS2_RETAIL_RAM_SIZE);
     uint32_t guestMalloc(uint32_t size, uint32_t alignment = 16u);
     uint32_t guestCalloc(uint32_t count, uint32_t size, uint32_t alignment = 16u);
     uint32_t guestRealloc(uint32_t guestAddr, uint32_t newSize, uint32_t alignment = 16u);
@@ -518,11 +518,11 @@ private:
     std::vector<GuestHeapBlock> m_guestHeapBlocks;
     uint32_t m_guestHeapBase = 0x00100000u;
     uint32_t m_guestHeapEnd = 0x00100000u;
-    uint32_t m_guestHeapLimit = PS2_RAM_SIZE;
+    uint32_t m_guestHeapLimit = PS2_RETAIL_RAM_SIZE;
     uint32_t m_guestHeapSuggestedBase = 0x00100000u;
     bool m_guestHeapConfigured = false;
     uint32_t m_asyncCallbackStackFloor = 0x01F00000u;
-    uint32_t m_asyncCallbackStackTop = PS2_RAM_SIZE;
+    uint32_t m_asyncCallbackStackTop = PS2_RETAIL_RAM_SIZE;
 
     std::atomic<uint32_t> m_missingFunctionPolicy{static_cast<uint32_t>(MissingFunctionPolicy::ContinueToTarget)};
     std::atomic<bool> m_missingFunctionReported{false};

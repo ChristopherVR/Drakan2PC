@@ -892,7 +892,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const char* dir = std::getenv("DRAKAN_SHOT_DIR");
         const std::string path = std::string(dir ? dir : ".") + "/ram_" + std::to_string(n++) + ".ram";
         if (std::FILE* rf = std::fopen(path.c_str(), "wb")) {
-            std::fwrite(rdram, 1, PS2_RAM_SIZE, rf);
+            std::fwrite(rdram, 1, PS2_RETAIL_RAM_SIZE, rf);
             std::fclose(rf);
             ilog("[in] ram dump %s\n", path.c_str());
         }
@@ -935,7 +935,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 const char* dir = std::getenv("DRAKAN_SHOT_DIR");
                 const std::string path = std::string(dir ? dir : ".") + "/" + d + ".ram";
                 if (std::FILE* rf = std::fopen(path.c_str(), "wb")) {
-                    std::fwrite(rdram, 1, PS2_RAM_SIZE, rf);
+                    std::fwrite(rdram, 1, PS2_RETAIL_RAM_SIZE, rf);
                     std::fclose(rf);
                     ilog("[in] ram dump %s\n", path.c_str());
                     ilog("[in-ram-time] label=%s seconds=%.6f frame=%d\n", d.c_str(), nowS(), m.frameNo());

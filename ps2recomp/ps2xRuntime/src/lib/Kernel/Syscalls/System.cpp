@@ -420,13 +420,13 @@ void SetupThread(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     if (stack == 0xFFFFFFFFu) {
         if (stackSizeSigned > 0) {
             const uint32_t requestedSize = static_cast<uint32_t>(stackSizeSigned);
-            if (requestedSize < PS2_RAM_SIZE) {
-                sp = PS2_RAM_SIZE - requestedSize;
+            if (requestedSize < PS2_RETAIL_RAM_SIZE) {
+                sp = PS2_RETAIL_RAM_SIZE - requestedSize;
             } else {
-                sp = PS2_RAM_SIZE;
+                sp = PS2_RETAIL_RAM_SIZE;
             }
         } else {
-            sp = PS2_RAM_SIZE;
+            sp = PS2_RETAIL_RAM_SIZE;
         }
     } else if (stack != 0u) {
         if (stackSizeSigned > 0) {
@@ -498,7 +498,7 @@ void EndOfHeap(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 void GetMemorySize(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     (void)rdram;
     (void)runtime;
-    setReturnU32(ctx, PS2_RAM_SIZE);
+    setReturnU32(ctx, PS2_RETAIL_RAM_SIZE);
 }
 
 void InitTLB(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {

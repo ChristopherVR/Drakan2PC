@@ -71,6 +71,16 @@ border vertices are lit from the slope of the neighbouring layer instead of half
 the fade distance and the PC's own 4 m grid stay as the PS2 engine draws them. Needs a regenerated pack, the HD step for
 it and a new game. See [mountains and snow](../journal/2026-11-14/ootf-terrain-look.md).
 
+**November 14 terrain heap (round 5):** the hangs and `[memset] bad size ... ra=0x157d7c` crashes in the Islands and
+Wartok Canyons were the game's heap running out while the engine built the terrain draw pages of the layers in view
+(converted terrain has up to 10 times the disc's chunks in one view). The runtime now maps 64 MB of guest RAM, keeps the
+game in its retail 32 MB layout and serves the terrain builder's allocations from a pool above it (`[general]
+terrain_page_pool`, on by default): nothing drawn changes. With the `dist` pack the Islands crash spot crashed the old exe
+in under 4 minutes and played 13 minutes clean on the new one; Wartok Canyons played 14 minutes on foot and twice 13
+minutes flown, no crash; pool use 4 to 8 MB of 32. The converter's repaint of the same day (`limitChunkTextures`, 8 to 27 %
+of drawn cells change texture) is off again by default (`DRAKAN_TERRAIN_CHUNKS=repaint`). Needs the rebuilt exe; packs
+need no rebuild. See [terrain heap](../journal/2026-11-14/ootf-terrain-heap.md).
+
 **November 14 renderer draw cost (round 4):** the Direct3D 11 renderer now binds only the draw state that changed
 (`[video] draw_state_cache`, on by default, `0` = the old path). Same picture (identical replays, a read-back check of
 every draw's state in the game). On a quiet machine at 4K with the owner's settings Wartok Canyons runs at 38.2 / 55.3

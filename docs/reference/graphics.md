@@ -500,6 +500,20 @@ divides `s` by the factor for the length of the call, which moves both the cut-o
 by that factor (rules and numbers: `runtime/world/include/world/TerrainDistance.h`). No level data, material or code
 changes. It costs terrain passes: about twice as many splat passes and vertices at factor 2 at the Surdana start.
 
+**Terrain draw page pool** (`[general] terrain_page_pool`, on by default, PAL): the engine builds a draw block per
+terrain layer in view (`FUN_00154060` .. `FUN_00157a08`: chunk records, group arrays and draw pages of 0x400 bytes or
+more that the VIF1 DMA reads) from the game's one heap, which ends at 0x1f00000 under the stack. Only layers not drawn
+this frame are evicted, so the blocks of one frame's visible layers must fit at once. Disc levels list at most 524
+chunks in one visible list; converted Order of the Flame levels up to 5,656, which ran the heap out (malloc 0, then
+`[memset] bad size ... ra=0x157d7c` and a jump to 0 or a hang). The runtime maps 64 MB of guest RAM (`PS2_RAM_SIZE`)
+while the game keeps the retail 32 MB layout (`PS2_RETAIL_RAM_SIZE`: stack, heap end, `GetMemorySize`, RAM dumps), and
+`drakan_terrain_pages.cpp` wraps the guest malloc `0x4ac628`, realloc `0x4acef0` and free `0x4acc40`: allocations whose
+return address lies in the builder take a block of the pool at 0x2000000..0x4000000, frees and reallocs of pool
+addresses go back to it, everything else runs the original allocator. The engine still builds, budgets and evicts the
+same pages, only their addresses differ, so the picture does not change. A full pool falls back to the game heap.
+Allocator and routing rule: `runtime/world/include/world/TerrainPagePool.h` (`world_terrain_page_pool_test`). Every
+host-side reader of game objects keeps its 32 MB bounds: nothing the game itself allocates outside the builder moves.
+
 **World position per pixel.** The vertex Q is 1 / clip w at full float precision and is linear in screen space, so a
 pixel's camera-relative world position follows from its pixel position, Q and the engine camera the host publishes
 (`SceneGuideCamera`): `rel = (1 / Q) * (d0 + px * dx + py * dy) + base` (`terrain::Unproject`, built through view
