@@ -141,3 +141,59 @@ build/ootf/mods`) and a new campaign game.
   must import without Pillow or numpy.
 - The git index is shared by every session: stage and commit in one command limited to explicit paths.
 - Subagents run on Opus or Sonnet only (owner's instruction of 12 November).
+
+## Update at the end of 13 November
+
+Everything below is on `main` and pushed (`5df14024`); the next release is cut from it once CI is green.
+
+### Landed since the first version of this note
+
+- **Order of the Flame, church stair and Book scene** (`ootf-book-skip-and-reload.md`): Escape at any point of the Book
+  scene now hands back to the stair foot; subtitles are correct after any load; backing out of the save screen at the
+  stair, or loading a save made during the walk-down, offers the save and the Book again until it is taken; once taken,
+  the exit is closed in the save. Needs a rebuilt pack (formats `5133381`) and a new campaign game.
+- **Direct3D 11 device removed** (`d3d11-device-removed.md`): a graphics driver reset no longer crashes the game; a
+  plain notice is shown and the session ends in order. Proven with a forced-loss hook in the game and one real reset in
+  a replay tool. The owner chose not to force a real reset in the game.
+- **Renderer sharing, part 2** (`renderer-shared-code-2.md`): backend forwarding, the scene-camera phase machine,
+  present, the rest of the target code and the image files are shared. Identical lines between the backends:
+  3,712 at the start of 12 November, 752 now. Left: the backend state headers (`*_backend_impl.h`, about a day plus a
+  proof run) and the device files (about half a day).
+- **GPU vertex path** (`gpu-vertex-implementation.md`, `gpu-vertex-tuning.md`): strips drawn by the exact vertex shader
+  on Direct3D 11 and WebGPU; the batch path on Direct3D 11 behind `DRAKAN_VERTEX_STAGES=all`; exact strip bounds; the
+  tracker rests when no batch stage is handed over; small targets drawn by the shader. Default `cpu`; `auto` resolves
+  to `cpu` because nothing is marked proven.
+
+### GPU vertex path, the numbers on a quiet machine
+
+Owner's settings, 3840x2160, Direct3D 11, `cpu` against `gpu` (strips), three interleaved repeats, nothing else
+running:
+
+| Scene | DLSS | Frame ms, cpu to gpu | VU1 worker ms | Verdict |
+| --- | --- | --- | --- | --- |
+| Surdana | quality | 6.20 to 6.12 | 5.60 to 3.52 | not established |
+| Surdana | off | 5.73 to 5.31 | 5.44 to 3.49 | 7.7 % faster |
+| Fight | quality | 9.42 to 9.73 | 9.56 to 5.48 | 3.3 % slower |
+| Fight | off | 8.95 to 8.57 | 8.92 to 4.95 | 4.0 % faster |
+| OotF Ruined Village | quality | 16.67 to 16.67 | 5.34 to 5.63 | no change (held at 60 fps) |
+| OotF Ruined Village | off | 11.87 to 12.05 | 6.10 to 5.04 | not established |
+
+The VU1 worker gains 2 to 4 ms on foot in Drakan 2; the GS worker pays some of it back, so the frame gains only
+without DLSS. Next steps with estimates: a leaner hand-over on the GS worker (2 to 3 days, needed before the batch
+path pays), the batch path on WebGPU (1.5 to 2 days), removing the DLSS scene-model capture (3 to 4 days, riskiest),
+marking strips proven (half a day, owner's decision), re-taking the WebGPU reference hashes (1 hour).
+
+### Decisions still open for the owner
+
+- Whether to mark strips proven so `auto` uses them (the table above says: only worth it without DLSS so far).
+- The earlier list in this note, items 2 to 9, still stands except item 1 (device removed: done) and the camera wall
+  test for the cellar, which is now reduced by the reworked carry (`issue6-cellar-glitch.md`, third pass).
+
+### Lessons added
+
+- Stopping a background task can leave its child processes running (`xargs`, chained scripts); three agents were
+  caught by it. Runners must stop their whole process group and remove only a lock they created.
+- Never leave unlanded code applied in the main working tree between a build and a commit: it blocks other agents'
+  commits of the same files.
+- The proof bar of 90 replay runs per step was more than a pure code move needs and cost most of a day on a shared
+  GPU; a build, the suites and one cumulative replay matrix would have done.
