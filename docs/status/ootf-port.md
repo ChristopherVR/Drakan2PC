@@ -597,8 +597,15 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   to 0 or a frozen frame). Converted levels have 10 to 30 times the terrain chunks of any disc level per visible list
   (Islands 5,656 against at most 524), because chunks with more than 8 textures are cut down to single cells. Also on the
   packs from before rounds 3 and 4. Needs a converter decision (fewer textures per chunk window, 10 to 20 % of Islands cells
-  repainted). Islands Night, Rift Crystal and Rift World played without it. The Islands Ctrl landing always ends on one
-  rock where Rynn is stuck on Arokh's back. See [play check A](../journal/2026-11-14/ootf-playcheck-islands-rift.md).
+  repainted). Islands Night, Rift Crystal and Rift World played without it. See
+  [play check A](../journal/2026-11-14/ootf-playcheck-islands-rift.md).
+* **Islands arrival: "every Ctrl landing ends on one rock" was the arrival scene 5.1, skipped with Cross** (2026-11-14):
+  the PC detector at the tunnel mouth plays it, it flies Arokh onto that plateau and hands Rynn back mounted there, as on
+  the PC. The scene seated her on his neck joint (PC saddle channel 19 kept; the PS2 saddle is 14), so after the dismount
+  she stood on his back. Fixed in the converter (formats `4f2892d`, needs a regenerated pack): she rides the saddle, the
+  dismount puts her beside him, and landings on the island east of the plateau, at the bell temple and at the Alwarren
+  exit, dismount, walk and remount (except at the Alwarren exit, where Arokh rose after the walk), F5 / F8 work; Wartok and
+  Rift World land where flown. See [Islands landing](../journal/2026-11-14/ootf-islands-landing.md).
 * German (or other localized) PC installs are handled from source review and synthetic tests only: header texts, Dragon.rrc
   ids, folder layout, Intro/Book timer lengths against a German dub and a German playthrough are unverified
   (`journal/2026-11-06/issue-3-localized-ootf.md`, "Still needs a real German install").
