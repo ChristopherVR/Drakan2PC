@@ -94,6 +94,13 @@ my_mod/
   the top and bottom of the authored picture are cut, at most down to a 16:9 picture (a quarter of a 4:3 level's height);
   a 21:9 or 32:9 window shows that 16:9 picture with bars. A 4:3 window is the same either way. The OotF converter writes
   plain `4:3` unless it runs with `OOTF_PICTURE_FILL=1`.
+* **One-way exits**: `one_way_exits = ["Level title @ x, y, z"]` (top-level key; the exit object's position, matched
+  within 64 units). When the level-change save of such an exit is written (the player said yes on its save screen), the
+  exit is closed in that save (instance flag `0x4`, what message `0x1002` sets), so the level restored after the next
+  one never offers it again; a player who backs out of the save screen keeps it. The runtime's arrival guard is not
+  applied to these exits (only scenes and boxes of the pack touch them). The OotF converter writes it for the church
+  stair to the Ruined Village Book, whose exit is a point fired by its scenes and a re-offer box at the foot of the stair
+  (formats `ootfexitseq.ts`, `drakan_exit_guard.h`, journal 2026-11-13/ootf-book-skip-and-reload.md).
 * **Pointing an exit at a copy**: an exit's destination is a level XDB string, `Levels\<name>\<name>.lvl`; override it with
   `overrides/LEVEL1ON.XDB/0400_<id>_1.bin` (text in all language slots) and the game's own transition loads the copy by that
   path, no runtime table involved. The string is shared by every exit that uses it; the editor's exit picker therefore

@@ -65,6 +65,16 @@ describe('campaign manifest keys', () => {
             expect(() => validateModMeta({ ...meta, levelAspect: { 'Picture Level': bad } })).toThrow();
         expect(() => validateModMeta({ ...meta, levelAspect: { 'A = B': '4:3' } })).toThrow();
     });
+    it('writes the exits that close once taken', () => {
+        const meta = { id: 'p', target: { profile: 'pal' as const }, levels: ['Village'] };
+        const toml = buildManifestToml({ ...meta, oneWayExits: ['Village @ 279392, 14761, 152908'] });
+        expect(toml).toContain('one_way_exits = ["Village @ 279392, 14761, 152908"]');
+        expect(toml.indexOf('one_way_exits')).toBeLessThan(toml.indexOf('[target]'));
+        expect(buildManifestToml(meta)).not.toContain('one_way_exits');
+        expect(() => validateModMeta({ ...meta, oneWayExits: ['Village @ -1.5, 2, 3e2'] })).not.toThrow();
+        for (const bad of ['Village', 'Village @ 1, 2', ' @ 1, 2, 3', 'Village @ 1, x, 3'])
+            expect(() => validateModMeta({ ...meta, oneWayExits: [bad] })).toThrow();
+    });
     it('writes campaign, name, description, start and saves', () => {
         const toml = buildManifestToml({
             id: 'test.campaign',

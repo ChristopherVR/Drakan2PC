@@ -280,6 +280,8 @@ const pack = await buildOotfPack(
         ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for (the Ruined Village Book: 4:3)
         ...(res.levelAspect ? { levelAspect: res.levelAspect } : {}),
+        // exits that close once taken (the church stair to the Book: a backed-out save offers it again until then)
+        ...(res.oneWayExits?.length ? { oneWayExits: res.oneWayExits } : {}),
     },
     template,
     res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath), preview: previewPng(arenas.get(l.pcPath)?.name) })),

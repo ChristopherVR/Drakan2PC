@@ -396,9 +396,11 @@ grey void for the rest of the 250 s. The Book's scene now sends the exit its mes
 scene does. Reloading: the save carries the sound manager's handle counter, so after loading the exit save the Book's
 clips came back with handles the subtitle tracker had already seen and the first nine lines had no text; loads now
 reset it, and a clip's page ends when its sound stops. The walk-down and the save box stay unskippable (Escape opens the
-pause menu / does nothing). Found and left open: Back on the save screen at that exit, or loading a save made during the
-walk-down, leaves Rynn at the foot of the stair with control but the Book is not offered again (the relayed exit cannot
-be touched and its Timer is spent). Needs the new exe and a regenerated pack (a new campaign game). See
+pause menu / does nothing). Follow-up the same day: Back on the save screen at that exit, or loading a save made during
+the walk-down, used to leave the Book unreachable (the relayed exit is a point and its Timers are destroyed once fired).
+Now the entrance scene fires the exit itself, a re-offer box at the foot of the stair brings the prompt back after a
+back-out (as often as needed, also after a save and load), and the runtime closes the exit in the level-change save, so
+after the Book it is never offered again (manifest `one_way_exits`). Needs the new exe and a regenerated pack (a new campaign game). See
 [Book skip and reload](../journal/2026-11-13/ootf-book-skip-and-reload.md).
 
 **November 12 the tomb's push puzzle (issue 5):** the owner's "cannot push the objects in the lair" is the tomb of the Soul

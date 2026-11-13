@@ -128,7 +128,7 @@ Tests: `drakan_subtitle_toggle_test` has a new case (a stopped sound ends the pa
 clip's page and leaves the narration; handles are forgotten); `ootfseq.test.ts` has "sends the end messages at the last
 action, after the releases, so a skipped scene sends them too".
 
-## 7. Cancelled save at the exit, and a save made during the walk-down (found here, not fixed)
+## 7. Cancelled save at the exit, and a save made during the walk-down (found here; fixed in section 12)
 
 Escape (Back) on the save screen at the stair's exit returns to Ruined Village without the level change, as on any exit
 of the game. On a disc level the player would walk into the exit again; here the exit is a point that cannot be touched
@@ -242,3 +242,108 @@ Drakan 2, new exe (`d2.py`, `runs/d2-*`, `evidence/after/d2-*`):
   (renderer).
 * The 4:3 picture after a skip was checked in frames only for the Book (pillar box until the exit) and Ruined Village
   (16:9 again); other picture levels have none.
+
+## 12. Follow-up: the stair exit offered again (back-out, saves at any point of the chain)
+
+Owner, after section 7: fix both, so the backstory can always still be reached; a player who backs out gets the prompt
+again by walking back, as often as needed; a player who has seen or skipped the Book never gets it again; re-arming
+survives a save and a load; nothing changes going straight through. Also look at quick save / quick load and quit to the
+title and Continue.
+
+**What the data and the engine allow.**
+
+* Every PS2 Timer has `Destroy After Timeout?` (class default yes): the relay's Timers, and the PC Timer 2847 behind the
+  stair-top detector, are gone after they fire. That is why nothing replayed.
+* A Timer's countdown did not survive a load (`a-walksave`: the relay's exit Timer was running at the save and never
+  fired after the load), but a scene's progress does (the walk-down replayed to its end after the load).
+* The world is not stopped under the level-change save box (the first design, an arm Timer started with the exit, had
+  enabled the re-offer box before the save was written: run `c-straight`, the box's touch came after the hand-back and
+  was only hidden by the arrival guard). So nothing inside the level can tell "backed out" from "said yes".
+* What does tell them apart is the level-change save itself: `<level>.rlt` of the level being left is written inside
+  the transition, after the player said yes, and a back-out writes nothing. `drakan_levelchange` already hooks that write.
+  The exit's handler `0x361440` drops the touch event when its instance flag `0x4` is set (what message `0x1002` sets;
+  nothing in the handler clears it).
+
+**Design.**
+
+* Converter (formats `ootfexitseq.ts`): the last relayed scene ("Entrance Stomp") sends the exit ON at its end, instead
+  of a Timer of the scenes' length, and starts an arm Timer (0.5 s, `Destroy After Timeout? = 0`, starts on any
+  message). The arm Timer enables a re-offer box: a Trigger Detector at the foot of the stair, where "Book 1B" brings
+  Rynn on before she walks onto the exit (its player key at 12.81 s, 279013 / 153793; 820 x 1230 x 820 units),
+  `Initial State` Disabled (so the exit scene cannot walk her into it), `Can be Triggered by Message ? = 1`,
+  `Detect Only Once? = 0`, Rynn on foot, sending ON to the exit each time she walks in. A first version made the box
+  fire once and re-arm itself through the arm Timer; in play (`g-backout3`) the box fired for the first back-out and
+  never again: a Timer that has fired is not started again by a later message. Since the runtime closes the exit once it
+  is taken, the box does not need to be spent. The pack manifest lists the exit as one-way:
+  `one_way_exits = ["OotF 01 - Ruined Village @ 279392, 14761, 152908"]`.
+* Runtime (`drakan_levelchange.cpp`, `drakan_exit_guard.h`): when the level-change save of a one-way exit is written,
+  the exit's instance flag `0x4` is set first, so the saved level (which the Book's hand-back restores) has the exit
+  closed; the box's touches then end in the engine's own handler. The arrival guard is not applied to one-way exits
+  (they are points; only their scene and the box touch them), so the box works right after a load too.
+* In the pack only Ruined Village's level file, "Entrance Stomp" and `mod.toml` differ from the earlier fix (pack
+  `fix4`; the `d-*`, `e-*`, `h-*` runs below ran `fix3`, whose box was the one-shot version; `i-*` and `j-*` ran `fix4`).
+
+**Played** (rebuilt exe `78670214...`, pack `6ae15942...`, owner's ini, the same chain as before; the book and the
+church door placed, everything after by real input; runs `d-*` and `e-*`, contact sheets `evidence/reoffer/`, the exit
+handler traced with `DRAKAN_LEVELCHANGE_TRACE=1`). "Box" is the re-offer box, "P" the exit point on the pedestal; a
+`face0` step turns Rynn to face -z with a placement on her own spot so the driver's keys walk where it expects:
+
+| Case | Before (owner's exe and pack, or the first fix) | After (runs) |
+| --- | --- | --- |
+| Straight through, Book watched | Save box 20.0 s after the stair took control (`b-esc-savebox`) | Box 19.7 s after (`d-straight`; timing paragraph below); the entrance scene's end message fires the exit. Book, hand-back; then onto the box twice: no prompt, the box's touch reaches an exit in state `0x1d` (closed) |
+| Back out of the save screen at the exit, walk onto the box | Nothing, ever (`a-esc-savescreen`) | The save screen comes back (`d-backout`, `d-backout-quick`, `e-backout2`); accepted, the Book; after the hand-back the box gives nothing |
+| Back out twice | (n/a) | Second Back on the re-offered screen returns control (`e-backout2`); the third offer: `g-backout3` (below) |
+| Back out, quick save (F5), quick load (F8), walk onto the box | (n/a) | Prompt (`d-backout-quick`): the re-armed box survived the save and the load, and the guard no longer holds the point exit; the box's touch reached the exit in state `0x18` (open) |
+| Save during the walk-down (pause, Save Game, native screen), load it after the hand-back | The walk-down replays, then control at the foot and no prompt (`a-walksave`) | The walk-down replays, the box 6 to 10 s after the load (`d-walksave`, `e-walksave`), accepted (`e-walksave`), the exit closed in the new save, the Book loads |
+| Quick save after the floor opened (before the stair), load it after the hand-back | (n/a) | Back at the altar with the floor open; onto the stair top: the walk-down plays again and the box comes 9.2 s later (`d-quick-floor`) |
+| Quick save in the nave before the altar (floor shut), load it after the hand-back | (n/a) | Back in the nave with the book; the book on the altar, the floor, the stair, the walk-down, the box 9.1 s later (`d-quick-nave`) |
+| Quick save and quick load after the hand-back | (n/a) | Onto the box: no prompt; the touch reaches the exit in state `0x1d` (`d-quick-after`) |
+| The save made at the save box | It is the level-change save, a save of the Book level; loading it plays the Book and hands back to the restored Ruined Village (owner's log; `b-reload-native`) | The same; that restored Ruined Village has the exit closed (as `d-straight`). It is overwritten by the hand-back's own save |
+| Quit, restart, load | (n/a) | Quit in the native pause menu closes the game in this port (`quit_exits`, `d-quit-continue`); the owner's title menu is the native one (Load Game, New Game, Options, Credits, Quit; Continue is on the modern title only). Restart on that card, Load Game, slot 1 (saved after the hand-back): at the foot, onto the box: no prompt, the touch reaches the closed exit (`0x1d`) (`h-restart-load`). Restart on the card of `d-backout-quick` / `i-backout-quick`, F8 at the title (the quick save made after the back-out): onto the box: the save screen (`h-restart-f8`, `i-restart-f8`) |
+| Revised box (`fix4`): straight through, then onto the box after the Book | (n/a) | Three touches on the closed exit (`0x1d`), no prompt (`i-straight`) |
+| Revised box: back out, F5, F8, onto the box | (n/a) | The save screen; accepted; the Book (`i-backout-quick`). In this run the Book's scene started late after the load and the old level Timer (250.7 s) took the exit before the scene's end released Rynn: she came back to Ruined Village held (no control). Fixed in `fix5` (below) |
+
+In `d-quick-floor` and `d-quick-nave` my driver could not confirm the modern save screen's overwrite card (slot 1 was
+taken), so those two stop at the save prompt; the prompt is the point of the case. Driver artefacts seen and not
+counted: a Cross tap on the modern save screen also reached the Book as it loaded and skipped it (`c-backout`,
+`d-backout`), because the harness's pad tap goes both to the overlay and to the guest; a real Enter goes to the overlay
+only.
+Last pack (`fix5`, `c6014bf0...`: the box as in `fix4`, the Book's level Timer at 280 s):
+
+| Case | Before | After (runs) |
+| --- | --- | --- |
+| Back out, F5, F8, onto the box, accept, Book watched | (n/a) | The Book's exit taken by the scene's own end message (event `0x1005`); back in Ruined Village with control (W walks her); onto the box: two touches on the closed exit, no prompt (`k-backout-quick`) |
+| Back out three times | (n/a) | Offers: the scene's, then the box after the first back-out (touch at 122.6 s) and after the second (141.0 s) (`l-backout4`). The run's third Escape was not taken by the save screen, so a third box offer was not counted; that the box fires on every entry is also shown by `i-straight` (three touches in a row) |
+| Straight through, Book watched | (n/a) | The machine stalled heavily during this run (3 to 6 frames per 2 s for minutes); the scene had started its 19th clip when the run's time limit came, inside the Book (`k-straight`): not a result |
+
+Timing of the straight path, measured from the moment the stair takes control to the save box (position trace):
+owner's pack 20.0 s (`b-esc-savebox`), `fix3` 19.7 s and 19.9 s (`d-straight`, `c-straight`), `fix4` 19.6 s
+(`i-straight`); `k-straight` 26.6 s under the stalls above.
+
+**Quick save / quick load in the harness.** Not a harness fault: scripted F5 / F8 reach the game (`qsprobe1`: quick save,
+quick save, quick load in free play). The glue takes them only in free gameplay (no scene, no menu), so F8 during the Book
+does nothing (`a-quickload-book`), the same rule as every scene. The earlier report missed the quick save at the altar
+because the log line needs `DRAKAN_MENU_LOG=1`.
+
+**Quit and Continue.** With the owner's settings the pause menu's Quit closes the game (`quit_exits = 1`) and the title
+menu is the native one, without a Continue row; the restart cases above use Load Game and F8 at the title.
+
+Tests and builds of this follow-up, as they ran: formats and editor-core `vitest` 93 files, 987 tests passed (before the
+last two converter edits; after them `ootfexitseq`, `ootfsource`: 32 passed); `npm run typecheck --workspaces` clean;
+`exit_guard_policy_test` (with the new one-way cases) and `mod_test` (231 checks) built in the private tree and passed;
+clang-format clean on the eight touched C++ files; `python scripts/run_tests.py` 561 OK (2 skipped); repository guard
+0 prohibited; `Build-LocalGame.ps1 -Incremental` exit 0 (exe `78670214...`); packs `fix3`, `fix4`, `fix5` converted
+with exit 0 (`fix5` against the owner's pack: only the Ruined Village and Book level files, the Book scene, "Entrance
+Stomp" and `mod.toml` differ).
+
+Not verified, or only inferred, in this follow-up:
+
+* Every walk onto the box after a back-out started from a short placement or a `face0` turn (both test aids); the walk
+  into the box and every prompt, Back and accept were key or pad input.
+* Accepting the re-offered save on the modern save screen with an occupied slot (its overwrite card) was not done by the
+  driver; accepting on the native screen and on the modern screen with a free slot was.
+* The stalled `k-straight` run did not reach the hand-back; the hand-back on `fix5` is shown by `k-backout-quick` only.
+* After loading the walk-down save and accepting, the second hand-back (`e-walksave`) was not watched (run time limit).
+* That a Timer which has fired is not restarted by a later message is inferred from the box's behaviour (`g-backout3`),
+  not read in the code.
+* The arrival guard still applies to every other converted exit; only the listed one-way exit is exempt.

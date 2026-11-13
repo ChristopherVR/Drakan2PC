@@ -67,7 +67,17 @@ export interface ModMeta {
      * `4:3 fill` makes the level's width fill a wider window instead (top and bottom are cut, at most to 16:9).
      */
     levelAspect?: Record<string, string>;
+    /**
+     * Exits that close once they are taken and are never held by the runtime's arrival guard: `Level title @ x, y, z`
+     * (manifest `one_way_exits`; the OotF converter marks the Ruined Village church stair to the Book, a point exit that
+     * only its scene and a re-offer box fire, formats ootfexitseq.ts).
+     */
+    oneWayExits?: string[];
 }
+
+/** A `one_way_exits` entry: `Level title @ x, y, z` (numbers, the exit object's position). */
+export const ONE_WAY_EXIT_PATTERN =
+    /^[^@]*\S[^@]*@\s*-?[\d.]+(?:e[+-]?\d+)?\s*,\s*-?[\d.]+(?:e[+-]?\d+)?\s*,\s*-?[\d.]+(?:e[+-]?\d+)?\s*$/i;
 
 /** An aspect a manifest accepts: `W:H` or a number, between 1 and 4. */
 export const LEVEL_ASPECT_PATTERN = /^(\d+(\.\d+)?:\d+(\.\d+)?|\d+(\.\d+)?)( fill)?$/;
@@ -143,6 +153,8 @@ export function validateModMeta(m: ModMeta): void {
             throw new ModError(`levelAspect of "${level}" must be like 4:3 (between 1 and 4)`);
         if (level.includes('=') || !level.trim()) throw new ModError(`levelAspect: "${level}" is not a level title`);
     }
+    for (const e of m.oneWayExits ?? [])
+        if (!ONE_WAY_EXIT_PATTERN.test(e)) throw new ModError(`oneWayExits: "${e}" is not "Level title @ x, y, z"`);
     if (m.campaignStart !== undefined && !m.levels?.includes(m.campaignStart))
         throw new ModError('campaignStart must be one of the pack levels');
 }
@@ -168,6 +180,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
     const aspects = Object.entries(m.levelAspect ?? {});
     if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
+    if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;
