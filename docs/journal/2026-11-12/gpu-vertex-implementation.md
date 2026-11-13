@@ -287,6 +287,21 @@ rebased on the Direct3D 11 device-loss change `4189da39`.
   `d3d11_vertex_program.cpp` the two constant-buffer Maps go through `map()` with the batch path's own failure branch
   (`programFailed`, `pData` checked), and the ring failures call `probeDevice()`.
 
+## 10. Increments 9 to 11: tune's three commits
+
+Written by the `tune` subagent, landed by the orchestrator after a rebase onto the batch commit and `4189da39`; its
+note is [gpu-vertex-tuning.md](../2026-11-13/gpu-vertex-tuning.md).
+
+* `aa1db90c`: exact bounds for strip records (`program_draw::stripBounds`), so both record kinds span their stand-ins
+  over the exact bounds; the latent strip fault of the not-verified list is gone.
+* `484bc4ac`: the batch tracker rests under a word without a batch family, which is the default of `gpu`; the VIF
+  reports nothing then. `DRAKAN_VERTEX_TOGGLE_STAGES` toggles between two stage sets.
+* `5a119a29`: records into targets narrower than 512 are drawn by the shader (`kAnyTarget`), which was the largest
+  GS-worker item (shadow targets in flight); cheaper bound estimates; `GSR_PROFILE` buckets for the vertex-program
+  work.
+* Each commit was built and passed `runtime-tests` and the Direct3D 11 records test on its own tree; frame identity
+  (captures, live toggles, the DLSS dumps) was shown on the cumulative tree (proof log).
+
 ## Proof log
 
 | Date | What | Result |
@@ -317,6 +332,10 @@ rebased on the Direct3D 11 device-loss change `4189da39`.
 | 2026-11-13 | Increment 8 before the rebase (main `2caaafdf` with the commit and the default stage mask): `runtime-tests`; `vertex_program_history` with every strip and batch record on the RTX 5080 and WARP; `vertex_records` on Direct3D 11; four new captures under `records` (Surdana walk, Ravenshold flight, Lair arena, Order of the Flame Ruined Village; 1280x960) replayed with records on the CPU against the shader with every stage, Direct3D 11 at scales 1, 3, 8; the same at scale 3 on Direct3D 11 and Vulkan under the default word; "`cpu` equals" against the hashes of `2caaafdf` on three backends | 187 of 187; 3,045,645 strip and 7,353,168 batch pairs per library, 0 differ, both adapters; 589,920 vertices by the shader (75,522 of batch records), 0 of 10,354,032,640 colour and 0 of 2,036,858,880 depth pixels differ; 12 comparisons, 991 + 1,612 + 6,000 + 1,732 frames per scale, 0 differ, 6.1, 34.4, 136.5 and 15.0 million batch vertices by the shader per scale-3 replay; 8 comparisons, 0 differ; 45 comparisons, 0 differ |
 | 2026-11-13 | Increment 8 rebased on `4189da39`: `runtime-tests`; history; `vertex_records` on Direct3D 11 and Vulkan; three of the captures at scale 3; "`cpu` equals" on Direct3D 11 against `2caaafdf`; live paused toggles from a private game build of the tree (1280x960, DLSS off, 24 shots, `gpu` with `DRAKAN_VERTEX_STAGES=all` against the microprogram every 64 frames) in Surdana, the fight spot, the Lair arena, Ravenshold in flight, Order of the Flame Volcanic and Ruined Village, and the default word of `gpu` in Surdana | 190 of 190; 0 differ; the same records-test totals on both, 0 pixels differ; 3 comparisons, 0 differ; 15 comparisons, 0 differ; 24 of 24 identical in each of the six scenes (batch-path vertices by the shader 0 in Surdana, its first run, where the cold batch compile left 502,394 batch records `not ready` on the CPU; 49.7, 23.1, 53.7, 16.0 and 22.5 million in the others); default word 24 of 24, 0 batch-path vertices by the shader, 1,575,455 runs `stage off` |
 | 2026-11-13 | Increment 8, the same build: paused Surdana with DLSS quality and a fixed jitter sample (`GSR_TEMPORAL_DUMP_EPOCHS`), every stage, ten worlds | not established: the paused world is not still in this build. Entry colour is 0 differ in all 5 shader worlds, but between microprogram worlds prepared colour differs by 9,887 to 14,011 pixels and object motion by 10,590 to 13,854, the same size as against the shader worlds. One shader world right after a switch has 1,149 object-motion pixels valid only under the microprogram: the documented first world after a switch, which has no history for the shader's draws |
+| 2026-11-13 | Increments 9 and 10, each on its own tree (`4189da39`, the batch commit, tune-1, then tune-2): build, `vertex_path`, `vertex_program_draw`, `runtime-tests`, `vertex_records` on Direct3D 11 | tune-1: 189 of 190 (`world_readback`: its ray pass stuck under load, passes alone twice), records 672,864 shader vertices (103,170 batch), 0 of 13,197,148,160 colour and 0 of 2,503,639,040 depth pixels and 0 of 421,527,552 memory words differ; tune-2: 190 of 190, the same records totals, 0 differ |
+| 2026-11-13 | Increments 9 to 11, the cumulative tree: `runtime-tests`; `vu_gpu_batch_policy_test`; bounds against brute force (`GSR_VP_RECORDS`, `GSR_VB_RECORDS`, batches to 64 / 200 and to 800); the `outside` scene at scales 3 and 8; `vertex_records` on three backends; the Surdana strip capture at scale 3 on three backends; the four batch captures at scale 3 with every stage on Direct3D 11 and on Vulkan; "`cpu` equals" on Direct3D 11 against `2caaafdf`; live paused toggles from a private game build | 190 of 190; 5,630,490 checks; 0 differ (strips 1,015,053 vertices, batch 2,447,600); 0 of 350,945,280 and 0 of 2,495,610,880 pixels, 0 of 140,509,184 memory words; Direct3D 11 700,512 shader vertices (116,994 batch), Vulkan and Direct3D 12 583,518, each 0 pixels and 0 memory words differ; 3 x 1,423 frames, 0 differ; 2 x 10,335 frames, 0 differ, CPU evaluation 0, fallbacks none (Ruined Village 146.7 million batch vertices by the shader); 15 comparisons, 0 differ; 24 of 24 identical in each of: every stage against the microprogram in Surdana, flight and Ruined Village, every stage against strips in Surdana and Ruined Village, the default word in Surdana (0 batch vertices by the shader) |
+| 2026-11-13 | The same build: DLSS quality on paused Surdana, fixed jitter sample, every stage, ten worlds | the two settled shader worlds equal the settled microprogram world in every dumped stage (entry, prepared colour, depth and motion, object and model motion); the shader world right after a switch has 888 object-motion pixels valid only under the microprogram (the first world after a switch has no history); the early worlds of both paths still settle and differ among themselves |
+| 2026-11-13 | Main `5a119a29` (everything above plus the other agents' renderer commits): `runtime-tests` | 190 of 190 (`vertex_records` 96 s, `_webgpu_vulkan` 87 s, `_webgpu_d3d12` 190 s, device-loss tests pass) |
 
 ## Not verified (running list)
 
@@ -337,14 +356,81 @@ rebased on the Direct3D 11 device-loss change `4189da39`.
   by later builds, so HD-on references made before about 21:10 that day match no build any more. References here
   are HD off from increment 5 on; HD-on coverage returns with the frozen pack `build/review/gs-share/textures_frozen`
   and its re-taken baseline.
-* A latent exactness fault of the strip path, found while the batch path was built and not fixed yet: a batch of
-  strip records is drawn through stand-in vertices that span the scissor, so a draw whose vertices all lie outside
-  the scissor is executed where the packet path skips it (what the target remembers afterwards can then differ).
-  Strip objects have passed the engine's box test as inside the view, and no capture, test or live comparison has
-  shown a difference; the batch path, where it did show (473 of 2,088 frames of a flight capture at scales 3 and 8),
-  got exact bounds. The same bounds are still to be applied to strips.
+* (Fixed by `aa1db90c`: strip records now take exact bounds as batch records do; the `outside` scene of the records
+  test showed the fault before the fix, 128 of 136 frames at scale 3.)
 * With the upscaler on, moving motion vectors made by the vertex shader are proven at vertex level (history values)
   and on paused worlds (all vectors zero) only; a capture replay has no object-motion scopes, so the motion target
   of a moving world was never compared pixel for pixel between the two paths.
-* Under `gpu` with only the strip stage handed over, the batch tracker still follows every run and every UNPACK
-  report (0.3 to 0.6 ms per frame on the VU1 worker) although it can take nothing. To remove.
+* (Fixed by `484bc4ac`: under a word without a batch family the tracker rests, and the VIF does not report.)
+* The commits from `2caaafdf` on were proven on their own trees (built on `0fb03d2d`, `2caaafdf` and `4189da39`). Main
+  gained other agents' renderer commits in between (`dd9d3a9f`, and `fbdf631a` to `ab9e7e12`, the shared backend
+  units). On `5a119a29`, the tree with all of them, only `runtime-tests` was run (190 of 190, including the records
+  tests on three backends). No capture replay or live run was made on exactly that tree.
+* The WebGPU backend has no batch shader and no motion vectors; WebGPU live play was checked by paused toggles in
+  Surdana only.
+
+## Performance, `cpu` against `gpu` (strips), main `5a119a29` (2026-11-13 evening)
+
+`scripts/perf/scene_ab_bench.py` (its turn lock), the owner's settings (`owner4k-dlss.ini`: 3840x2160 full screen,
+Direct3D 11, HD textures, scale auto), DLSS quality and off cycled live in each run, variants
+`cpu:DRAKAN_VERTEX_PROCESSING=cpu` and `gpu:DRAKAN_VERTEX_PROCESSING=gpu` (the default word: strips only, tracker at
+rest), 3 interleaved repeats per scene, game build of `5a119a29`. Machine load: every one of the 18 runs started with
+0 other games, 0 replay tools, 0 compilers and the GPU at 0 %, and none appeared during a run (the tool's own
+record). The game was not the foreground window (the harness default). Median over the repeats (lowest to highest);
+CPU times per world frame.
+
+| Scene | DLSS | Variant | Frame ms | 1 % low ms | EE ms | VU1 worker ms | GS worker ms | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Surdana | quality | cpu | 6.20 (6.13 to 6.47) | 9.1 | 5.83 | 5.60 | 5.14 | |
+| | | gpu | 6.12 (6.06 to 6.25) | 10.3 | 6.10 | 3.52 | 5.39 | ranges overlap: not established (gpu faster in 3 of 3 pairs, minus 1.3 %) |
+| Surdana | off | cpu | 5.73 (5.66 to 5.88) | 8.9 | 5.50 | 5.44 | 4.45 | |
+| | | gpu | 5.31 (5.29 to 5.37) | 8.5 | 5.27 | 3.49 | 4.63 | faster, outside the spread: minus 7.7 % (3 of 3 pairs) |
+| Surdana fight | quality | cpu | 9.42 (9.13 to 9.62) | 14.8 | 6.39 | 9.56 | 9.31 | |
+| | | gpu | 9.73 (9.67 to 9.87) | 13.9 | 6.40 | 5.48 | 9.73 | slower, outside the spread: plus 3.3 % (0 of 3 pairs faster) |
+| Surdana fight | off | cpu | 8.95 (8.88 to 8.98) | 12.2 | 5.07 | 8.92 | 7.47 | |
+| | | gpu | 8.57 (8.36 to 8.59) | 10.4 | 5.09 | 4.95 | 7.83 | faster, outside the spread: minus 4.0 % (3 of 3 pairs) |
+| OotF Ruined Village | quality | cpu | 16.67 (16.67 to 16.67) | 28.2 | 14.49 | 5.34 | 7.87 | |
+| | | gpu | 16.67 (16.67 to 16.68) | 28.2 | 14.52 | 5.63 | 8.26 | no change (held at 60 per second, EE bound) |
+| OotF Ruined Village | off | cpu | 11.87 (11.62 to 11.90) | 18.9 | 10.59 | 6.10 | 7.13 | |
+| | | gpu | 12.05 (11.59 to 12.05) | 19.2 | 10.59 | 5.04 | 6.95 | ranges overlap: not established |
+
+Reading, plainly: the strip shader moves 1.95 to 4.08 ms per frame off the VU1 worker in Drakan 2 (Surdana 36 to
+37 %, the fight 43 to 45 %), and the GS worker pays 0.18 to 0.42 ms for it. In the Ruined Village the VU1 worker
+changes by plus 0.29 ms (quality) and minus 1.06 ms (off), within or near the spread. Frame time improves outside the spread with
+DLSS off in Surdana and the fight; with DLSS quality it is unchanged in Surdana and 3.3 % worse in the fight, and in
+the Order of the Flame Ruined Village, which is EE bound, nothing changes. Not measured here: the frame queue
+(`PS2X_FRAME_QUEUE=1 PS2X_READBACK=late`), Ravenshold flight, the arena, OotF Volcanic, and `gpu` with every
+stage. Re-run: `bash build/review/gpu-vertex2/bench.sh` (kept, not tracked) or the same three
+`scene_ab_bench.py` calls; summarise with `--summarise build/review/gpu-vertex2/bench/<scene>`.
+
+## Where it stands and next steps (2026-11-13 evening)
+
+On `main`: strips drawn by the exact vertex shader on Direct3D 11 (with DLSS motion vectors) and WebGPU (Vulkan,
+Direct3D 12); the batch path drawn by its shader on Direct3D 11 but handed over only with an explicit
+`DRAKAN_VERTEX_STAGES`; exact bounds for both kinds; the tracker at rest under the default word of `gpu`; small
+targets on the shader. The player's default stays `cpu`; `gpu` hands over strips; `auto` resolves to `cpu` because
+no backend is marked `proven`.
+
+Next steps, in the order that should make the path pay, with estimates for one agent including proofs:
+
+1. **Leaner hand-over on the GS worker** (about 2 to 3 days). On Direct3D 11 one Map per draw for vertices, indices,
+   pass rows and the previous stream (one ring with the three bind flags) instead of four to six; absolute constant
+   rows in the vertex data so the per-draw constant buffer is written only when XYOFFSET changes; the strip record's
+   register tail deferred like the batch tail (three full evaluations per strip record now); the shape hash only
+   where a motion consumer is on; for the batch path the rows of a batch sent once with indices per index-list run
+   (the leaner record) and the inline range test before the VIF report. The batch path cannot pay before this:
+   in the Ruined Village the GS worker pays 4 to 7.6 ms more under `gpu` with every stage.
+2. **Batch path on WebGPU** (about 1.5 to 2 days). The generated WGSL already exists and is proven on Vulkan and
+   Direct3D 12 (`vertex_batch_webgpu_*`); what is missing is the draw side in `wgpu_vertex_program.cpp` like the
+   strip side (a second program, its pipelines, the pass rows in the draw data) and the records test and captures on
+   WebGPU. Worth doing after step 1, since the same hand-over cost applies.
+3. **Mark `proven` for strips** where the numbers show a gain (half a day once the owner decides): the per-backend
+   `Capability::proven`, so `auto` uses the strip shader on Direct3D 11 and WebGPU. The exactness evidence is
+   complete for strips; what is missing is a frame-time gain shown outside the spread.
+4. **DLSS CPU overhead** (about 3 to 4 days, the riskiest). With DLSS on, characters' motion vectors come from the
+   scene-model motion pass, so the EE-side scene-model capture keeps running. Removing it needs a per-instance link
+   between an object-motion scope and a scene-model instance, a rule that the model pass leaves out instances fully
+   drawn by records, and a per-pixel proof on moving worlds (which also needs a capture or harness that keeps the
+   object-motion scopes, see the not-verified list).
+5. Small: re-take the WebGPU references of "`cpu` equals before" after `dc6d3fa4` (1 hour); a moving-world
+   motion-vector comparison between the paths (about 1 day, part of step 4).
