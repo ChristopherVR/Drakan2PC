@@ -104,6 +104,100 @@ void D3D11Backend::Impl::foreignContext() {
         releaseDrawBindings();
 }
 
+// GSR_DRAW_STATE_VERIFY: every slot the cache holds as known is read back from the context and compared.
+void D3D11Backend::Impl::verifyDrawState() {
+    using draw_state::Slot;
+    ID3D11DeviceContext* const c = ctx.raw();
+    uint64_t actual[(size_t)Slot::Count] = {};
+    {
+        ComPtr<ID3D11InputLayout> v;
+        c->IAGetInputLayout(&v);
+        actual[(size_t)Slot::InputLayout] = word(v.Get());
+    }
+    for (UINT slot : {0u, 1u}) {
+        ComPtr<ID3D11Buffer> b;
+        UINT stride = 0, offset = 0;
+        c->IAGetVertexBuffers(slot, 1, &b, &stride, &offset);
+        actual[(size_t)(slot ? Slot::VertexBuffer1 : Slot::VertexBuffer0)] = draw_state::pair(word(b.Get()), offset);
+    }
+    {
+        D3D11_PRIMITIVE_TOPOLOGY t{};
+        c->IAGetPrimitiveTopology(&t);
+        actual[(size_t)Slot::Topology] = (uint64_t)t;
+    }
+    {
+        ComPtr<ID3D11VertexShader> v;
+        c->VSGetShader(&v, nullptr, nullptr);
+        actual[(size_t)Slot::VertexShader] = word(v.Get());
+        ComPtr<ID3D11PixelShader> p;
+        c->PSGetShader(&p, nullptr, nullptr);
+        actual[(size_t)Slot::PixelShader] = word(p.Get());
+    }
+    {
+        ComPtr<ID3D11Buffer> v, p;
+        c->VSGetConstantBuffers(0, 1, &v);
+        c->PSGetConstantBuffers(0, 1, &p);
+        actual[(size_t)Slot::VertexConstants] = word(v.Get());
+        actual[(size_t)Slot::PixelConstants] = word(p.Get());
+    }
+    {
+        ID3D11ShaderResourceView* t[2] = {};
+        c->PSGetShaderResources(0, 2, t);
+        actual[(size_t)Slot::Textures] = draw_state::pair(word(t[0]), word(t[1]));
+        for (auto* x : t)
+            if (x)
+                x->Release();
+        ID3D11SamplerState* m[2] = {};
+        c->PSGetSamplers(0, 2, m);
+        actual[(size_t)Slot::Samplers] = draw_state::pair(word(m[0]), word(m[1]));
+        for (auto* x : m)
+            if (x)
+                x->Release();
+    }
+    {
+        ComPtr<ID3D11RasterizerState> r;
+        c->RSGetState(&r);
+        actual[(size_t)Slot::Rasterizer] = word(r.Get());
+        UINT n = 1;
+        D3D11_VIEWPORT vp{};
+        c->RSGetViewports(&n, &vp);
+        actual[(size_t)Slot::Viewport] =
+            n == 1 && vp.TopLeftX == 0 && vp.TopLeftY == 0 && vp.MinDepth == 0 && vp.MaxDepth == 1
+                ? draw_state::pair(floatBits(vp.Width), floatBits(vp.Height))
+                : ~0ull;
+        n = 1;
+        D3D11_RECT sr{};
+        c->RSGetScissorRects(&n, &sr);
+        const int32_t rect[4] = {(int32_t)sr.left, (int32_t)sr.top, (int32_t)sr.right, (int32_t)sr.bottom};
+        actual[(size_t)Slot::Scissor] = n == 1 ? draw_state::words(rect, sizeof rect) : ~0ull;
+    }
+    {
+        ComPtr<ID3D11RenderTargetView> rtv;
+        ComPtr<ID3D11DepthStencilView> dsv;
+        c->OMGetRenderTargets(1, &rtv, &dsv);
+        actual[(size_t)Slot::Targets] = draw_state::pair(word(rtv.Get()), word(dsv.Get()));
+        ComPtr<ID3D11BlendState> bs;
+        float factor[4];
+        UINT mask = 0;
+        c->OMGetBlendState(&bs, factor, &mask);
+        actual[(size_t)Slot::Blend] = mask == 0xFFFFFFFFu ? word(bs.Get()) : ~0ull;
+        ComPtr<ID3D11DepthStencilState> ds;
+        UINT ref = 0;
+        c->OMGetDepthStencilState(&ds, &ref);
+        actual[(size_t)Slot::Depth] = ref == 0 ? word(ds.Get()) : ~0ull;
+    }
+    for (size_t i = 0; i < (size_t)Slot::Count; ++i) {
+        if (!drawState.known((Slot)i))
+            continue;
+        ++drawStateChecked;
+        if (drawState.value((Slot)i) != actual[i]) {
+            if (drawStateWrong < 16)
+                std::fprintf(stderr, "[draw-state] verify: slot %zu holds another value than the cache knows\n", i);
+            ++drawStateWrong;
+        }
+    }
+}
+
 void D3D11Backend::Impl::logDrawState(bool force) {
     if (!drawState.enabled() || (!force && (runtimeFlags().profileSeconds <= 0 || frame < drawStateLogFrame + 240)))
         return;
@@ -111,10 +205,11 @@ void D3D11Backend::Impl::logDrawState(bool force) {
     const auto& n = drawState.counters();
     std::fprintf(stderr,
                  "[draw-state] frame %llu: draws %llu, binds made %llu, left out %llu, state dropped %llu, releases "
-                 "held %llu, carried out %llu\n",
+                 "held %llu, carried out %llu; verified slots %llu, wrong %llu\n",
                  (unsigned long long)frame, (unsigned long long)n.draws, (unsigned long long)n.sets,
                  (unsigned long long)n.skipped, (unsigned long long)n.forgets, (unsigned long long)n.holds,
-                 (unsigned long long)n.releases);
+                 (unsigned long long)n.releases, (unsigned long long)drawStateChecked,
+                 (unsigned long long)drawStateWrong);
 }
 
 void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW,
@@ -197,8 +292,11 @@ void D3D11Backend::Impl::setPass(const PSConsts& k, const rhi::BlendState& blend
 }
 
 void D3D11Backend::Impl::drawVertices(uint32_t count) {
-    if (vbMapped) // the vertices of a failed Map never reached the buffer
-        ctx.raw()->Draw(count, 0);
+    if (!vbMapped) // the vertices of a failed Map never reached the buffer
+        return;
+    if (drawStateVerify)
+        verifyDrawState();
+    ctx.raw()->Draw(count, 0);
 }
 
 // The velocity pass of the colour pass just drawn, with the constants setPass uploaded for it. The final draw
@@ -228,6 +326,8 @@ void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi:
         c->VSSetShader(vsMotion.Get(), nullptr, 0);
     if (drawState.set(Slot::PixelShader, word(psMotion.Get())))
         c->PSSetShader(psMotion.Get(), nullptr, 0);
+    if (drawStateVerify)
+        verifyDrawState();
     c->Draw(count, 0);
     if (!restore)
         return;
@@ -253,7 +353,7 @@ void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi:
 }
 
 void D3D11Backend::Impl::endDraw() {
-    if (drawState.endDraw(drawSampledTarget)) {
+    if (drawState.endDraw(drawSampledTarget || !drawStateHold)) {
         releaseDrawBindings();
         drawState.released(draw_state::pair(0, 0), draw_state::pair(0, 0));
     }

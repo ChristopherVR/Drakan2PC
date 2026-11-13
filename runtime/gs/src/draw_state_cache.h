@@ -88,6 +88,7 @@ public:
         known_ = 0;
     }
     bool known(Slot slot) const { return (known_ >> static_cast<size_t>(slot)) & 1u; }
+    uint64_t value(Slot slot) const { return value_[static_cast<size_t>(slot)]; }
 
     // The start of a draw's bindings (counts the draw).
     void beginDraw() {

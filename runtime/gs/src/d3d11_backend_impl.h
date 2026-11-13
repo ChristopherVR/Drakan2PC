@@ -397,7 +397,13 @@ struct D3D11Backend::Impl {
     void releaseDrawBindings();
     void logDrawState(bool force);
     uint64_t drawStateLogFrame = 0;
-    uint64_t drawStateToggle = 0; // GSR_DRAW_STATE_CACHE_TOGGLE=<frames>: test only, the cache flips every n frames
+    bool drawStateHold = true; // GSR_DRAW_STATE_HOLD=0: diagnosis only, every draw releases at its end
+    uint64_t drawStateToggle = 0;
+    // GSR_DRAW_STATE_VERIFY=1 (test only): before every draw call the bound state is read back from the context and
+    // compared with what the cache believes is bound, slot by slot; the [draw-state] line counts the differences.
+    bool drawStateVerify = false;
+    uint64_t drawStateChecked = 0, drawStateWrong = 0;
+    void verifyDrawState(); // GSR_DRAW_STATE_CACHE_TOGGLE=<frames>: test only, the cache flips every n frames
     // ---- a removed device (d3d11_device_loss.cpp; which results count, the words and the test hook: device_loss.h).
     // Once `lost` is set no call may reach the device or write through a pointer it returned: gsr::Backend stops
     // forwarding at its next call, and the call in progress checks gone() where it would use a failed result.

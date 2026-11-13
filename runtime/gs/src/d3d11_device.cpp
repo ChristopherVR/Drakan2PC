@@ -91,6 +91,10 @@ bool D3D11Backend::Impl::init() {
     }
     ctx.attach([](void* owner) { static_cast<Impl*>(owner)->foreignContext(); }, this);
     drawState.enable(runtimeFlags().drawStateCache.value_or(cfg.drawStateCache));
+    if (const char* hold = std::getenv("GSR_DRAW_STATE_HOLD"))
+        drawStateHold = hold[0] != '0';
+    if (const char* verify = std::getenv("GSR_DRAW_STATE_VERIFY"))
+        drawStateVerify = verify[0] == '1';
     if (const char* toggle = std::getenv("GSR_DRAW_STATE_CACHE_TOGGLE"))
         drawStateToggle = std::strtoull(toggle, nullptr, 10);
     std::fprintf(stderr, "[draw-state] draw state cache %s\n", drawState.enabled() ? "on" : "off");
