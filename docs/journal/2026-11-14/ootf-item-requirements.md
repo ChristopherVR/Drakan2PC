@@ -76,7 +76,7 @@ Look and effect: the converted armour shows the disc armour model of its templat
 armour), as before; the PC armour skins are not converted. Damage Prevention, durability and the per-object values come
 from the PC (Chain Mail 0.2, shown as Armor Rating 20, the "Rusty" one 15/100).
 
-## Proof by play (fixed pack `packs/fix1`, sha256 `60276716...`)
+## Proof by play (fixed pack `packs/fix1`, sha256 `60276717...`)
 
 Same play folder and route, New Game each time:
 
