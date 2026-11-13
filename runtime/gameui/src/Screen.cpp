@@ -292,7 +292,8 @@ std::vector<Page> InventoryScreen::visiblePages(const Snapshot& s) const {
     if (cfg_.includeShopPage && s.shop.active)
         v.push_back(Page::Shop);
     for (Page p : {Page::Inventory, Page::Character, Page::Spells, Page::Skills, Page::Journal, Page::Map})
-        v.push_back(p);
+        if (p != Page::Spells || s.spellsEnabled) // a campaign without spells has no Spells tab
+            v.push_back(p);
     return v;
 }
 
@@ -1492,8 +1493,12 @@ void InventoryScreen::drawCharacter(const Snapshot& s, DrawList& d) const {
     y += 56;
     drawBar({x, y, w, 36}, s.stats.hp, s.stats.hpMax, th.hp, "Health", d);
     y += 52;
-    drawBar({x, y, w, 36}, s.stats.mana, s.stats.manaMax, th.mana, "Mana", d);
-    y += 60;
+    if (s.spellsEnabled) {
+        drawBar({x, y, w, 36}, s.stats.mana, s.stats.manaMax, th.mana, "Mana", d);
+        y += 60;
+    } else {
+        y += 8;
+    }
     textD(d, {x, y, w, 36}, "Gold", FontRole::Body, th.textMuted);
     textD(d, {x, y, w, 36}, fmtInt(s.stats.gold), FontRole::Numeric, th.heading, TextAlign::Right);
     y += 64;

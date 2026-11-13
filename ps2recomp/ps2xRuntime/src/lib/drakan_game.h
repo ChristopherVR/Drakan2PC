@@ -28,6 +28,7 @@ struct Campaign {
     std::string start;       // level title New Game opens
     std::string saves;       // card folder suffix (<card>_<saves>)
     std::vector<std::string> levels;
+    bool spells = true; // manifest `campaign_spells`: false = the campaign has no spells (Order of the Flame)
 };
 
 // One entry of the title's game card. The card lists the campaigns first (Order of the Flame leads) and the disc game
@@ -56,6 +57,10 @@ int currentIndex();
 std::string currentModId();
 // The name of the current game ("Drakan", "Drakan: Order of the Flame", the campaign's title).
 std::string currentName();
+// False while the current game is a campaign whose pack says `campaign_spells = false`: no Spells pages, no mana orb or
+// bar, no casting (drakan_campaign_features.h). The disc game always has spells. Lock-free (read by per-frame hooks);
+// follows select() at once, so switching games on the title card switches it. Multiplayer ignores it (callers test).
+bool spellsEnabled();
 // True when the title menu has a choice to offer (a campaign pack is installed and [general] game is "ask").
 bool offerChoice();
 // The [general] game value configure() read ("ask" by default); `fromEnv` = DRAKAN_GAME set it.

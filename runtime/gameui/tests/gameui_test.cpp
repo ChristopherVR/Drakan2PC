@@ -694,6 +694,55 @@ void testScreenJournalDisabledInMultiplayer() {
     CHECK(j.page() == Page::Inventory);
 }
 
+// A campaign without spells (manifest `campaign_spells = false`): no Spells tab at all, page cycling goes Character ->
+// Skills, the page cannot be opened or clicked, and the Character page has no mana bar.
+void testScreenSpellsOffInCampaign() {
+    World w;
+    ReaderState st;
+    Snapshot s = w.read(st);
+    const Viewport vp{0, 0, 1920, 1080};
+    InventoryScreen scr;
+    CHECK(s.spellsEnabled && InventoryScreen::pageEnabled(s, Page::Spells)); // the disc game unchanged
+    const size_t withSpells = scr.visiblePages(s).size();
+    s.spellsEnabled = false;
+    const std::vector<Page> pages = scr.visiblePages(s);
+    CHECK(pages.size() + 1 == withSpells && !InventoryScreen::pageEnabled(s, Page::Spells));
+    for (Page p : pages)
+        CHECK(p != Page::Spells);
+
+    // Opening on Spells falls back to the Inventory; no tab target for it.
+    scr.open(s, Page::Spells);
+    FrameOutput o = scr.frame(s, {}, vp);
+    CHECK(scr.page() == Page::Inventory);
+    for (const HitTarget& t : scr.targets())
+        CHECK(!(t.id == TargetId{TargetKind::PageTab, static_cast<int>(Page::Spells)}));
+    CHECK(!hasText(o.draw, "Spells"));
+
+    // Forward cycling: Inventory -> Character -> Skills; backward Skills -> Character. No switch to native section 1.
+    o = scr.frame(s, keys({UiKey::PageNext}), vp);
+    CHECK(scr.page() == Page::Character && !hasText(o.draw, "Mana"));
+    o = scr.frame(s, keys({UiKey::PageNext}), vp);
+    CHECK(scr.page() == Page::Skills && !hasAction(o, ActionKind::SwitchSection, 1));
+    o = scr.frame(s, keys({UiKey::PagePrev}), vp);
+    CHECK(scr.page() == Page::Character && !hasAction(o, ActionKind::SwitchSection, 1));
+
+    // The disc game: the Character page shows the mana bar.
+    Snapshot d = w.read(st);
+    InventoryScreen c;
+    c.open(d, Page::Character);
+    o = c.frame(d, {}, vp);
+    CHECK(c.page() == Page::Character && hasText(o.draw, "Mana"));
+
+    // Switched to a campaign without spells while the Spells page is up: back to the Inventory.
+    InventoryScreen sp;
+    sp.open(d, Page::Spells);
+    sp.frame(d, {}, vp);
+    CHECK(sp.page() == Page::Spells);
+    d.spellsEnabled = false;
+    sp.frame(d, {}, vp);
+    CHECK(sp.page() == Page::Inventory);
+}
+
 void testScreenShopAndGuards() {
     World w;
     using S = FakeGame::ItemSpec;
@@ -908,6 +957,7 @@ int main() {
     testScreenNavigation();
     testScreenMouse();
     testScreenJournalDisabledInMultiplayer();
+    testScreenSpellsOffInCampaign();
     testScreenShopAndGuards();
     testKeyGate();
     testCloseExecutor();

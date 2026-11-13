@@ -126,8 +126,11 @@ public:
     Rect previewRect() const { return preview_; }
     const std::string& toast() const { return toast_; }
     std::vector<Page> visiblePages(const Snapshot& s) const;
-    // A page can be entered. The Journal is shown greyed out and cannot be entered in a multiplayer session.
-    static bool pageEnabled(const Snapshot& s, Page p) { return !(s.multiplayer && p == Page::Journal); }
+    // A page can be entered. The Journal is shown greyed out and cannot be entered in a multiplayer session; a campaign
+    // without spells has no Spells page at all (visiblePages leaves it out).
+    static bool pageEnabled(const Snapshot& s, Page p) {
+        return !(s.multiplayer && p == Page::Journal) && !(!s.spellsEnabled && p == Page::Spells);
+    }
 
     // Native map image size (pixels), when the glue knows it: the focused marker is ringed on the map.
     void setMapImageSize(float w, float h, float aspect) {

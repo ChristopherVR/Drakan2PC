@@ -169,6 +169,9 @@ public:
     // Multiplayer: the native Journal category (section 4) cannot be clicked.
     void setJournalDisabled(bool disabled) { journalDisabled_ = disabled; }
     bool journalDisabled() const { return journalDisabled_; }
+    // A campaign without spells: the Spells tab (section 1, not drawn) takes no click.
+    void setSpellsDisabled(bool disabled) { spellsDisabled_ = disabled; }
+    bool spellsDisabled() const { return spellsDisabled_; }
     // Section-plane point -> native GUI pixels through the camera installed right now (projectPlane).
     bool projectInventoryPlane(IGuest& g, uint32_t transform, float x, float y, float& sx, float& sy) const;
 
@@ -214,6 +217,7 @@ private:
     };
     int inventoryView_ = 0;
     bool journalDisabled_ = false;
+    bool spellsDisabled_ = false;
     GridPoint inventoryCells_[24][4]{};
     uint32_t gridScreen_ = 0, gridController_ = 0;
     unsigned gridAge_ = 100;

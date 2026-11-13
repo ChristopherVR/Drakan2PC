@@ -17,23 +17,51 @@ namespace drakan_views {
 // hidden; it uses the views' page removal, whole world and centring, and keeps every section.
 enum class View : uint8_t { None = 0, Map = 1, Strip = 2, Modern = 3 };
 
-// Inventory sections (screen+0x154): 0 Equipment, 1 Spells, 2 Skills, 3 Map, 4 Journal.
-constexpr int kEquipmentSection = 0, kMapSection = 3, kJournalSection = 4, kSectionCount = 5;
+// Inventory sections (screen+0x154): 0 Equipment, 1 Spells, 2 Skills, 3 Map, 4 Journal. A shop has three: 0 the sell
+// pane, 1 Spells, 2 the shop list.
+constexpr int kEquipmentSection = 0, kSpellsSection = 1, kMapSection = 3, kJournalSection = 4, kSectionCount = 5;
+constexpr int kShopSectionCount = 3;
 
 // Native section keys (4309d8): 0xd1 = next (R1), 0xd3 = previous (L1).
 constexpr uint32_t kKeyNext = 0xd1u, kKeyPrevious = 0xd3u;
 
-// Multiplayer disables the Journal. A step that would land on it is made to skip it: the screen is preset to the
-// Journal itself, so the same native step (next from Journal = Equipment, previous from Journal = Map) lands on the
-// section beyond it and the Journal's enter handler never runs. Returns the section to preset, -1 = no change.
-constexpr int skipJournalPreset(uint32_t key, int current, int count, bool multiplayer) {
-    if (!multiplayer || count != kSectionCount)
+// Sections the player cannot enter, bit i = section i: multiplayer disables the Journal of the five-section
+// inventory; a campaign without spells (manifest `campaign_spells = false`) the Spells of the inventory and the shop.
+constexpr uint32_t disabledSections(int count, bool multiplayer, bool spellsOff) {
+    uint32_t m = 0;
+    if (multiplayer && count == kSectionCount)
+        m |= 1u << kJournalSection;
+    if (spellsOff && (count == kSectionCount || count == kShopSectionCount))
+        m |= 1u << kSpellsSection;
+    return m;
+}
+constexpr bool sectionDisabled(uint32_t disabled, int section) {
+    return section >= 0 && section < 32 && ((disabled >> section) & 1u) != 0;
+}
+
+// A section key step that would land on a disabled section is made to skip it: the screen is preset to that section
+// itself, so the same native step (next from Journal = Equipment, previous from Spells = Equipment ...) lands on the
+// section beyond it and the disabled section's enter handler (and its first-time help box) never runs. Returns the
+// section to preset, -1 = no change. No two disabled sections are neighbours, so one skip is always enough.
+constexpr int skipSectionPreset(uint32_t key, int current, int count, uint32_t disabled) {
+    if (count <= 0 || !disabled || current < 0 || current >= count)
         return -1;
-    if (key == kKeyNext && current == kMapSection)
-        return kJournalSection;
-    if (key == kKeyPrevious && current == kEquipmentSection)
-        return kJournalSection;
-    return -1;
+    const int step = key == kKeyNext ? 1 : key == kKeyPrevious ? -1 : 0;
+    if (!step)
+        return -1;
+    const int target = (current + step + count) % count;
+    return sectionDisabled(disabled, target) ? target : -1;
+}
+
+// Multiplayer's Journal skip (skipSectionPreset with the Journal disabled).
+constexpr int skipJournalPreset(uint32_t key, int current, int count, bool multiplayer) {
+    return skipSectionPreset(key, current, count, disabledSections(count, multiplayer, false));
+}
+
+// The screen is on a disabled section (a session began with it current, or the game was switched): the one native
+// step that leaves it towards Equipment (next from the Journal, previous from Spells).
+constexpr uint32_t leaveSectionKey(int current, int count) {
+    return current * 2 >= count ? kKeyNext : kKeyPrevious;
 }
 
 constexpr int targetSection(View v) {

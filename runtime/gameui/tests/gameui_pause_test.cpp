@@ -530,8 +530,24 @@ void testAspect() {
 
 } // namespace
 
+// The status panel of the root page: no mana bar in a campaign without spells.
+void testNoManaWithoutSpells() {
+    ScreenWorld w;
+    Snapshot s = w.read();
+    PauseScreen scr(hostConfig());
+    const PauseState st = validState();
+    const Viewport vp{0, 0, 1920, 1080};
+    scr.open();
+    PauseFrameOutput o = scr.frame(s, st, {}, vp);
+    CHECK(hasText(o.draw, "Health") && hasText(o.draw, "Mana"));
+    s.spellsEnabled = false;
+    o = scr.frame(s, st, {}, vp);
+    CHECK(hasText(o.draw, "Health") && !hasText(o.draw, "Mana"));
+}
+
 int main() {
     testReadOptions();
+    testNoManaWithoutSpells();
     testQueueCoalescing();
     testNavigation();
     testSliderKeysAndPad();

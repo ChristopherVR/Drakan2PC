@@ -603,6 +603,19 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
                             "[target]\nprofile = \"pal\"\n",
                             false, m, err));
         CHECK(m.oneWayExits.size() == 1 && m.oneWayExits[0] == "Village @ 1, 2, 3");
+        CHECK(m.campaignSpells); // the last parse names no campaign_spells: spells as on the disc
+        // `campaign_spells = false` turns the spells off for the pack's campaign (TOML bare word or JSON bool).
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign = \"c\"\ncampaign_spells = false\n"
+                            "[target]\nprofile = \"pal\"\n",
+                            false, m, err));
+        CHECK(!m.campaignSpells);
+        CHECK(parseManifest("{\"format\": 1, \"id\": \"a\", \"campaign_spells\": false, \"target\": {\"profile\": "
+                            "\"pal\"}}",
+                            true, m, err));
+        CHECK(!m.campaignSpells);
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign_spells = true\n[target]\nprofile = \"pal\"\n", false, m,
+                            err));
+        CHECK(m.campaignSpells);
     }
 
     // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.

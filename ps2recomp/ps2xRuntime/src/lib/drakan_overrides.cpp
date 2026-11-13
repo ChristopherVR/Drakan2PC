@@ -1939,7 +1939,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 for (const std::string& n : m.levels)
                     if (std::find(mine.begin(), mine.end(), n) != mine.end())
                         order.push_back(n);
-                campaigns.push_back({m.campaign, m.campaignName, m.campaignDescription, m.id, start, saves, order});
+                campaigns.push_back(
+                    {m.campaign, m.campaignName, m.campaignDescription, m.id, start, saves, order, m.campaignSpells});
             }
         }
         hle::FileService* gameFiles = &host->iop.file;

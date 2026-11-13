@@ -499,6 +499,8 @@ campaign_start = "Surdana Copy"                      # optional: the level New G
 campaign_saves = "testvalley"                        # optional: memory card folder suffix (default the id)
 campaign_title_music = 4                             # optional: PS2MUSIC.SDB sound id the title menu plays while
                                                      #   this campaign is chosen (the pack adds it, see below)
+campaign_spells = false                              # optional: the campaign has no spells (default true; see
+                                                     #   "Campaigns without spells")
 ```
 
 Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover picture of the game card (PNG, at most 8 MiB, 16:9;
@@ -592,6 +594,40 @@ log `[game] campaign '<id>': title music PS2MUSIC.SDB <n>` and `[hle] music: tit
 latched when the guest reads the track's descriptor, so a play that started for one game finishes with that game's track.
 `ootf-convert.ts --campaign 1` and the editor's converter write the rendered Order of the Flame theme ("gui", the PC title
 music) there; journal `2026-11-08/ootf-main-music.md`.
+
+### Campaigns without spells
+
+`campaign_spells = false` (a bare TOML word, or a JSON `false`; `0`, `no`, `off` also count; anything else or no key
+means spells as on the disc) says the campaign has no spells. Drakan: Order of the Flame is such a game: Rynn's magic
+comes from items and from Arokh. The editor's OotF converter and `ootf-convert.ts --campaign 1` write it; a custom
+campaign sets it in Project Settings > Campaign > Gameplay > **Spells** (`ProjectCampaign.spells`, `campaignMeta`).
+
+The runtime reads it per campaign (`hle::mods::Manifest::campaignSpells` -> `drakan_game::Campaign::spells`) and follows
+the **current game**: `drakan_game::spellsEnabled()` is false only while such a campaign is chosen, so Drakan 2 in the
+same session keeps everything and switching games on the title card switches it at once (log `[game] spells off (ootf)`).
+Nothing is stored in a save: a save of either game loads into the game it belongs to, and a Drakan 2 save is never
+touched. Multiplayer keeps spells (arena characters get every spell). While it is off:
+
+* **Inventory screens**: the Spells section of the native (Original) Tab screen is never entered: a section key, the
+  wheel or a tab click that would land on it steps over it, as multiplayer steps over the Journal
+  (`drakan_views::skipSectionPreset`), a screen that is on it leaves towards Equipment, and its tab icon (the stars) is
+  not drawn (42b308 for record 1). The modern Tab screen has no Spells tab (`gameui::Snapshot::spellsEnabled`,
+  `InventoryScreen::visiblePages`) and no mana bar on the Character page. A shop's Spells pane is skipped the same way.
+* **HUD**: the mana orb does not appear. The right orb of the HUD still slides in when it has arrows or an item's charge
+  to show; when it would show mana it stays out of the picture (the OotF PC HUD has no mana either). Nothing is shown in
+  its place.
+* **Pause menus**: the modern pause menu's status panel has no mana bar; the Original pause menu shows the HUD, which
+  has no mana orb.
+* **Casting**: Circle with empty hands parries instead of starting a spell (the summon test 38f370 says no), and the
+  summon entries (3895c0, 38bd48: the inventory's Summon, the debug console) start nothing. The PC Settings controls page
+  calls the Circle action "Parry" (`dsettings::actionLabel`).
+* **Getting spells**: a converted OotF level has no spell scroll and no shop. A spell scroll that a custom campaign still
+  places can be picked up and read (it is an ordinary item), but the spell it teaches can never be seen or cast. A mana
+  power-up (the converter's stand-in for OotF's Magic Crystal) still raises the hidden mana; nothing uses it.
+
+Not covered: the native Skills section still lists Magic (points can be spent on it, to no effect), and the game's own
+first-time help boxes about magic, if a campaign triggers one, are unchanged. Code: `drakan_campaign_spells.inl`,
+`drakan_inventory_views.inl`; journal `docs/journal/2026-11-14/ootf-no-spells.md`.
 
 ### Campaign credits
 

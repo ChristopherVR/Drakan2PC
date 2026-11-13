@@ -15,6 +15,12 @@ struct ActionDef {
 // Gameplay layer ([bindings]) and menu layer ([menu_bindings]) action lists, in display order.
 const std::vector<ActionDef>& gameActions();
 const std::vector<ActionDef>& menuActions();
+// The label to show for an action: `d.label`, except where the current game changes what the button does (a campaign
+// without spells: Circle only parries, "Parry" instead of "Use Magic / Parry").
+const char* actionLabel(const ActionDef& d);
+// Whether the current game has spells (the host sets it when the game is chosen; default true). Thread safe.
+void setGameHasSpells(bool spells);
+bool gameHasSpells();
 
 // Input source names accepted by drakan_input.ini (same table as input/Config.cpp).
 bool isKnownSource(const std::string& upperName);

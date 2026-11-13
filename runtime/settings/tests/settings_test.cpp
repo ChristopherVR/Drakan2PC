@@ -195,6 +195,20 @@ static void testDefaults() {
     }
     for (const auto& a : menuActions())
         CHECK(!d.controls.menu.sourcesFor(a.id).empty());
+    // a campaign without spells: Circle is shown as Parry in the game layer only
+    {
+        const ActionDef* circle = nullptr;
+        for (const auto& a : gameActions())
+            if (std::string(a.id) == "CIRCLE")
+                circle = &a;
+        CHECK(circle && gameHasSpells() && std::string(actionLabel(*circle)) == "Use Magic / Parry");
+        setGameHasSpells(false);
+        CHECK(std::string(actionLabel(*circle)) == "Parry");
+        for (const auto& a : menuActions())
+            CHECK(std::string(actionLabel(a)) == a.label);
+        setGameHasSpells(true);
+        CHECK(std::string(actionLabel(*circle)) == "Use Magic / Parry");
+    }
     // all default sources are known names
     for (const auto& l : d.controls.game.lines)
         CHECK(isKnownSource(l.source));

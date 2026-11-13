@@ -394,9 +394,16 @@ inline bool multiplayerSessionActive() {
     return arenaWorldMode() || drakan_netplay::coopMatch();
 }
 
+// The current game is a campaign without spells (manifest `campaign_spells = false`, drakan_game::spellsEnabled): the
+// Spells section of both inventory screens, the mana orb and bar and the casting are gone. Multiplayer keeps spells.
+inline bool campaignSpellsOff() {
+    return !drakan_game::spellsEnabled() && !multiplayerSessionActive();
+}
+
 #include "drakan_map_mouse_hooks.inl"
 #include "drakan_inventory_content_hooks.inl"
 #include "drakan_inventory_views.inl"
+#include "drakan_campaign_spells.inl"
 #include "drakan_tab_screen.inl"
 int g_quickOperation = 0; // 1 save, 2 load; EE thread, native card transaction in progress
 #include "drakan_pause_screen.inl"
@@ -1558,6 +1565,7 @@ void drakanInstallInput(PS2Runtime& rt) {
         SetExitKey(0); // raylib's default exit key is Esc: Esc is the game's pause key (and the module's mouse release)
 
     installInventoryViewHooks(rt); // first: the mouse and content hooks below wrap these
+    installCampaignSpellHooks(rt); // a campaign without spells: no casting, no mana orb
     g_origTabDialogFrame = rt.lookupFunction(0x2c94a8u);
     if (g_origTabDialogFrame)
         rt.replaceFunction(0x2c94a8u, &hookTabDialogFrame);

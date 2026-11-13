@@ -968,7 +968,7 @@ void SettingsMenu::drawBindingTable(bool gameLayer) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(d.label);
+            ImGui::TextUnformatted(actionLabel(d));
             if (ImGui::IsItemHovered() && d.hint && *d.hint)
                 ImGui::SetTooltip("%s", d.hint);
             const auto srcs = layer.sourcesFor(d.id);
@@ -991,7 +991,7 @@ void SettingsMenu::drawBindingTable(bool gameLayer) {
                             const char* nm = a.c_str();
                             for (const auto& dd : defs)
                                 if (a == dd.id)
-                                    nm = dd.label;
+                                    nm = actionLabel(dd);
                             tip += std::string("\n  ") + nm;
                         }
                     }
@@ -1152,7 +1152,7 @@ void SettingsMenu::drawControllerView() {
                     continue;
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::TextUnformatted(d.label);
+                ImGui::TextUnformatted(actionLabel(d));
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextColored(kCream, "%s", btn);
             }
@@ -1288,7 +1288,7 @@ void SettingsMenu::drawPopups() {
         const char* label = cap_.action.c_str();
         for (const auto& d : defs)
             if (cap_.action == d.id)
-                label = d.label;
+                label = actionLabel(d);
         if (fonts_.heading)
             ImGui::PushFont(fonts_.heading);
         ImGui::TextColored(kGoldHi, "%s", label);
@@ -1365,7 +1365,7 @@ void SettingsMenu::drawPopups() {
                 const char* nm = a.c_str();
                 for (const auto& d : defs)
                     if (a == d.id)
-                        nm = d.label;
+                        nm = actionLabel(d);
                 ImGui::TextColored(kAmber, "   %s", nm);
             }
             ImGui::Dummy(ImVec2(0, S(8)));

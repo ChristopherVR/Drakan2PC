@@ -803,6 +803,7 @@ void pauseTick(uint8_t* ram, RecompGuest& g) {
     RdramMemory mem(ram);
     gameui::Snapshot& back = sh.model.back();
     const gameui::ReadStatus rs = gameui::readSnapshot(mem, g_pause.reader, back);
+    back.spellsEnabled = !campaignSpellsOff(); // no mana bar in a campaign without spells
     if (arenaWorldMode())
         back.quests.clear();
     if (g_pause.frames <= 1)

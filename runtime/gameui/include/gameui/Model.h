@@ -165,9 +165,12 @@ struct Snapshot {
     int mapRegion = -1; // region of the native map section (+0x70) while screen 0x15 is up, else -1
     ShopState shop;
     bool multiplayer = false; // in a multiplayer session (host-set, not read from guest memory): no Journal page
-    bool dualWield = false;   // [general] dual_wield
-    bool bowDrawn = false;    // the bow holds the left hand (no off-hand equip)
-    uint32_t shieldSlot = 0;  // handle in equipment slot 2 (a shield or the left-hand weapon), 0 = empty
+    // The current game has spells (host-set): false in a campaign whose pack says `campaign_spells = false` (Order of
+    // the Flame). Then no Spells page and no mana bars are shown.
+    bool spellsEnabled = true;
+    bool dualWield = false;           // [general] dual_wield
+    bool bowDrawn = false;            // the bow holds the left hand (no off-hand equip)
+    uint32_t shieldSlot = 0;          // handle in equipment slot 2 (a shield or the left-hand weapon), 0 = empty
     std::vector<std::string> details; // the native details buffers of the selection (blank lines dropped)
 
     Snapshot() { cellItem.fill(-1); }

@@ -209,6 +209,7 @@ void inventoryViewsTick(RecompGuest& g, int scr, bool gameplay) {
     }
     m.menuMouseRw().setInventoryView(g_invView.layout ? int(g_invView.view) : 0);
     m.menuMouseRw().setJournalDisabled(multiplayerSessionActive());
+    m.menuMouseRw().setSpellsDisabled(campaignSpellsOff());
     g_centredScreen.store(g_invView.layout ? g_invView.screen : 0, std::memory_order_relaxed);
 }
 
@@ -222,26 +223,29 @@ void hookViewHandler(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     RecompGuest g(ram, c, rt);
     const uint32_t screen = getRegU32(c, 4), msg = getRegU32(c, 6);
     const bool mp = multiplayerSessionActive();
-    if (msg == 10 && mp && g.read32(screen + 0x1b0) == uint32_t(kSectionCount) &&
-        g.read32(screen + 0x154) == uint32_t(kJournalSection) && g.readF(screen + 0x158) == 1.0f &&
+    const int sectionCount = int(g.read32(screen + 0x1b0));
+    // Multiplayer disables the Journal, a campaign without spells the Spells section (inventory and shop).
+    const uint32_t disabled = (msg == 10 || msg == 0xb) ? disabledSections(sectionCount, mp, campaignSpellsOff()) : 0;
+    const int current = int(g.read32(screen + 0x154));
+    if (msg == 10 && sectionDisabled(disabled, current) && current < sectionCount && g.readF(screen + 0x158) == 1.0f &&
         g.readF(screen + 0x15c) == 0.0f && g.read32(screen + 0x3c) == 0) {
-        // Multiplayer began with the Journal current: one native "next" (Journal -> Equipment) instead of this
-        // frame's draw, so the Original menu falls back to the Inventory without entering anything.
+        // The screen is on a disabled section (multiplayer began with the Journal current, a shop or a remembered
+        // section in a campaign without spells): one native step towards Equipment instead of this frame's draw, so
+        // the Original menu falls back to the Inventory without entering anything.
         const uint32_t savedKey = g.read32(screen + 0x50);
-        g.write32(screen + 0x50, kKeyNext);
+        g.write32(screen + 0x50, leaveSectionKey(current, sectionCount));
         SET_GPR_U32(c, 6, 0xbu);
         const uint32_t ra = getRegU32(c, 31);
         g_origViewHandler(ram, c, rt);
         if (c->pc == ra)
             g.write32(screen + 0x50, savedKey);
-        invViewLog("multiplayer: Journal left, section -> %u", g.read32(screen + 0x154));
+        invViewLog("disabled section %d left, section -> %u", current, g.read32(screen + 0x154));
         return;
     }
     const bool viewKeepsSection = g_invView.screen == screen && g_invView.layout && g_invView.view != View::Modern;
     if (msg == 0xb && !viewKeepsSection) {
-        // R1 / L1 (keys, pad, wheel and mouse clicks on the tabs all arrive here): never step onto the Journal.
-        const int preset = skipJournalPreset(g.read32(screen + 0x50), int(g.read32(screen + 0x154)),
-                                             int(g.read32(screen + 0x1b0)), mp);
+        // R1 / L1 (keys, pad, wheel and mouse clicks on the tabs all arrive here): never step onto a disabled section.
+        const int preset = skipSectionPreset(g.read32(screen + 0x50), current, sectionCount, disabled);
         if (preset >= 0)
             g.write32(screen + 0x154, uint32_t(preset));
     }
@@ -317,9 +321,12 @@ void hookViewHandler(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 void invViewWholeWorld(RecompGuest& g, uint32_t screen);
 // 42fd18(screen): the inventory's per-frame draw. In a view the hooks below keep the page offset at 0, drop the page
 // art and steer the section's own draw; the world crop it sets for the next frame is overridden at its use.
+uint32_t g_invTabScreen = 0; // the inventory screen 42fd18 last drew (its tab records, hookViewTabs)
 void hookViewDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     using namespace drakan_views;
     const uint32_t screen = getRegU32(c, 4);
+    if (c->pc == 0x42fd18u)
+        g_invTabScreen = screen;
     if (c->pc != 0x42fd18u || !g_invView.layout || screen != g_invView.screen) {
         g_origViewDraw(ram, c, rt);
         return;
@@ -474,9 +481,20 @@ void hookViewGold(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         return invViewSkip(c);
     g_origViewGold(ram, c, rt);
 }
+// 42b308(tab record, transform) draws one section tab icon; 42fd18 calls it for record screen+0x19c + i * 0x24 of each
+// section i. A campaign without spells does not draw the Spells tab (the stars), the one section it cannot enter.
 void hookViewTabs(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x42b308u && invViewDrawingAny())
         return invViewSkip(c);
+    if (c->pc == 0x42b308u && campaignSpellsOff()) {
+        RecompGuest g(ram, c, rt);
+        const uint32_t record = getRegU32(c, 4);
+        const uint32_t screen = g_invTabScreen;
+        if (screen && g.read32(screen + 0x19c) + uint32_t(drakan_views::kSpellsSection) * 0x24u == record &&
+            drakan_views::sectionDisabled(drakan_views::disabledSections(int(g.read32(screen + 0x1b0)), false, true),
+                                          drakan_views::kSpellsSection))
+            return invViewSkip(c);
+    }
     g_origViewTabs(ram, c, rt);
 }
 void hookViewTabGlow(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {

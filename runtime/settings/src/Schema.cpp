@@ -861,7 +861,7 @@ std::vector<gameui::BindingLayerView> buildBindingViews(const Settings& s) {
         auto labelOf = [&](const std::string& id) -> std::string {
             for (const auto& d : defs)
                 if (id == d.id)
-                    return d.label;
+                    return actionLabel(d);
             return id;
         };
         for (const ActionDef& d : defs) {
@@ -869,7 +869,7 @@ std::vector<gameui::BindingLayerView> buildBindingViews(const Settings& s) {
                 v.groups.push_back({d.group, {}});
             gameui::BindingAction a;
             a.id = d.id;
-            a.label = d.label;
+            a.label = actionLabel(d);
             a.hint = d.hint ? d.hint : "";
             for (const std::string& src : layer.sourcesFor(d.id)) {
                 gameui::BindingSlot sl;

@@ -1,6 +1,7 @@
 #include "drakan_game.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -11,6 +12,7 @@
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
+#include "settings/Bindings.h"
 
 namespace drakan_game {
 namespace {
@@ -27,9 +29,18 @@ bool g_settingFromEnv = false;
 bool g_rewrite = false; // the campaign's New Game path rewrite is armed (not while DRAKAN_START_LEVEL drives the start)
 bool g_mpRedirect = false; // a multiplayer launch holds its own file redirect: no campaign rewrite meanwhile
 std::filesystem::path g_baseCard;
+std::atomic<bool> g_spells{true}; // the current game has spells (updated with g_index, under g_m)
 
 const Campaign* cur() {
     return g_index > 0 && g_index <= static_cast<int>(g_campaigns.size()) ? &g_campaigns[g_index - 1] : nullptr;
+}
+
+void applySpells() {
+    const Campaign* c = cur();
+    const bool on = !c || c->spells;
+    dsettings::setGameHasSpells(on); // the controls page labels Circle "Parry" without spells
+    if (g_spells.exchange(on) != on || !on)
+        std::fprintf(stderr, "[game] spells %s (%s)\n", on ? "on" : "off", c ? c->id.c_str() : "d2");
 }
 
 Game kindOf(const Campaign* c) {
@@ -181,6 +192,7 @@ void configure(std::vector<Campaign> campaigns, RedirectFn redirect, SkinFn skin
     applyCard();
     applyBase(false);
     applySkin();
+    applySpells();
     std::fprintf(stderr, "[game] playing %s (setting '%s')\n", cur() ? cur()->id.c_str() : "d2", want.c_str());
 }
 
@@ -229,6 +241,10 @@ std::string currentName() {
     return nameOf(cur());
 }
 
+bool spellsEnabled() {
+    return g_spells.load(std::memory_order_relaxed);
+}
+
 bool offerChoice() {
     std::lock_guard<std::mutex> l(g_m);
     return g_ask && !g_campaigns.empty();
@@ -256,6 +272,7 @@ bool select(int cardIndex) {
         applyCard();
         applyBase(true);
         applySkin();
+        applySpells();
         std::fprintf(stderr, "[game] switched to %s\n", cur() ? cur()->id.c_str() : "d2");
     }
     return true;

@@ -38,6 +38,37 @@ int main() {
           "other steps untouched");
     check(skipJournalPreset(kKeyNext, kMapSection, 3, true) == -1, "a shop (three sections) is untouched");
 
+    // A campaign without spells: the Spells section (1) is skipped in the inventory and in a shop, both ways.
+    {
+        const uint32_t inv = disabledSections(kSectionCount, false, true);
+        const uint32_t shop = disabledSections(kShopSectionCount, false, true);
+        check(inv == (1u << kSpellsSection) && shop == (1u << kSpellsSection), "spells off disables section 1");
+        check(disabledSections(kSectionCount, false, false) == 0 && disabledSections(4, true, true) == 0,
+              "spells on, or another screen: nothing disabled");
+        check(skipSectionPreset(kKeyNext, kEquipmentSection, kSectionCount, inv) == kSpellsSection &&
+                  (kSpellsSection + 1) % kSectionCount == 2,
+              "next from Equipment lands on Skills");
+        check(skipSectionPreset(kKeyPrevious, 2, kSectionCount, inv) == kSpellsSection, "previous from Skills skips");
+        check(skipSectionPreset(kKeyNext, 2, kSectionCount, inv) == -1 &&
+                  skipSectionPreset(kKeyPrevious, kEquipmentSection, kSectionCount, inv) == -1,
+              "other steps untouched");
+        check(skipSectionPreset(kKeyNext, 0, kShopSectionCount, shop) == kSpellsSection &&
+                  skipSectionPreset(kKeyPrevious, 2, kShopSectionCount, shop) == kSpellsSection,
+              "the shop's Spells pane is skipped too");
+        check(skipSectionPreset(0x1cu, 0, kSectionCount, inv) == -1, "other keys untouched");
+        // Multiplayer and spells off together: both skips, never two in a row.
+        const uint32_t both = disabledSections(kSectionCount, true, true);
+        check(skipSectionPreset(kKeyNext, kMapSection, kSectionCount, both) == kJournalSection &&
+                  skipSectionPreset(kKeyNext, kEquipmentSection, kSectionCount, both) == kSpellsSection &&
+                  skipSectionPreset(kKeyPrevious, kEquipmentSection, kSectionCount, both) == kJournalSection,
+              "both disabled");
+        // Leaving a disabled current section heads for Equipment.
+        check(leaveSectionKey(kSpellsSection, kSectionCount) == kKeyPrevious &&
+                  leaveSectionKey(kJournalSection, kSectionCount) == kKeyNext &&
+                  leaveSectionKey(kSpellsSection, kShopSectionCount) == kKeyPrevious,
+              "leave towards Equipment");
+    }
+
     // Fit: largest uniform scale, centred, inside the box.
     {
         const Fit f = fitCentred(256, 192, 12, 12, 500, 472);

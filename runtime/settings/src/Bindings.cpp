@@ -2,6 +2,8 @@
 #include "settings/Types.h"
 
 #include <algorithm>
+#include <atomic>
+#include <string_view>
 #include <cctype>
 
 namespace dsettings {
@@ -109,6 +111,22 @@ const std::vector<ActionDef>& gameActions() {
         {"RSTICK_RIGHT", "Look right (keys)", "Right stick right", "Camera keys"},
     };
     return v;
+}
+
+namespace {
+std::atomic<bool> g_gameHasSpells{true};
+}
+void setGameHasSpells(bool spells) {
+    g_gameHasSpells.store(spells, std::memory_order_relaxed);
+}
+bool gameHasSpells() {
+    return g_gameHasSpells.load(std::memory_order_relaxed);
+}
+const char* actionLabel(const ActionDef& d) {
+    if (!gameHasSpells() && d.id && std::string_view(d.id) == "CIRCLE" &&
+        std::string_view(d.label) == "Use Magic / Parry")
+        return "Parry";
+    return d.label;
 }
 
 const std::vector<ActionDef>& menuActions() {
