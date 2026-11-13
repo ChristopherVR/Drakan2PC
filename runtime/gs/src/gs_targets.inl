@@ -3,14 +3,24 @@
 // (gs_backend_shared.h): compiled once per backend with GSR_IMPL naming its Impl, after the backend's private header.
 //
 // Backend interface (members of GSR_IMPL):
-//   allocRT                  the GPU objects of a target at a new height
 //   beginReadback / endReadback   the pixels of a target's rows on the CPU (and their release)
-//   uploadTargetRect         a rectangle of memory into the target
 //   copyTargetTop            the top-left rectangle of one target into another
+// and hooks in namespace backend_hook, defined by the backend file before it includes this unit (temporary: free
+// functions over the Impl so that this unit needed no new declarations in the backends' private headers, to become
+// members of the Impl when the backend state is shared):
+//   replaceTargetTexture(s, rt, newH)    the target's texture at a new height, old rows kept, its copy dropped
+//   clearCanvasMargins(s, rt, margins)   the inventory canvas margins to half-transparent black; returns the method
+//   targetUnusable(s, rt)                the target cannot be written any more (a removed device)
+//   replicateTargetRect(s, rt, pixels, x, y, w, h)   native pixels into the target, replicated by the GPU; false if not
+//   writeTargetRect(s, rt, pixels, x, y, w, h)       pixels already at the internal scale into the target
+//   nativeTargetSource(s, rt), copyTargetBlock(...)  aliased texture blocks copied from the target (native pixels)
+//   createDepthTexture(s, d)             the GPU depth buffer, cleared
+//   prepareGridCapture(s, rt, W, H), saveGridRect(s, rt, px), restoreGridRect(s), gridRect(s)   item grid capture
 //   kCaps.cleanRowRefresh    a row refreshed from memory proves its blocks clean (GSR_RB_CLEAN_SYNC)
 //   kCaps.partialUploads     preparePartialPatch, patchTargetBlock (uploads that are not block aligned)
 //   kCaps.readbackVerify     verifyRTBlocks
 #include <array>
+#include <map>
 
 #ifndef GSR_IMPL
 #error "define GSR_IMPL (the backend's Impl) and include the backend's private header first"
@@ -25,6 +35,28 @@ bool cleanSyncEnabled() {
         return !value || value[0] != '0';
     }();
     return enabled;
+}
+// GSR_RT_REFRESH_STATS: at exit, how often each target was refreshed from memory, by rectangle size and path.
+void noteRefresh(const RT& rt, uint32_t width, uint32_t height, bool gpu, size_t bytes) {
+    static const bool enabled = std::getenv("GSR_RT_REFRESH_STATS") != nullptr;
+    if (!enabled)
+        return;
+    struct Table {
+        struct Row {
+            uint64_t count = 0, bytes = 0;
+        };
+        std::map<std::array<uint32_t, 5>, Row> rows;
+        ~Table() {
+            for (const auto& [key, row] : rows)
+                std::fprintf(stderr, "[rt-refresh] fbp=%x fbw=%u rect=%ux%u path=%s count=%llu MiB=%.1f\n", key[0],
+                             key[1], key[2], key[3], key[4] ? "gpu" : "cpu", (unsigned long long)row.count,
+                             row.bytes / 1048576.0);
+        }
+    };
+    static Table table;
+    auto& row = table.rows[{rt.fbp, rt.fbw, width, height, gpu ? 1u : 0u}];
+    ++row.count;
+    row.bytes += bytes;
 }
 void traceReadback(const char* kind, uint64_t frame, const RT& rt, uint32_t first = 0, uint32_t last = 0) {
     static const bool enabled = std::getenv("GSR_RB_TRACE") != nullptr;
@@ -750,6 +782,188 @@ void GSR_IMPL::completePartialUpload(bool apply, uint64_t written) {
             partialUpload.clear();
         }
     }
+}
+
+// ---- target storage ----
+
+void GSR_IMPL::allocRT(RT& rt, uint32_t newH) {
+    backend_hook::replaceTargetTexture(*this, rt, newH);
+    rt.copyValid = false;
+    ++rt.writes;
+    rt.inventoryCanvasFrame = {};
+    rt.h = newH;
+    rt.rowStamp.resize(newH / rt.pageH(), 0);
+    rt.rowFromMemory.resize(rt.rowStamp.size(), 1);
+    rt.seen = 0; // force a stamp scan for the new rows
+}
+
+void GSR_IMPL::clearInventoryCanvas(RT& rt, bool artwork) {
+    const bool displayTarget =
+        rt.displaySeenFrame != ~0ull && frame >= rt.displaySeenFrame && frame - rt.displaySeenFrame <= 4;
+    auto margins =
+        hud::inventoryCanvasMargins(rt.w, std::min(rt.h, rt.displayHeight), scale, hudScale, true, displayTarget);
+    if (artwork && hudScale > 0 && hudScale < 1) {
+        const unsigned height = std::min(rt.h, 512u) * scale;
+        margins.count = 1;
+        margins.rect[0] = {0, 0, rt.w * scale, height};
+    }
+    if (!margins.count || !rt.inventoryCanvasFrame.begin(frame))
+        return;
+    const char* method = backend_hook::clearCanvasMargins(*this, rt, margins);
+    if (artwork)
+        drawWideBackdrop(rt, sceneCamera.guiScreen);
+    rt.copyValid = false;
+    const uint32_t height = std::min(rt.h, rt.displayHeight);
+    ++rt.writes;
+    if (!rt.dirty) {
+        rt.dirty = true;
+        rt.dy0 = 0;
+        rt.dy1 = height;
+    } else {
+        rt.dy0 = 0;
+        rt.dy1 = std::max(rt.dy1, height);
+    }
+    if (runtimeFlags().hudCanvasLog && inventoryCanvasLogLines < 32) {
+        ++inventoryCanvasLogLines;
+        std::fprintf(stderr, "[hud-canvas] f=%llu fbp=%u method=%s rects=%u leftEnd=%u rightStart=%u height=%u\n",
+                     (unsigned long long)frame, rt.fbp, method, margins.count, margins.rect[0].right,
+                     margins.count > 1 ? margins.rect[1].left : margins.rect[0].left, height * scale);
+    }
+}
+
+// A rectangle of the target (native pixels) from memory, replicated to the internal scale.
+void GSR_IMPL::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    if (backend_hook::targetUnusable(*this, rt))
+        return;
+    const size_t count = size_t(width) * height;
+    if (uploadPixels.size() < count)
+        uploadPixels.resize(count);
+    if (rt.psm == PSM_CT32)
+        mem.readRectCT32(rt.base(), rt.fbw, x, y, width, height, uploadPixels.data());
+    else
+        for (uint32_t row = 0; row < height; ++row)
+            for (uint32_t col = 0; col < width; ++col)
+                uploadPixels[size_t(row) * width + col] =
+                    unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x + col, y + row));
+    const uint32_t* pixels = uploadPixels.data();
+    const size_t scaledCount = count * scale * scale;
+    // Above scale 1 the GPU replicates the pixels; tiny rectangles are not worth a GPU pass (the rule is
+    // rt_upload_runs.h). A replication that fails wrote nothing: the CPU path below rewrites the whole rectangle.
+    if (rt_upload::gpuReplication(scale, scaledCount) &&
+        backend_hook::replicateTargetRect(*this, rt, pixels, x, y, width, height)) {
+        cpuProfile.uploaded(count * sizeof(uint32_t));
+        st.targetRefreshBytes += count * sizeof(uint32_t);
+        noteRefresh(rt, width, height, true, count * sizeof(uint32_t));
+        return;
+    }
+    if (scale > 1) {
+        if (scaledUploadPixels.size() < scaledCount)
+            scaledUploadPixels.resize(scaledCount);
+        expandRenderTargetRows(pixels, scaledUploadPixels.data(), width, height, scale,
+                               runtimeFlags().rtUploadSpecialize);
+        pixels = scaledUploadPixels.data();
+    }
+    backend_hook::writeTargetRect(*this, rt, pixels, x, y, width, height);
+    cpuProfile.uploaded(scaledCount * sizeof(uint32_t));
+    st.targetRefreshBytes += scaledCount * sizeof(uint32_t);
+    noteRefresh(rt, width, height, false, scaledCount * sizeof(uint32_t));
+}
+
+void GSR_IMPL::copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w, uint32_t h) {
+    syncRT(rt); // rows memory leads must be in the target before its blocks are copied
+    const auto source = backend_hook::nativeTargetSource(*this, rt);
+    if (!source)
+        return;
+    // Native position of every target block (32-bit blocks are 8x8 pixels).
+    std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> position;
+    for (uint32_t y = 0; y < rt.h; y += 8)
+        for (uint32_t x = 0; x < rt.w; x += 8)
+            position[blockOf(PSM_CT32, rt.base(), rt.fbw, x, y)] = {x, y};
+    for (uint32_t y = 0; y < h; y += 8)
+        for (uint32_t x = 0; x < w; x += 8) {
+            const auto it = position.find(blockOf(PSM_CT32, tbp, std::max(tbw, 1u), x, y));
+            if (it == position.end())
+                continue;
+            const auto [sx, sy] = it->second;
+            backend_hook::copyTargetBlock(*this, rt, source, texture, sx, sy, x, y, w, h);
+        }
+    st.aliasedTextures++;
+}
+
+DepthBuf* GSR_IMPL::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
+    for (auto& d : depths)
+        if (d->zbp == zbp && d->w == w && d->h == h) {
+            d->lastUse = frame;
+            return d.get();
+        }
+    depths.push_back(std::make_unique<DepthBuf>());
+    DepthBuf* d = depths.back().get();
+    d->zbp = zbp;
+    d->w = w;
+    d->h = h;
+    backend_hook::createDepthTexture(*this, *d);
+    d->lastUse = frame;
+    return d;
+}
+
+// ---- item grid capture (scene-camera marker 0x437170, gs_backend_api.inl) ----
+
+void GSR_IMPL::gridCaptureStart(RT& rt) {
+    GridCapture& g = gridCapture;
+    g.rt = &rt;
+    uint32_t W = 0, H = 0; // the target's pixels
+    if (!backend_hook::prepareGridCapture(*this, rt, W, H)) {
+        g.rt = nullptr;
+        return;
+    }
+    // The grid's box (GUI frame units) through the page map the inventory draws use, plus a margin for the icons that
+    // stand out of their cells; whole target when the box is unusable.
+    const auto map = hud::inventoryMap(rt.w, hudScale, inventoryHudFrame.centred);
+    float x0 = map.x(g.box[0]), x1 = map.x(g.box[2]), y0 = g.box[1], y1 = g.box[3];
+    constexpr float kMargin = 24.0f;
+    if (!(x1 > x0 && y1 > y0) || !std::isfinite(x0 + x1 + y0 + y1)) {
+        x0 = y0 = 0;
+        x1 = (float)rt.w;
+        y1 = (float)rt.h;
+    }
+    const auto clampPx = [&](float v, uint32_t hi) { return (uint32_t)std::clamp(v * (float)scale, 0.0f, (float)hi); };
+    const uint32_t px[4] = {clampPx(x0 - kMargin, W), clampPx(y0 - kMargin, H), clampPx(x1 + kMargin, W),
+                            clampPx(y1 + kMargin, H)}; // left top right bottom
+    if (px[2] <= px[0] || px[3] <= px[1]) {
+        g.rt = nullptr;
+        return;
+    }
+    backend_hook::saveGridRect(*this, rt, px);
+    g.rtW = rt.w;
+    g.rtH = rt.h;
+    g.hudScale = hudScale;
+    g.centred = inventoryHudFrame.centred;
+}
+
+void GSR_IMPL::gridCaptureEnd() {
+    GridCapture& g = gridCapture;
+    if (g.open && g.rt && g.save && g.tex) {
+        // Keep what the grid drew, then put back what was there before it.
+        backend_hook::restoreGridRect(*this);
+        g.rt->copyValid = false;
+        ++g.rt->writes;
+        ++g.serial;
+        g.frame = frame;
+        if (g.serial <= 3 || g.serial % 1000 == 0) {
+            const std::array<uint32_t, 4> px = backend_hook::gridRect(*this);
+            std::fprintf(stderr,
+                         "[gs-grid-capture] #%llu target %ux%u fbp %x box %.1f,%.1f..%.1f,%.1f -> px %u,%u..%u,%u "
+                         "(hud %.3f centred %d)\n",
+                         (unsigned long long)g.serial, g.rt->w, g.rt->h, g.rt->fbp, g.box[0], g.box[1], g.box[2],
+                         g.box[3], px[0], px[1], px[2], px[3], g.hudScale, g.centred ? 1 : 0);
+        }
+    } else if (g.open) {
+        static unsigned misses = 0;
+        if (misses++ < 3)
+            std::fprintf(stderr, "[gs-grid-capture] scope ended without a display draw\n");
+    }
+    g.open = false;
+    g.rt = nullptr;
 }
 
 } // namespace gsr

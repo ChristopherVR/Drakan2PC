@@ -1,55 +1,29 @@
-// Render-target and depth-buffer management, blend/depth state caches, readback to GS memory.
+// Render-target and depth-buffer management, blend/depth state caches, readback to GS memory: the Direct3D 11 half.
+// The policy is shared (gs_targets.inl); this file holds its hooks, the readback prefetch and GSR_RB_VERIFY.
 #include "d3d11_backend_impl.h"
 
 #include <array>
 #include <map>
 
-#define GSR_IMPL D3D11Backend::Impl
-#include "gs_targets.inl"
-#undef GSR_IMPL
+namespace gsr::backend_hook {
 
-namespace gsr {
-
-namespace {
-// GSR_RT_REFRESH_STATS: at exit, how often each target was refreshed from memory, by rectangle size and path.
-void noteRefresh(const RT& rt, uint32_t width, uint32_t height, bool gpu, size_t bytes) {
-    static const bool enabled = std::getenv("GSR_RT_REFRESH_STATS") != nullptr;
-    if (!enabled)
-        return;
-    struct Table {
-        struct Row {
-            uint64_t count = 0, bytes = 0;
-        };
-        std::map<std::array<uint32_t, 5>, Row> rows;
-        ~Table() {
-            for (const auto& [key, row] : rows)
-                std::fprintf(stderr, "[rt-refresh] fbp=%x fbw=%u rect=%ux%u path=%s count=%llu MiB=%.1f\n", key[0],
-                             key[1], key[2], key[3], key[4] ? "gpu" : "cpu", (unsigned long long)row.count,
-                             row.bytes / 1048576.0);
-        }
-    };
-    static Table table;
-    auto& row = table.rows[{rt.fbp, rt.fbw, width, height, gpu ? 1u : 0u}];
-    ++row.count;
-    row.bytes += bytes;
-}
-} // namespace
-
-void D3D11Backend::Impl::allocRT(RT& rt, uint32_t newH) {
-    const uint32_t W = rt.w * scale, H = newH * scale;
-    ComPtr<ID3D11Texture2D> t = gone() ? nullptr : makeTex(W, H, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+// Backend interface of gs_targets.inl.
+inline void replaceTargetTexture(D3D11Backend::Impl& s, RT& rt, uint32_t newH) {
+    const uint32_t W = rt.w * s.scale, H = newH * s.scale;
+    ComPtr<ID3D11Texture2D> t =
+        s.gone() ? nullptr : s.makeTex(W, H, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
     ComPtr<ID3D11RenderTargetView> rv;
     ComPtr<ID3D11ShaderResourceView> sv;
-    // A removed device (d3d11_device_loss.cpp) gives no objects: the old ones stay, the bookkeeping below still grows
+    // A removed device (d3d11_device_loss.cpp) gives no objects: the old ones stay, the shared bookkeeping still grows
     // with the height the shared code expects, and no call reaches the device with a null object.
-    if (t && deviceOk(dev->CreateRenderTargetView(t.Get(), nullptr, &rv), "target view") &&
-        deviceOk(dev->CreateShaderResourceView(t.Get(), nullptr, &sv), "target view")) {
+    if (t && s.deviceOk(s.dev->CreateRenderTargetView(t.Get(), nullptr, &rv), "target view") &&
+        s.deviceOk(s.dev->CreateShaderResourceView(t.Get(), nullptr, &sv), "target view")) {
         const float clr[4] = {0, 0, 0, rt.psm == PSM_CT24 ? 0.5f : 0.0f};
-        ctx->ClearRenderTargetView(rv.Get(), clr);
+        s.ctx->ClearRenderTargetView(rv.Get(), clr);
         if (rt.tex) {
-            const uint32_t keepH = std::min(rt.h, newH) * scale;
+            const uint32_t keepH = std::min(rt.h, newH) * s.scale;
             D3D11_BOX box{0, 0, 0, W, keepH, 1};
-            ctx->CopySubresourceRegion(t.Get(), 0, 0, 0, 0, rt.tex.Get(), 0, &box);
+            s.ctx->CopySubresourceRegion(t.Get(), 0, 0, 0, 0, rt.tex.Get(), 0, &box);
         }
         rt.tex = t;
         rt.rtv = rv;
@@ -57,29 +31,9 @@ void D3D11Backend::Impl::allocRT(RT& rt, uint32_t newH) {
     }
     rt.copy.Reset();
     rt.copySrv.Reset();
-    rt.copyValid = false;
-    ++rt.writes;
-    rt.inventoryCanvasFrame = {};
-    const uint32_t oldRows = (uint32_t)rt.rowStamp.size();
-    rt.h = newH;
-    rt.rowStamp.resize(newH / rt.pageH(), 0);
-    rt.rowFromMemory.resize(rt.rowStamp.size(), 1);
-    (void)oldRows;
-    rt.seen = 0; // force a stamp scan for the new rows
 }
-
-void D3D11Backend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
-    const bool displayTarget =
-        rt.displaySeenFrame != ~0ull && frame >= rt.displaySeenFrame && frame - rt.displaySeenFrame <= 4;
-    auto margins =
-        hud::inventoryCanvasMargins(rt.w, std::min(rt.h, rt.displayHeight), scale, hudScale, true, displayTarget);
-    if (artwork && hudScale > 0 && hudScale < 1) {
-        const unsigned height = std::min(rt.h, 512u) * scale;
-        margins.count = 1;
-        margins.rect[0] = {0, 0, rt.w * scale, height};
-    }
-    if (!margins.count || !rt.inventoryCanvasFrame.begin(frame))
-        return;
+inline const char* clearCanvasMargins(D3D11Backend::Impl& s, RT& rt, const hud::CanvasMargins& margins) {
+    auto& ctx = s.ctx;
     D3D11_RECT rect[2]{};
     for (unsigned i = 0; i < margins.count; ++i) {
         const auto& r = margins.rect[i];
@@ -89,51 +43,131 @@ void D3D11Backend::Impl::clearInventoryCanvas(RT& rt, bool artwork) {
     ctx->PSSetShaderResources(0, 2, nulls);
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
     const float black[4] = {0, 0, 0, 128.0f / 255.0f};
-    if (inventoryContext1)
-        inventoryContext1->ClearView(rt.rtv.Get(), black, rect, margins.count);
-    else {
-        // Called before vertex-buffer mapping. The ensuing normal draw
-        // rebinds every state touched here; no DSV is bound or cleared.
-        ID3D11Buffer* noVB = nullptr;
-        const UINT zero = 0;
-        ctx->IASetVertexBuffers(0, 1, &noVB, &zero, &zero);
-        ctx->IASetInputLayout(nullptr);
-        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        ctx->VSSetShader(vsFull.Get(), nullptr, 0);
-        ctx->PSSetShader(psInventoryCanvas.Get(), nullptr, 0);
-        ctx->RSSetState(rast.Get());
-        D3D11_VIEWPORT vp{0, 0, (float)(rt.w * scale), (float)(rt.h * scale), 0, 1};
-        ctx->RSSetViewports(1, &vp);
-        ctx->OMSetBlendState(blendOff.Get(), nullptr, 0xffffffffu);
-        ctx->OMSetDepthStencilState(nullptr, 0);
-        ID3D11RenderTargetView* target = rt.rtv.Get();
-        ctx->OMSetRenderTargets(1, &target, nullptr);
-        for (unsigned i = 0; i < margins.count; ++i) {
-            ctx->RSSetScissorRects(1, &rect[i]);
-            ctx->Draw(3, 0);
-        }
-        ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    if (s.inventoryContext1) {
+        s.inventoryContext1->ClearView(rt.rtv.Get(), black, rect, margins.count);
+        return "ClearView";
     }
-    if (artwork)
-        drawWideBackdrop(rt, sceneCamera.guiScreen);
-    rt.copyValid = false;
-    const uint32_t height = std::min(rt.h, rt.displayHeight);
-    ++rt.writes;
-    if (!rt.dirty) {
-        rt.dirty = true;
-        rt.dy0 = 0;
-        rt.dy1 = height;
-    } else {
-        rt.dy0 = 0;
-        rt.dy1 = std::max(rt.dy1, height);
+    // Called before vertex-buffer mapping. The ensuing normal draw
+    // rebinds every state touched here; no DSV is bound or cleared.
+    ID3D11Buffer* noVB = nullptr;
+    const UINT zero = 0;
+    ctx->IASetVertexBuffers(0, 1, &noVB, &zero, &zero);
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->VSSetShader(s.vsFull.Get(), nullptr, 0);
+    ctx->PSSetShader(s.psInventoryCanvas.Get(), nullptr, 0);
+    ctx->RSSetState(s.rast.Get());
+    D3D11_VIEWPORT vp{0, 0, (float)(rt.w * s.scale), (float)(rt.h * s.scale), 0, 1};
+    ctx->RSSetViewports(1, &vp);
+    ctx->OMSetBlendState(s.blendOff.Get(), nullptr, 0xffffffffu);
+    ctx->OMSetDepthStencilState(nullptr, 0);
+    ID3D11RenderTargetView* target = rt.rtv.Get();
+    ctx->OMSetRenderTargets(1, &target, nullptr);
+    for (unsigned i = 0; i < margins.count; ++i) {
+        ctx->RSSetScissorRects(1, &rect[i]);
+        ctx->Draw(3, 0);
     }
-    if (runtimeFlags().hudCanvasLog && inventoryCanvasLogLines < 32) {
-        ++inventoryCanvasLogLines;
-        std::fprintf(stderr, "[hud-canvas] f=%llu fbp=%u method=%s rects=%u leftEnd=%ld rightStart=%ld height=%u\n",
-                     (unsigned long long)frame, rt.fbp, inventoryContext1 ? "ClearView" : "solidPS", margins.count,
-                     rect[0].right, margins.count > 1 ? rect[1].left : rect[0].left, height * scale);
-    }
+    ctx->OMSetRenderTargets(0, nullptr, nullptr);
+    return "solidPS";
 }
+// A target the device cannot write any more (a removed device, d3d11_device_loss.cpp): refreshes are skipped.
+inline bool targetUnusable(const D3D11Backend::Impl& s, const RT& rt) {
+    return s.gone() || !rt.tex;
+}
+// The GPU replicates the pixels (rt_upload_d3d11.h), in bands.
+inline bool replicateTargetRect(D3D11Backend::Impl& s, RT& rt, const uint32_t* pixels, uint32_t x, uint32_t y,
+                                uint32_t width, uint32_t height) {
+    bool done = true;
+    for (uint32_t band = 0; band < height && done; band += TargetUploadGpu::kBandRows) {
+        const uint32_t rows = std::min(TargetUploadGpu::kBandRows, height - band);
+        done = s.targetUploadGpu.upload(s.dev.Get(), s.ctx.Get(), rt.tex.Get(), pixels + size_t(band) * width, x,
+                                        y + band, width, rows, s.scale);
+    }
+    return done;
+}
+inline void writeTargetRect(D3D11Backend::Impl& s, RT& rt, const uint32_t* pixels, uint32_t x, uint32_t y,
+                            uint32_t width, uint32_t height) {
+    D3D11_BOX box{x * s.scale, y * s.scale, 0, (x + width) * s.scale, (y + height) * s.scale, 1};
+    s.ctx->UpdateSubresource(rt.tex.Get(), 0, &box, pixels, width * s.scale * 4, 0);
+}
+inline ID3D11Texture2D* nativeTargetSource(D3D11Backend::Impl& s, RT& rt) {
+    return s.scale > 1 ? s.nativeReadback.gather(s.dev.Get(), s.ctx.Get(), rt.srv.Get(), rt.w, rt.h, s.scale, 0)
+                       : rt.tex.Get();
+}
+inline void copyTargetBlock(D3D11Backend::Impl& s, RT& rt, ID3D11Texture2D* source, GpuTexture& texture, uint32_t sx,
+                            uint32_t sy, uint32_t x, uint32_t y, uint32_t, uint32_t) {
+    const D3D11_BOX box{sx, sy, 0, std::min(sx + 8, rt.w), std::min(sy + 8, rt.h), 1};
+    s.ctx->CopySubresourceRegion(texture.tex.Get(), 0, x, y, 0, source, 0, &box);
+}
+inline void createDepthTexture(D3D11Backend::Impl& s, DepthBuf& d) {
+    if (s.gone()) // no objects on a removed device: draws bind no depth, the world passes see no readable depth
+        return;
+    const uint32_t w = d.w, h = d.h, scale = s.scale;
+    if (s.upMode || s.neuralEnabled || s.modernWater || s.rayShadows || s.rayReflections || s.rayGlobalIllumination) {
+        d.tex = s.makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
+                          DXGI_FORMAT_R32_TYPELESS);
+        D3D11_DEPTH_STENCIL_VIEW_DESC dd{};
+        dd.Format = DXGI_FORMAT_D32_FLOAT;
+        dd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+        s.dev->CreateDepthStencilView(d.tex.Get(), &dd, &d.dsv);
+        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+        sd.Format = DXGI_FORMAT_R32_FLOAT;
+        sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        sd.Texture2D.MipLevels = 1;
+        s.dev->CreateShaderResourceView(d.tex.Get(), &sd, &d.srv);
+    } else {
+        d.tex = s.makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL, DXGI_FORMAT_D32_FLOAT);
+        s.dev->CreateDepthStencilView(d.tex.Get(), nullptr, &d.dsv);
+    }
+    if (!d.dsv) {
+        d.srv.Reset();
+        d.tex = s.makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL, DXGI_FORMAT_D32_FLOAT);
+        if (d.tex)
+            s.dev->CreateDepthStencilView(d.tex.Get(), nullptr, &d.dsv);
+    }
+    if (d.dsv)
+        s.ctx->ClearDepthStencilView(d.dsv.Get(), D3D11_CLEAR_DEPTH, 0.0f, 0);
+}
+inline bool prepareGridCapture(D3D11Backend::Impl& s, RT& rt, uint32_t& W, uint32_t& H) {
+    auto& g = s.gridCapture;
+    D3D11_TEXTURE2D_DESC d{};
+    rt.tex->GetDesc(&d);
+    if (!g.save || !g.tex || g.texW != d.Width || g.texH != d.Height || g.fmt != d.Format) {
+        g.save = s.makeTex(d.Width, d.Height, D3D11_BIND_SHADER_RESOURCE, d.Format);
+        g.tex = s.makeTex(d.Width, d.Height, D3D11_BIND_SHADER_RESOURCE, d.Format);
+        g.srv.Reset();
+        if (g.tex)
+            s.dev->CreateShaderResourceView(g.tex.Get(), nullptr, &g.srv);
+        g.texW = d.Width;
+        g.texH = d.Height;
+        g.fmt = d.Format;
+    }
+    W = d.Width;
+    H = d.Height;
+    return g.save && g.tex && g.srv;
+}
+inline void saveGridRect(D3D11Backend::Impl& s, RT& rt, const uint32_t* px) {
+    auto& g = s.gridCapture;
+    g.px = {px[0], px[1], 0, px[2], px[3], 1};
+    s.ctx->CopySubresourceRegion(g.save.Get(), 0, g.px.left, g.px.top, 0, rt.tex.Get(), 0, &g.px);
+}
+inline void restoreGridRect(D3D11Backend::Impl& s) {
+    auto& g = s.gridCapture;
+    s.ctx->CopySubresourceRegion(g.tex.Get(), 0, g.px.left, g.px.top, 0, g.rt->tex.Get(), 0, &g.px);
+    s.ctx->CopySubresourceRegion(g.rt->tex.Get(), 0, g.px.left, g.px.top, 0, g.save.Get(), 0, &g.px);
+}
+inline std::array<uint32_t, 4> gridRect(const D3D11Backend::Impl& s) {
+    const auto& px = s.gridCapture.px;
+    return {px.left, px.top, px.right, px.bottom};
+}
+
+} // namespace gsr::backend_hook
+
+#define GSR_IMPL D3D11Backend::Impl
+#include "gs_targets.inl"
+#undef GSR_IMPL
+
+namespace gsr {
 
 void D3D11Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
     if (staging && stagingW >= w && stagingH >= h)
@@ -260,51 +294,6 @@ void D3D11Backend::Impl::patchTargetBlock(RT& rt, uint32_t bx, uint32_t by, cons
     partialUploadGpu.patch(ctx.Get(), rt.tex.Get(), rt.srv.Get(), bx, by, patch);
 }
 
-void D3D11Backend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
-    if (gone() || !rt.tex)
-        return;
-    const size_t count = size_t(width) * height;
-    if (uploadPixels.size() < count)
-        uploadPixels.resize(count);
-    if (rt.psm == PSM_CT32)
-        mem.readRectCT32(rt.base(), rt.fbw, x, y, width, height, uploadPixels.data());
-    else
-        for (uint32_t row = 0; row < height; ++row)
-            for (uint32_t col = 0; col < width; ++col)
-                uploadPixels[size_t(row) * width + col] =
-                    unpackPixel(rt.psm, mem.read(rt.psm, rt.base(), rt.fbw, x + col, y + row));
-    const uint32_t* pixels = uploadPixels.data();
-    const size_t scaledCount = count * scale * scale;
-    // Above scale 1 the GPU replicates the pixels (rt_upload_d3d11.h); tiny rectangles are not worth a compute pass.
-    if (rt_upload::gpuReplication(scale, scaledCount)) { // the rule is shared (rt_upload_runs.h)
-        bool done = true;
-        for (uint32_t band = 0; band < height && done; band += TargetUploadGpu::kBandRows) {
-            const uint32_t rows = std::min(TargetUploadGpu::kBandRows, height - band);
-            done = targetUploadGpu.upload(dev.Get(), ctx.Get(), rt.tex.Get(), pixels + size_t(band) * width, x,
-                                          y + band, width, rows, scale);
-        }
-        if (done) {
-            cpuProfile.uploaded(count * sizeof(uint32_t));
-            st.targetRefreshBytes += count * sizeof(uint32_t);
-            noteRefresh(rt, width, height, true, count * sizeof(uint32_t));
-            return;
-        }
-        // a failed band wrote nothing: the CPU path below rewrites the whole rectangle
-    }
-    if (scale > 1) {
-        if (scaledUploadPixels.size() < scaledCount)
-            scaledUploadPixels.resize(scaledCount);
-        expandRenderTargetRows(pixels, scaledUploadPixels.data(), width, height, scale,
-                               runtimeFlags().rtUploadSpecialize);
-        pixels = scaledUploadPixels.data();
-    }
-    D3D11_BOX box{x * scale, y * scale, 0, (x + width) * scale, (y + height) * scale, 1};
-    ctx->UpdateSubresource(rt.tex.Get(), 0, &box, pixels, width * scale * 4, 0);
-    cpuProfile.uploaded(scaledCount * sizeof(uint32_t));
-    st.targetRefreshBytes += scaledCount * sizeof(uint32_t);
-    noteRefresh(rt, width, height, false, scaledCount * sizeof(uint32_t));
-}
-
 // GSR_RB_VERIFY=1 (debug): reads the target back anyway and compares the pixels of blocks [first, last] with memory;
 // a difference means a skipped readback would have served stale data.
 void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi,
@@ -363,73 +352,6 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
                      (unsigned long long)calls, (unsigned long long)compared, (unsigned long long)bad);
 }
 
-void D3D11Backend::Impl::copyAliasedBlocks(RT& rt, GpuTexture& texture, uint32_t tbp, uint32_t tbw, uint32_t w,
-                                           uint32_t h) {
-    syncRT(rt); // rows memory leads must be in the target before its blocks are copied
-    ID3D11Texture2D* source =
-        scale > 1 ? nativeReadback.gather(dev.Get(), ctx.Get(), rt.srv.Get(), rt.w, rt.h, scale, 0) : rt.tex.Get();
-    if (!source)
-        return;
-    // Native position of every target block (32-bit blocks are 8x8 pixels).
-    std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> position;
-    for (uint32_t y = 0; y < rt.h; y += 8)
-        for (uint32_t x = 0; x < rt.w; x += 8)
-            position[blockOf(PSM_CT32, rt.base(), rt.fbw, x, y)] = {x, y};
-    for (uint32_t y = 0; y < h; y += 8)
-        for (uint32_t x = 0; x < w; x += 8) {
-            const auto it = position.find(blockOf(PSM_CT32, tbp, std::max(tbw, 1u), x, y));
-            if (it == position.end())
-                continue;
-            const auto [sx, sy] = it->second;
-            const D3D11_BOX box{sx, sy, 0, std::min(sx + 8, rt.w), std::min(sy + 8, rt.h), 1};
-            ctx->CopySubresourceRegion(texture.tex.Get(), 0, x, y, 0, source, 0, &box);
-        }
-    st.aliasedTextures++;
-}
-
-DepthBuf* D3D11Backend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
-    for (auto& d : depths)
-        if (d->zbp == zbp && d->w == w && d->h == h) {
-            d->lastUse = frame;
-            return d.get();
-        }
-    depths.push_back(std::make_unique<DepthBuf>());
-    DepthBuf* d = depths.back().get();
-    d->zbp = zbp;
-    d->w = w;
-    d->h = h;
-    if (gone()) { // no objects on a removed device: draws bind no depth, the world passes see no readable depth
-        d->lastUse = frame;
-        return d;
-    }
-    if (upMode || neuralEnabled || modernWater || rayShadows || rayReflections || rayGlobalIllumination) {
-        d->tex = makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
-                         DXGI_FORMAT_R32_TYPELESS);
-        D3D11_DEPTH_STENCIL_VIEW_DESC dd{};
-        dd.Format = DXGI_FORMAT_D32_FLOAT;
-        dd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-        dev->CreateDepthStencilView(d->tex.Get(), &dd, &d->dsv);
-        D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
-        sd.Format = DXGI_FORMAT_R32_FLOAT;
-        sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-        sd.Texture2D.MipLevels = 1;
-        dev->CreateShaderResourceView(d->tex.Get(), &sd, &d->srv);
-    } else {
-        d->tex = makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL, DXGI_FORMAT_D32_FLOAT);
-        dev->CreateDepthStencilView(d->tex.Get(), nullptr, &d->dsv);
-    }
-    if (!d->dsv) {
-        d->srv.Reset();
-        d->tex = makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL, DXGI_FORMAT_D32_FLOAT);
-        if (d->tex)
-            dev->CreateDepthStencilView(d->tex.Get(), nullptr, &d->dsv);
-    }
-    if (d->dsv)
-        ctx->ClearDepthStencilView(d->dsv.Get(), D3D11_CLEAR_DEPTH, 0.0f, 0);
-    d->lastUse = frame;
-    return d;
-}
-
 ID3D11DepthStencilState* D3D11Backend::Impl::getDepthState(D3D11_COMPARISON_FUNC func, bool write) {
     const uint32_t key = (uint32_t)func | (write ? 0x100u : 0u);
     auto it = depthStates.find(key);
@@ -484,74 +406,6 @@ GpuView D3D11Backend::Impl::snapshot(RT& rt, const uint32_t* rect) {
     }
     ctx->CopySubresourceRegion(rt.copy.Get(), 0, box ? box->left : 0, box ? box->top : 0, 0, rt.tex.Get(), 0, box);
     return rt.copySrv.Get();
-}
-
-void D3D11Backend::Impl::gridCaptureStart(RT& rt) {
-    GridCapture& g = gridCapture;
-    g.rt = &rt;
-    D3D11_TEXTURE2D_DESC d{};
-    rt.tex->GetDesc(&d);
-    if (!g.save || !g.tex || g.texW != d.Width || g.texH != d.Height || g.fmt != d.Format) {
-        g.save = makeTex(d.Width, d.Height, D3D11_BIND_SHADER_RESOURCE, d.Format);
-        g.tex = makeTex(d.Width, d.Height, D3D11_BIND_SHADER_RESOURCE, d.Format);
-        g.srv.Reset();
-        if (g.tex)
-            dev->CreateShaderResourceView(g.tex.Get(), nullptr, &g.srv);
-        g.texW = d.Width;
-        g.texH = d.Height;
-        g.fmt = d.Format;
-    }
-    if (!g.save || !g.tex || !g.srv) {
-        g.rt = nullptr;
-        return;
-    }
-    // The grid's box (GUI frame units) through the page map the inventory draws use, plus a margin for the icons that
-    // stand out of their cells; whole target when the box is unusable.
-    const auto map = hud::inventoryMap(rt.w, hudScale, inventoryHudFrame.centred);
-    float x0 = map.x(g.box[0]), x1 = map.x(g.box[2]), y0 = g.box[1], y1 = g.box[3];
-    constexpr float kMargin = 24.0f;
-    if (!(x1 > x0 && y1 > y0) || !std::isfinite(x0 + x1 + y0 + y1)) {
-        x0 = y0 = 0;
-        x1 = (float)rt.w;
-        y1 = (float)rt.h;
-    }
-    const auto clampPx = [&](float v, uint32_t hi) { return (UINT)std::clamp(v * (float)scale, 0.0f, (float)hi); };
-    g.px = {clampPx(x0 - kMargin, d.Width), clampPx(y0 - kMargin, d.Height), 0,
-            clampPx(x1 + kMargin, d.Width), clampPx(y1 + kMargin, d.Height), 1};
-    if (g.px.right <= g.px.left || g.px.bottom <= g.px.top) {
-        g.rt = nullptr;
-        return;
-    }
-    ctx->CopySubresourceRegion(g.save.Get(), 0, g.px.left, g.px.top, 0, rt.tex.Get(), 0, &g.px);
-    g.rtW = rt.w;
-    g.rtH = rt.h;
-    g.hudScale = hudScale;
-    g.centred = inventoryHudFrame.centred;
-}
-
-void D3D11Backend::Impl::gridCaptureEnd() {
-    GridCapture& g = gridCapture;
-    if (g.open && g.rt && g.save && g.tex) {
-        // Keep what the grid drew, then put back what was there before it.
-        ctx->CopySubresourceRegion(g.tex.Get(), 0, g.px.left, g.px.top, 0, g.rt->tex.Get(), 0, &g.px);
-        ctx->CopySubresourceRegion(g.rt->tex.Get(), 0, g.px.left, g.px.top, 0, g.save.Get(), 0, &g.px);
-        g.rt->copyValid = false;
-        ++g.rt->writes;
-        ++g.serial;
-        g.frame = frame;
-        if (g.serial <= 3 || g.serial % 1000 == 0)
-            std::fprintf(stderr,
-                         "[gs-grid-capture] #%llu target %ux%u fbp %x box %.1f,%.1f..%.1f,%.1f -> px %u,%u..%u,%u "
-                         "(hud %.3f centred %d)\n",
-                         (unsigned long long)g.serial, g.rt->w, g.rt->h, g.rt->fbp, g.box[0], g.box[1], g.box[2],
-                         g.box[3], g.px.left, g.px.top, g.px.right, g.px.bottom, g.hudScale, g.centred ? 1 : 0);
-    } else if (g.open) {
-        static unsigned misses = 0;
-        if (misses++ < 3)
-            std::fprintf(stderr, "[gs-grid-capture] scope ended without a display draw\n");
-    }
-    g.open = false;
-    g.rt = nullptr;
 }
 
 } // namespace gsr
