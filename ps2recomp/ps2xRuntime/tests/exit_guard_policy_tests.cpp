@@ -63,5 +63,21 @@ int main() {
         assert(g.blocks());
         assert(g.tick(true, false, 2000, 10));
     }
+    // One-way exits from a pack manifest.
+    {
+        using drakan_exit_guard::OneWayExit;
+        OneWayExit w;
+        assert(drakan_exit_guard::parseOneWayExit("OotF 01 - Ruined Village @ 279392, 14761, 152908", w));
+        assert(w.level == "ootf 01 - ruined village" && w.x == 279392.0f && w.y == 14761.0f && w.z == 152908.0f);
+        assert(drakan_exit_guard::isOneWayExit(w, " OOTF 01 - Ruined Village", 279392.5f, 14761, 152950));
+        assert(!drakan_exit_guard::isOneWayExit(w, "OotF 01 - Ruined Village", 279392, 14761, 153000)); // another exit
+        assert(!drakan_exit_guard::isOneWayExit(w, "OotF 03 - Wartok Canyons", 279392, 14761, 152908));
+        assert(drakan_exit_guard::parseOneWayExit("L @ -1.5,2,3e2", w) && w.x == -1.5f && w.z == 300.0f);
+        assert(!drakan_exit_guard::parseOneWayExit("no position", w));
+        assert(!drakan_exit_guard::parseOneWayExit(" @ 1, 2, 3", w));
+        assert(!drakan_exit_guard::parseOneWayExit("L @ 1, 2", w));
+        assert(!drakan_exit_guard::parseOneWayExit("L @ 1, 2, 3, 4", w));
+        assert(!drakan_exit_guard::parseOneWayExit("L @ 1, x, 3", w));
+    }
     std::cout << "Exit guard policy tests passed\n";
 }

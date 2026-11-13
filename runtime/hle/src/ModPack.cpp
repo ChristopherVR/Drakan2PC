@@ -447,6 +447,7 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.campaignTitleMusic = one("campaign_title_music");
     m.levelCopies = many("level_copies");
     m.levelAspect = many("level_aspect");
+    m.oneWayExits = many("one_way_exits");
     for (auto& d : many("load.dependencies")) // tolerated: written after a [load] header by mistake
         m.dependencies.push_back(d);
     if (!validId(m.id)) {

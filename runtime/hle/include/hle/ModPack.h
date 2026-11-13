@@ -56,6 +56,9 @@ struct Manifest {
     // pictures that fill a 4:3 screen, such as the Order of the Flame "Ruined Village Book"). While such a level is
     // loaded its world is rendered and shown at that aspect instead of the window's (drakan_widescreen).
     std::vector<std::string> levelAspect;
+    // top-level `one_way_exits = ["Level title @ x, y, z"]`: exits that close in the save written when they are taken
+    // and are never held by the arrival guard (the Order of the Flame church stair to the Book; drakan_exit_guard.h).
+    std::vector<std::string> oneWayExits;
 };
 // Parses mod.toml (json=false) or mod.json (json=true). Returns false with `err` on a syntax or schema error.
 bool parseManifest(const std::string& text, bool json, Manifest& out, std::string& err);

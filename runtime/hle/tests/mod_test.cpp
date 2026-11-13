@@ -597,6 +597,12 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
               m.levelAspect[1] == "Other = 16:9");
         CHECK(parseManifest("format = 1\nid = \"a\"\n[target]\nprofile = \"pal\"\n", false, m, err));
         CHECK(m.levelAspect.empty());
+        CHECK(m.oneWayExits.empty());
+        // `one_way_exits` lists exits that close once taken (drakan_exit_guard.h parses each entry).
+        CHECK(parseManifest("format = 1\nid = \"a\"\none_way_exits = [\"Village @ 1, 2, 3\"]\n"
+                            "[target]\nprofile = \"pal\"\n",
+                            false, m, err));
+        CHECK(m.oneWayExits.size() == 1 && m.oneWayExits[0] == "Village @ 1, 2, 3");
     }
 
     // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.

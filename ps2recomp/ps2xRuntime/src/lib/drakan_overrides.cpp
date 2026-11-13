@@ -2072,6 +2072,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                         if (!drakan_ws::registerLevelAspect(entry))
                             std::fprintf(stderr, "[game] pack '%s': level_aspect '%s' is not \"Level = 4:3\"\n",
                                          st.manifest.id.c_str(), entry.c_str());
+            // Exits that close once taken (manifest `one_way_exits`, drakan_exit_guard.h).
+            for (const hle::mods::ModStatus& st : g_mods->status())
+                if (st.state == hle::mods::ModState::Loaded)
+                    for (const std::string& entry : st.manifest.oneWayExits)
+                        if (!drakan_levelchange::registerOneWayExit(entry))
+                            std::fprintf(stderr, "[game] pack '%s': one_way_exits '%s' is not \"Level @ x, y, z\"\n",
+                                         st.manifest.id.c_str(), entry.c_str());
             std::string names; // the loaded packs, for the server list (ServerInfo.mods)
             for (const hle::mods::ModStatus& st : g_mods->status())
                 if (st.state == hle::mods::ModState::Loaded) {

@@ -56,6 +56,8 @@ bool requestExitIndex(size_t index);
 bool requestLevel(const std::string& level);
 // A level a mod pack added as a copy of a disc level: its exits name their destinations like the source's do.
 void registerLevelCopy(const std::string& copy, const std::string& source);
+// A pack manifest's `one_way_exits` entry, "<level title> @ x, y, z" (drakan_exit_guard.h). False when malformed.
+bool registerOneWayExit(const std::string& entry);
 // Text of a level-local destination string as a mod pack replaced it (group = the level XDB's stem, e.g. "LEVEL1ON";
 // id = 0x80000 + string id), empty when no pack touches it. Lets the exit list name an exit that a pack points at a
 // copy.

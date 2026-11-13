@@ -607,6 +607,17 @@ constexpr int kLoadingScreen = 14; // gui screen of the loading screen (level lo
 // Converted levels: no exit touch before the player has walked off her start / arrival spot (drakan_exit_guard.h).
 std::mutex g_guardMutex;
 drakan_exit_guard::ArrivalGuard g_guard;
+std::vector<drakan_exit_guard::OneWayExit> g_oneWay; // a pack's one_way_exits (guarded by g_guardMutex)
+bool oneWayExit(const std::string& level, const Ram& r, uint32_t h) {
+    if (!Ram::ok(h, 0x20))
+        return false;
+    const float x = f32(r, h + 0x14), y = f32(r, h + 0x18), z = f32(r, h + 0x1c);
+    std::lock_guard<std::mutex> l(g_guardMutex);
+    for (const auto& w : g_oneWay)
+        if (drakan_exit_guard::isOneWayExit(w, level, x, y, z))
+            return true;
+    return false;
+}
 void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const Ram r{rdram};
     const uint32_t h = getRegU32(c, 4), msg = getRegU32(c, 5);
@@ -615,7 +626,8 @@ void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // 0x365138 passes the engine's current message (ctx+0x4e0) to the touch handler; its event id is the u16 behind +4.
     const uint32_t ctxp = r.u32(addr(kContextPtr));
     const uint32_t event = msg == 0x20 && Ram::ok(ctxp, 0x4e4) ? r.u16(r.u32(r.u32(ctxp + 0x4e0) + 4)) : 0;
-    if (event == kTouchEvent) {
+    // A one-way exit is a point: only its scene and its re-offer box touch it, never the arrival spot.
+    if (event == kTouchEvent && !oneWayExit(g_currentLevel, r, h)) {
         bool blocked;
         {
             std::lock_guard<std::mutex> l(g_guardMutex);
@@ -728,6 +740,20 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
                 }
                 std::fprintf(stderr, "[levelchange] exit taken in '%s' at %.0f %.0f %.0f\n", e.level.c_str(),
                              static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]));
+                // A one-way exit is closed in the save of the level it leaves, which is what comes back after the next
+                // level (drakan_exit_guard.h). The instance is the trigger's own (inst+0x28 = the handle).
+                if (oneWayExit(e.level, r, h)) {
+                    const uint32_t inner = r.u32(h + 0xfc);
+                    const uint32_t inst = Ram::ok(inner, 0x14) ? r.u32(inner + 0x10) : 0;
+                    if (Ram::ok(inst, 0x2c) && r.u32(inst + 0x28) == h) {
+                        const uint16_t flags = static_cast<uint16_t>(r.u16(inst) | drakan_exit_guard::kExitClosedFlag);
+                        std::memcpy(e.rdram + (inst & 0x1fffffffu), &flags, 2);
+                        std::fprintf(stderr, "[levelchange] one-way exit %x closed in the save of '%s'\n", h,
+                                     e.level.c_str());
+                    } else {
+                        std::fprintf(stderr, "[levelchange] one-way exit %x: no instance data, not closed\n", h);
+                    }
+                }
                 if (cb)
                     cb(pos);
             }
@@ -998,6 +1024,17 @@ void setDestinationTextHook(std::function<std::string(const std::string& group, 
 void registerLevelCopy(const std::string& copy, const std::string& source) {
     std::lock_guard<std::mutex> l(g_m);
     g_copies[copy] = source;
+}
+
+bool registerOneWayExit(const std::string& entry) {
+    drakan_exit_guard::OneWayExit w;
+    if (!drakan_exit_guard::parseOneWayExit(entry, w))
+        return false;
+    std::lock_guard<std::mutex> l(g_guardMutex);
+    g_oneWay.push_back(w);
+    std::fprintf(stderr, "[levelchange] one-way exit in '%s' at %.0f %.0f %.0f\n", w.level.c_str(),
+                 static_cast<double>(w.x), static_cast<double>(w.y), static_cast<double>(w.z));
+    return true;
 }
 
 bool requestLevel(const std::string& level) {
