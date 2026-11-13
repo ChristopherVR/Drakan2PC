@@ -51,7 +51,7 @@ struct Context {
 
 struct Draw {
     uint64_t target, texture, scissor, blend, depth, ps, vbOffset;
-    bool samplesTarget, velocity;
+    bool samplesTarget, velocity, midForeign;
 };
 
 struct Backend {
@@ -79,9 +79,9 @@ struct Backend {
         ++c.calls;
     }
     void draw(const Draw& d) {
-        cache.beginDraw();
         if (d.samplesTarget && cache.enabled() && cache.take())
             release();
+        cache.beginDraw();
         if (cache.set(Slot::InputLayout, 1))
             c.layout = 1, ++c.calls;
         if (cache.set(Slot::VertexBuffer0, d.vbOffset))
@@ -100,6 +100,12 @@ struct Backend {
             c.blend = d.blend, ++c.calls;
         if (cache.set(Slot::Depth, d.depth))
             c.depth = d.depth, ++c.calls;
+        if (d.midForeign) {
+            // a pass of the draw binds its own programs through the context (the vertex-program path does)
+            if (cache.enabled() && cache.take())
+                release();
+            c.vs = 3, c.layout = 3, c.calls += 2;
+        }
         atDraws.push_back(c);
         if (d.velocity) {
             if (!cache.enabled())
@@ -149,6 +155,7 @@ void randomStream(unsigned seed, bool velocity) {
         d.ps = 10 + rng() % 2;
         d.vbOffset = offset += 1 + rng() % 16;
         d.velocity = velocity && rng() % 5 != 0;
+        d.midForeign = rng() % 7 == 0;
         off.draw(d);
         on.draw(d);
         ++draws;
@@ -156,7 +163,8 @@ void randomStream(unsigned seed, bool velocity) {
         // the context may leave a target bound that the draw then cannot read, with or without the cache)
         const auto asked = [&](const Context& got) {
             return got.rtv == d.target && got.srv[0] == d.texture && got.ps == d.ps && got.blend == d.blend &&
-                   got.vb0 == d.vbOffset && got.scissor == d.scissor && got.layout == 1 && got.vs == 1;
+                   got.vb0 == d.vbOffset && got.scissor == d.scissor && got.layout == (d.midForeign ? 3u : 1u) &&
+                   got.vs == (d.midForeign ? 3u : 1u);
         };
         const size_t at = on.atDraws.size() - (d.velocity ? 2 : 1);
         if (asked(off.atDraws[at]))

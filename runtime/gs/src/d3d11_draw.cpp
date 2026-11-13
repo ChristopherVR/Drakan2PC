@@ -224,10 +224,10 @@ void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView text
             drawState.enable(want);
         }
     }
-    drawState.beginDraw();
     drawSampledTarget = samplesTarget;
     if (samplesTarget)
-        foreignContext(); // a target is read: bound from a released state, as without the cache
+        foreignContext();  // a target is read: bound from a released state, as without the cache
+    drawState.beginDraw(); // after that: what is still bound now belongs to this draw
     const UINT stride = sizeof(DrawVertex), offs = vbDrawOffset;
     if (drawState.set(Slot::InputLayout, word(layout.Get())))
         c->IASetInputLayout(layout.Get());

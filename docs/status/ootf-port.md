@@ -41,6 +41,13 @@ Mines at 101 / 139. The opt-in frame queue changes no Order of the Flame frame t
 low 27 to 19 ms); it stays off until a contention check and a played session. See
 [performance](../journal/2026-11-14/ootf-performance.md).
 
+**November 14 renderer draw cost (round 4):** the Direct3D 11 renderer now binds only the draw state that changed
+(`[video] draw_state_cache`, on by default, `0` = the old path). Same picture (identical replays, a read-back check of
+every draw's state in the game). On a quiet machine at 4K with the owner's settings Wartok Canyons runs at 38.2 / 55.3
+fps (was 34.4 / 53.1, DLSS quality / off), the Ruined Village at 60 / 83.4 (60 / 82.4), Grimstone Mines at 101 / 136 (100
+/ 134). Joining the terrain passes into fewer draws (a texture array of the ground tiles) is not built. See
+[renderer draw cost](../journal/2026-11-14/ootf-terrain-gpu.md).
+
 **November 14, CPU side (round 4):** the Ruined Village is not capped at 60 fps: with DLSS quality the frame is the GS
 worker's submission plus a `Present` that blocks about 5 ms for the GPU, while the GS worker waits for that present;
 switching only the DLSS mode moves the rate (performance 65, quality 60, DLAA 38, off 85) and the `Present` wait with it.

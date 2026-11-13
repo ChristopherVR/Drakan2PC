@@ -129,7 +129,7 @@ struct Config {
     // draw_state_cache (drakan.ini [video]): Direct3D 11 binds only the draw state that changed since the previous
     // draw and keeps a draw's targets bound until something else needs the context (draw_state_cache.h). Same picture
     // either way. Env GSR_DRAW_STATE_CACHE=0|1 wins.
-    bool drawStateCache = false;
+    bool drawStateCache = true;
     // ---- material detail (drakan.ini [video]; runtime/gs/src/material_detail.h). 0 = the picture without it. ----
     uint32_t materialDetail = 0; // material_detail: 0 off, 1 hard surfaces (terrain, stone, wood, metal, generic),
                                  // 2 all classes. Needs <textureDir>/materials. Env GSR_MATERIAL_DETAIL=off|hard|all

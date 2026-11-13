@@ -9,7 +9,9 @@
 //    the upscaler, present). Then every slot is set again by the next draw.
 //  * The end of a draw normally releases its textures and targets. With the cache on, that release is held back
 //    (hold()) and happens only when something other than the next draw uses the context (take() returns true: the
-//    backend unbinds exactly what the release would have unbound, then forgets). A draw that samples a render target
+//    backend unbinds exactly what the release would have unbound, then forgets). beginDraw() takes the held bindings
+//    over, so a use of the context inside a draw only drops the known state (a draw that samples a target releases
+//    before it). A draw that samples a render target
 //    never holds and is bound after a release, because a texture cannot be bound for reading while it is bound as a
 //    target (the device would quietly unbind one of them).
 // The draw count, the binds skipped and the forgets are counted for the [draw-state] log line.
@@ -90,8 +92,11 @@ public:
     bool known(Slot slot) const { return (known_ >> static_cast<size_t>(slot)) & 1u; }
     uint64_t value(Slot slot) const { return value_[static_cast<size_t>(slot)]; }
 
-    // The start of a draw's bindings (counts the draw).
+    // The start of a draw's bindings (counts the draw). What an earlier draw left bound now belongs to this draw: a
+    // use of the context in the middle of the draw (a vertex-program, material or terrain pass binding its own
+    // programs) must not release it.
     void beginDraw() {
+        held_ = false;
         if (enabled_)
             ++counters_.draws;
     }

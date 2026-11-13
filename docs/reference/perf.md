@@ -747,3 +747,18 @@ that read back, the flip routine's status reads and the display commit in every 
 for its own `Present` (so a paced present caps the world rate), and that the process teardown after the window
 closes is not DLL detach work (ending the process without it was not faster). All absolute frame rates of the
 12 November notes come from windows that were never activated; the foreground comparison is still open.
+
+## Draw state cache on Direct3D 11 (2026-11-14)
+
+`[video] draw_state_cache` (default 1, env `GSR_DRAW_STATE_CACHE`; `runtime/gs/src/draw_state_cache.h`,
+`d3d11_draw.cpp`): a draw sets only the pipeline state that differs from what is bound, and the release of its texture
+and target is held until something other than the next draw uses the context (`TrackedContext` carries it out first).
+Same picture: Direct3D 11 replays hash identically with it off and on, and `GSR_DRAW_STATE_VERIFY=1` (read the bound
+state back before every draw call) found 0 differences in 176 million slot checks in the game with DLSS. Per draw in
+Wartok Canyons the Direct3D 11 submit fell from 0.46 to 0.31 us (DLSS off) and from 1.6 to 1.8 to 1.1 to 1.2 us (DLSS
+quality); frame time on a quiet machine 29.05 to 26.17 ms with DLSS quality and 17.57 to 16.72 ms without, Ruined
+Village off 12.07 to 11.90 ms, Grimstone Mines 10.09 to 9.92 ms, Surdana unchanged. With DLSS every draw still switches
+to the motion target and back for its velocity pass. The `GSR_PROFILE` buckets `drawDest`, `drawBind`, `drawPass`,
+`drawVelocity`, `drawEnd` and `drawConstants` split `drawSubmit`. A swap chain frame latency of 2 was measured and
+changes nothing (the Ruined Village stays at 60 fps with DLSS). See
+[the journal](../journal/2026-11-14/ootf-terrain-gpu.md).

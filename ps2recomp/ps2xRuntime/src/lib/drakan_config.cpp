@@ -168,7 +168,7 @@ const Entry kEntries[] = {
     {"video", "terrain_detail", "0",
      "1 = fine surface detail and large-scale variation on the ground and mountains, fixed in the world (Direct3D 11 "
      "renderer); 0 = the terrain exactly as before (env GSR_TERRAIN_DETAIL)"},
-    {"video", "draw_state_cache", "0",
+    {"video", "draw_state_cache", "1",
      "1 = the Direct3D 11 renderer sets only the drawing state that changed since the previous draw (less work per "
      "draw, most with DLSS on ground made of many small pieces); 0 = every state set for every draw, as before. Same "
      "picture either way; needs a restart (env GSR_DRAW_STATE_CACHE)"},
