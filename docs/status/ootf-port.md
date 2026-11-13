@@ -388,6 +388,19 @@ paintings; a side fill from the picture itself looks best and needs a present pa
 edges look wrong. The subtitle tool keeps a corrected file, writes a review list with confidences and names the speech
 model before any download. Same journal note, sections 8 to 10.
 
+**November 13 the Book scene skipped, and subtitles after a load.** Owner: Escape on the Book scene left Rynn "in an
+empty world", and reloading broke subtitles. The engine's skip runs a skippable scene (PC flag `0x40`) to its last
+action at once; the Book's exit waited on a level Timer of the scene's length, so a skip released Rynn into the Book's
+grey void for the rest of the 250 s. The Book's scene now sends the exit its message at its last action itself (formats
+`ootfseq.ts` `endMessages`): Escape, Enter, Start or Cross hand back to the foot of the church stair at once, as a watched
+scene does. Reloading: the save carries the sound manager's handle counter, so after loading the exit save the Book's
+clips came back with handles the subtitle tracker had already seen and the first nine lines had no text; loads now
+reset it, and a clip's page ends when its sound stops. The walk-down and the save box stay unskippable (Escape opens the
+pause menu / does nothing). Found and left open: Back on the save screen at that exit, or loading a save made during the
+walk-down, leaves Rynn at the foot of the stair with control but the Book is not offered again (the relayed exit cannot
+be touched and its Timer is spent). Needs the new exe and a regenerated pack (a new campaign game). See
+[Book skip and reload](../journal/2026-11-13/ootf-book-skip-and-reload.md).
+
 **November 12 the tomb's push puzzle (issue 5):** the owner's "cannot push the objects in the lair" is the tomb of the Soul
 Crystal in Ruined Village: a block (Rigid Body, Push Mode Slide) is pushed onto one of three pressure plates, then the plate
 beside the statue is pressed and the Rising Floor Ring bridges the pit to the crystal. In the pack the block lay under the pit

@@ -654,6 +654,14 @@ The camera is the actor named `Camera` (type 9 and 5, then keyframes, sounds and
 particle effects (`Jade FireBall`), fades (`DL T Fader`) and light flashes, each with its own transforms, animations and
 messages (message targets are not decoded; `param` is not a level object id, inferred).
 
+**Skipping a scene (proven 2026-11-13, PAL code, `docs/journal/2026-11-13/ootf-book-skip-and-reload.md`).** Bit `0x40` of the
+header word makes the scene skippable: `0x1a3458` marks every running scene whose sequence has it (and whose instance
+has no `0x2000` at `+8`) with `0x40` on the instance (`0xc0` to the end). The scene tick `0x1a4c50` then stops the scene's
+sounds, moves its clock to the next hold (type 10) or to its last action, and runs every action up to there in order,
+messages included. So a skip ends a scene the way watching it does; only what is timed outside the scene (a level Timer
+of the scene's length) is not shortened. Without the bit, Start opens the pause menu while the scene waits (seen for the
+OotF church walk-down). The PC sequence flags carry the same bit (Order of the Flame: 43 of 110 sequences).
+
 Not decoded: what types 4, 6 and 8 mean, the interpolation between keyframes, what `mode` and `ref` select for props, how
 messages address objects, the units of `length`. A rewrite keeps all of that opaque.
 
