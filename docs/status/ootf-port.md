@@ -518,6 +518,11 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   rule's dropped vertices hid it). Swim, dive, surface and climb out played in Ruined Village, Alwarren and Islands Night; needs a
   rebuilt pack and a new game. See [water sheets](../journal/2026-11-14/ootf-water-sheets.md).
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
+* No spells in the OotF campaign (2026-11-14): the pack manifest says `campaign_spells = false` (the converter writes it), so
+  while Order of the Flame is the current game there is no Spells tab in either inventory screen, no mana orb or mana bar, and
+  Circle with empty hands parries instead of casting; Drakan 2 in the same exe keeps all of it. Seen before and after in both
+  inventory styles and both pause menus, through F5 / F8; needs a rebuilt exe and a pack with the key (an older pack keeps the
+  spells). See [no spells](../journal/2026-11-14/ootf-no-spells.md).
 
 ## Known gaps
 
@@ -540,6 +545,7 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   between levels were only checked for some pairs.
 * Map-file key for an adopted loadout item (the ini only knows factory resources), `arena-pvp-open-items.md`.
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
+* Without spells the native tab row keeps a gap where the Spells icon was, and both Skills pages still list Magic.
 
 * 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps.
   An isolated Dr. Evil fight reaches credits after four real kills, using scripted wake, head HP reduced to 3, god mode and an altar
