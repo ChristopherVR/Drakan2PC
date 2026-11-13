@@ -194,6 +194,10 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
 * **Layer type [disc, game]**: 0 floor, 1 ceiling, 2 **water** (both platforms; the engine's draw loop `0x152330` puts type 2
   layers on the water list for `0x161a78`, and the player swims in them). Every water layer of the 14 PAL levels has the empty
   inline blob (no chunks); its cells name Proc Textures entries whose material is a water material (section 12b, texture header).
+  The water pass draws **every cell** of a water layer: hole (0xc0) and invisible (0x30) cells, cells with a floor texture and
+  vertices with bit 0x100 all drew in game, so the disc keeps a water layer's hole vertices at its surface, under the bank. A
+  vertex far above or below the surface near the camera makes the water around it vanish (2048 off already cost part of a small
+  pool) [game, journal 2026-11-14/ootf-water-sheets.md].
 * **Vertex words [inf]**: first u16 (0x200, 0x241, 0x000, ...): the low byte is the vertex type. PS2 list (ELF strings): 0 Normal,
   1..64 `Vertex Color 1..64` (the Level Properties colours), then the water kinds. Water layers use 0x41, 0x71, 0x5a; that is
   the Drakan 1 vertex type (PC type byte, `Dragon.rfl` list: 0 Normal, 1 Water Still, 2..25 currents, 37..44 Water Phase,

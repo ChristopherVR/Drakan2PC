@@ -510,6 +510,13 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   texture. Verified swimming in the Ruined Village ocean; Islands and Wartok water seen from Arokh. See
   [water](../journal/2026-11-08/ootf-water.md). Every layer now lists the water layers within 96 cells in its `visible` list (the PC lists were made for a short draw
   distance, so the Ruined Village sea ended in an edge against the sky); see [sea and sky](../journal/2026-11-09/ootf-sea-sky.md).
+* Floating water (2026-11-14): the PS2 water pass draws every cell of a water layer, holes included, so PC hole cells stood
+  as sheets in the air where a water layer ends at a drop, half-water shore cells let Rynn tread water above the sea, and 66
+  all-hidden water layers (Volcanic, Rift World) drew where the PC shows nothing. Hole vertices over a drop now hang far down,
+  shore cells count per triangle, water layers are cut to their water and the hidden ones become empty floors: the sheet area
+  goes from 583 to 49 cells over the campaign, and the temple pool under the church draws its surface around Rynn again (the old
+  rule's dropped vertices hid it). Swim, dive, surface and climb out played in Ruined Village, Alwarren and Islands Night; needs a
+  rebuilt pack and a new game. See [water sheets](../journal/2026-11-14/ootf-water-sheets.md).
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 
 ## Known gaps
