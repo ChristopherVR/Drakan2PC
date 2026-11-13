@@ -445,6 +445,16 @@ the other 19 were not visited; a weapon effect's light class with the same cube 
 and a new game (the game refuses a save made on another pack build). See
 [detector squares](../journal/2026-11-12/ootf-detector-squares.md).
 
+**November 14 item requirements:** the Chain Mail of Ruined Village could not be worn ("Exp. Level Needed 3",
+"That can't be used right now." on the modern screen, greyed on the native one; Rynn is level 1). The PC game has no
+requirement on any item, but converted armour kept the Drakan 2 template's Skill Level, which the engine checks against
+the character level (Chain 3, Scale 4, Plate 6, Banded 7, and Dragon Armor mapped onto the disc class itself, 8). The
+converter now writes 0 for armour as it already did for weapons and bows, and clones a same-name restricted disc armour
+instead of reusing it (formats `ootfclass.ts`). Played on a fresh campaign game: Chain Mail, Atimar's Blade and a Battle
+Axe equip on both screens, Rynn wears the chain armour, Armor Rating 20 (PC 0.2). Needs a regenerated pack and a new game.
+Open: damage reduction in a fight and the other armours in game. See
+[item requirements](../journal/2026-11-14/ootf-item-requirements.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
