@@ -529,6 +529,12 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   goes from 583 to 49 cells over the campaign, and the temple pool under the church draws its surface around Rynn again (the old
   rule's dropped vertices hid it). Swim, dive, surface and climb out played in Ruined Village, Alwarren and Islands Night; needs a
   rebuilt pack and a new game. See [water sheets](../journal/2026-11-14/ootf-water-sheets.md).
+* Holes in cave walls (2026-11-14): pale lilac (Mines) or sky blue (Grotto) triangles showed through walls and ceilings.
+  The PC gives each terrain triangle its own texture and the converter made a cell with one hole triangle a whole hole
+  (11,400 such cells over the campaign). Floors and ceilings now keep the cell and set the disc's per-triangle hole bits
+  0x40 / 0x80; every 3 x 3 block of cells is also kept within the 8 textures a chunk can blend (crowded blocks drew flat,
+  lighter patches; 1.2 % of cells change texture). Seen fixed by walking and turning round in the Mines slave room and a
+  Grotto ice cave; needs a rebuilt pack and a new game. See [Mines triangles](../journal/2026-11-14/ootf-mines-triangles.md).
 * Drakan 2 with both packs installed still boots normally (choose Drakan; `Level 0 - Intro` then `Level 1A - Surdana`; no OotF leakage).
 * No spells in the OotF campaign (2026-11-14): the pack manifest says `campaign_spells = false` (the converter writes it), so
   while Order of the Flame is the current game there is no Spells tab in either inventory screen, no mana orb or mana bar, and
