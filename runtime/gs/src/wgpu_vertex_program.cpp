@@ -278,7 +278,13 @@ void WgpuBackend::Impl::drawProgramVertices(const VertexProgramBatch& batch) {
     g.cpuPass = true;
 }
 
-bool WgpuBackend::vertexPrograms(vpath::Fallback* why) const {
+bool WgpuBackend::vertexPrograms(vpath::Fallback* why, bool batchPath) const {
+    // Batch-path records have no shader on this backend yet: the core evaluates them on the CPU.
+    if (batchPath) {
+        if (why)
+            *why = vpath::Fallback::BackendNoPath;
+        return false;
+    }
     return m_impl->programTakes(why);
 }
 

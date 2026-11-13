@@ -86,13 +86,13 @@ void Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex*
         return;
     m_api->draw(st, clut, v, count);
 }
-bool Backend::vertexPrograms(vpath::Fallback* why) const {
+bool Backend::vertexPrograms(vpath::Fallback* why, bool batchPath) const {
     if (stoppedNow()) {
         if (why)
             *why = vpath::Fallback::DeviceLost;
         return false;
     }
-    return m_api->vertexPrograms(why);
+    return m_api->vertexPrograms(why, batchPath);
 }
 vpath::Capability Backend::vertexPathCapability() const {
     return stoppedNow() ? vpath::Capability{} : m_api->vertexPathCapability();

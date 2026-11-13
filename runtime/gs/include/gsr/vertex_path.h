@@ -43,6 +43,11 @@ enum Stage : uint32_t {
     kAllStages = (1u << 9) - 1u,
 };
 inline constexpr uint32_t kStageCount = 9;
+// The stage families `gpu` hands over unless DRAKAN_VERTEX_STAGES names others: those whose shader draw is exact and
+// also measured not to make the frame slower. The batch families are exact on Direct3D 11 but their hand-over costs
+// the GS worker more than the VU1 worker saves (docs/journal/2026-11-13/gpu-vertex-batch-draw.md, section 3), so they
+// stay in the microprogram by default until that cost is brought down.
+inline constexpr uint32_t kGpuDefaultStages = kStrips;
 inline constexpr const char* kStageNames[kStageCount] = {"strips", "fade",  "texmatrix", "grid",      "point",
                                                          "light",  "prims", "texgen",    "clipinside"};
 
@@ -194,12 +199,14 @@ inline constexpr uint32_t toggled(uint32_t word, uint64_t frame, uint32_t everyF
 }
 
 struct Counters {
-    std::atomic<uint64_t> taken[kStageCount]{};       // runs that left the microprogram, per stage family
-    std::atomic<uint64_t> takenVertices{0};           // their vertices
-    std::atomic<uint64_t> gpuVertices{0};             // vertices drawn by a vertex shader
-    std::atomic<uint64_t> cpuVertices{0};             // vertices of records evaluated on the CPU
-    std::atomic<uint64_t> fallback[kFallbackCount]{}; // runs or records per reason
-    std::atomic<uint64_t> switches{0};                // changes of the control word
+    std::atomic<uint64_t> taken[kStageCount]{};            // runs that left the microprogram, per stage family
+    std::atomic<uint64_t> takenVertices{0};                // their vertices
+    std::atomic<uint64_t> gpuVertices{0};                  // vertices drawn by a vertex shader
+    std::atomic<uint64_t> gpuBatchVertices{0};             // of those, vertices of batch-path records
+    std::atomic<uint64_t> cpuVertices{0};                  // vertices of records evaluated on the CPU
+    std::atomic<uint64_t> fallback[kFallbackCount]{};      // runs or records per reason
+    std::atomic<uint64_t> batchFallback[kFallbackCount]{}; // of those, batch-path records
+    std::atomic<uint64_t> switches{0};                     // changes of the control word
     // Executed runs that drew from VU memory an earlier run would have set had it been executed: a vertex that may
     // differ from the microprogram's. The batch tracker detects it; it is not expected to happen.
     std::atomic<uint64_t> staleDraws{0};
@@ -251,9 +258,10 @@ inline uint32_t configuredWord(Choice choice, const Capability& cap, const char*
                                const char* stagesOverride) {
     Eval eval = resolve(choice, cap);
     parseEval(evalOverride, eval);
-    // Under `gpu` the stages default to those the backend can draw; an explicit stage list is taken as given (a
-    // stage without a shader is then evaluated on the CPU by the renderer and counted).
-    uint32_t stages = eval == Eval::Gpu ? cap.shaderStages : static_cast<uint32_t>(kAllStages);
+    // Under `gpu` the stages default to those the backend can draw and that are measured to pay
+    // (kGpuDefaultStages); an explicit stage list is taken as given (a stage without a shader is then evaluated on
+    // the CPU by the renderer and counted).
+    uint32_t stages = eval == Eval::Gpu ? cap.shaderStages & kGpuDefaultStages : static_cast<uint32_t>(kAllStages);
     parseStages(stagesOverride, stages);
     return pack(eval, stages);
 }
@@ -274,6 +282,11 @@ inline void frameBoundary(uint64_t frame) {
 
 inline void countFallback(Fallback why, uint64_t n = 1) {
     state().counters.fallback[static_cast<uint32_t>(why)].fetch_add(n, std::memory_order_relaxed);
+}
+// A batch-path record the renderer did not draw with its shader: counted under the reason and as a batch record.
+inline void countBatchFallback(Fallback why) {
+    countFallback(why);
+    state().counters.batchFallback[static_cast<uint32_t>(why)].fetch_add(1, std::memory_order_relaxed);
 }
 inline void countTaken(Stage stage, uint64_t vertices) {
     Counters& c = state().counters;

@@ -82,6 +82,15 @@ int main() {
            "records hands every stage over");
     expect(configuredWord(Choice::Gpu, proven, "nonsense", "nonsense") == pack(Eval::Gpu, kStrips),
            "unparsable overrides are ignored");
+    // a backend with a shader for every family: `gpu` still hands over only the families that pay
+    Capability every = proven;
+    every.shaderStages = kAllStages;
+    expect(configuredWord(Choice::Gpu, every, nullptr, nullptr) == pack(Eval::Gpu, kAllStages & kGpuDefaultStages),
+           "gpu hands over the default families only");
+    expect(configuredWord(Choice::Gpu, every, nullptr, nullptr) == pack(Eval::Gpu, kStrips),
+           "the batch families are not handed over by default");
+    expect(configuredWord(Choice::Gpu, every, nullptr, "all") == pack(Eval::Gpu, kAllStages),
+           "an explicit stage list hands the batch families over");
 
     // the toggle: even periods keep the configured word, odd ones run the microprogram
     expect(toggled(word, 0, 0) == word && toggled(word, 99, 0) == word, "no toggle");

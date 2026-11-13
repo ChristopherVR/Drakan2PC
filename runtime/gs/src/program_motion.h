@@ -21,6 +21,7 @@
 #pragma once
 #include "motion_history.h"
 
+#include <gsr/vertex_batch.h>
 #include <gsr/vertex_program.h>
 
 #include <cstdint>
@@ -39,6 +40,23 @@ struct ProgramPrevious {
     uint32_t pad[2] = {0, 0};
 };
 static_assert(sizeof(ProgramPrevious) == 32, "two rows");
+
+// Per vertex of a batch of batch-path records (gsr/vertex_batch.h): the inputs of vbPreviousPlace
+// (vertex_program_hlsl.h), the position row the vertex had in the reference world and its `sel` then.
+struct BatchPrevious {
+    uint32_t pos[4] = {0, 0, 0, 0}; // previous raw position row
+    // x = pass mask over the previous position passes (bit 31: there is a previous state), y, z = grid x and z then,
+    // w = row of the previous position passes in the draw's table
+    uint32_t sel[4] = {0, 0, 0, 0};
+};
+static_assert(sizeof(BatchPrevious) == 32, "two rows");
+inline constexpr uint32_t kBatchPreviousKnown = 1u << 31;
+
+// The kinds of pass the position of a batch vertex depends on (planBatch(kPositionFields), gpu-vertex-batch-stage.md
+// section 2): a history keeps only these.
+inline constexpr bool positionPass(uint32_t kind) {
+    return kind == vp::PassGrid || kind == vp::PassGridFlat || kind == vp::PassTransform || kind == vp::PassProject;
+}
 
 class ProgramHistory {
 public:
@@ -117,7 +135,8 @@ public:
         }
         const auto found = previous_.find(key);
         const bool match = found != previous_.end() && found->second.epoch == referenceEpoch_ &&
-                           found->second.topology == topology && found->second.positions.size() == size_t(count) * 4u;
+                           found->second.topology == topology && !found->second.batch &&
+                           found->second.positions.size() == size_t(count) * 4u;
         if (match) {
             const uint32_t* old = found->second.positions.data();
             for (uint32_t i = 0; i < count; ++i) {
@@ -142,6 +161,82 @@ public:
         return match;
     }
 
+    // Tracks one batch-path record, by the same rules as track(). What is kept is what the position of a vertex
+    // depends on and nothing else: the record's position passes (in their order) and per vertex its raw position
+    // row, its mask over those passes and its grid values. `out` gets one entry per vertex: with a history, the
+    // previous state with `previousRow` as the row of the previous passes (the caller appends *previous, *count
+    // passes, at that row); otherwise zeroed entries.
+    bool trackBatch(const Key& key, uint64_t topology, const vp::Pass* passes, uint32_t passCount,
+                    const vp::BatchVertex* vertices, uint32_t count, bool known, uint32_t previousRow,
+                    BatchPrevious* out, const vp::Pass** previous, uint32_t* previousCount) {
+        for (uint32_t i = 0; i < count; ++i)
+            out[i] = BatchPrevious{};
+        *previous = nullptr;
+        *previousCount = 0;
+        if (!known || !key.object || !key.mesh || !epoch_ || !vertices || !count || count > vp::kBatchMaxIndices ||
+            passCount > vp::kBatchMaxPasses)
+            return false;
+        if (ambiguous_.count(key))
+            return false;
+        const auto duplicate = current_.find(key);
+        if (duplicate != current_.end()) {
+            bytes_ -= sizeOf(duplicate->second);
+            current_.erase(duplicate);
+            ambiguous_.insert(key);
+            return false;
+        }
+        const auto found = previous_.find(key);
+        const bool match = found != previous_.end() && found->second.epoch == referenceEpoch_ &&
+                           found->second.topology == topology && found->second.batch &&
+                           found->second.positions.size() == size_t(count) * 4u;
+        if (match) {
+            const Entry& e = found->second;
+            for (uint32_t i = 0; i < count; ++i) {
+                std::memcpy(out[i].pos, e.positions.data() + size_t(i) * 4u, 16);
+                out[i].sel[0] = e.grid[size_t(i) * 3u] | kBatchPreviousKnown;
+                out[i].sel[1] = e.grid[size_t(i) * 3u + 1u];
+                out[i].sel[2] = e.grid[size_t(i) * 3u + 2u];
+                out[i].sel[3] = previousRow;
+            }
+            *previous = e.passes.data();
+            *previousCount = static_cast<uint32_t>(e.passes.size());
+        }
+        // The position passes and, per pass of the record, its place among them.
+        uint32_t place[vp::kBatchMaxPasses] = {};
+        uint32_t kept = 0;
+        for (uint32_t p = 0; p < passCount; ++p)
+            if (positionPass(passes[p].kind))
+                place[p] = kept++;
+        const uint64_t size = uint64_t(kept) * sizeof(vp::Pass) + uint64_t(count) * 28u;
+        if (size <= budget_ && bytes_ <= budget_ - size) {
+            Entry e;
+            e.epoch = epoch_;
+            e.topology = topology;
+            e.batch = true;
+            e.passes.reserve(kept);
+            for (uint32_t p = 0; p < passCount; ++p)
+                if (positionPass(passes[p].kind))
+                    e.passes.push_back(passes[p]);
+            e.positions.resize(size_t(count) * 4u);
+            e.grid.resize(size_t(count) * 3u);
+            for (uint32_t i = 0; i < count; ++i) {
+                vp::BatchVertex v;
+                std::memcpy(&v, &vertices[i], sizeof(v));
+                std::memcpy(e.positions.data() + size_t(i) * 4u, v.row.pos, 16);
+                uint32_t mask = 0;
+                for (uint32_t p = 0; p < passCount; ++p)
+                    if (((v.passMask >> p) & 1u) && positionPass(passes[p].kind))
+                        mask |= 1u << place[p];
+                e.grid[size_t(i) * 3u] = mask;
+                e.grid[size_t(i) * 3u + 1u] = v.gridX;
+                e.grid[size_t(i) * 3u + 2u] = v.gridZ;
+            }
+            current_.emplace(key, std::move(e));
+            bytes_ += size;
+        }
+        return match;
+    }
+
 private:
     static const vp::Vertex& at(const vp::Vertex* vertices, uint32_t i, size_t stride) {
         return *reinterpret_cast<const vp::Vertex*>(reinterpret_cast<const uint8_t*>(vertices) + size_t(i) * stride);
@@ -150,9 +245,16 @@ private:
         uint64_t epoch = 0, topology = 0;
         vp::Constants constants{};
         std::vector<uint32_t> positions; // four words per vertex
+        // A batch-path record (trackBatch): its position passes, and per vertex mask, grid x, grid z.
+        bool batch = false;
+        std::vector<vp::Pass> passes;
+        std::vector<uint32_t> grid;
     };
     using Entries = std::unordered_map<Key, Entry, KeyHash>;
-    static uint64_t sizeOf(const Entry& e) { return sizeof(vp::Constants) + e.positions.size() * 4u; }
+    static uint64_t sizeOf(const Entry& e) {
+        return e.batch ? e.passes.size() * sizeof(vp::Pass) + e.positions.size() * 4u + e.grid.size() * 4u
+                       : sizeof(vp::Constants) + e.positions.size() * 4u;
+    }
     static uint64_t bytesOf(const Entries& entries) {
         uint64_t total = 0;
         for (const auto& item : entries)

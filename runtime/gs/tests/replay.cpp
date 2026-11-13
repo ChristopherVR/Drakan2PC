@@ -324,12 +324,12 @@ int main(int argc, char** argv) {
                 (unsigned long long)s.texReplaced, (unsigned long long)s.texDumped, s.texCacheBytes / 1048576.0);
     {
         const vpath::Counters& c = vpath::state().counters;
-        std::printf("vertex path %s: records %llu, program draws %llu, vertices by shader %llu, by CPU evaluation "
-                    "%llu, switches %llu; fallbacks:",
+        std::printf("vertex path %s: records %llu, program draws %llu, vertices by shader %llu (batch path %llu), by "
+                    "CPU evaluation %llu, switches %llu; fallbacks:",
                     vpath::evalName(vpath::evalOf(vpath::state().baseWord.load())),
                     (unsigned long long)s.programRecords, (unsigned long long)s.programDraws,
-                    (unsigned long long)c.gpuVertices.load(), (unsigned long long)c.cpuVertices.load(),
-                    (unsigned long long)c.switches.load());
+                    (unsigned long long)c.gpuVertices.load(), (unsigned long long)c.gpuBatchVertices.load(),
+                    (unsigned long long)c.cpuVertices.load(), (unsigned long long)c.switches.load());
         bool any = false;
         for (uint32_t i = 0; i < vpath::kFallbackCount; ++i)
             if (const uint64_t n = c.fallback[i].load()) {

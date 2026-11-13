@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdlib>
 #include "gsr/gsr.h"
+#include "gsr/vertex_batch.h"
 #include "gsr/vertex_path.h"
 #include "gsr/vertex_program.h"
 #include "gs_mem.h"
@@ -36,9 +37,10 @@ static_assert(sizeof(VertexProgramVertex) == 64, "vertex layout");
 // One record of a batch: its vertices, and what identifies it between two worlds (motion vectors).
 struct VertexProgramRecord {
     uint32_t firstVertex = 0, vertexCount = 0;
-    uint32_t constants = 0; // index into the batch's constants
+    uint32_t constants = 0; // index into the batch's constants (batch path: its first pass in `passes`)
     uint32_t program = 0;
-    uint64_t shape = 0; // hash of the program and the strip lengths
+    uint64_t shape = 0;     // hash of the program and the strip lengths (batch path: also indices and pass kinds)
+    uint32_t passCount = 0; // batch path: its passes
 };
 struct VertexProgramBatch {
     const vp::Constants* constants = nullptr;
@@ -53,6 +55,17 @@ struct VertexProgramBatch {
     // before the note. The backend applies every one of them (vertex_program_draw.h).
     const motion::Note* notes = nullptr;
     uint32_t noteCount = 0;
+    // A batch of batch-path records (gsr/vertex_batch.h) instead: `batchVertices` (vertexCount of them) in place of
+    // `vertices`, each a vp::BatchVertex as its record holds it with the `slot` word replaced by the row of the
+    // record's first pass in the table of `passes` (thirteen rows a pass), and `passes` in place of `constants`. One
+    // batch never mixes the two kinds: they have different vertex programs.
+    bool batchPath = false;
+    // The vertices the core counted as drawn by a shader for this batch (vpath::Counters::gpuVertices): a backend
+    // that evaluates the batch on the CPU after all moves them to cpuVertices.
+    uint32_t countedVertices = 0;
+    const vp::BatchVertex* batchVertices = nullptr;
+    const vp::Pass* passes = nullptr;
+    uint32_t passCount = 0;
 };
 
 // Everything a draw needs from the register file (POD, memcmp-comparable).
@@ -195,7 +208,9 @@ public:
     // each vertex names. A backend that returns false from vertexPrograms() (with the reason) does not get one; the
     // core then evaluates the records on the CPU and draws them through draw(). vertexPathCapability() is what the
     // player's setting is resolved against (gsr/vertex_path.h).
-    virtual bool vertexPrograms(vpath::Fallback* why) const {
+    // `batchPath`: the question is about a batch-path record (gsr/vertex_batch.h), which has a vertex program of its
+    // own.
+    virtual bool vertexPrograms(vpath::Fallback* why, bool /*batchPath*/ = false) const {
         if (why)
             *why = vpath::Fallback::BackendNoPath;
         return false;
@@ -282,7 +297,7 @@ public:
 
     // draw a triangle list
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count);
-    bool vertexPrograms(vpath::Fallback* why) const;
+    bool vertexPrograms(vpath::Fallback* why, bool batchPath = false) const;
     vpath::Capability vertexPathCapability() const;
     void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch);
     // make local memory reflect GPU render targets overlapping blocks [first,last]

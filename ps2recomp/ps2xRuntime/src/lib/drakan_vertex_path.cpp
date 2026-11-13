@@ -20,9 +20,11 @@ std::mutex g_mutex;
 gsr::Renderer* g_renderer = nullptr;
 vpath::Choice g_choice = vpath::Choice::Cpu;
 std::atomic<bool> g_gpuAvailable{false};
+uint32_t g_appliedStages = 0; // Capability::shaderStages the word was last made from
 
 void applyLocked() {
     const vpath::Capability cap = g_renderer ? g_renderer->vertexPathCapability() : vpath::Capability{};
+    g_appliedStages = cap.shaderStages;
     g_gpuAvailable.store(cap.backendHasPath && cap.adapterExact, std::memory_order_relaxed);
     const char* toggleText = std::getenv("DRAKAN_VERTEX_TOGGLE");
     const uint32_t toggle = toggleText ? static_cast<uint32_t>(std::strtoul(toggleText, nullptr, 10)) : 0u;
@@ -93,11 +95,19 @@ std::string countersLine() {
     }
     if (!any)
         return {};
-    std::snprintf(text, sizeof(text), "; vertices: shader %llu, cpu %llu",
+    std::string batchFallbacks;
+    for (uint32_t i = 0; i < vpath::kFallbackCount; ++i)
+        if (const uint64_t n = c.batchFallback[i].load(std::memory_order_relaxed)) {
+            std::snprintf(text, sizeof(text), " %s %llu", vpath::kFallbackNames[i], static_cast<unsigned long long>(n));
+            batchFallbacks += text;
+        }
+    std::snprintf(text, sizeof(text), "; vertices: shader %llu (batch path %llu), cpu %llu",
                   static_cast<unsigned long long>(c.gpuVertices.load(std::memory_order_relaxed)),
+                  static_cast<unsigned long long>(c.gpuBatchVertices.load(std::memory_order_relaxed)),
                   static_cast<unsigned long long>(c.cpuVertices.load(std::memory_order_relaxed)));
     std::string out = std::string("path ") + activePath() + "; runs handed over:" + (line.empty() ? " none" : line) +
-                      text + "; fallbacks:" + (fallbacks.empty() ? " none" : fallbacks);
+                      text + "; fallbacks:" + (fallbacks.empty() ? " none" : fallbacks) +
+                      " (of them batch-path records:" + (batchFallbacks.empty() ? " none" : batchFallbacks) + ")";
     if (const uint64_t stale = c.staleDraws.load(std::memory_order_relaxed)) {
         std::snprintf(text, sizeof(text), "; RUNS THAT DREW FROM UNKNOWN VU MEMORY: %llu",
                       static_cast<unsigned long long>(stale));
@@ -106,7 +116,26 @@ std::string countersLine() {
     return out;
 }
 
+// Under `gpu` the word hands over only the stage families whose shader the renderer has (or has not started to
+// compile): while a shader compiles in the background its runs stay in the microprogram instead of being evaluated
+// on the CPU, and the word follows when it is ready (a quarter of a second later at most).
+void pollCapability() {
+    static const bool overridden = std::getenv("DRAKAN_VERTEX_EVAL") != nullptr;
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point last{};
+    const Clock::time_point now = Clock::now();
+    if (now - last < std::chrono::milliseconds(250))
+        return;
+    last = now;
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_renderer || (g_choice == vpath::Choice::Cpu && !overridden))
+        return; // the player's `cpu`: nothing to follow
+    if (g_renderer->vertexPathCapability().shaderStages != g_appliedStages)
+        applyLocked();
+}
+
 void frameTick() {
+    pollCapability();
     static const bool log = std::getenv("DRAKAN_VERTEX_LOG") != nullptr;
     if (!log)
         return;

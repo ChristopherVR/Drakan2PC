@@ -142,7 +142,7 @@ public:
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
     bool deviceLost(std::string* reason = nullptr) const override;
-    bool vertexPrograms(vpath::Fallback* why) const override; // wgpu_vertex_program.cpp
+    bool vertexPrograms(vpath::Fallback* why, bool batchPath) const override; // wgpu_vertex_program.cpp
     vpath::Capability vertexPathCapability() const override;
     void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch) override;
     bool copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm, uint32_t dbp,

@@ -13,6 +13,7 @@
 #include "program_motion.h"
 #include "vertex_program_draw.h"
 #include "vertex_program_hlsl.h"
+#include "vertex_batch_cases.h"
 #include "vertex_program_cases.h"
 
 #include <d3d11.h>
@@ -164,6 +165,123 @@ bool run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11VertexShader* vs, ID
     ctx->Unmap(staging.Get(), 0);
     return true;
 }
+// ---- the batch path (vbHistory, VSBatchHistoryRaw) ----
+const D3D11_INPUT_ELEMENT_DESC kBatchLayout[] = {
+    {"VBPOS", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"VBCOL", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"VBST", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"VBSEL", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"VBPPOS", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 64, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"VBPSEL", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 80, D3D11_INPUT_PER_VERTEX_DATA, 0},
+};
+
+// One pass over the batch vertices with one library. Every vertex gets a previous state of one of three kinds: its
+// own record's passes with the low bits of every matrix and origin moved (a moving camera; the raw row also moved for
+// one in eight, an animated vertex), the unrelated record vbcases::finishPrevious chose, or none (bit 31 clear).
+bool runBatch(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11VertexShader* vs, ID3D11GeometryShader* so,
+              ID3D11InputLayout* layout, const vbcases::Cases& cases, const Pass& pass, const char* library,
+              Totals& totals) {
+    constexpr uint32_t kRows = vp::ir::kPassRows;
+    std::mt19937 rng(pass.seed);
+    std::vector<vp::Pass> table = cases.passes;
+    const uint32_t moved = (uint32_t)table.size();
+    for (size_t k = 0; k < cases.passes.size(); ++k) {
+        vp::Pass p = cases.passes[k];
+        if (p.kind == vp::PassTransform || p.kind == vp::PassGrid || p.kind == vp::PassGridFlat)
+            for (int r = 0; r < 4; ++r)
+                for (uint32_t& word : p.k[r])
+                    if ((word & 0x7F800000u) != 0x7F800000u && (word & 0x7FFFFFFFu) != 0u)
+                        word ^= rng() & 0x3FFFu;
+        table.push_back(p);
+    }
+    std::vector<vbcases::GpuVertex> vertices = cases.vertices;
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        vbcases::GpuVertex& v = vertices[i];
+        const uint32_t kind = rng() & 15u;
+        if (kind >= 3) {
+            const vbcases::Record& r = cases.records[cases.recordOf[i]];
+            v.previousBase = (moved + r.firstPass) * kRows;
+            v.previousMask = v.mask;
+            v.previousGridX = v.gridX;
+            v.previousGridZ = v.gridZ;
+            std::memcpy(v.previousPos, v.row.pos, 16);
+            if (kind & 8u && (kind & 4u))
+                for (int l = 0; l < 3; ++l)
+                    if ((v.previousPos[l] & 0x7F800000u) != 0x7F800000u && (v.previousPos[l] & 0x7FFFFFFFu) != 0u)
+                        v.previousPos[l] ^= rng() & 0xFFFu;
+        }
+        if (kind != 0)
+            v.previousMask |= motion::kBatchPreviousKnown;
+    }
+    const UINT count = (UINT)vertices.size();
+    ComPtr<ID3D11Buffer> vb, kb, cb, cbMotion, ob, staging;
+    ComPtr<ID3D11ShaderResourceView> ksrv;
+    D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+    sd.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+    sd.Buffer.NumElements = (UINT)table.size() * kRows;
+    const int32_t words[4] = {pass.offset[0], pass.offset[1], 0, 0};
+    const float raster[4] = {pass.raster[0], pass.raster[1], 0, 0};
+    if (!makeBuffer(dev, count * sizeof(vbcases::GpuVertex), D3D11_BIND_VERTEX_BUFFER, vertices.data(), vb) ||
+        !makeBuffer(dev, (UINT)(table.size() * sizeof(vp::Pass)), D3D11_BIND_SHADER_RESOURCE, table.data(), kb) ||
+        FAILED(dev->CreateShaderResourceView(kb.Get(), &sd, &ksrv)) ||
+        !makeBuffer(dev, 16, D3D11_BIND_CONSTANT_BUFFER, words, cb) ||
+        !makeBuffer(dev, 16, D3D11_BIND_CONSTANT_BUFFER, raster, cbMotion) ||
+        !makeBuffer(dev, count * 16, D3D11_BIND_STREAM_OUTPUT, nullptr, ob) ||
+        !makeBuffer(dev, count * 16, 0, nullptr, staging, D3D11_USAGE_STAGING)) {
+        std::printf("[FAIL] %s: batch buffers\n", library);
+        return false;
+    }
+    const UINT stride = sizeof(vbcases::GpuVertex), offset = 0, zero = 0;
+    ID3D11Buffer* cbs[2] = {cb.Get(), cbMotion.Get()};
+    ID3D11Buffer* none = nullptr;
+    ctx->IASetInputLayout(layout);
+    ctx->IASetVertexBuffers(0, 1, vb.GetAddressOf(), &stride, &offset);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    ctx->VSSetShader(vs, nullptr, 0);
+    ctx->VSSetConstantBuffers(5, 2, cbs);
+    ctx->VSSetShaderResources(8, 1, ksrv.GetAddressOf());
+    ctx->GSSetShader(so, nullptr, 0);
+    ctx->SOSetTargets(1, ob.GetAddressOf(), &zero);
+    ctx->Draw(count, 0);
+    ctx->SOSetTargets(1, &none, &zero);
+    ctx->CopyResource(staging.Get(), ob.Get());
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &ms))) {
+        std::printf("[FAIL] %s: batch read back\n", library);
+        return false;
+    }
+    const uint32_t* got = static_cast<const uint32_t*>(ms.pData);
+    uint32_t shown = 0;
+    const auto native = [&](uint16_t fixed, int32_t off) { return ((int)fixed - off) * (1.0f / 16.0f); };
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        const vbcases::GpuVertex& v = vertices[i];
+        const vbcases::Record& r = cases.records[cases.recordOf[i]];
+        const vp::Output now = vp::evaluateVertex(table.data() + r.firstPass, r.passCount, vbcases::batchVertexOf(v));
+        vp::BatchVertex before = vbcases::previousVertexOf(v);
+        before.passMask &= ~motion::kBatchPreviousKnown;
+        const vp::Output old = vp::evaluateVertex(table.data() + v.previousBase / kRows, vp::kBatchMaxPasses, before);
+        const program_draw::HistoryValue want = program_draw::historyOf(
+            native(now.x, pass.offset[0]), native(now.y, pass.offset[1]), (float)now.z, native(old.x, pass.offset[0]),
+            native(old.y, pass.offset[1]), (float)old.z, pass.raster[0], pass.raster[1],
+            (v.previousMask & motion::kBatchPreviousKnown) != 0);
+        ++totals.pairs;
+        totals.valid += want.valid != 0;
+        totals.ratioNotOne += want.valid != 0 && want.ratio != 1.0f;
+        if (std::memcmp(&want, got + i * 4, 16) != 0) {
+            ++totals.differ;
+            if (shown++ < 4) {
+                uint32_t w[4];
+                std::memcpy(w, &want, 16);
+                std::printf("  [FAIL] %s, batch vertex %zu: shader %08x %08x %08x %08x, CPU %08x %08x %08x %08x\n",
+                            library, i, got[i * 4], got[i * 4 + 1], got[i * 4 + 2], got[i * 4 + 3], w[0], w[1], w[2],
+                            w[3]);
+            }
+        }
+    }
+    ctx->Unmap(staging.Get(), 0);
+    return true;
+}
 } // namespace
 
 int main() {
@@ -255,6 +373,125 @@ int main() {
         bad += totals.differ;
         if (totals.ratioNotOne < totals.pairs / 20) {
             std::printf("[FAIL] %s: the cases do not exercise the division\n", library);
+            ++bad;
+        }
+    }
+    // The batch path: every vertex of the batch cases (and of GSR_VB_RECORDS).
+    const vbcases::Cases batchCases = vbcases::standardCases();
+    std::printf("batch path: ");
+    vbcases::describe(batchCases);
+    {
+        // program_draw::batchBounds (estimate, then the possible extremes exactly) against the exact evaluation of
+        // every vertex, over batches of 1 to 64 vertices of the cases with the triangles (i, i + 1, i + 2).
+        std::vector<vp::BatchVertex> vertices(batchCases.vertices.size());
+        for (size_t i = 0; i < vertices.size(); ++i) {
+            vertices[i] = vbcases::batchVertexOf(batchCases.vertices[i]);
+            vertices[i].slot = batchCases.vertices[i].base;
+        }
+        std::mt19937 rng(77u);
+        program_draw::BoundsScratch scratch;
+        uint64_t batches = 0, differ = 0, bounded = 0, exactly = 0;
+        for (size_t first = 0; first < vertices.size();) {
+            const uint32_t n = std::min<uint32_t>(1u + rng() % 64u, (uint32_t)(vertices.size() - first));
+            std::vector<uint32_t> indices;
+            for (uint32_t i = 0; i + 2 < n; ++i)
+                for (uint32_t c = 0; c < 3; ++c)
+                    indices.push_back(i + c);
+            // one record per run of vertices of one case record (a record's vertices are contiguous)
+            std::vector<VertexProgramRecord> records;
+            for (uint32_t i = 0; i < n; ++i) {
+                const vbcases::Record& cr = batchCases.records[batchCases.recordOf[first + i]];
+                if (records.empty() || records.back().constants != cr.firstPass) {
+                    VertexProgramRecord r;
+                    r.firstVertex = i;
+                    r.constants = cr.firstPass;
+                    r.passCount = cr.passCount;
+                    r.program = vp::Batch;
+                    records.push_back(r);
+                }
+                ++records.back().vertexCount;
+            }
+            VertexProgramBatch b;
+            b.batchPath = true;
+            b.records = records.data();
+            b.recordCount = (uint32_t)records.size();
+            b.batchVertices = vertices.data() + first;
+            b.vertexCount = n;
+            b.passes = batchCases.passes.data();
+            b.passCount = (uint32_t)batchCases.passes.size();
+            b.indices = indices.data();
+            b.indexCount = (uint32_t)indices.size();
+            const int32_t ox = (int32_t)(rng() % 65536u), oy = (int32_t)(rng() % 65536u);
+            const program_draw::Bounds got = program_draw::batchBounds(b, ox, oy, scratch);
+            int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
+            for (uint32_t i = 0; i < (n >= 3 ? n : 0); ++i) {
+                const vp::BatchVertex& v = b.batchVertices[i];
+                const vp::Output o = vp::evaluateVertex(b.passes + v.slot / vp::ir::kPassRows, vp::kBatchMaxPasses, v);
+                want[0] = std::min(want[0], (int32_t)o.x);
+                want[1] = std::min(want[1], (int32_t)o.y);
+                want[2] = std::max(want[2], (int32_t)o.x);
+                want[3] = std::max(want[3], (int32_t)o.y);
+            }
+            const bool any = want[0] != INT32_MAX;
+            const bool same =
+                got.any == any &&
+                (!any || (got.x0 == (want[0] - ox) * (1.0f / 16.0f) && got.y0 == (want[1] - oy) * (1.0f / 16.0f) &&
+                          got.x1 == (want[2] - ox) * (1.0f / 16.0f) && got.y1 == (want[3] - oy) * (1.0f / 16.0f)));
+            if (!same && differ < 4)
+                std::printf("  [FAIL] batch bounds at vertex %zu: got %g %g %g %g, want %g %g %g %g\n", first, got.x0,
+                            got.y0, got.x1, got.y1, (want[0] - ox) / 16.0, (want[1] - oy) / 16.0, (want[2] - ox) / 16.0,
+                            (want[3] - oy) / 16.0);
+            differ += !same;
+            ++batches;
+            bounded += n >= 3 ? n : 0;
+            exactly += got.exact;
+            first += n;
+        }
+        std::printf("batch bounds: %llu batches (%llu vertices, %llu of them evaluated exactly), %llu differ\n",
+                    (unsigned long long)batches, (unsigned long long)bounded, (unsigned long long)exactly,
+                    (unsigned long long)differ);
+        bad += differ;
+    }
+    for (const vp::ArithmeticRequest request : {vp::ArithmeticRequest::Limbs, vp::ArithmeticRequest::Doubles}) {
+        if (only != vp::ArithmeticRequest::Auto && only != request)
+            continue;
+        const vp::Arithmetic arithmetic = vp::chooseArithmetic(vp::ShaderBackend::Direct3D11, doubleSupport, request);
+        if (arithmetic == vp::Arithmetic::None)
+            continue;
+        const char* library = vp::arithmeticName(arithmetic);
+        const std::string text = vertexBatchHlsl(arithmetic, true);
+        const D3D_SHADER_MACRO macros[] = {
+            {"VP_RAW_ONLY", "1"}, {"VP_MOTION", "1"}, {"VP_PREVIOUS", "1"}, {nullptr, nullptr}};
+        ComPtr<ID3DBlob> blob, err;
+        if (FAILED(D3DCompile(text.c_str(), text.size(), "vertex_batch_history", macros, nullptr, "VSBatchHistoryRaw",
+                              "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &err))) {
+            std::printf("[FAIL] %s: batch compile: %s\n", library, err ? (const char*)err->GetBufferPointer() : "?");
+            return 1;
+        }
+        static const D3D11_SO_DECLARATION_ENTRY kOut[] = {{0, "RAWHISTORY", 0, 0, 4, 0}};
+        const UINT outStride = 16;
+        ComPtr<ID3D11VertexShader> vs;
+        ComPtr<ID3D11GeometryShader> so;
+        ComPtr<ID3D11InputLayout> layout;
+        if (FAILED(dev->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &vs)) ||
+            FAILED(dev->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(), kOut, 1,
+                                                             &outStride, 1, D3D11_SO_NO_RASTERIZED_STREAM, nullptr,
+                                                             &so)) ||
+            FAILED(dev->CreateInputLayout(kBatchLayout, 6, blob->GetBufferPointer(), blob->GetBufferSize(), &layout))) {
+            std::printf("[FAIL] %s: the device refused the batch shader\n", library);
+            return 1;
+        }
+        Totals totals;
+        for (const Pass& pass : passes)
+            if (!runBatch(dev.Get(), ctx.Get(), vs.Get(), so.Get(), layout.Get(), batchCases, pass, library, totals))
+                return 1;
+        std::printf("%s: batch path history value, shader against CPU: %llu vertex pairs (%llu with a valid history, "
+                    "%llu of those with a depth ratio other than 1), %llu differ\n",
+                    library, (unsigned long long)totals.pairs, (unsigned long long)totals.valid,
+                    (unsigned long long)totals.ratioNotOne, (unsigned long long)totals.differ);
+        bad += totals.differ;
+        if (totals.ratioNotOne < totals.pairs / 20) {
+            std::printf("[FAIL] %s: the batch cases do not exercise the division\n", library);
             ++bad;
         }
     }

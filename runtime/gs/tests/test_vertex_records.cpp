@@ -1351,13 +1351,14 @@ uint64_t differingPixels(const Image& a, const Image& b) {
 }
 
 struct CounterShot {
-    uint64_t cpu, gpu, taken, switches, fallback[vpath::kFallbackCount];
+    uint64_t cpu, gpu, gpuBatch, taken, switches, fallback[vpath::kFallbackCount];
 };
 CounterShot counters() {
     const vpath::Counters& c = vpath::state().counters;
     CounterShot s{};
     s.cpu = c.cpuVertices.load();
     s.gpu = c.gpuVertices.load();
+    s.gpuBatch = c.gpuBatchVertices.load();
     s.taken = c.takenVertices.load();
     s.switches = c.switches.load();
     for (uint32_t i = 0; i < vpath::kFallbackCount; ++i)
@@ -1367,7 +1368,7 @@ CounterShot counters() {
 
 struct Totals {
     uint64_t scenes = 0, sequences = 0, runsAsRecords = 0, runsAsPackets = 0, verticesAsRecords = 0;
-    uint64_t verticesAsPackets = 0, backendFallbacks = 0, cpuVertices = 0, gpuVertices = 0;
+    uint64_t verticesAsPackets = 0, backendFallbacks = 0, cpuVertices = 0, gpuVertices = 0, gpuBatchVertices = 0;
     uint64_t batchRecords = 0, batchVertices = 0;
     Tally colour, depth;
     Tally controlColour, controlDepth; // the negative controls: these are meant to differ
@@ -1490,9 +1491,10 @@ Result runSequence(const Config& cfg, const Sequence& q) {
             expectEqual(gpu, 0, "vertices drawn by a shader on a backend without the path");
             expectEqual(otherFallbacks, 0, "other fallback reasons on a backend without the path");
         } else {
-            // every strip record either drawn by the shader or declined with exactly one reason; no backend has
-            // a shader for batch records yet, so each of those counts as "backend has no path"
-            expectEqual(noPath, batchCount, "\"backend has no path\" counted once per batch record");
+            // every record either drawn by the shader or declined with exactly one reason; a backend without a
+            // batch shader counts each batch record as "backend has no path"
+            const bool batchShader = (cap.shaderStages & (vpath::kAllStages & ~vpath::kStrips)) != 0u;
+            expectEqual(noPath, batchShader ? 0 : batchCount, "\"backend has no path\" counted once per batch record");
             expect(noPath + otherFallbacks <= runCount, "at most one fallback reason per record");
         }
 
@@ -1526,6 +1528,7 @@ Result runSequence(const Config& cfg, const Sequence& q) {
         g_totals.backendFallbacks += noPath;
         g_totals.cpuVertices += cpu;
         g_totals.gpuVertices += gpu;
+        g_totals.gpuBatchVertices += after.gpuBatch - afterPackets.gpuBatch;
     }
     expect(!a->deviceLost() && !b->deviceLost(), "the device survived the sequence");
     g_totals.sequences++;
@@ -1950,6 +1953,12 @@ int main(int argc, char** argv) {
                 "no path\": %llu\n",
                 static_cast<unsigned long long>(t.cpuVertices), static_cast<unsigned long long>(t.gpuVertices),
                 static_cast<unsigned long long>(t.backendFallbacks));
+    std::printf("of the vertices drawn by a shader, of batch records: %llu; fallbacks counted over the run:",
+                static_cast<unsigned long long>(t.gpuBatchVertices));
+    for (uint32_t i = 0; i < vpath::kFallbackCount; ++i)
+        if (const uint64_t n = vpath::state().counters.fallback[i].load())
+            std::printf(" %s %llu", vpath::kFallbackNames[i], static_cast<unsigned long long>(n));
+    std::printf("\n");
     std::printf(
         "colour frames compared: %llu, differing: %llu; pixels compared: %llu, differing: %llu\n",
         static_cast<unsigned long long>(t.colour.frames), static_cast<unsigned long long>(t.colour.framesDiffering),

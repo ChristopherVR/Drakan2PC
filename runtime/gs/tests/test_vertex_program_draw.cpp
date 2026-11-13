@@ -255,6 +255,203 @@ void testTracking() {
     }
 }
 
+// The batch path: which records take the shader (batchTakes), and the per-record tracking of a batch of batch-path
+// records (trackBatchPath, ProgramHistory::trackBatch): only position passes and position inputs are kept.
+vp::Pass passOf(uint32_t kind, uint32_t seed = 0) {
+    vp::Pass p{};
+    p.kind = kind;
+    for (int r = 0; r < 12; ++r)
+        for (int l = 0; l < 4; ++l)
+            p.k[r][l] = 0x3F800000u + seed * 64u + uint32_t(r * 4 + l); // ordinary floats near 1
+    if (kind == vp::PassTransform || kind == vp::PassProject) {
+        // the fog row of the constants: a clamp and slope that cannot reach the skip bit (vp::neverSkipsVertices)
+        const uint32_t fog[4] = {0, 0x3F800000u, 0x47000000u, 0};
+        const uint32_t offset[4] = {0x45000000u, 0x45000000u, 0, 0x43000000u};
+        const uint32_t scale[4] = {0x3F800000u, 0x3F800000u, 0x3F800000u, 0};
+        std::memcpy(p.k[4], fog, 16);
+        std::memcpy(p.k[5], offset, 16);
+        std::memcpy(p.k[6], scale, 16);
+    }
+    return p;
+}
+
+struct BatchPath {
+    std::vector<vp::Pass> passes;
+    std::vector<vp::BatchVertex> vertices;
+    std::vector<VertexProgramRecord> records;
+    std::vector<motion::Note> notes;
+    VertexProgramBatch view() const {
+        VertexProgramBatch b;
+        b.batchPath = true;
+        b.passes = passes.data();
+        b.passCount = (uint32_t)passes.size();
+        b.batchVertices = vertices.data();
+        b.vertexCount = (uint32_t)vertices.size();
+        b.records = records.data();
+        b.recordCount = (uint32_t)records.size();
+        b.notes = notes.data();
+        b.noteCount = (uint32_t)notes.size();
+        return b;
+    }
+    // A record: grid, texture matrix, transform (masks 0b111), `perRecord` vertices.
+    void add(uint32_t perRecord, uint32_t seed, uint32_t texture = 5) {
+        constexpr uint32_t kRows = sizeof(vp::Pass) / 16u;
+        VertexProgramRecord r;
+        r.firstVertex = (uint32_t)vertices.size();
+        r.vertexCount = perRecord;
+        r.constants = (uint32_t)passes.size();
+        r.passCount = 3;
+        r.program = vp::Batch;
+        r.shape = 4321;
+        passes.push_back(passOf(vp::PassGrid, seed));
+        passes.push_back(passOf(vp::PassTexMatrix, 1));
+        passes.push_back(passOf(vp::PassTransform, seed));
+        for (uint32_t i = 0; i < perRecord; ++i) {
+            vp::BatchVertex v{};
+            v.row.pos[1] = seed * 1000u + i;
+            v.row.st[0] = texture + i;
+            v.passMask = 7;
+            v.gridX = 100 + i;
+            v.gridZ = 200 + i;
+            v.slot = r.constants * kRows;
+            vertices.push_back(v);
+        }
+        records.push_back(r);
+    }
+};
+
+void testBatchPath() {
+    // batchTakes
+    {
+        std::vector<vp::Pass> passes = {passOf(vp::PassGrid), passOf(vp::PassLight), passOf(vp::PassTransform),
+                                        passOf(vp::PassFade), passOf(vp::PassTexMatrix)};
+        expect(vp::passNeverSkips(passes[2]), "the test's transform cannot set the skip bit");
+        std::vector<vp::BatchVertex> v(3);
+        for (auto& x : v)
+            x.passMask = 0x1F;
+        vpath::Fallback why = vpath::Fallback::Count;
+        const auto takes = [&]() {
+            why = vpath::Fallback::Count;
+            return program_draw::batchTakes(passes.data(), (uint32_t)passes.size(),
+                                            reinterpret_cast<const uint8_t*>(v.data()), (uint32_t)v.size(), &why);
+        };
+        expect(takes() && why == vpath::Fallback::Count, "grid, light, transform, fade, texture matrix: taken");
+        v[1].passMask = 0x1B; // no transform: the grid writes the position last
+        expect(!takes() && why == vpath::Fallback::DrawState, "a vertex without a transform: draw state");
+        v[1].passMask = 0;
+        expect(!takes() && why == vpath::Fallback::DrawState, "a vertex without any pass: draw state");
+        v[1].passMask = 0x1F;
+        passes.push_back(passOf(vp::PassTexGenPos));
+        v[2].passMask = 0x3F; // texture generation after the transform replaces Q
+        expect(!takes() && why == vpath::Fallback::DrawState, "Q replaced after the transform: draw state");
+        v[2].passMask = 0x1F;
+        expect(takes(), "the later texture generation applies to no vertex");
+        vp::Pass skipping = passOf(vp::PassTransform);
+        const uint32_t badFog[4] = {0, 0, 0x7F7FFFFFu, 0x7F7FFFFFu}; // a slope that can reach bit 15 of the fog lane
+        std::memcpy(skipping.k[4], badFog, 16);
+        if (!vp::passNeverSkips(skipping)) {
+            passes[2] = skipping;
+            expect(!takes() && why == vpath::Fallback::SkipBit, "a transform that may set the skip bit");
+        } else {
+            expect(false, "the test's skipping transform is recognised as one");
+        }
+        passes[2] = passOf(vp::PassProject);
+        expect(takes(), "a project pass instead of the transform");
+        expect(program_draw::batchTakes(passes.data(), (uint32_t)passes.size(), nullptr, 0, &why),
+               "a record without vertices has nothing to decline");
+    }
+    GsDrawState s{};
+    s.tex0 = 0x99;
+    {
+        // two records under two scopes, then the next world: the position passes and inputs come back
+        motion::PairedHistory history{64ull * 1024 * 1024, true};
+        ObjectMotionScope scope = scopeOf(1);
+        std::vector<motion::BatchPrevious> previous;
+        std::vector<vp::Pass> previousPasses;
+        const auto track = [&](const BatchPath& b, const GsDrawState& state) {
+            const VertexProgramBatch view = b.view();
+            return program_draw::trackBatchPath(
+                history, view, state, view.passCount * 13u, previous, previousPasses,
+                [&](const ObjectMotionScope& next) {
+                    scope = (next.flags & ObjectMotionScope::End) ? ObjectMotionScope{} : next;
+                },
+                [&]() -> const ObjectMotionScope& { return scope; });
+        };
+        BatchPath w1;
+        w1.add(5, 1);
+        w1.add(4, 2);
+        w1.notes.push_back({1, scopeOf(2)});
+        history.beginFrame(20);
+        auto c = track(w1, s);
+        expect(c.records == 2 && c.matched == 0 && c.scoped == 2 && previous.size() == 9 && previousPasses.empty(),
+               "batch path, first world: nothing matched");
+        bool zero = true;
+        for (const auto& p : previous)
+            zero = zero && p.sel[0] == 0 && p.pos[1] == 0;
+        expect(zero, "batch path: zeroed entries without a previous state");
+        history.commitFrame();
+        history.beginFrame(21);
+        scope = scopeOf(1);
+        BatchPath w2;
+        w2.add(5, 3);
+        w2.add(4, 4);
+        w2.notes.push_back({1, scopeOf(2)});
+        c = track(w2, s);
+        expect(c.matched == 2 && c.matchedVertices == 9, "batch path, second world: both matched");
+        // only the grid and the transform are kept: two passes per record, the texture matrix left out
+        expect(previousPasses.size() == 4 && previousPasses[0].kind == vp::PassGrid &&
+                   previousPasses[1].kind == vp::PassTransform && previousPasses[2].kind == vp::PassGrid &&
+                   previousPasses[3].kind == vp::PassTransform && previousPasses[0].k[0][0] == passOf(1, 1).k[0][0] &&
+                   previousPasses[3].k[0][0] == passOf(6, 2).k[0][0],
+               "batch path: the previous position passes, in order, of the previous world");
+        bool ok = true;
+        const uint32_t base = w2.view().passCount * 13u;
+        for (uint32_t i = 0; i < 5; ++i)
+            ok = ok && previous[i].pos[1] == 1000u + i && previous[i].sel[0] == (3u | motion::kBatchPreviousKnown) &&
+                 previous[i].sel[1] == 100u + i && previous[i].sel[2] == 200u + i && previous[i].sel[3] == base;
+        for (uint32_t i = 0; i < 4; ++i)
+            ok = ok && previous[5 + i].pos[1] == 2000u + i && previous[5 + i].sel[3] == base + 26u;
+        expect(ok, "batch path: previous rows, masks over the kept passes, grid values and the table row");
+        history.commitFrame();
+        history.beginFrame(22);
+        scope = scopeOf(1);
+        BatchPath w3;
+        w3.add(5, 5, 6);
+        w3.add(4, 6);
+        w3.notes.push_back({1, scopeOf(2)});
+        c = track(w3, s);
+        expect(c.matched == 1 && previous[0].sel[0] == 0 && (previous[5].sel[0] & motion::kBatchPreviousKnown),
+               "batch path: other texture rows do not match, the other record does");
+        history.commitFrame();
+        history.beginFrame(23);
+        scope = scopeOf(1);
+        BatchPath w4;
+        w4.add(5, 7, 6);
+        w4.passes[1].k[2][0] ^= 1u; // the texture matrix moved: texture coordinates differ
+        w4.add(4, 8);
+        w4.notes.push_back({1, scopeOf(2)});
+        c = track(w4, s);
+        expect(c.matched == 1 && previous[0].sel[0] == 0, "batch path: a moved texture matrix does not match");
+        // strip and batch entries under one key never match each other
+        motion::ProgramHistory h;
+        h.beginFrame(1);
+        motion::Key key{1, 0, 2, 0, 0, 0};
+        vp::Vertex sv[4] = {};
+        motion::ProgramPrevious sp[4];
+        const vp::Constants* oldConstants = nullptr;
+        h.track(key, 77, vp::Constants{}, sv, 4, true, 0, sp, &oldConstants);
+        h.commitFrame();
+        h.beginFrame(2);
+        motion::BatchPrevious bpOut[4];
+        const vp::Pass* oldPasses = nullptr;
+        uint32_t oldCount = 0;
+        vp::BatchVertex bv[4] = {};
+        const vp::Pass one = passOf(vp::PassTransform);
+        expect(!h.trackBatch(key, 77, &one, 1, bv, 4, true, 0, bpOut, &oldPasses, &oldCount),
+               "a batch record does not match a strip record's entry");
+    }
+}
+
 // historyOf against motion::History::track: one vertex per draw, so the per-draw rule of History and the per-vertex
 // rule of the shader coincide.
 void testHistoryValue() {
@@ -302,6 +499,7 @@ void testHistoryValue() {
 int main() {
     testDecisions();
     testTracking();
+    testBatchPath();
     testHistoryValue();
     std::printf("%d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;

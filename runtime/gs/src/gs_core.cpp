@@ -382,7 +382,8 @@ struct Renderer::Impl {
     // otherwise, and for every record a backend cannot draw exactly, the record is evaluated here with the VU's
     // arithmetic and drawn like the packets the microprogram would have sent. A record is honoured whatever the
     // control word says (a capture replays the same under every setting).
-    // GSR_VERTEX_PROGRAM_DEBUG (bits): 1 = one draw per record
+    // GSR_VERTEX_PROGRAM_DEBUG (bits): 1 = one draw per record, 2 = batch-path records never drawn by the shader,
+    // 4 = strip records never drawn by the shader (both counted as `stage off`; replays, to tell the two apart)
     int programDebug = [] {
         const char* e = std::getenv("GSR_VERTEX_PROGRAM_DEBUG");
         return e ? std::atoi(e) : 0;
@@ -394,8 +395,14 @@ struct Renderer::Impl {
     motion::Deferred programNotes; // scope notes that arrived while the program batch was open (position: records)
     GsDrawState programState{};
     bool programActive = false;
+    // The open batch holds batch-path records (VertexProgramBatch::batchPath): their vertices and passes.
+    bool programBatchPath = false;
+    uint32_t programCounted = 0; // vertices of the open batch counted as drawn by a shader
+    std::vector<vp::BatchVertex> programBatchVertices;
+    std::vector<vp::Pass> programPasses;
 
     void flushProgram() {
+        settleBatchTail();
         if (programActive && !programIndices.empty()) {
             applyMovieFrames();
             VertexProgramBatch b;
@@ -409,6 +416,17 @@ struct Renderer::Impl {
             b.recordCount = (uint32_t)programRecords.size();
             b.notes = programNotes.data();
             b.noteCount = programNotes.size();
+            b.countedVertices = programCounted;
+            if (programBatchPath) {
+                b.constants = nullptr;
+                b.constantCount = 0;
+                b.vertices = nullptr;
+                b.batchPath = true;
+                b.batchVertices = programBatchVertices.data();
+                b.vertexCount = (uint32_t)programBatchVertices.size();
+                b.passes = programPasses.data();
+                b.passCount = (uint32_t)programPasses.size();
+            }
             backend->drawVertexProgram(programState, clut, b);
             stats.programDraws++;
         } else {
@@ -420,6 +438,10 @@ struct Renderer::Impl {
         programConstants.clear();
         programVertices.clear();
         programIndices.clear();
+        programBatchVertices.clear();
+        programPasses.clear();
+        programBatchPath = false;
+        programCounted = 0;
         programActive = false;
     }
 
@@ -427,6 +449,10 @@ struct Renderer::Impl {
     bool programOnGpu(const vp::View& rec, GsDrawState& state) {
         if (vpath::evalOf(vpath::controlWord()) != vpath::Eval::Gpu)
             return false;
+        if (programDebug & 4) {
+            vpath::countFallback(vpath::Fallback::StageOff);
+            return false;
+        }
         vpath::Fallback why = vpath::Fallback::BackendNoPath;
         if (!backend->vertexPrograms(&why)) {
             vpath::countFallback(why);
@@ -450,6 +476,7 @@ struct Renderer::Impl {
         vp::View rec;
         if (!vp::parse(data, size, rec))
             return;
+        settleBatchTail();
         const vp::Header& h = rec.header;
         stats.programRecords++;
         // The strip tag carries PRIM (PRE = 1): the same write the tag of every strip would have made.
@@ -478,7 +505,7 @@ struct Renderer::Impl {
         }
         if (batchActive && !batch.empty())
             flushBatch(); // earlier packets draw first
-        if (programActive && std::memcmp(&state, &programState, sizeof(state)) != 0)
+        if (programActive && (programBatchPath || std::memcmp(&state, &programState, sizeof(state)) != 0))
             flushProgram();
         if (programIndices.size() + size_t(h.vertexCount) * 3 > kMaxBatchVerts || programConstants.size() >= 4096)
             flushProgram();
@@ -518,6 +545,7 @@ struct Renderer::Impl {
         }
         stats.vertices += h.vertexCount;
         stats.programGpuVertices += h.vertexCount;
+        programCounted += h.vertexCount;
         vpath::state().counters.gpuVertices.fetch_add(h.vertexCount, std::memory_order_relaxed);
         // The registers and the vertex queue as the last strip leaves them.
         if (h.vertexCount) {
@@ -554,13 +582,167 @@ struct Renderer::Impl {
             flushProgram();
     }
 
+    // Whether the backend draws this batch-path record. Counts the reason when it does not. `state` is the draw's
+    // state with the record's PRIM written (the first strip's tag writes it).
+    bool batchOnGpu(const vp::BatchView& rec, GsDrawState& state) {
+        if (vpath::evalOf(vpath::controlWord()) != vpath::Eval::Gpu)
+            return false;
+        if (programDebug & 2) {
+            vpath::countBatchFallback(vpath::Fallback::StageOff);
+            return false;
+        }
+        vpath::Fallback why = vpath::Fallback::BackendNoPath;
+        if (!backend->vertexPrograms(&why, true)) {
+            vpath::countBatchFallback(why);
+            return false;
+        }
+        const vp::BatchHeader& h = rec.header;
+        if (!h.stripCount) { // nothing but the closing tag: its PRIM write alone, below
+            vpath::countBatchFallback(vpath::Fallback::DrawState);
+            return false;
+        }
+        writeReg(R_PRIM, h.prim);
+        state = buildState(3);
+        if (!program_draw::stateTakes(state.flags, state.frame, vp::Batch, h.prim)) {
+            vpath::countBatchFallback(vpath::Fallback::DrawState);
+            return false;
+        }
+        why = vpath::Fallback::DrawState;
+        if (!program_draw::batchTakes(rec.passes, h.passCount, reinterpret_cast<const uint8_t*>(rec.vertices),
+                                      h.vertexCount, &why)) {
+            vpath::countBatchFallback(why);
+            return false;
+        }
+        return true;
+    }
+
+    // What the last batch-path record taken by the shader leaves in the vertex registers and the queue, not yet
+    // evaluated: its last strip's last vertices (or, after the closing empty tag, its last vertex for the registers
+    // alone) with the record's passes, which stay in programPasses until flushProgram. Every reader of the registers
+    // or the queue settles it first: GIF data other than a record, a register write from outside, a record the
+    // shader does not draw, a strip record, and the end of the program batch.
+    struct BatchTail {
+        bool pending = false, kick = false;
+        uint32_t firstPass = 0, passCount = 0, count = 0;
+        vp::BatchVertex v[2];
+    } batchTail;
+    void settleBatchTail() {
+        if (!batchTail.pending)
+            return;
+        batchTail.pending = false;
+        const vp::Pass* passes = programPasses.data() + batchTail.firstPass;
+        for (uint32_t i = 0; i < batchTail.count; ++i) {
+            const vp::Output o = vp::evaluateVertex(passes, batchTail.passCount, batchTail.v[i]);
+            loadBatchVertex(o);
+            if (batchTail.kick) {
+                kick(o.x, o.y, o.z, -1, false); // the queue was emptied by the record's PRIM; nothing is drawn
+                stats.vertices--;               // counted with the record
+            }
+        }
+    }
+
+    // Sets the vertex registers to a processed batch vertex, as its packet does.
+    void loadBatchVertex(const vp::Output& o) {
+        cs = asFloat(o.s);
+        ct = asFloat(o.t);
+        cq = asFloat(o.q);
+        cr = o.r;
+        cg = o.g;
+        cb = o.b;
+        ca = o.a;
+        cfog = o.fog;
+    }
+
+    // Queues a batch-path record for the backend (batchOnGpu said yes; PRIM is written). Its vertices are copied as
+    // the record holds them with the `slot` word replaced by the row of its first pass in the batch's pass table; its
+    // passes are copied verbatim; its strips become triangles (i, i + 1, i + 2) in strip order, as the vertex kick
+    // makes them. Then the registers and the vertex queue are set as the packets leave them: the last strip's last
+    // two vertices queued (evaluated here, nothing drawn) and, with the closing empty tag, PRIM written once more,
+    // which empties the queue again.
+    void queueBatch(const vp::BatchView& rec, const GsDrawState& state) {
+        constexpr uint32_t kPassRows = sizeof(vp::Pass) / 16u;
+        const vp::BatchHeader& h = rec.header;
+        if (batchActive && !batch.empty())
+            flushBatch(); // earlier packets draw first
+        if (programActive && (!programBatchPath || std::memcmp(&state, &programState, sizeof(state)) != 0))
+            flushProgram();
+        if (programIndices.size() + size_t(h.indexCount) * 3 > kMaxBatchVerts ||
+            programPasses.size() + h.passCount > 4096)
+            flushProgram();
+        if (!programActive) {
+            programState = state;
+            programActive = true;
+            programBatchPath = true;
+        }
+        const uint8_t* vertexBytes = reinterpret_cast<const uint8_t*>(rec.vertices);
+        const uint32_t firstPass = (uint32_t)programPasses.size();
+        const uint32_t firstVertex = (uint32_t)programBatchVertices.size();
+        programPasses.resize(firstPass + h.passCount);
+        if (h.passCount)
+            std::memcpy(programPasses.data() + firstPass, rec.passes, size_t(h.passCount) * sizeof(vp::Pass));
+        programBatchVertices.resize(firstVertex + h.vertexCount);
+        vp::BatchVertex* vertices = programBatchVertices.data() + firstVertex;
+        if (h.vertexCount)
+            std::memcpy(vertices, vertexBytes, size_t(h.vertexCount) * sizeof(vp::BatchVertex));
+        for (uint32_t i = 0; i < h.vertexCount; ++i)
+            vertices[i].slot = firstPass * kPassRows;
+        {
+            VertexProgramRecord r;
+            r.firstVertex = firstVertex;
+            r.vertexCount = h.vertexCount;
+            r.constants = firstPass;
+            r.passCount = h.passCount;
+            r.program = vp::Batch;
+            r.shape = program_draw::batchShapeOf(h, rec.strips, rec.indices, rec.passes, vertexBytes);
+            programRecords.push_back(r);
+        }
+        const uint16_t* index = rec.indices;
+        for (uint32_t s = 0; s < h.stripCount; ++s) {
+            const uint32_t n = rec.strips[s];
+            for (uint32_t i = 0; i + 2 < n; ++i)
+                for (uint32_t c = 0; c < 3; ++c)
+                    programIndices.push_back(firstVertex + index[i + c]);
+            if (n >= 3) {
+                stats.triangles += n - 2;
+                stats.primitives += n - 2;
+            }
+            index += n;
+        }
+        stats.vertices += h.indexCount;
+        stats.programGpuVertices += h.indexCount;
+        programCounted += h.indexCount;
+        vpath::state().counters.gpuVertices.fetch_add(h.indexCount, std::memory_order_relaxed);
+        vpath::state().counters.gpuBatchVertices.fetch_add(h.indexCount, std::memory_order_relaxed);
+        // The last strip's last two vertices into the queue (a following tag without PRIM continues that strip). The
+        // last one queued leaves the registers as the last packet vertex does.
+        // With the closing empty tag the queue ends empty and only the registers of the last vertex remain. Those
+        // vertices are evaluated when something can see them (settleBatchTail): a following batch record taken by
+        // the shader replaces all of it, so for a run of such records nothing is evaluated here.
+        const uint32_t n = rec.strips[h.stripCount - 1];
+        const uint16_t* last = rec.indices + h.indexCount - n;
+        const bool emptyTag = (h.flags & vp::kBatchEmptyTag) != 0;
+        qn = 0;
+        batchTail.firstPass = firstPass;
+        batchTail.passCount = h.passCount;
+        batchTail.kick = !emptyTag;
+        batchTail.count = emptyTag ? 1u : std::min(n, 2u);
+        for (uint32_t i = 0; i < batchTail.count; ++i)
+            std::memcpy(&batchTail.v[i], vertexBytes + size_t(last[n - batchTail.count + i]) * sizeof(vp::BatchVertex),
+                        sizeof(vp::BatchVertex));
+        batchTail.pending = true;
+        if (emptyTag)
+            writeReg(R_PRIM, h.prim);
+        if (programDebug & 1)
+            flushProgram();
+    }
+
     // A batch record (gsr/vertex_batch.h): one index-list run of the microprogram's batch path with the passes its
-    // vertices still need. No backend draws it with a shader yet, so under every evaluation mode it is evaluated
-    // here with the VU's arithmetic and sent through the ordinary vertex kick, as the packets of the run would be:
-    // per strip a tag that writes PRIM (PRE = 1) and four registers per vertex (ST, RGBAQ, FOG, XYZ2), then, for a
-    // run of a batch with clip codes, the empty tag that writes PRIM once more. The registers and the vertex queue
-    // are therefore left exactly as the packets leave them. True: the data was a record of this kind (a malformed
-    // one is ignored; parseBatch reads nothing outside `size`).
+    // vertices still need. Under vpath::Eval::Gpu a backend with the batch shader draws it (batchOnGpu decides);
+    // otherwise it is evaluated here with the VU's arithmetic and sent through the ordinary vertex kick, as the
+    // packets of the run would be: per strip a tag that writes PRIM (PRE = 1) and four registers per vertex (ST,
+    // RGBAQ, FOG, XYZ2), then, for a run of a batch with clip codes, the empty tag that writes PRIM once more. The
+    // registers and the vertex queue are left exactly as the packets leave them on both paths. True: the data was a
+    // record of this kind (a malformed one is ignored; parseBatch reads nothing outside `size`).
     bool vertexBatch(const uint8_t* data, uint32_t size) {
         uint32_t program = 0;
         if (size >= 4)
@@ -572,8 +754,13 @@ struct Renderer::Impl {
             return true;
         const vp::BatchHeader& h = rec.header;
         stats.programRecords++;
-        if (vpath::evalOf(vpath::controlWord()) == vpath::Eval::Gpu)
-            vpath::countFallback(vpath::Fallback::BackendNoPath);
+        GsDrawState state{};
+        if (batchOnGpu(rec, state)) {
+            batchTail.pending = false; // replaced: the record writes PRIM and leaves registers and queue of its own
+            queueBatch(rec, state);
+            return true;
+        }
+        settleBatchTail();
         vp::Output out[vp::kBatchMaxIndices]; // every vertex once, however many strips share it
         for (uint32_t i = 0; i < h.vertexCount; ++i) {
             vp::BatchVertex v; // the record is a byte stream: no alignment to rely on
@@ -1678,6 +1865,8 @@ struct Renderer::Impl {
     void gifSubmit(uint32_t pathIdx, const uint8_t* data, uint32_t size) {
         PathState& ps = paths[pathIdx];
         stats.gifPackets++;
+        if (ps.qwLeft != 0)
+            settleBatchTail(); // the data of a tag opened earlier on this path
         while (size >= 16) {
             if (ps.qwLeft == 0) {
                 uint64_t lo, hi;
@@ -1694,6 +1883,8 @@ struct Renderer::Impl {
                     ps.nreg = 16;
                 ps.regs = hi;
                 ps.regIdx = 0;
+                if (!(ps.flg == 3 && hi == vp::kTagMagic && nloop != 0 && size >= nloop * 16u))
+                    settleBatchTail(); // anything but a record may read the vertex registers or the queue
                 if (ps.flg == 3 && hi == vp::kTagMagic && nloop != 0 && size >= nloop * 16u) {
                     // a vertex-program record wrapped in a tag whose data a GS ignores (gsr/vertex_program.h)
                     if (!vertexBatch(data, nloop * 16u))
@@ -1854,6 +2045,7 @@ bool Renderer::deviceLost(std::string* reason) const {
     return m_impl->backend->deviceLost(reason);
 }
 vpath::Capability Renderer::vertexPathCapability() const {
+    std::lock_guard<std::recursive_mutex> lk(m_impl->mtx); // a backend's shader state is the render thread's
     return m_impl->backend->vertexPathCapability();
 }
 Config::Api Renderer::api() const {
@@ -1889,6 +2081,7 @@ void Renderer::submitGifPacket(GifPath path, const uint8_t* data, uint32_t sizeB
 
 void Renderer::writeRegister(uint8_t regAddr, uint64_t value) {
     std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);
+    m_impl->settleBatchTail();
     m_impl->writeReg(regAddr, value);
 }
 

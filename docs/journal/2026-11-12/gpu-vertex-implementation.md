@@ -265,6 +265,28 @@ additions:
   of an unhandled exception (`tests/crash_dump.h`; `GSR_CRASH_DUMP_DIR`, `GSR_CRASH_DUMP=0`; nothing is written
   otherwise). A fast-fail abort leaves none.
 
+## 9. Increment 8: batch-path records drawn by the vertex shader on Direct3D 11, not handed over by default
+
+Written by the `bdraw` subagent; design, proof and performance in
+[gpu-vertex-batch-draw.md](../2026-11-13/gpu-vertex-batch-draw.md). Landed by the orchestrator that took over,
+rebased on the Direct3D 11 device-loss change `4189da39`.
+
+* The batch path is exact on Direct3D 11 (proof log below) but, as handed over today, slower: the VU1 worker gains
+  35 to 42 % on foot, and the GS worker pays about as much as the packet path cost it (the batch-draw note, section 3;
+  tune's note, section 3.2). So `gpu` does not hand the batch families over by default:
+  `vpath::kGpuDefaultStages = kStrips`, and `configuredWord` gives `gpu` the backend's shader stages masked by it. An
+  explicit `DRAKAN_VERTEX_STAGES` (for example `all`) still hands over every family. Under the player's `gpu`, the
+  batch shader is never compiled and nothing changes from increment 7.
+* The stage mask acts on the VU1 side, which decides what becomes a record. A capture replay honours every record it
+  holds whatever the word says, so replays under the default word draw the batch records of a capture by the shader
+  too. The proof of the default is therefore the live run below (0 batch-path vertices by the shader, 1,575,455 batch
+  runs counted `stage off`).
+* At the rebase, `d3d11_draw.cpp` took the device-loss change's version whole. The batch commit's own CreateBuffer
+  and Map checks there are dropped: the helpers already check both calls, one check per call site. A removal sets
+  the device-loss latch; any other failure hands the shared draw a CPU copy and skips the draw. In
+  `d3d11_vertex_program.cpp` the two constant-buffer Maps go through `map()` with the batch path's own failure branch
+  (`programFailed`, `pData` checked), and the ring failures call `probeDevice()`.
+
 ## Proof log
 
 | Date | What | Result |
@@ -292,10 +314,17 @@ additions:
 | 2026-11-13 | Increment 7 at its landing, by the orchestrator that took over, on main `0fb03d2d` with the commit applied, one GPU process at a time after 08:35: vertex stage and draw program on Vulkan and Direct3D 12 (`GSR_VP_RECORDS`); `vertex_records` on Vulkan and Direct3D 12; the Surdana capture with records at scales 1, 3, 8 on three backends; live paused toggles `gpu` against the microprogram every 64 frames in Surdana (1280x960, DLSS off) on Vulkan and on Direct3D 12 from a game build of the tree | 1,215,215 vertices each, 0 differ; 514,398 vertices by the shader, 0 of 10,354,032,640 colour and 0 of 2,036,858,880 depth-picture pixels differ, 7,872 checks, each backend; 9 x 1,423 frames, 0 differ, 23,518,719 vertices by the shader per replay, no fallback; Vulkan 24 of 24 identical (12 gpu, 12 microprogram; 46,995,581 vertices by the shader), Direct3D 12 24 of 24 (12 / 12; 53,577,990) |
 | 2026-11-13 | The same landing: "`cpu` equals before" on three backends, five captures at scales 1, 3, 8 without HD textures against the `1fa0fc3e` reference | 39 of 45 identical; the 6 that differ are the ones `dc6d3fa4` (WebGPU clean-block retention and partial uploads, on main before this) recorded as changed by design: Order of the Flame frames 1201 to 1260 at scales 3 and 8 and 396 cave frames at scale 8, on Vulkan and on Direct3D 12. The same cave and Order of the Flame replays at scales 3 and 8 on Vulkan and Direct3D 12 by a build of main `0538bb95` without the change give the same hashes as the change: 8 comparisons, 0 differ, so the 6 predate it. The reference of "`cpu` equals before" for WebGPU needs re-taking after `dc6d3fa4` |
 | 2026-11-13 | The same landing: `runtime-tests` on main `2653a797` with the change | 186 of 187; `world_readback` failed once (its ray pass stuck 21 s under load, Direct3D 11 and 12, not the vertex path) and passed alone twice. Python tests OK; guard 0 prohibited |
+| 2026-11-13 | Increment 8 before the rebase (main `2caaafdf` with the commit and the default stage mask): `runtime-tests`; `vertex_program_history` with every strip and batch record on the RTX 5080 and WARP; `vertex_records` on Direct3D 11; four new captures under `records` (Surdana walk, Ravenshold flight, Lair arena, Order of the Flame Ruined Village; 1280x960) replayed with records on the CPU against the shader with every stage, Direct3D 11 at scales 1, 3, 8; the same at scale 3 on Direct3D 11 and Vulkan under the default word; "`cpu` equals" against the hashes of `2caaafdf` on three backends | 187 of 187; 3,045,645 strip and 7,353,168 batch pairs per library, 0 differ, both adapters; 589,920 vertices by the shader (75,522 of batch records), 0 of 10,354,032,640 colour and 0 of 2,036,858,880 depth pixels differ; 12 comparisons, 991 + 1,612 + 6,000 + 1,732 frames per scale, 0 differ, 6.1, 34.4, 136.5 and 15.0 million batch vertices by the shader per scale-3 replay; 8 comparisons, 0 differ; 45 comparisons, 0 differ |
+| 2026-11-13 | Increment 8 rebased on `4189da39`: `runtime-tests`; history; `vertex_records` on Direct3D 11 and Vulkan; three of the captures at scale 3; "`cpu` equals" on Direct3D 11 against `2caaafdf`; live paused toggles from a private game build of the tree (1280x960, DLSS off, 24 shots, `gpu` with `DRAKAN_VERTEX_STAGES=all` against the microprogram every 64 frames) in Surdana, the fight spot, the Lair arena, Ravenshold in flight, Order of the Flame Volcanic and Ruined Village, and the default word of `gpu` in Surdana | 190 of 190; 0 differ; the same records-test totals on both, 0 pixels differ; 3 comparisons, 0 differ; 15 comparisons, 0 differ; 24 of 24 identical in each of the six scenes (batch-path vertices by the shader 0 in Surdana, its first run, where the cold batch compile left 502,394 batch records `not ready` on the CPU; 49.7, 23.1, 53.7, 16.0 and 22.5 million in the others); default word 24 of 24, 0 batch-path vertices by the shader, 1,575,455 runs `stage off` |
+| 2026-11-13 | Increment 8, the same build: paused Surdana with DLSS quality and a fixed jitter sample (`GSR_TEMPORAL_DUMP_EPOCHS`), every stage, ten worlds | not established: the paused world is not still in this build. Entry colour is 0 differ in all 5 shader worlds, but between microprogram worlds prepared colour differs by 9,887 to 14,011 pixels and object motion by 10,590 to 13,854, the same size as against the shader worlds. One shader world right after a switch has 1,149 object-motion pixels valid only under the microprogram: the documented first world after a switch, which has no history for the shader's draws |
 
 ## Not verified (running list)
 
-* `Capability::proven` is false on every backend, so `auto` resolves to the microprogram everywhere; `gpu` hands over the strip stage on Direct3D 11.
+* `Capability::proven` is false on every backend, so `auto` resolves to the microprogram everywhere; `gpu` hands over
+  the strip stage on Direct3D 11 and WebGPU, and the batch families only with an explicit `DRAKAN_VERTEX_STAGES`.
+* The batch path's DLSS inputs on a paused world were not established at its landing (the paused Surdana world was
+  not still; see the proof log); the batch-draw note's own dumps of 13 November (12 worlds, 0 differ) were made
+  on its private build before the rebase.
 * `records` evaluates with double arithmetic on the GS worker and is slow; it is a diagnosis mode.
 * The DLSS CPU overhead is not removed by this path yet. With DLSS Super Resolution on, the scene-model motion pass
   (`finalizeNeuralWorld`, `Guides::modelMotion`) draws model triangles over the same motion target, so for

@@ -233,7 +233,7 @@ public:
     void noteSceneCamera(const SceneGuideCamera& camera) override;
     void noteObjectMotion(const ObjectMotionScope& scope) override;
     bool deferObjectMotion() const override;
-    bool vertexPrograms(vpath::Fallback* why) const override;
+    bool vertexPrograms(vpath::Fallback* why, bool batchPath) const override;
     vpath::Capability vertexPathCapability() const override;
     void drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, const VertexProgramBatch& batch) override;
     void setMotionNotes(const motion::Note* notes, uint32_t count) override;
@@ -536,7 +536,7 @@ struct D3D11Backend::Impl {
     std::shared_ptr<ProgramGpu> programGpu; // made at the first request
     const VertexProgramBatch* programBatch = nullptr; // set around the draw() of a batch
     ProgramGpu& programState();
-    bool programTakes(vpath::Fallback* why);
+    bool programTakes(vpath::Fallback* why, bool batchPath);
     void programFailed(const char* what);
     bool prepareProgramMotion(RT& rt, const GsDrawState& s, const VertexProgramBatch& batch, float sx, float sy);
     void bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch);
