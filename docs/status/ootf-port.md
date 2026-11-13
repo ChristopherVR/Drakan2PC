@@ -556,6 +556,14 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   goes from 583 to 49 cells over the campaign, and the temple pool under the church draws its surface around Rynn again (the old
   rule's dropped vertices hid it). Swim, dive, surface and climb out played in Ruined Village, Alwarren and Islands Night; needs a
   rebuilt pack and a new game. See [water sheets](../journal/2026-11-14/ootf-water-sheets.md).
+* Water, round 5 (2026-11-14): the 49 sheet cells left are water faces at real edges of the PC water (the Islands sea
+  behind a waterfall model, against a rock wall, over a lower slab; the Rift World pool in the void) and bank slivers; the
+  water pass has no per-cell test in its drawing loop, so the 0x40 / 0x80 triangle bits cannot hide them, and other hole
+  heights (flat, down to the floor) looked the same at the Islands lip. No water converter change. Swim, dive and surface
+  played in the Islands (also walked into the sea with no placement), Wartok Canyons (cave pool, three rivers), Volcanic
+  (two places) and Islands Night; the Rift World pool has PC kind 0 and Rynn falls through it. The Islands freeze on foot by
+  the east shore is the terrain chunk overflow of play check B and is gone with formats `e671be8` (7 of 7 runs). See
+  [water round 5](../journal/2026-11-14/ootf-water-sheets-2.md).
 * Holes in cave walls (2026-11-14): pale lilac (Mines) or sky blue (Grotto) triangles showed through walls and ceilings.
   The PC gives each terrain triangle its own texture and the converter made a cell with one hole triangle a whole hole
   (11,400 such cells over the campaign). Floors and ceilings now keep the cell and set the disc's per-triangle hole bits
