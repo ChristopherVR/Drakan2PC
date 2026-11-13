@@ -38,6 +38,7 @@
 #include "sr_combined.h"
 #include "upscale_render_size.h"
 #include "d3d11_gpu_passes.h"
+#include "draw_state_cache.h"
 #include "upscale_controls.h"
 #include "cpu_profile.h"
 #include "rt_upload.h"
@@ -88,6 +89,44 @@ void prewarmMovieShader(ID3D11Device* dev);
 void prewarmBackdropShader(ID3D11Device* dev);
 
 namespace d3d11_detail {
+// The immediate context of the backend. Every use through `->` or Get() first tells the draw state cache
+// (draw_state_cache.h) that something other than the draw path is about to use the context: a held release is
+// carried out and the known state dropped. The draw path itself uses raw() (d3d11_draw.cpp), as do Map / Unmap,
+// which change no binding.
+class TrackedContext {
+public:
+    using Notify = void (*)(void*);
+    void attach(Notify notify, void* owner) {
+        notify_ = notify;
+        owner_ = owner;
+    }
+    ID3D11DeviceContext* operator->() const {
+        touch();
+        return p_.Get();
+    }
+    ID3D11DeviceContext* Get() const {
+        touch();
+        return p_.Get();
+    }
+    ID3D11DeviceContext* raw() const { return p_.Get(); }
+    ID3D11DeviceContext** operator&() { return p_.ReleaseAndGetAddressOf(); }
+    template <class P>
+    HRESULT As(P out) const {
+        return p_.As(out);
+    }
+    explicit operator bool() const { return p_ != nullptr; }
+    void Reset() { p_.Reset(); }
+
+private:
+    void touch() const {
+        if (notify_)
+            notify_(owner_);
+    }
+    Microsoft::WRL::ComPtr<ID3D11DeviceContext> p_;
+    Notify notify_ = nullptr;
+    void* owner_ = nullptr;
+};
+
 // A sampled texture as the shared texture cache holds it (GpuTexture of gs_backend_shared.h).
 struct GpuTexture {
     ComPtr<ID3D11Texture2D> tex;
@@ -349,7 +388,16 @@ struct D3D11Backend::Impl {
     std::string upStatusText;
 
     ComPtr<ID3D11Device> dev;
-    ComPtr<ID3D11DeviceContext> ctx;
+    d3d11_detail::TrackedContext ctx;
+    // ---- draw state cache ([video] draw_state_cache, draw_state_cache.h; d3d11_draw.cpp)
+    draw_state::Cache drawState;
+    bool drawSampledTarget = false; // the draw being bound samples a render target (never held)
+    // Something other than the draw path is about to use the context: carry out a held release, drop the known state.
+    void foreignContext();
+    void releaseDrawBindings();
+    void logDrawState(bool force);
+    uint64_t drawStateLogFrame = 0;
+    uint64_t drawStateToggle = 0; // GSR_DRAW_STATE_CACHE_TOGGLE=<frames>: test only, the cache flips every n frames
     // ---- a removed device (d3d11_device_loss.cpp; which results count, the words and the test hook: device_loss.h).
     // Once `lost` is set no call may reach the device or write through a pointer it returned: gsr::Backend stops
     // forwarding at its next call, and the call in progress checks gone() where it would use a failed result.
@@ -827,7 +875,7 @@ struct D3D11Backend::Impl {
     DrawVertex* beginVertices(const DrawVertex* v, uint32_t count);
     void endVertices();
     void bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW, float viewportH,
-                  const int32_t scissor[4]);
+                  const int32_t scissor[4], bool samplesTarget);
     void setPass(const PSConsts& k, const rhi::BlendState& blend, const rhi::DepthState& depth);
     void drawVertices(uint32_t count);
     void drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi::Compare depthCompare, bool restore, bool materialDraw,

@@ -94,6 +94,7 @@ struct RuntimeFlags {
     std::optional<uint32_t> aniso;       // GSR_ANISO: atoi
     // terrain detail (terrain_detail.h)
     std::optional<bool> terrainDetail, terrainCliffs; // GSR_TERRAIN_DETAIL / GSR_TERRAIN_CLIFFS: first character '1'
+    std::optional<bool> drawStateCache;               // GSR_DRAW_STATE_CACHE: first character '1'
     std::optional<float> terrainStrength;             // GSR_TERRAIN_STRENGTH: atof
     uint32_t terrainDebug = 0;                        // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
     bool terrainAudit = false;                        // GSR_TERRAIN_AUDIT: log what the classification matched

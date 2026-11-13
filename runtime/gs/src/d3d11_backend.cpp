@@ -39,6 +39,7 @@ inline void levelHistoryReset(D3D11Backend::Impl& s) {
     s.pendingModels.ready = false;
     s.pendingModels.scene.reset();
     s.pendingModels.previous.reset();
+    s.foreignContext(); // the combined upscaler may use the context through its own pointer
     if (s.combinedSr)
         s.combinedSr->reset();
 }
@@ -123,6 +124,7 @@ double D3D11Backend::upscaleGpuMs() const {
     return m_impl->tp ? m_impl->tp->lastGpuMs() : 0.0;
 }
 void D3D11Backend::upscaleCut() {
+    m_impl->foreignContext(); // the upscalers may use the context through their own pointers
     m_impl->discardTemporalWorlds();
     m_impl->neuralReset = true;
     m_impl->neuralPrevious = {};

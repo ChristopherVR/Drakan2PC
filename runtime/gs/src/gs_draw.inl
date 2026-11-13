@@ -9,7 +9,8 @@
 //   fixedFunctionBlend       the dual-source blend path is available (else every blend runs in the shader)
 //   beginVertices / endVertices   a writable copy of the draw's vertices, then its hand-over to the GPU
 //   RT::view / RT::copyView, snapshot   what a draw binds to sample a target, and the copy of a target region
-//   bindDraw                 targets, programs, textures, viewport and scissor of the draw
+//   bindDraw                 targets, programs, textures, viewport and scissor of the draw (samplesTarget: the texture
+//                            is a render target, so no binding of an earlier draw may still hold it as a target)
 //   setPass                  constants, blend and depth state of one pass (gs_pipeline_state.h)
 //   drawVertices             one pass over the vertices handed to beginVertices
 //   endDraw                  release what bindDraw bound
@@ -1177,7 +1178,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     sr[3] = std::min<int32_t>(sr[3], rt->h * scale);
     {
         CpuProfile::Scope bindProfile(cpuProfile, CpuProfile::DrawBind);
-        bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr);
+        bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr, haveTex && tb.isRT);
     }
     // Material detail (material_detail.h): binds its own pixel program variant for the draws that take it. Does
     // nothing unless the setting is on and the bound HD texture has a material map.

@@ -13,7 +13,7 @@ DrawVertex* WgpuBackend::Impl::beginVertices(const DrawVertex* v, uint32_t count
 }
 
 void WgpuBackend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW,
-                                 float viewportH, const int32_t scissor[4]) {
+                                 float viewportH, const int32_t scissor[4], bool /*samplesTarget*/) {
     gpu->setTargets(rt.tex.get(), db.tex.get(), 0);
     gpu->setProgram(useHw ? progHw.get() : progSb.get());
     gpu->setTopology(rhi::Topology::TriangleList);

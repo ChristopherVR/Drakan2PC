@@ -126,6 +126,10 @@ struct Config {
     bool terrainCliffs = false; // terrain_cliffs: steep terrain faces sample their texture from the side. Env
                                 // GSR_TERRAIN_CLIFFS=0|1
     float terrainDetailStrength = 1.0f; // terrain_detail_strength: 0..2. Env GSR_TERRAIN_STRENGTH
+    // draw_state_cache (drakan.ini [video]): Direct3D 11 binds only the draw state that changed since the previous
+    // draw and keeps a draw's targets bound until something else needs the context (draw_state_cache.h). Same picture
+    // either way. Env GSR_DRAW_STATE_CACHE=0|1 wins.
+    bool drawStateCache = false;
     // ---- material detail (drakan.ini [video]; runtime/gs/src/material_detail.h). 0 = the picture without it. ----
     uint32_t materialDetail = 0; // material_detail: 0 off, 1 hard surfaces (terrain, stone, wood, metal, generic),
                                  // 2 all classes. Needs <textureDir>/materials. Env GSR_MATERIAL_DETAIL=off|hard|all

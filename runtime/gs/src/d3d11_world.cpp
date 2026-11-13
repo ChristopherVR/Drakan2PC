@@ -4,7 +4,8 @@
 namespace gsr {
 
 bool D3D11Backend::Impl::enterWorld(RT& rt, DepthBuf& db, uint32_t zbp, float zmax, int sx1, int sy1) {
-    if (gone()) // a removed device: no world passes (d3d11_device_loss.cpp)
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
+    if (gone())       // a removed device: no world passes (d3d11_device_loss.cpp)
         return false;
     const uint32_t fw = std::min<uint32_t>((uint32_t)sx1 + 1, rt.w), fh = std::min<uint32_t>((uint32_t)sy1 + 1, rt.h);
     if (!db.srv || !db.dsv) {
@@ -125,6 +126,7 @@ bool D3D11Backend::Impl::restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolve
 }
 
 void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_t xyoffset) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     if (gone())
         return;
     GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::WorldEntry);
@@ -305,7 +307,7 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
     }
     if (rt.motionEpoch != motionEpoch) {
         const float clear[4]{};
-        ctx->ClearRenderTargetView(rt.motionRtv.Get(), clear);
+        ctx.raw()->ClearRenderTargetView(rt.motionRtv.Get(), clear);
         rt.motionEpoch = motionEpoch;
     }
     return true;
@@ -320,7 +322,7 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         return false;
     auto invalidateMotion = [&]() {
         const float clear[4]{};
-        ctx->ClearRenderTargetView(rt.motionRtv.Get(), clear);
+        ctx.raw()->ClearRenderTargetView(rt.motionRtv.Get(), clear);
         return false;
     };
     // One history entry per run of vertices under one scope: the whole batch, or the segments between the scope
@@ -396,11 +398,12 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
     motionVbDrawOffset = motionVbOffset;
     motionVbOffset += bytes;
     std::memcpy(static_cast<uint8_t*>(mapped.pData) + motionVbDrawOffset, motionPrevious.data(), bytes);
-    ctx->Unmap(motionVb.Get(), 0);
+    ctx.raw()->Unmap(motionVb.Get(), 0);
     return true;
 }
 
 void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     CpuProfile::Scope profile(cpuProfile, CpuProfile::TemporalResolve);
     if (rt.neuralState != 1 || gone())
         return;
@@ -755,6 +758,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
 }
 
 void D3D11Backend::Impl::finalizeWorld(RT& rt) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     if (rt.wstate != 1 || gone())
         return;
     finalizeNeuralWorld(rt); // neural RGB is reconstructed before SR and native HUD draws
@@ -833,6 +837,7 @@ bool D3D11Backend::Impl::upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool d
 }
 
 void D3D11Backend::Impl::recoverReducedWorld(RT& rt) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     if (gone())
         return;
     if (rt.temporalSR && tp) {
@@ -870,6 +875,7 @@ void D3D11Backend::Impl::discardTemporalWorlds() {
 }
 
 void D3D11Backend::Impl::setUpscale(uint32_t mode, uint32_t preset, float sharp) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     const bool requestedOff = mode == 0;
     mode = mode <= 4 ? mode : 0;
     preset = (preset >= 10 && preset <= 13) ? preset : 0;

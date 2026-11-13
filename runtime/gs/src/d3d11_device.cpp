@@ -89,6 +89,11 @@ bool D3D11Backend::Impl::init() {
         std::fprintf(stderr, "[gsr] D3D11CreateDevice failed 0x%08lx\n", (unsigned long)hr);
         return false;
     }
+    ctx.attach([](void* owner) { static_cast<Impl*>(owner)->foreignContext(); }, this);
+    drawState.enable(runtimeFlags().drawStateCache.value_or(cfg.drawStateCache));
+    if (const char* toggle = std::getenv("GSR_DRAW_STATE_CACHE_TOGGLE"))
+        drawStateToggle = std::strtoull(toggle, nullptr, 10);
+    std::fprintf(stderr, "[draw-state] draw state cache %s\n", drawState.enabled() ? "on" : "off");
     ctx.As(&inventoryContext1);
     if (!inventoryContext1) {
         // D3D11.0 fallback uses the existing fullscreen vertex shader and
@@ -484,6 +489,7 @@ std::string D3D11Backend::Impl::neuralStatus() const {
 }
 
 void D3D11Backend::Impl::setNeural(bool on) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     neuralPresentation.reset();
     discardTemporalWorlds();
     for (auto& target : rts) {
@@ -506,6 +512,7 @@ void D3D11Backend::Impl::setNeural(bool on) {
 }
 
 void D3D11Backend::Impl::retireNeural(const std::string& failure) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     discardTemporalWorlds();
     neuralEnabled = false;
     neuralReset = true;
@@ -569,6 +576,7 @@ ComPtr<ID3D11Texture2D> D3D11Backend::Impl::makeTex(uint32_t w, uint32_t h, UINT
 }
 
 void D3D11Backend::Impl::changeScale(uint32_t ns) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     if (ns == scale)
         return;
     // GPU render targets -> local memory (so nothing the game drew is lost), then drop every scale dependent
@@ -604,6 +612,7 @@ void D3D11Backend::Impl::changeScale(uint32_t ns) {
 }
 
 void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     using L = LiveSettings;
     if (ls.mask & L::F_ASPECT) {
         cfg.forcedAspect = ls.forcedAspect;
@@ -748,6 +757,7 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
 }
 
 void D3D11Backend::Impl::reset() {
+    foreignContext(); // its passes and the upscaler use the context, partly through their own pointers
     engineWorldOpen = false;
     gridCapture.open = false;
     gridCapture.rt = nullptr;

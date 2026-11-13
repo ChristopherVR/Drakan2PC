@@ -45,7 +45,7 @@ HRESULT D3D11Backend::Impl::map(ID3D11Resource* resource, D3D11_MAP mode, D3D11_
         deviceFailed((HRESULT)device_loss::kDeviceRemoved, site, true);
         return (HRESULT)device_loss::kDeviceRemoved;
     }
-    const HRESULT hr = ctx->Map(resource, 0, mode, 0, &out);
+    const HRESULT hr = ctx.raw()->Map(resource, 0, mode, 0, &out);
     if (FAILED(hr))
         deviceFailed(hr, site);
     return hr;

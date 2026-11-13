@@ -76,10 +76,14 @@ void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* t
         static uint64_t logged = 0;
         if (logged != motionEpoch) {
             logged = motionEpoch;
-            std::fprintf(stderr, "[temporal-dump] epoch %llu frame %llu vertex path %s, shader vertices so far %llu\n",
-                         (unsigned long long)motionEpoch, (unsigned long long)frame,
-                         vpath::evalName(vpath::evalOf(vpath::controlWord())),
-                         (unsigned long long)vpath::state().counters.gpuVertices.load(std::memory_order_relaxed));
+            std::fprintf(
+                stderr,
+                "[temporal-dump] epoch %llu frame %llu vertex path %s, shader vertices so far %llu, draw state "
+                "cache %s\n",
+                (unsigned long long)motionEpoch, (unsigned long long)frame,
+                vpath::evalName(vpath::evalOf(vpath::controlWord())),
+                (unsigned long long)vpath::state().counters.gpuVertices.load(std::memory_order_relaxed),
+                drawState.enabled() ? "on" : "off");
         }
     } else {
         if (!directory || !*directory || ((!requested || !*requested) && (!epoch || !*epoch)) || !texture)
