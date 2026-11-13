@@ -1269,6 +1269,7 @@ Scene batchMixScene(uint32_t frame) {
 // that hold an upload count as drawn and the sprite samples the target instead of memory, which differs at internal
 // scales above one.
 constexpr uint32_t kSideFbp = 360, kSideFbw = 8; // pages; 512 wide, after the textures
+constexpr uint32_t kSmallFbp = 284;              // pages; 128 wide, between the depth buffer and the textures
 constexpr uint32_t kFst = 1u << 8;
 Scene outsideScene(uint32_t frame) {
     Scene s;
@@ -1314,10 +1315,40 @@ Scene outsideScene(uint32_t frame) {
             s.batch(cornerBatch(r, v.program == vp::StripsLit, plain));
     }
     {
+        // a 128 wide target as the game's shadow and portrait targets are (read back by the game): constant-colour
+        // strips inside it, across its edges and outside its scissor, then sampled like the side target below
+        Gif g;
+        g.ad({{kRegFrame, kSmallFbp | (2ull << 16)},
+              {kRegZbuf, s.zbuf | (1ull << 32)},
+              {kRegScissor, 127ull << 16 | (127ull << 48)},
+              {kRegTest, testReg(0, 0, 0, 0, kZAlways)},
+              {kRegAlpha, alphaReg(0, 1, 0, 1)}});
+        g.tag(2, true, kSprite, 0, 2, 0x51);
+        g.qw(rgLo(10, 20), baHi(30, 0x80));
+        g.qw(screenXy(0, 0), 0);
+        g.qw(rgLo(10, 20), baHi(30, 0x80));
+        g.qw(screenXy(128, 128), 0);
+        s.raw(GifPath::Path2, std::move(g));
+        const float small[5][2] = {{-260, -160}, {-200, -120}, {-130, -200}, {200, 100}, {-240, -60}};
+        for (uint32_t i = 0; i < 5; ++i) {
+            Run r = patchForBatch(rng, Variant{(i % 3u) ? kStrip | kIip : kStrip, vp::StripsFlat, 0x80},
+                                  Place{0.4f * static_cast<float>(i) + turn, -1.1f, 0, 0, 700}, 3, 6, 140.0f, turn);
+            r.k.offset[0] = bitsOf(2048.0f + small[i][0]);
+            r.k.offset[1] = bitsOf(2048.0f + small[i][1]);
+            for (int l = 0; l < 3; ++l)
+                r.k.colour[l] = static_cast<int32_t>(60u + 40u * i + 20u * static_cast<uint32_t>(l));
+            if (i % 2u)
+                s.run(std::move(r));
+            else
+                s.batch(cornerBatch(r, false, plain));
+        }
+    }
+    {
         // the side target, 512 x 448, magnified over the whole frame with bilinear filtering
         Gif g;
         g.ad({{kRegFrame, static_cast<uint64_t>(kFbw) << 16},
               {kRegZbuf, s.zbuf | (1ull << 32)},
+              {kRegScissor, (static_cast<uint64_t>(kWidth - 1) << 16) | (static_cast<uint64_t>(kHeight - 1) << 48)},
               {kRegTest, testReg(0, 0, 0, 0, kZAlways)},
               {kRegTex0, (kSideFbp * 32u) | (static_cast<uint64_t>(kSideFbw) << 14) | (9ull << 26) | (9ull << 30) |
                              (1ull << 34) | (1ull << 35)},
@@ -1329,6 +1360,14 @@ Scene outsideScene(uint32_t frame) {
         g.qw(screenXy(0, 0), 0);
         g.qw((512ull * 16u) | ((448ull * 16u) << 16), 0);
         g.qw(screenXy(kWidth, kHeight), 0);
+        // and the 128 wide target, twice its size, in a corner
+        g.ad(
+            {{kRegTex0, (kSmallFbp * 32u) | (2ull << 14) | (7ull << 26) | (7ull << 30) | (1ull << 34) | (1ull << 35)}});
+        g.tag(2, true, kSprite | kTme | kFst, 0, 2, 0x53);
+        g.qw(0, 0);
+        g.qw(screenXy(16, 16), 0);
+        g.qw((128ull * 16u) | ((128ull * 16u) << 16), 0);
+        g.qw(screenXy(272, 272), 0);
         s.raw(GifPath::Path2, std::move(g));
     }
     return s;

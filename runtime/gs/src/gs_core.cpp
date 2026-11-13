@@ -2,6 +2,7 @@
 // CLUT buffer, privileged registers. Draw calls are batched and handed to the D3D11 backend.
 #include "gs_internal.h"
 #include "vertex_program_draw.h"
+#include "cpu_profile.h"
 #include "runtime_flags.h"
 #include "gs_texup.h"
 #include "gs_image_upload.h"
@@ -383,7 +384,8 @@ struct Renderer::Impl {
     // arithmetic and drawn like the packets the microprogram would have sent. A record is honoured whatever the
     // control word says (a capture replays the same under every setting).
     // GSR_VERTEX_PROGRAM_DEBUG (bits): 1 = one draw per record, 2 = batch-path records never drawn by the shader,
-    // 4 = strip records never drawn by the shader (both counted as `stage off`; replays, to tell the two apart)
+    // 4 = strip records never drawn by the shader (both counted as `stage off`; replays, to tell the two apart),
+    // 8 = records into a target narrower than 512 evaluated here (the rule before the bounds were exact; `draw state`)
     int programDebug = [] {
         const char* e = std::getenv("GSR_VERTEX_PROGRAM_DEBUG");
         return e ? std::atoi(e) : 0;
@@ -400,6 +402,9 @@ struct Renderer::Impl {
     uint32_t programCounted = 0; // vertices of the open batch counted as drawn by a shader
     std::vector<vp::BatchVertex> programBatchVertices;
     std::vector<vp::Pass> programPasses;
+    // GSR_PROFILE: the core's share of the vertex-program work (records, and batches handed to the backend), in a
+    // report line of its own next to the backend's
+    CpuProfile programProfile;
 
     void flushProgram() {
         settleBatchTail();
@@ -427,7 +432,10 @@ struct Renderer::Impl {
                 b.passes = programPasses.data();
                 b.passCount = (uint32_t)programPasses.size();
             }
-            backend->drawVertexProgram(programState, clut, b);
+            {
+                CpuProfile::Scope profile(programProfile, CpuProfile::ProgramFlush);
+                backend->drawVertexProgram(programState, clut, b);
+            }
             stats.programDraws++;
         } else {
             for (uint32_t i = 0; i < programNotes.size(); ++i)
@@ -443,6 +451,10 @@ struct Renderer::Impl {
         programBatchPath = false;
         programCounted = 0;
         programActive = false;
+    }
+
+    uint32_t minTargetWidth() const {
+        return (programDebug & 8) ? program_draw::kWideTarget : program_draw::kAnyTarget;
     }
 
     // Whether the backend draws this record. Counts the reason when it does not.
@@ -461,7 +473,8 @@ struct Renderer::Impl {
         state = buildState(3);
         // Flat shading, UV coordinates and small targets are evaluated here (program_draw::stateTakes). So is a run
         // whose fog lane could set a vertex's skip bit.
-        if (!program_draw::stateTakes(state.flags, state.frame, rec.header.program, rec.header.prim)) {
+        if (!program_draw::stateTakes(state.flags, state.frame, rec.header.program, rec.header.prim,
+                                      minTargetWidth())) {
             vpath::countFallback(vpath::Fallback::DrawState);
             return false;
         }
@@ -473,6 +486,7 @@ struct Renderer::Impl {
     }
 
     void vertexProgram(const uint8_t* data, uint32_t size) {
+        CpuProfile::Scope profile(programProfile, CpuProfile::ProgramRecord);
         vp::View rec;
         if (!vp::parse(data, size, rec))
             return;
@@ -483,6 +497,7 @@ struct Renderer::Impl {
         writeReg(R_PRIM, h.prim);
         GsDrawState state{};
         if (!programOnGpu(rec, state)) {
+            CpuProfile::Scope evaluating(programProfile, CpuProfile::ProgramEvaluate);
             const vp::Vertex* v = rec.vertices;
             for (uint32_t s = 0; s < h.stripCount; ++s) {
                 writeReg(R_PRIM, h.prim);
@@ -603,7 +618,7 @@ struct Renderer::Impl {
         }
         writeReg(R_PRIM, h.prim);
         state = buildState(3);
-        if (!program_draw::stateTakes(state.flags, state.frame, vp::Batch, h.prim)) {
+        if (!program_draw::stateTakes(state.flags, state.frame, vp::Batch, h.prim, minTargetWidth())) {
             vpath::countBatchFallback(vpath::Fallback::DrawState);
             return false;
         }
@@ -749,6 +764,7 @@ struct Renderer::Impl {
             std::memcpy(&program, data, 4);
         if (program != vp::Batch)
             return false;
+        CpuProfile::Scope profile(programProfile, CpuProfile::ProgramRecord);
         vp::BatchView rec;
         if (!vp::parseBatch(data, size, rec))
             return true;
@@ -761,6 +777,7 @@ struct Renderer::Impl {
             return true;
         }
         settleBatchTail();
+        CpuProfile::Scope evaluating(programProfile, CpuProfile::ProgramEvaluate);
         vp::Output out[vp::kBatchMaxIndices]; // every vertex once, however many strips share it
         for (uint32_t i = 0; i < h.vertexCount; ++i) {
             vp::BatchVertex v; // the record is a byte stream: no alignment to rely on

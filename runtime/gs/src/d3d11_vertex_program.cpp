@@ -281,6 +281,7 @@ bool D3D11Backend::Impl::prepareProgramMotion(RT& rt, const GsDrawState& s, cons
     const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;
     if (!active || !ensureMotionTarget(rt))
         return false;
+    CpuProfile::Scope profile(cpuProfile, CpuProfile::ProgramMotion);
     const auto apply = [&](const ObjectMotionScope& scope) { applyObjectMotion(scope); };
     const auto current = [&]() -> const ObjectMotionScope& { return objectScope; };
     // The previous constants (strips) or position passes (batch path) follow the batch's own in the table.
@@ -322,6 +323,7 @@ bool D3D11Backend::Impl::prepareProgramMotion(RT& rt, const GsDrawState& s, cons
 // After bindDraw: the batch's vertices, indices, constants (its own, then the previous ones prepareProgramMotion
 // found) and vertex shader replace the stand-ins'.
 void D3D11Backend::Impl::bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch) {
+    CpuProfile::Scope profile(cpuProfile, CpuProfile::ProgramUpload);
     ProgramGpu& g = programState();
     const bool bp = batch.batchPath;
     const void* constantData[2] = {bp ? (const void*)batch.passes : (const void*)batch.constants,
@@ -544,6 +546,7 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
     program_draw::standIns(st, standIns);
     {
         // The exact bounds of the batch: the stand-ins span them instead of the scissor (program_draw::programBounds)
+        CpuProfile::Scope profile(i.cpuProfile, CpuProfile::ProgramBounds);
         const program_draw::Bounds bounds = program_draw::programBounds(
             batch, (int32_t)(st.xyoffset & 0xFFFF), (int32_t)((st.xyoffset >> 32) & 0xFFFF), g.boundsScratch);
         g.boundsExact += bounds.exact;

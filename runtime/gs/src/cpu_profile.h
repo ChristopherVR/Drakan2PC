@@ -57,6 +57,12 @@ public:
         SurfaceDrain,
         SurfaceWait,
         SurfaceAssist,
+        ProgramRecord,   // vertex-program records in the core (parse, checks, copies), by the core's own profile
+        ProgramEvaluate, // of those, records evaluated on the CPU in the core (declined, or the strip tail)
+        ProgramFlush,    // a vertex-program batch handed to the backend (core)
+        ProgramBounds,   // its exact bounds (backend)
+        ProgramUpload,   // its buffers and bindings (backend)
+        ProgramMotion,   // its previous state for the velocity pass (backend)
         Count
     };
     struct Scope;
@@ -119,7 +125,13 @@ private:
                                                 "modelPrepare",
                                                 "surfaceDrain",
                                                 "surfaceWait",
-                                                "surfaceAssist"};
+                                                "surfaceAssist",
+                                                "programRecord",
+                                                "programEvaluate",
+                                                "programFlush",
+                                                "programBounds",
+                                                "programUpload",
+                                                "programMotion"};
         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
         std::fprintf(stderr,
                      "[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; "

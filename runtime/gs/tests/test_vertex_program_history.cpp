@@ -283,6 +283,13 @@ bool runBatch(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11VertexShader* v
     ctx->Unmap(staging.Get(), 0);
     return true;
 }
+// GSR_VP_BOUNDS_BATCH=<n>: the largest batch of the bounds checks (default: the given one), to time them at the batch
+// sizes of a game.
+uint32_t boundsBatch(uint32_t fallback) {
+    const char* e = std::getenv("GSR_VP_BOUNDS_BATCH");
+    const uint32_t n = e ? (uint32_t)std::strtoul(e, nullptr, 10) : 0u;
+    return n ? n : fallback;
+}
 } // namespace
 
 int main() {
@@ -393,7 +400,7 @@ int main() {
         double gameSeconds = 0;
         uint64_t gameBounded = 0, gameExactly = 0;
         for (size_t first = 0; first < vertices.size();) {
-            const uint32_t n = std::min<uint32_t>(1u + rng() % 200u, (uint32_t)(vertices.size() - first));
+            const uint32_t n = std::min<uint32_t>(1u + rng() % boundsBatch(200u), (uint32_t)(vertices.size() - first));
             std::vector<uint32_t> indices;
             for (uint32_t i = 0; i + 2 < n; ++i)
                 for (uint32_t c = 0; c < 3; ++c)
@@ -419,8 +426,14 @@ int main() {
             b.indices = indices.data();
             b.indexCount = (uint32_t)indices.size();
             const int32_t ox = (int32_t)(rng() % 65536u), oy = (int32_t)(rng() % 65536u);
-            const auto t0 = std::chrono::steady_clock::now();
-            const program_draw::Bounds got = program_draw::stripBounds(b, ox, oy, scratch);
+            // the shortest of five calls: the machine is shared, the shortest is the one not interrupted
+            program_draw::Bounds got;
+            double best = 1e30;
+            for (int rep = 0; rep < 5; ++rep) {
+                const auto r0 = std::chrono::steady_clock::now();
+                got = program_draw::stripBounds(b, ox, oy, scratch);
+                best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - r0).count());
+            }
             const auto t1 = std::chrono::steady_clock::now();
             int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
             for (uint32_t i = 0; i < (n >= 3 ? n : 0); ++i) {
@@ -432,7 +445,7 @@ int main() {
                 want[3] = std::max(want[3], (int32_t)o.y);
             }
             const auto t2 = std::chrono::steady_clock::now();
-            boundsSeconds += std::chrono::duration<double>(t1 - t0).count();
+            boundsSeconds += best;
             everySeconds += std::chrono::duration<double>(t2 - t1).count();
             const bool any = want[0] != INT32_MAX;
             const bool same =
@@ -448,7 +461,7 @@ int main() {
             bounded += n >= 3 ? n : 0;
             exactly += got.exact;
             if (first >= recordedFrom) {
-                gameSeconds += std::chrono::duration<double>(t1 - t0).count();
+                gameSeconds += best;
                 gameBounded += n >= 3 ? n : 0;
                 gameExactly += got.exact;
             }
@@ -486,7 +499,7 @@ int main() {
         double gameSeconds = 0;
         uint64_t gameBounded = 0, gameExactly = 0;
         for (size_t first = 0; first < vertices.size();) {
-            const uint32_t n = std::min<uint32_t>(1u + rng() % 64u, (uint32_t)(vertices.size() - first));
+            const uint32_t n = std::min<uint32_t>(1u + rng() % boundsBatch(64u), (uint32_t)(vertices.size() - first));
             std::vector<uint32_t> indices;
             for (uint32_t i = 0; i + 2 < n; ++i)
                 for (uint32_t c = 0; c < 3; ++c)
@@ -516,8 +529,14 @@ int main() {
             b.indices = indices.data();
             b.indexCount = (uint32_t)indices.size();
             const int32_t ox = (int32_t)(rng() % 65536u), oy = (int32_t)(rng() % 65536u);
-            const auto t0 = std::chrono::steady_clock::now();
-            const program_draw::Bounds got = program_draw::batchBounds(b, ox, oy, scratch);
+            // the shortest of five calls: the machine is shared, the shortest is the one not interrupted
+            program_draw::Bounds got;
+            double best = 1e30;
+            for (int rep = 0; rep < 5; ++rep) {
+                const auto r0 = std::chrono::steady_clock::now();
+                got = program_draw::batchBounds(b, ox, oy, scratch);
+                best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - r0).count());
+            }
             const auto t1 = std::chrono::steady_clock::now();
             int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
             for (uint32_t i = 0; i < (n >= 3 ? n : 0); ++i) {
@@ -529,7 +548,7 @@ int main() {
                 want[3] = std::max(want[3], (int32_t)o.y);
             }
             const auto t2 = std::chrono::steady_clock::now();
-            boundsSeconds += std::chrono::duration<double>(t1 - t0).count();
+            boundsSeconds += best;
             everySeconds += std::chrono::duration<double>(t2 - t1).count();
             const bool any = want[0] != INT32_MAX;
             const bool same =
@@ -545,7 +564,7 @@ int main() {
             bounded += n >= 3 ? n : 0;
             exactly += got.exact;
             if (first >= recordedFrom) {
-                gameSeconds += std::chrono::duration<double>(t1 - t0).count();
+                gameSeconds += best;
                 gameBounded += n >= 3 ? n : 0;
                 gameExactly += got.exact;
             }

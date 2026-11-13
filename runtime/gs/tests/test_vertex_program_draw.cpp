@@ -126,7 +126,10 @@ void testDecisions() {
     expect(program_draw::stateTakes(0, frame640, vp::StripsFlat, strip), "a constant-colour strip needs no IIP");
     expect(!program_draw::stateTakes(0, frame640, vp::StripsLit, strip), "flat shaded lit strip");
     expect(!program_draw::stateTakes(DF_IIP | DF_FST, frame640, vp::StripsLit, strip), "UV coordinates");
-    expect(!program_draw::stateTakes(DF_IIP, frame128, vp::StripsLit, strip), "a 128 wide scratch target");
+    expect(program_draw::stateTakes(DF_IIP, frame128, vp::StripsLit, strip), "a 128 wide scratch target");
+    expect(!program_draw::stateTakes(DF_IIP, frame128, vp::StripsLit, strip, program_draw::kWideTarget),
+           "a 128 wide scratch target under the old rule");
+    expect(!program_draw::stateTakes(DF_IIP, 0, vp::StripsLit, strip), "a target of width zero");
     expect(program_draw::stateTakes(DF_IIP, frame512, vp::StripsLit, strip), "a 512 wide target");
     expect(!program_draw::stateTakes(DF_IIP, frame640, vp::StripsLit, 3), "a triangle list record");
     expect(!program_draw::stateTakes(DF_IIP, frame640, vp::StripsLit, 5), "a triangle fan record");
