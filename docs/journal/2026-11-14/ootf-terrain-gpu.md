@@ -138,7 +138,9 @@ with the cache (8.8 before), so it is not the GS worker either.
 * Read-back check in the game (`verifyrun.sh`, owner's ini, DLSS quality for 15 s then off, god mode, start poses, no
   input; runs `oracle/v-*`): Wartok Canyons 75.3 million slot checks, Ruined Village 51.1 million, Grimstone Mines 35.4
   million, Surdana 14.0 million; 0 wrong. Two other agents' games ran beside the canyon run (does not matter for a
-  state check).
+  state check). After the fix of section 2, with the final build (`3948855e`, cache on by default): Wartok Canyons
+  162.6 million slot checks and the Ruined Village with `vertex_processing = gpu` 109.2 million, 0 wrong (runs
+  `oracle/f-*`).
 * Before and after screenshots from the benchmark runs at the same pose and the same time after the start (old left,
   new right; animated creatures and flames move between runs): `evidence/canyons_quality_old_new.png`,
   `evidence/canyons_off_old_new.png`, `evidence/ruined_quality_old_new.png`, `evidence/surdana_quality_old_new.png`.
