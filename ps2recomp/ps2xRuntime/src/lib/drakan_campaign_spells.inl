@@ -15,10 +15,9 @@
 //     and bars of 446290 (a fixed loop of three, each row's objects row+0x148 / +0x16c / +0x190 drawn by 4316c8) skip
 //     the third row's draws;
 //   * the native tab row: the Spells tab is not drawn (drakan_inventory_views.inl) and the drawn tabs spread evenly
-//     over the old span (drakan_views::tabSlotShift). 42b308(record, transform) draws a tab at the transform's
-//     position (camera space, the inventory camera is the identity); the shift is added to its x for the call. The
-//     slot spacing is read from the tabs that never move, the first and the last (their nodes' cached boxes, the same
-//     boxes the menu mouse projects), so the glow (42faa0, placed from the node) and the mouse boxes follow.
+//     over the old span (drakan_views::tabSlotShift): at the tab draw 42b308 the icon and ring nodes of a tab right of
+//     the gap move left (hookTabDraw), so the glow (42faa0, placed from the ring) and the menu mouse boxes (projected
+//     from the icon's rendered box) follow.
 // The Spells sections of the native screens are skipped and their tab not drawn in drakan_inventory_views.inl; the
 // modern screens hide their Spells page, the Magic skill and the mana bars from gameui::Snapshot::spellsEnabled.
 // docs/reference/modding.md "Campaign packs", journal docs/journal/2026-11-14/ootf-no-spells.md.
@@ -179,51 +178,48 @@ void hookRecordDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 }
 
 // ---- native tab row ----
-uint32_t g_tabSpacingScreen = 0;
-float g_tabSpacing = 0.0f; // camera-space x from one tab slot to the next
+// Each tab record holds two scene nodes: +0x1c the icon (its model carries the slot offset, its frame +0x14 is the
+// screen's page frame, copied from screen+0x16c by 42b0a8 every frame before the draw) and +0x20 the ring behind it
+// (42b0a8 puts its position +0x14 at the icon's box centre). Both positions are in the page's camera space.
+constexpr uint32_t kNodePosition = 0x14u;
 
-// Centre x of a tab's icon from its node's cached box (node+0xb8: origin, then the x / y / z edges), or NaN.
-float tabCentreX(const uint8_t* ram, uint32_t record) {
-    const uint32_t node = spellRead32(ram, record + 0x1c);
-    if (!node || node + 0xc8u > PS2_RAM_SIZE || !(spellRead32(ram, node + 0x104) & 0x2000u))
-        return std::nanf("");
-    float x = 0, w = 0;
-    std::memcpy(&x, ram + (node + 0xb8u), 4);
-    std::memcpy(&w, ram + (node + 0xc4u), 4);
-    return std::isfinite(x) && std::isfinite(w) && w > 0 ? x + 0.5f * w : std::nanf("");
+bool tabNodeX(const uint8_t* ram, uint32_t record, uint32_t which, uint32_t& node, float& x) {
+    node = spellRead32(ram, record + which);
+    if (node < 0x100000u || node + 0x120u > PS2_RAM_SIZE)
+        return false;
+    std::memcpy(&x, ram + node + kNodePosition, 4);
+    return std::isfinite(x);
 }
 
+// 42b308(record, colours) draws one tab. A tab right of the hidden Spells tab moves left by its tabSlotShift: the
+// icon's page frame (reset every frame) gets the shift, the ring is placed from the first ring, which never moves.
+// The menu mouse projects the icon's rendered box and the glow 42faa0 is placed from the ring, so both follow.
 void hookTabDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     using namespace drakan_views;
     if (c->pc != 0x42b308u || !campaignSpellsOff() || !g_invTabScreen)
         return g_origTabDraw(ram, c, rt);
-    const uint32_t screen = g_invTabScreen, record = getRegU32(c, 4), xform = getRegU32(c, 5) & 0x1fffffffu;
+    const uint32_t screen = g_invTabScreen, record = getRegU32(c, 4);
     const uint32_t base = spellRead32(ram, screen + 0x19c);
     const int count = int(spellRead32(ram, screen + 0x1a4));
     if (!base || record < base || (record - base) % 0x24u || count != kSectionCount ||
-        int((record - base) / 0x24u) >= count || xform < 0x100000u || xform + 4 > PS2_RAM_SIZE)
+        int((record - base) / 0x24u) >= count)
         return g_origTabDraw(ram, c, rt);
     const int index = int((record - base) / 0x24u);
     const float shift = tabSlotShift(index, count, disabledSections(count, false, true));
-    const float first = tabCentreX(ram, base), last = tabCentreX(ram, base + uint32_t(count - 1) * 0x24u);
-    if (std::isfinite(first) && std::isfinite(last) && last > first) {
-        g_tabSpacing = (last - first) / float(count - 1);
-        g_tabSpacingScreen = screen;
-    }
-    if (shift == 0.0f || g_tabSpacingScreen != screen || !(g_tabSpacing > 0.0f))
+    uint32_t icon = 0, ring = 0, ring0 = 0, ringLast = 0;
+    float iconX = 0, ringX = 0, first = 0, last = 0;
+    if (shift == 0.0f || !tabNodeX(ram, record, 0x1c, icon, iconX) || !tabNodeX(ram, record, 0x20, ring, ringX) ||
+        !tabNodeX(ram, base, 0x20, ring0, first) ||
+        !tabNodeX(ram, base + uint32_t(count - 1) * 0x24u, 0x20, ringLast, last) || !(last > first))
         return g_origTabDraw(ram, c, rt);
-    float x = 0;
-    std::memcpy(&x, ram + xform, 4);
-    const float moved = x + shift * g_tabSpacing;
+    const float slot = (last - first) / float(count - 1);
+    const float movedIcon = iconX + shift * slot, movedRing = first + (float(index) + shift) * slot;
+    std::memcpy(ram + icon + kNodePosition, &movedIcon, 4);
+    std::memcpy(ram + ring + kNodePosition, &movedRing, 4);
     static int logged = 0;
     if (logged < 4 && ++logged)
-        std::fprintf(stderr, "[spells] tab %d moved by %.2f slots (slot %.3f)\n", index, shift, g_tabSpacing);
-    withTemporaryGuestState(
-        [&] {
-            std::memcpy(ram + xform, &moved, 4);
-            g_origTabDraw(ram, c, rt);
-        },
-        [&] { std::memcpy(ram + xform, &x, 4); });
+        std::fprintf(stderr, "[spells] tab %d moved by %.2f slots of %.1f\n", index, shift, slot);
+    g_origTabDraw(ram, c, rt);
 }
 
 } // namespace
