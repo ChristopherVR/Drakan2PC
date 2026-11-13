@@ -51,6 +51,23 @@ SCENES = {
         "mods": True,
         "note": "Order of the Flame Volcanic, direct start (needs --mods with a pack whose Volcanic loads)",
     },
+    # Order of the Flame levels by direct start (the editor's Play): New Game loads the level in the intro's slot. As
+    # Drakan 2 the campaign's 8 MiB texture cache is not raised; without it the start can stay on the loading screen.
+    "ootf-canyons": {
+        "env": {"DRAKAN_START_LEVEL": "OotF 03 - Wartok Canyons", "DRAKAN_START_LEVEL_FROM": "Level 0 - Intro", "DRAKAN_GAME": "d2", "DRAKAN_TEX_CACHE_KB": "8192"},
+        "mods": True,
+        "note": "Order of the Flame Wartok Canyons, direct start (outdoors)",
+    },
+    "ootf-islands": {
+        "env": {"DRAKAN_START_LEVEL": "OotF 06 - Islands", "DRAKAN_START_LEVEL_FROM": "Level 0 - Intro", "DRAKAN_GAME": "d2", "DRAKAN_TEX_CACHE_KB": "8192"},
+        "mods": True,
+        "note": "Order of the Flame Islands, direct start (outdoors, large view)",
+    },
+    "ootf-mines": {
+        "env": {"DRAKAN_START_LEVEL": "OotF 04 - Grimstone Mines", "DRAKAN_START_LEVEL_FROM": "Level 0 - Intro", "DRAKAN_GAME": "d2", "DRAKAN_TEX_CACHE_KB": "8192"},
+        "mods": True,
+        "note": "Order of the Flame Grimstone Mines, direct start (interior)",
+    },
 }  # fmt: skip
 PERF = re.compile(r"^\[perf \d+\] (.*)$")
 SHOT = re.compile(r"^\[in\] screenshot (bench0|bench1) -> ")
