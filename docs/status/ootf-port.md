@@ -29,6 +29,18 @@ The full-hole terrain conversion now preserves the native triangle collision fla
 
 The earned route now continues through the cave and collects the Priest's Key by ordinary E interaction. The native pickup message and live Key inventory resource confirm acquisition, and that resource persists through native F5/F8. The route includes real damage from pursuers. Opening the priest's house, acquiring the book and the remaining campaign are still unverified. See [key collection and persistence](../journal/2026-11-05/ootf-normal-route.md#earned-priests-key-and-persistence).
 
+**November 14 performance:** converted levels are slow because of their terrain, not their objects: Order of the Flame
+ground changes texture nearly every cell, the engine draws one pass per texture per chunk with at most 8 textures a chunk,
+so converted levels have 1 to 2.4 terrain passes per drawn cell against 0.03 on the disc (Wartok Canyons start: 5,200 to
+6,000 draws and 16,600 VU1 runs per world frame; Surdana 232 draws). A re-cut of the chunks that keeps every pixel removes
+only 1 to 4 % of the passes and was not landed; the gain is in the renderer (joining the terrain passes' draws) and is
+listed for the renderer sessions. The huge terrain texture coordinates are stale entries that the microcode itself
+transforms in place, not converter data; what is drawn is right. On a quiet machine at 4K the Ruined Village runs at 60 /
+86 fps (DLSS quality / off; held at exactly 60 with DLSS for a reason not found), Wartok Canyons at 35 / 54, Grimstone
+Mines at 101 / 139. The opt-in frame queue changes no Order of the Flame frame time but steadies the Ruined Village (1 %
+low 27 to 19 ms); it stays off until a contention check and a played session. See
+[performance](../journal/2026-11-14/ootf-performance.md).
+
 **November 6 localized installs (issue #3):** the converter now detects the PC install's language from Dragon.rrc, keys
 arenas, music, the intro, the Book and the first level on the level name ids instead of English folder and level names,
 keeps German Windows-1252 punctuation in converted text, writes ASCII titles the runtime accepts (`Höhle` -> `Hoehle`), and

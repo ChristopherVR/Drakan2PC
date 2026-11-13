@@ -679,6 +679,14 @@ Details, tables and the open items: [journal](../journal/2026-11-12/perf-cpu.md)
   every step of the texture-matrix loop 0x04D8 to the scalar exact path: VU1 replay of the Ruined Village 3.4 -> 0.9
   ns per pair, VU1 worker CPU per world frame 18.7 -> 8.7 ms (Volcanic 22.6 -> 10.9 ms). Values are identical
   (`vu_lanes_tests`, replay against the reference). `DRAKAN_VU_LANES_STRICT=1` = the old rule.
+  The +-FLT_MAX values are stale entries of the third vertex set (VU 516 to 740) that stage 0x0468 transforms in place
+  over all 225 entries for every converted terrain pass, while the following batches upload only their own 6 or 16
+  vertices; a non-identity pass matrix multiplies the leftovers again every frame. Drawn coordinates are right; the
+  converter's UVs are not involved (`docs/journal/2026-11-14/ootf-performance.md`).
+* Order of the Flame levels: 1 to 2.4 terrain passes per drawn cell against 0.03 on the disc (chunks of 1 to 7 cells
+  under the 8-texture limit), so 5,000 to 6,000 draws and 16,700 VU1 runs per frame at the Wartok Canyons start
+  (Surdana 232 draws). The cost is per pass on the EE, the VU1 worker and the GS worker (`drawSubmit` about 10 us a
+  draw); no converter re-cut that keeps the picture removes more than 4 % (same journal).
 * Scene model capture (`drakan_scene_models.h`, runs on the EE thread whenever DLSS SR, neural rendering or a ray effect
   is on): flat copy of the live set, cached untextured counts, sampled source signatures with a full check every 16th
   capture. Surdana: 16 to 19 % of the EE thread -> 8.6 to 9.8 %. `DRAKAN_SCENE_CAPTURE_FAST=0` = per-capture work.
@@ -730,7 +738,7 @@ benchmarks are written and queued (`scripts/perf/scene_ab_bench.py`).
 | Resource batches on the EE thread (`DRAKAN_RES_CHAIN`, `DRAKAN_RES_LATENCY_ELAPSED`) | same calls and order; hand-overs per level | a shorter load on a quiet machine |
 | DLSS writes the window's pixels (`GSR_UPSCALE_WINDOW_OUTPUT`) | measured quiet by its own session: Surdana 101.8 to 155.0 world fps | the cross-check of round 2; DLSS with ray effects |
 | Mod packs read beside the renderer start-up (`DRAKAN_MODS_EARLY`, round 2) | the pack phase of the start-up 0.615 to 0.242 s, four interleaved pairs with disjoint ranges under load | a quiet-machine start-up time |
-| Read-back modes and the frame queue (`PS2X_READBACK`, `PS2X_FRAME_QUEUE`, round 2, **default off**) | FINISH polls per frame from about a million to 1, the EE's waits for the VU1 worker to 0, EE CPU per frame 19 to 22 ms to 7.2 to 7.4 ms in two scenes; late answers differ in about one read in a thousand | frame rate, frame pacing, input latency; whether they should be on |
+| Read-back modes and the frame queue (`PS2X_READBACK`, `PS2X_FRAME_QUEUE`, round 2, **default off**) | FINISH polls per frame from about a million to 1, the EE's waits for the VU1 worker to 0, EE CPU per frame 19 to 22 ms to 7.2 to 7.4 ms in two scenes; late answers differ in about one read in a thousand. Quiet machine, 4K, 14 Nov: frame time unchanged in five scenes except Surdana without DLSS (6.00 to 5.47 ms), 1 % and 0.1 % lows in the Ruined Village 27 to 19 and 28 to 20 ms (DLSS quality); no effect where the pose does not read back | input latency; the case with another GPU load (two busy-machine runs were much slower); a played session. Recommendation: on after those two checks |
 
 Round 2 also found that the end-of-frame wait is three waits (the FINISH poll before the probe read in the views
 that read back, the flip routine's status reads and the display commit in every view), that every world frame waits
