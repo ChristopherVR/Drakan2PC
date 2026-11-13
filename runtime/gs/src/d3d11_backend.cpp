@@ -1,47 +1,85 @@
-// D3D11Backend: the BackendApi of this backend; forwards to D3D11Backend::Impl (d3d11_backend_impl.h).
+// D3D11Backend: the BackendApi of this backend. The forwarding and the phase machine are shared (gs_backend_api.inl);
+// this file holds the hooks it asks for and what only this backend answers (present wait, motion-scope batching,
+// DLSS and neural rendering).
 #include "d3d11_backend_impl.h"
 #include "ray_status.h"
 
-namespace gsr {
+namespace gsr::backend_hook {
 
-// ====================================================================================================
-D3D11Backend::D3D11Backend(LocalMemory& mem, const Config& cfg, Stats& stats)
-    : m_impl(std::make_unique<Impl>(mem, cfg, stats)) {
-    m_impl->lost = &lostNow; // a removed device closes gsr::Backend's latch at the next forwarded call
+// Backend interface of gs_backend_api.inl.
+inline void constructed(D3D11Backend::Impl& s, std::atomic<bool>& lostNow) {
+    s.lost = &lostNow; // a removed device closes gsr::Backend's latch at the next forwarded call
 }
-D3D11Backend::~D3D11Backend() {
-    if (m_impl) {
-        m_impl->printLodStat();
-        if (m_impl->upLog)
-            std::fprintf(stderr,
-                         "[texup] exit: replaced=%llu upscaled=%llu pending=%llu cache now %.0f MB, peak %.0f MB, "
-                         "budget %.0f MB; volatile slots=%llu palette index maps=%llu palette steps=%llu\n",
-                         (unsigned long long)m_impl->st.texReplaced, (unsigned long long)m_impl->st.texUpscaled,
-                         (unsigned long long)m_impl->st.texUpPending, m_impl->st.texCacheBytes / 1048576.0,
-                         m_impl->texPeakBytes / 1048576.0, m_impl->texBudget / 1048576.0,
-                         (unsigned long long)m_impl->st.texVolatile, (unsigned long long)m_impl->st.texPalettePlanes,
-                         (unsigned long long)m_impl->st.texPaletteHd);
-        if (m_impl->upLog || std::getenv("GSR_MATERIAL_LOG"))
-            std::fprintf(stderr, "[material] exit: mode %u, %llu material maps loaded (%.1f MB), %llu draws shaded\n",
-                         (unsigned)m_impl->materialMode, (unsigned long long)m_impl->materialGpu.texturesLoaded,
-                         m_impl->materialGpu.bytes / 1048576.0, (unsigned long long)m_impl->materialGpu.draws);
-        m_impl->joinPrewarm(); // its shader objects and ray device use the device
-        m_impl->tp.reset();    // release feature + NGX before context/device teardown
-        m_impl->combinedSr.reset();
-        m_impl->neuralGuides.reset();
-        dlssShutdown(m_impl->dev.Get());
-        m_impl->pool.reset(); // join the workers before the members they touch go away
+inline void releaseBeforeWorkers(D3D11Backend::Impl& s) {
+    if (s.upLog || std::getenv("GSR_MATERIAL_LOG"))
+        std::fprintf(stderr, "[material] exit: mode %u, %llu material maps loaded (%.1f MB), %llu draws shaded\n",
+                     (unsigned)s.materialMode, (unsigned long long)s.materialGpu.texturesLoaded,
+                     s.materialGpu.bytes / 1048576.0, (unsigned long long)s.materialGpu.draws);
+    s.joinPrewarm(); // its shader objects and ray device use the device
+    s.tp.reset();    // release feature + NGX before context/device teardown
+    s.combinedSr.reset();
+    s.neuralGuides.reset();
+    dlssShutdown(s.dev.Get());
+}
+inline void markGpuPass(D3D11Backend::Impl& s, gpupass::Pass pass, bool begin) {
+    s.gpuPasses.mark(pass, begin);
+}
+inline void worldPhaseOpened(D3D11Backend::Impl& s) {
+    if (s.neuralEnabled)
+        s.neuralStatusText = "Waiting for a valid world camera, depth and render target.";
+}
+inline void motionWorldOpened(D3D11Backend::Impl& s) {
+    s.motionOrdinals.clear();
+}
+inline void levelHistoryReset(D3D11Backend::Impl& s) {
+    s.upReset = s.neuralReset = true;
+    s.camPrevValid = false;
+    s.neuralPrevious = {};
+    s.modelMotion.reset();
+    s.pendingModels.ready = false;
+    s.pendingModels.scene.reset();
+    s.pendingModels.previous.reset();
+    if (s.combinedSr)
+        s.combinedSr->reset();
+}
+inline void sceneModelsNoted(D3D11Backend::Impl& s) {
+    // Keep both snapshots alive until this world's motion preparation runs.
+    if (s.nativeModels && s.modelMotion.previous() && (s.neuralEnabled || s.combinedSr) && s.surfaceBuilder->async()) {
+        auto prepare = [&s, scene = s.nativeModels, previous = s.modelMotion.previous()] {
+            auto& pending = s.pendingModels;
+            motion::Models::prepareFrom(previous.get(), *scene, false, pending.frame, pending.scratch);
+            pending.scene = scene;
+            pending.previous = previous;
+            pending.ready = true;
+        };
+        if (s.surfaceBuilder->preferIndependentPreparation())
+            s.surfaceBuilder->stageIndependentTask(std::move(prepare));
+        else
+            s.surfaceBuilder->submitTask(std::move(prepare));
     }
 }
-bool D3D11Backend::init() {
-    return m_impl->init();
+inline bool rayDeviceMissing(D3D11Backend::Impl&, std::string&) {
+    return false;
 }
-bool D3D11Backend::valid() const {
-    return m_impl->ok;
+inline surface::RayWater* acquireRayPass(D3D11Backend::Impl& s) {
+    return s.rayPass();
 }
-std::string D3D11Backend::adapterName() const {
-    return m_impl->adapter;
+inline const surface::RayWater* rayPassOf(const D3D11Backend::Impl& s) {
+    return s.waterRenderer.get();
 }
+constexpr const char* kRayReflectionsName = "DXR reflections";
+constexpr const char* kRayImageSuffix = "";
+
+} // namespace gsr::backend_hook
+
+#define GSR_IMPL D3D11Backend::Impl
+#define GSR_BACKEND D3D11Backend
+#include "gs_backend_api.inl"
+#undef GSR_BACKEND
+#undef GSR_IMPL
+
+namespace gsr {
+
 void D3D11Backend::draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     m_impl->pendingMotionBase = v;
     m_impl->pendingMotionCount = count;
@@ -64,40 +102,6 @@ void D3D11Backend::setMotionNotes(const motion::Note* notes, uint32_t count) {
     m_impl->pendingMotionNotes = count ? notes : nullptr;
     m_impl->pendingMotionNoteCount = count;
 }
-void D3D11Backend::flushToMemory(uint32_t a, uint32_t b) {
-    m_impl->flushToMemory(a, b);
-}
-bool D3D11Backend::copyLocal(uint32_t spsm, uint32_t sbp, uint32_t sbw, uint32_t sx, uint32_t sy, uint32_t dpsm,
-                             uint32_t dbp, uint32_t dbw, uint32_t dx, uint32_t dy, uint32_t w, uint32_t h) {
-    return m_impl->copyLocal(spsm, sbp, sbw, sx, sy, dpsm, dbp, dbw, dx, dy, w, h);
-}
-void D3D11Backend::flushForRead(uint32_t a, uint32_t b, const VramRect* rect) {
-    m_impl->flushForRead(a, b, rect);
-}
-bool D3D11Backend::beginTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                     uint32_t h) {
-    return m_impl->beginTargetUpload(psm, bp, bw, x, y, w, h);
-}
-void D3D11Backend::completeTargetUpload(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w,
-                                        uint32_t h, bool apply, uint64_t written) {
-    m_impl->completeTargetUpload(psm, bp, bw, x, y, w, h, apply, written);
-}
-void D3D11Backend::drawMovieFrame(uint32_t dbp, uint32_t dbw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                                  const MovieImage& image, uint64_t imageId) {
-    m_impl->drawMovieFrame(dbp, dbw, x, y, w, h, image, imageId);
-}
-void D3D11Backend::flushAll() {
-    m_impl->flushAll();
-}
-void D3D11Backend::present(const DisplayState& d) {
-    m_impl->present(d);
-}
-void D3D11Backend::latchDisplay(const DisplayState& d, uint32_t field) {
-    m_impl->latchDisplay(d, field);
-}
-void D3D11Backend::presentLatched() {
-    m_impl->presentLatched();
-}
 void* D3D11Backend::beginPresentWait() {
     return m_impl->beginPresentWait();
 }
@@ -112,171 +116,8 @@ void D3D11Backend::endPresentWait(bool ready) {
 void D3D11Backend::setVsync(bool on) {
     m_impl->vsyncOn = on;
 }
-void D3D11Backend::applyLive(const LiveSettings& ls) {
-    m_impl->applyLive(ls);
-}
-uint32_t D3D11Backend::internalScale() const {
-    return m_impl->scale;
-}
-void D3D11Backend::setOverlayCallback(std::function<void(const OverlayContext&)> cb) {
-    m_impl->overlayCb = std::move(cb);
-}
-bool D3D11Backend::vsyncEnabled() const {
-    return m_impl->vsyncOn;
-}
-void D3D11Backend::getViewport(uint32_t& w, uint32_t& h) const {
-    w = m_impl->vpW;
-    h = m_impl->vpH;
-}
-bool D3D11Backend::capture(const DisplayState& d, Image& out) {
-    return m_impl->capture(d, out);
-}
-bool D3D11Backend::captureLastGameplay(Image& out, float& aspect) {
-    return m_impl->captureLastGameplay(out, aspect);
-}
-bool D3D11Backend::captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h, Image& out) {
-    return m_impl->captureFramebuffer(fbp, fbw, psm, w, h, out);
-}
-void D3D11Backend::resize(uint32_t w, uint32_t h) {
-    m_impl->resize(w, h);
-}
-void D3D11Backend::reset() {
-    m_impl->reset();
-}
-void D3D11Backend::endFrame() {
-    m_impl->endFrame();
-}
-void D3D11Backend::noteVuUpload(uint32_t a, uint32_t n, const float* rows) {
-    m_impl->noteVuUpload(a, n, rows);
-}
-void D3D11Backend::noteSceneCamera(const SceneGuideCamera& camera) {
-    if (camera.sourcePc == 0x161a78u) {
-        m_impl->nativeWaterPass = camera.reserved != 0;
-        return;
-    }
-
-    if (camera.sourcePc == 0x437170u) {
-        // A host screen's native item grid, captured off-screen (Impl::GridCapture).
-        auto& g = m_impl->gridCapture;
-        if (g.open)
-            m_impl->gridCaptureEnd();
-        if (camera.reserved == 1) {
-            g.open = true;
-            g.rt = nullptr;
-            g.latches = 0;
-            for (int i = 0; i < 4; ++i)
-                g.box[i] = camera.viewportOffset[i];
-        }
-        return;
-    }
-    if (camera.sourcePc == 0x3afd18u) {
-        // The final font DMA chain is kicked after Subtitle_Draw returns.
-        // Preserve this map through the frame tail, until endFrame or the
-        // next explicit world/UI phase; the return marker alone is too early.
-        if (camera.reserved == 1) {
-            m_impl->nativeSubtitleOpen = true;
-            m_impl->nativeSubtitleBounds.reset();
-        }
-        if (runtimeFlags().subtitleLog)
-            std::fprintf(stderr, "[subtitle-phase] f=%llu active=%u\n", (unsigned long long)m_impl->frame,
-                         camera.reserved);
-        return;
-    }
-    // Private runtime phase markers preserve the public packet layout. They
-    // must not replace camera matrices or start/reset object history epochs.
-    if (camera.sourcePc == 0x139010u && (camera.flags & ~SceneGuideCamera::EndWorld) == 0) {
-        m_impl->nativeSubtitleOpen = false;
-        m_impl->engineWorldOpen = !(camera.flags & SceneGuideCamera::EndWorld);
-        m_impl->gpuPasses.mark(m_impl->engineWorldOpen ? gpupass::Pass::World : gpupass::Pass::AfterWorld,
-                               m_impl->engineWorldOpen);
-        m_impl->nativeWaterPass = false;
-        m_impl->waterWorldCamera = {};
-        if (m_impl->engineWorldOpen) {
-            if (m_impl->pendingTemporalEnd) {
-                for (auto& target : m_impl->rts)
-                    m_impl->finalizeNeuralWorld(*target);
-                m_impl->pendingTemporalEnd = false;
-            }
-            ++m_impl->worldPhaseSerial;
-            // A world phase ends the loading screen. Its packet stays the scene camera until a validated world camera
-            // replaces it, and a level whose draws never match the world camera (a converted level with no terrain,
-            // OotF's Ruined Village Book) kept it: the held menu frame then covered the top of every frame.
-            if (isLoadingScreenPacket(m_impl->sceneCamera))
-                m_impl->sceneCamera = {};
-            if (m_impl->neuralEnabled)
-                m_impl->neuralStatusText = "Waiting for a valid world camera, depth and render target.";
-        }
-        return;
-    }
-    if (camera.flags & SceneGuideCamera::EndWorld) {
-        m_impl->engineWorldOpen = false;
-        m_impl->nativeWaterPass = false;
-        m_impl->pendingTemporalEnd = std::any_of(m_impl->rts.begin(), m_impl->rts.end(),
-                                                 [](const auto& target) { return target->neuralState == 1; });
-        m_impl->neuralWorldClosed = true;
-        m_impl->motionWorldOpen = false;
-        m_impl->objectScope = {};
-        if (runtimeFlags().motionLog)
-            std::fprintf(
-                stderr,
-                "[object-motion] epoch=%llu matchedBatches=%llu matchedVertices=%llu rejectedBatches=%llu "
-                "historyBytes=%llu scopePackets=%llu eligiblePackets=%llu scopedBatches=%llu\n",
-                (unsigned long long)m_impl->motionEpoch, (unsigned long long)m_impl->motionMatchedBatches,
-                (unsigned long long)m_impl->motionMatchedVertices, (unsigned long long)m_impl->motionRejectedBatches,
-                (unsigned long long)m_impl->motionHistory.bytes(), (unsigned long long)m_impl->motionPackets,
-                (unsigned long long)m_impl->motionEligiblePackets, (unsigned long long)m_impl->motionScopedBatches);
-        if (m_impl->tpLog)
-            std::fprintf(stderr, "[dlss-scene] f%llu end world\n", (unsigned long long)m_impl->frame);
-        return;
-    }
-    // This ordered native loading draw is a full GUI phase. It can arrive
-    // before the host observes the screen switch, while gameplay is still open.
-    if ((camera.sourcePc == 0x43d340u && camera.guiScreen == 14) ||
-        (camera.sourcePc == 0x43e4c8u && camera.guiScreen == 8))
-        m_impl->engineWorldOpen = false;
-    m_impl->nativeSubtitleOpen = false;
-    m_impl->sceneCamera = camera;
-    if ((camera.flags & (SceneGuideCamera::Valid | SceneGuideCamera::World)) ==
-        (SceneGuideCamera::Valid | SceneGuideCamera::World))
-        m_impl->waterWorldCamera = camera;
-    if (camera.flags & SceneGuideCamera::World)
-        m_impl->engineWorldOpen = true;
-    if ((camera.flags & SceneGuideCamera::World) && !m_impl->motionWorldOpen) {
-        m_impl->motionWorldOpen = true;
-        ++m_impl->motionEpoch;
-        m_impl->motionHistory.beginFrame(m_impl->motionEpoch, (camera.flags & SceneGuideCamera::Reset) != 0);
-        m_impl->motionOrdinals.clear();
-        m_impl->objectScope = {};
-        m_impl->motionMatchedBatches = m_impl->motionMatchedVertices = m_impl->motionRejectedBatches = 0;
-        m_impl->motionPackets = m_impl->motionEligiblePackets = m_impl->motionScopedBatches = 0;
-    }
-    m_impl->neuralWorldClosed = !(camera.flags & SceneGuideCamera::World);
-    if (m_impl->tpLog && (camera.flags & SceneGuideCamera::World))
-        std::fprintf(stderr,
-                     "[dlss-scene] f%llu serial=%llu flags=%x screen=%d size=%ux%u camera=%g,%g,%g proj=%g,%g "
-                     "scale=%g,%g,%g offset=%g,%g,%g\n",
-                     (unsigned long long)m_impl->frame, (unsigned long long)camera.serial, camera.flags,
-                     camera.guiScreen, camera.frameWidth, camera.frameHeight, camera.cameraPosition[0],
-                     camera.cameraPosition[1], camera.cameraPosition[2], camera.projectionScale[0],
-                     camera.projectionScale[1], camera.viewportScale[0], camera.viewportScale[1],
-                     camera.viewportScale[2], camera.viewportOffset[0], camera.viewportOffset[1],
-                     camera.viewportOffset[2]);
-}
-void D3D11Backend::noteObjectMotion(const ObjectMotionScope& scope) {
-    m_impl->applyObjectMotion(scope);
-}
 void D3D11Backend::Impl::applyObjectMotion(const ObjectMotionScope& scope) {
-    if (scope.flags & ObjectMotionScope::Begin) {
-        ++motionPackets;
-        const uint32_t need = ObjectMotionScope::Valid | ObjectMotionScope::TopologyStable;
-        const uint32_t bad = ObjectMotionScope::Reset | ObjectMotionScope::Clipped | ObjectMotionScope::Ambiguous |
-                             ObjectMotionScope::Rejected;
-        motionEligiblePackets += (scope.flags & need) == need && !(scope.flags & bad);
-    }
-    objectScope = (scope.flags & ObjectMotionScope::End) ? ObjectMotionScope{} : scope;
-}
-std::string D3D11Backend::upscaleStatus() const {
-    return m_impl->upStatusText;
+    applyObjectScope(*this, scope);
 }
 double D3D11Backend::upscaleGpuMs() const {
     return m_impl->tp ? m_impl->tp->lastGpuMs() : 0.0;
@@ -305,106 +146,6 @@ std::string D3D11Backend::neuralRenderingStatus() const {
     return m_impl->neuralStatus();
 }
 
-} // namespace gsr
-
-namespace gsr {
-bool D3D11Backend::waterRenderingAvailable(std::string& status) const {
-    auto& s = *m_impl;
-    // The settings host asks from the window thread: never build or wait for the pass here, only start the background
-    // build or adopt the finished one (the renderer lock serialises this with the GS worker). "Starting" counts as
-    // available so the menu offers the effects; it re-reads its capabilities.
-    if (!s.rayPass()) {
-        status = raystatus::kStarting;
-        return true;
-    }
-    status = s.waterRenderer->status();
-    return s.waterRenderer->ready();
-}
-std::string D3D11Backend::waterRenderingStatus() const {
-    auto& s = *m_impl;
-    raystatus::PassView pass;
-    if (s.modernWater && s.waterRenderer) // null until a world frame adopted the background build
-        pass = {true, s.waterRenderer->ready(), s.waterRenderer->status()};
-    else if (s.modernWater && s.rayStarting())
-        return raystatus::kStarting;
-    return raystatus::waterStatus(s.modernWater, pass, s.lastPresentedWater, s.rayReflections, "DXR reflections");
-}
-std::string D3D11Backend::rayTracingStatus() const {
-    const auto& s = *m_impl;
-    if (!s.modernWater && !s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination)
-        return "Ray tracing off";
-    if (s.rayStarting())
-        return raystatus::kStarting;
-    if (s.waterRenderer && !s.waterRenderer->ready())
-        return s.waterRenderer->status();
-    if (s.rayShadows && !s.rayReflections && !s.rayGlobalIllumination && s.nativeModels &&
-        !s.nativeModels->lighting.hasContribution())
-        return "Ray-traced shadows enabled; waiting for valid native world lighting";
-    if (s.lastPresentedRay && s.waterRenderer) {
-        std::string text = s.rayShadows ? "Ray-traced shadows rendered in the last gameplay image."
-                                        : "Ray-traced scene rendered in the last gameplay image.";
-        if (s.rayGlobalIllumination)
-            text += " Diffuse global illumination active.";
-        if (s.rayReflections)
-            text += " Opaque-material reflections active.";
-        if (s.lastPresentedWater && s.rayReflections)
-            text += " Water reflections active.";
-        return text;
-    }
-    return "Ray tracing enabled; no new ray-traced gameplay image displayed (menu/loading or pass bypass)";
-}
-} // namespace gsr
-
-namespace gsr {
-void D3D11Backend::noteSceneGeometry(const SceneGeometry& geometry) {
-    m_impl->surfaceBuilder->drain();
-    if (m_impl->residentScene.identity != geometry.identity) {
-        // The scene camera arrives before resident geometry. Invalidate previous-level history without clearing
-        // that newly published current camera (upscaleCut() also clears it).
-        auto& s = *m_impl;
-        s.discardTemporalWorlds();
-        s.upReset = s.neuralReset = true;
-        s.camPrevValid = false;
-        s.neuralPrevious = {};
-        s.motionHistory.reset();
-        s.modelMotion.reset();
-        s.pendingModels.ready = false;
-        s.pendingModels.scene.reset();
-        s.pendingModels.previous.reset();
-        if (s.combinedSr)
-            s.combinedSr->reset();
-        for (auto& target : s.rts)
-            target->wstate = 0;
-    }
-    m_impl->residentScene.replace(geometry);
-    m_impl->nativeModels.reset();
-    // References into material texel storage never survive a different level.
-    m_impl->reflectionTextures.clear();
-    m_impl->reflectionTextureHashes.clear();
-    m_impl->texCache.clear();
-    m_impl->texBytes = 0;
-}
-} // namespace gsr
-
-namespace gsr {
-void D3D11Backend::noteSceneModels(std::shared_ptr<const SceneModels> models) {
-    auto& s = *m_impl;
-    s.nativeModels = std::move(models);
-    // Keep both snapshots alive until this world's motion preparation runs.
-    if (s.nativeModels && s.modelMotion.previous() && (s.neuralEnabled || s.combinedSr) && s.surfaceBuilder->async()) {
-        auto prepare = [&s, scene = s.nativeModels, previous = s.modelMotion.previous()] {
-            auto& pending = s.pendingModels;
-            motion::Models::prepareFrom(previous.get(), *scene, false, pending.frame, pending.scratch);
-            pending.scene = scene;
-            pending.previous = previous;
-            pending.ready = true;
-        };
-        if (s.surfaceBuilder->preferIndependentPreparation())
-            s.surfaceBuilder->stageIndependentTask(std::move(prepare));
-        else
-            s.surfaceBuilder->submitTask(std::move(prepare));
-    }
-}
 std::unique_ptr<BackendApi> createD3D11Backend(LocalMemory& mem, const Config& cfg, Stats& stats) {
     return std::make_unique<D3D11Backend>(mem, cfg, stats);
 }
