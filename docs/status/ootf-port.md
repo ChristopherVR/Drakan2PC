@@ -36,10 +36,19 @@ so converted levels have 1 to 2.4 terrain passes per drawn cell against 0.03 on 
 only 1 to 4 % of the passes and was not landed; the gain is in the renderer (joining the terrain passes' draws) and is
 listed for the renderer sessions. The huge terrain texture coordinates are stale entries that the microcode itself
 transforms in place, not converter data; what is drawn is right. On a quiet machine at 4K the Ruined Village runs at 60 /
-86 fps (DLSS quality / off; held at exactly 60 with DLSS for a reason not found), Wartok Canyons at 35 / 54, Grimstone
+86 fps (DLSS quality / off; the 60 with DLSS is explained in the round 4 note below), Wartok Canyons at 35 / 54, Grimstone
 Mines at 101 / 139. The opt-in frame queue changes no Order of the Flame frame time but steadies the Ruined Village (1 %
 low 27 to 19 ms); it stays off until a contention check and a played session. See
 [performance](../journal/2026-11-14/ootf-performance.md).
+
+**November 14, CPU side (round 4):** the Ruined Village is not capped at 60 fps: with DLSS quality the frame is the GS
+worker's submission plus a `Present` that blocks about 5 ms for the GPU, while the GS worker waits for that present;
+switching only the DLSS mode moves the rate (performance 65, quality 60, DLAA 38, off 85) and the `Present` wait with it.
+The lever is on the renderer side (GPU time per frame with DLSS, and the GS worker idling during the present). The VU1
+terrain texture stage is 40 % of the VU1 engine time in the Ruined Village (not free, as round 3 had it), but no scene is
+bound on the VU1 worker alone, so it was not changed. The frame queue is now the `drakan.ini` switch
+`[video] frame_queue` (default 0); a played session with it passes, but under GPU contention it made frames slower (up
+to 2.3 times in one pair), so it stays off. See [CPU side](../journal/2026-11-14/ootf-cpu-frame.md).
 
 **November 6 localized installs (issue #3):** the converter now detects the PC install's language from Dragon.rrc, keys
 arenas, music, the intro, the Book and the first level on the level name ids instead of English folder and level names,
@@ -541,6 +550,11 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   Circle with empty hands parries instead of casting; Drakan 2 in the same exe keeps all of it. Seen before and after in both
   inventory styles and both pause menus, through F5 / F8; needs a rebuilt exe and a pack with the key (an older pack keeps the
   spells). See [no spells](../journal/2026-11-14/ootf-no-spells.md).
+* No spells, part 2 (2026-11-14): both Skills pages list Melee and Archery only and take no point for Magic; the native tab
+  row spreads its four tabs evenly (mouse boxes and glow follow); the Skills help box and the Circle line of the game's
+  Controls screen use our own wording without spells; switching Drakan 2 -> Order of the Flame -> Drakan 2 on the title
+  card in one session switches all of it. Needs a rebuilt exe only. See
+  [no spells 2](../journal/2026-11-14/ootf-no-spells-2.md).
 
 ## Known gaps
 
@@ -563,7 +577,7 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   between levels were only checked for some pairs.
 * Map-file key for an adopted loadout item (the ini only knows factory resources), `arena-pvp-open-items.md`.
 * Duplicate-object warnings from source data (Alwarren, Grimstone Mines) are harmless but unexamined.
-* Without spells the native tab row keeps a gap where the Spells icon was, and both Skills pages still list Magic.
+* Without spells the native Skills page keeps the empty strip and faint emblem of the third row (painted into its page art).
 
 * 2026-11-02 state proofs (`journal/2026-11-02/ootf-state-proofs.md`): switch -> portcullis and plate -> mover chains proven by world dumps.
   An isolated Dr. Evil fight reaches credits after four real kills, using scripted wake, head HP reduced to 3, god mode and an altar
