@@ -15,9 +15,9 @@
 //     and bars of 446290 (a fixed loop of three, each row's objects row+0x148 / +0x16c / +0x190 drawn by 4316c8) skip
 //     the third row's draws;
 //   * the native tab row: the Spells tab is not drawn (drakan_inventory_views.inl) and the drawn tabs spread evenly
-//     over the old span (drakan_views::tabSlotShift): at the tab draw 42b308 the icon and ring nodes of a tab right of
-//     the gap move left (hookTabDraw), so the glow (42faa0, placed from the ring) and the menu mouse boxes (projected
-//     from the icon's rendered box) follow.
+//     over the old span (drakan_views::tabSlotShift): after the tab placement 42b0a8 the icon and ring nodes of a tab
+//     right of the gap move left (hookTabPlace), so the glow (42faa0, placed from the ring) and the menu mouse boxes
+//     (projected from the icon's rendered box) follow.
 // The Spells sections of the native screens are skipped and their tab not drawn in drakan_inventory_views.inl; the
 // modern screens hide their Spells page, the Magic skill and the mana bars from gameui::Snapshot::spellsEnabled.
 // docs/reference/modding.md "Campaign packs", journal docs/journal/2026-11-14/ootf-no-spells.md.
@@ -27,7 +27,7 @@ namespace {
 PS2Runtime::RecompiledFunction g_origSpellHud = nullptr, g_origManaMax = nullptr, g_origCanSummon = nullptr,
                                g_origSummonPrepare = nullptr, g_origSummonSpell = nullptr, g_origSkillKeys = nullptr,
                                g_origSkillText2 = nullptr, g_origSkillFirstRow = nullptr, g_origSkillGraphics = nullptr,
-                               g_origRecordDraw = nullptr, g_origTabDraw = nullptr;
+                               g_origRecordDraw = nullptr, g_origTabPlace = nullptr;
 uint32_t g_spellHudObj = 0;                    // a0 of the HUD draw 3ac540 (0x510150 on the PAL disc)
 constexpr uint32_t kHudManaReturn = 0x3adf9cu; // 3ac540's call of 3d5838 in its mana branch
 constexpr uint32_t kHudRightOrbSlide = 0xcu;   // hud+0xc: the right orb's slide offset (float)
@@ -153,6 +153,9 @@ void hookSkillGraphics(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc != 0x446290u || !campaignSpellsOff())
         return g_origSkillGraphics(ram, c, rt);
     const uint32_t section = getRegU32(c, 4);
+    static int logged = 0;
+    if (logged < 2 && ++logged)
+        std::fprintf(stderr, "[spells] Skills graphics of section %x without the Magic row\n", section);
     withTemporaryGuestState(
         [&] {
             g_skillGraphicsSection = section;
@@ -170,6 +173,10 @@ void hookRecordDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         const int visible = drakan_views::visibleSkillRows(int(spellRead32(ram, kSkillCountVar)), true);
         if (rows && obj >= rows + uint32_t(visible) * kSkillRowStride &&
             obj < rows + uint32_t(drakan_views::kSkillRows) * kSkillRowStride) {
+            static int logged = 0;
+            if (logged < 3 && ++logged)
+                std::fprintf(stderr, "[spells] Skills row object %x not drawn (row %u)\n", obj,
+                             (obj - rows) / kSkillRowStride);
             c->pc = ra;
             return;
         }
@@ -191,19 +198,24 @@ bool tabNodeX(const uint8_t* ram, uint32_t record, uint32_t which, uint32_t& nod
     return std::isfinite(x);
 }
 
-// 42b308(record, colours) draws one tab. A tab right of the hidden Spells tab moves left by its tabSlotShift: the
-// icon's page frame (reset every frame) gets the shift, the ring is placed from the first ring, which never moves.
-// The menu mouse projects the icon's rendered box and the glow 42faa0 is placed from the ring, so both follow.
-void hookTabDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+// 42b0a8(record, scale) places one tab every frame, before the glows (42faa0) and the draws (42b308). After it a tab
+// right of the hidden Spells tab moves left by its tabSlotShift: the icon's page frame (reset by the next placement)
+// gets the shift, the ring is placed from the first ring, which never moves. The glow is placed from the ring and the
+// menu mouse projects the icon's rendered box, so both follow.
+void hookTabPlace(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     using namespace drakan_views;
-    if (c->pc != 0x42b308u || !campaignSpellsOff() || !g_invTabScreen)
-        return g_origTabDraw(ram, c, rt);
+    if (c->pc != 0x42b0a8u || !campaignSpellsOff() || !g_invTabScreen)
+        return g_origTabPlace(ram, c, rt);
+    const uint32_t ra = getRegU32(c, 31);
+    g_origTabPlace(ram, c, rt);
+    if (c->pc != ra)
+        return;
     const uint32_t screen = g_invTabScreen, record = getRegU32(c, 4);
     const uint32_t base = spellRead32(ram, screen + 0x19c);
     const int count = int(spellRead32(ram, screen + 0x1a4));
     if (!base || record < base || (record - base) % 0x24u || count != kSectionCount ||
         int((record - base) / 0x24u) >= count)
-        return g_origTabDraw(ram, c, rt);
+        return;
     const int index = int((record - base) / 0x24u);
     const float shift = tabSlotShift(index, count, disabledSections(count, false, true));
     uint32_t icon = 0, ring = 0, ring0 = 0, ringLast = 0;
@@ -211,7 +223,7 @@ void hookTabDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (shift == 0.0f || !tabNodeX(ram, record, 0x1c, icon, iconX) || !tabNodeX(ram, record, 0x20, ring, ringX) ||
         !tabNodeX(ram, base, 0x20, ring0, first) ||
         !tabNodeX(ram, base + uint32_t(count - 1) * 0x24u, 0x20, ringLast, last) || !(last > first))
-        return g_origTabDraw(ram, c, rt);
+        return;
     const float slot = (last - first) / float(count - 1);
     const float movedIcon = iconX + shift * slot, movedRing = first + (float(index) + shift) * slot;
     std::memcpy(ram + icon + kNodePosition, &movedIcon, 4);
@@ -219,7 +231,6 @@ void hookTabDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     static int logged = 0;
     if (logged < 4 && ++logged)
         std::fprintf(stderr, "[spells] tab %d moved by %.2f slots of %.1f\n", index, shift, slot);
-    g_origTabDraw(ram, c, rt);
 }
 
 } // namespace
@@ -232,17 +243,12 @@ void installCampaignSpellHooks(PS2Runtime& rt) {
         PS2Runtime::RecompiledFunction hook;
     };
     const Hook hooks[] = {
-        {0x3ac540u, &g_origSpellHud, &hookSpellHud},
-        {0x3d5838u, &g_origManaMax, &hookManaMax},
-        {0x38f370u, &g_origCanSummon, &hookCanSummon},
-        {0x3895c0u, &g_origSummonPrepare, &hookSummonPrepare},
-        {0x38bd48u, &g_origSummonSpell, &hookSummonSpell},
-        {0x445898u, &g_origSkillKeys, &hookSkillKeys},
-        {0x445b78u, &g_origSkillText2, &hookSkillText2},
-        {0x447150u, &g_origSkillFirstRow, &hookSkillFirstRow},
-        {0x446290u, &g_origSkillGraphics, &hookSkillGraphics},
-        {0x4316c8u, &g_origRecordDraw, &hookRecordDraw},
-        {0x42b308u, &g_origTabDraw, &hookTabDraw},
+        {0x3ac540u, &g_origSpellHud, &hookSpellHud},           {0x3d5838u, &g_origManaMax, &hookManaMax},
+        {0x38f370u, &g_origCanSummon, &hookCanSummon},         {0x3895c0u, &g_origSummonPrepare, &hookSummonPrepare},
+        {0x38bd48u, &g_origSummonSpell, &hookSummonSpell},     {0x445898u, &g_origSkillKeys, &hookSkillKeys},
+        {0x445b78u, &g_origSkillText2, &hookSkillText2},       {0x447150u, &g_origSkillFirstRow, &hookSkillFirstRow},
+        {0x446290u, &g_origSkillGraphics, &hookSkillGraphics}, {0x4316c8u, &g_origRecordDraw, &hookRecordDraw},
+        {0x42b0a8u, &g_origTabPlace, &hookTabPlace},
     };
     for (const auto& h : hooks)
         if ((*h.original = rt.lookupFunction(h.address)))
