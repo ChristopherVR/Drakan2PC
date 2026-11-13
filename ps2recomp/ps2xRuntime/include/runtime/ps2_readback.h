@@ -31,16 +31,27 @@
 namespace ps2x_readback {
 enum class Mode { Poll, Eager, Late };
 
-inline Mode mode() {
-    static const Mode value = [] {
-        const char* text = std::getenv("PS2X_READBACK");
-        if (text && std::strcmp(text, "eager") == 0)
-            return Mode::Eager;
-        if (text && std::strcmp(text, "late") == 0)
-            return Mode::Late;
-        return Mode::Poll;
-    }();
+// drakan.ini [video] frame_queue (set by the game side at start-up, before the guest runs): 1 = PS2X_READBACK=late
+// and PS2X_FRAME_QUEUE=1, each unless the environment sets that variable; -1 = not configured.
+inline std::atomic<int>& configuredFrameQueue() {
+    static std::atomic<int> value{-1};
     return value;
+}
+
+inline Mode mode() {
+    static const int fromEnvironment = [] {
+        const char* text = std::getenv("PS2X_READBACK");
+        if (!text)
+            return -1;
+        if (std::strcmp(text, "eager") == 0)
+            return static_cast<int>(Mode::Eager);
+        if (std::strcmp(text, "late") == 0)
+            return static_cast<int>(Mode::Late);
+        return static_cast<int>(Mode::Poll);
+    }();
+    if (fromEnvironment >= 0)
+        return static_cast<Mode>(fromEnvironment);
+    return configuredFrameQueue().load(std::memory_order_relaxed) == 1 ? Mode::Late : Mode::Poll;
 }
 
 inline bool verify() {
@@ -57,11 +68,13 @@ inline bool verify() {
 // EE no longer stops once per frame and per vertical blank. Needs the render queue (DRAKAN_RENDER_QUEUE, on by
 // default).
 inline bool frameQueue() {
-    static const bool value = [] {
+    static const int fromEnvironment = [] {
         const char* text = std::getenv("PS2X_FRAME_QUEUE");
-        return text && text[0] == '1';
+        return text ? (text[0] == '1' ? 1 : 0) : -1;
     }();
-    return value;
+    if (fromEnvironment >= 0)
+        return fromEnvironment == 1;
+    return configuredFrameQueue().load(std::memory_order_relaxed) == 1;
 }
 
 // With the frame queue the game side also names the routine that decides whether a flip may happen

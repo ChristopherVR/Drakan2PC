@@ -432,6 +432,10 @@ inline void lightingReleaseHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt)
     lightingReleaseOriginal(ram, ctx, rt);
 }
 inline void install(PS2Runtime& rt) {
+    // [video] frame_queue: the read-back and display-commit pipeline of runtime/ps2_readback.h (late reads and the
+    // frame queue) from the ini; PS2X_READBACK / PS2X_FRAME_QUEUE still override it.
+    ps2x_readback::configuredFrameQueue().store(drakan_cfg::getBool("video", "frame_queue", nullptr, false) ? 1 : 0,
+                                                std::memory_order_relaxed);
     const char* metricsValue = std::getenv("DRAKAN_FRAME_METRICS");
     const bool metrics = metricsValue && std::atoi(metricsValue) != 0;
     drakan_presentation::g_frameMetrics.enable(metrics);

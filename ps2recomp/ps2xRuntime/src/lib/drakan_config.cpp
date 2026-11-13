@@ -128,6 +128,10 @@ const Entry kEntries[] = {
     {"video", "tick_snap", "1",
      "1 = with vsync, advance the world by whole display refreshes per frame (smooth motion; total game time "
      "unchanged); restart required (env DRAKAN_TICK_SNAP)"},
+    {"video", "frame_queue", "0",
+     "experimental: 1 = the game's per-frame picture read-back and its display commits no longer stop the game "
+     "thread (steadier frame times; the game sees that small read-back picture one frame late); 0 = original; "
+     "restart required (env PS2X_FRAME_QUEUE=1 with PS2X_READBACK=late)"},
     {"video", "anisotropic", "16", "anisotropic filtering: 1 = off, 2, 4, 8, 16 (env GSR_ANISO)"},
     {"video", "texture_upscale", "auto",
      "texture upscaling: 1 = off, 2, 4, 8, auto (internal scale 2-3 -> 2x, 4+ -> 4x) (env GSR_TEXUP)"},
