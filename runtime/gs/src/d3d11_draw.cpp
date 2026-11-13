@@ -101,6 +101,7 @@ void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView text
 void D3D11Backend::Impl::setPass(const PSConsts& k, const rhi::BlendState& blend, const rhi::DepthState& depth) {
     // cbPS is only written here: an upload identical to the buffer's current content is skipped.
     if (!cbPSValid || std::memcmp(&cbPSContent, &k, sizeof(k)) != 0) {
+        CpuProfile::Scope constantsProfile(cpuProfile, CpuProfile::DrawConstants);
         D3D11_MAPPED_SUBRESOURCE cm{};
         if (SUCCEEDED(map(cbPS.Get(), D3D11_MAP_WRITE_DISCARD, cm, "draw constants", device_loss::Site::Map))) {
             std::memcpy(cm.pData, &k, sizeof(k));

@@ -63,6 +63,12 @@ public:
         ProgramBounds,   // its exact bounds (backend)
         ProgramUpload,   // its buffers and bindings (backend)
         ProgramMotion,   // its previous state for the velocity pass (backend)
+        DrawDest,        // of drawSubmit: the destination or feedback copy of the draw
+        DrawBind,        // of drawSubmit: targets, programs, textures, viewport and scissor (bindDraw)
+        DrawPass,        // of drawSubmit: the colour passes (constants, blend and depth state, the draw call)
+        DrawVelocity,    // of drawSubmit: the motion-vector passes (temporal upscaling only)
+        DrawEnd,         // of drawSubmit: releasing the draw's bindings (endDraw)
+        DrawConstants,   // the constants upload of a pass (inside DrawPass or DrawVelocity)
         Count
     };
     struct Scope;
@@ -131,7 +137,13 @@ private:
                                                 "programFlush",
                                                 "programBounds",
                                                 "programUpload",
-                                                "programMotion"};
+                                                "programMotion",
+                                                "drawDest",
+                                                "drawBind",
+                                                "drawPass",
+                                                "drawVelocity",
+                                                "drawEnd",
+                                                "drawConstants"};
         static_assert(sizeof(names) / sizeof(names[0]) == Count, "Profiler bucket names must match Id");
         std::fprintf(stderr,
                      "[gsr-profile] %.3fs root=%.2fms readbackCopy=%.2fMiB syncUpload=%.2fMiB; "

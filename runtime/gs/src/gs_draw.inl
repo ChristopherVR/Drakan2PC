@@ -1123,6 +1123,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
                        (uint32_t)std::ceil((cx1 + 1) * dsx), (uint32_t)std::ceil((cy1 + 1) * dsy)}; // x0 y0 x1 y1
     box[2] = std::min<uint32_t>(box[2], rt->w * scale);
     box[3] = std::min<uint32_t>(box[3], rt->h * scale);
+    std::optional<CpuProfile::Scope> destProfile(std::in_place, cpuProfile, CpuProfile::DrawDest);
     if (feedback) {
         destSrv = snapshot(*rt, nullptr);
         texSrv = destSrv;
@@ -1134,6 +1135,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         if (needDest)
             destSrv = snapshot(*rt, box);
     }
+    destProfile.reset();
     if (haveTex && tb.isRT && !feedback)
         tb.rt->lastUse = frame;
     if (needDest)
@@ -1173,7 +1175,10 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     }
     sr[2] = std::min<int32_t>(sr[2], rt->w * scale);
     sr[3] = std::min<int32_t>(sr[3], rt->h * scale);
-    bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr);
+    {
+        CpuProfile::Scope bindProfile(cpuProfile, CpuProfile::DrawBind);
+        bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr);
+    }
     // Material detail (material_detail.h): binds its own pixel program variant for the draws that take it. Does
     // nothing unless the setting is on and the bound HD texture has a material map.
     bool materialDraw = false;
@@ -1201,6 +1206,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         if constexpr (kCaps.motionVectors) {
             if (!drawMotion || !(wm & 7))
                 return;
+            CpuProfile::Scope velocityProfile(cpuProfile, CpuProfile::DrawVelocity);
             // GREATER has ambiguous coplanar replays after a depth write. Do
             // not assert object correspondence for those pixels.
             k.h[3] = (wm & 7) == 7 && !(zw && zf == rhi::Compare::Greater) ? 1.0f : 0.0f;
@@ -1215,16 +1221,25 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
 
     // pass 0
     const bool failPass = ate && afail != 0 && atst != 1;
-    setup(0, writeMask, !zmsk);
-    drawPass();
+    {
+        CpuProfile::Scope passProfile(cpuProfile, CpuProfile::DrawPass);
+        setup(0, writeMask, !zmsk);
+        drawPass();
+    }
     velocityPass(0, writeMask, !zmsk, failPass);
     if (failPass) {
         const auto fail = alpha::failurePass(afail, writeMask, !zmsk);
-        setup(1, fail.colorMask, fail.depthWrite);
-        drawPass();
+        {
+            CpuProfile::Scope passProfile(cpuProfile, CpuProfile::DrawPass);
+            setup(1, fail.colorMask, fail.depthWrite);
+            drawPass();
+        }
         velocityPass(1, fail.colorMask, fail.depthWrite, false);
     }
-    endDraw();
+    {
+        CpuProfile::Scope endProfile(cpuProfile, CpuProfile::DrawEnd);
+        endDraw();
+    }
 
     st.drawCalls++;
     // Constant-colour sprites into a clean scratch target are written to memory as well, so the game's next read of
