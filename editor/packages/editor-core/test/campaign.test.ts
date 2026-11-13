@@ -127,6 +127,25 @@ describe('project campaign settings', () => {
         p.campaign!.enabled = false;
         expect(campaignMeta(p)).toEqual({});
     });
+    it('turns the spells off in the manifest and keeps the choice in the project file', () => {
+        const p = campaignProject();
+        const toml = (q: ModProject): string =>
+            buildManifestToml({ id: 'm', target: { profile: 'pal' }, levels: ['One Copy'], ...campaignMeta(q) });
+        expect(campaignMeta(p).campaignSpells).toBeUndefined(); // spells on: no key
+        expect(toml(p)).not.toContain('campaign_spells');
+        p.campaign!.spells = false;
+        const back = parseProject(serializeProject(p));
+        expect(back.campaign!.spells).toBe(false);
+        expect(campaignMeta(back)).toMatchObject({ campaign: 'the-test-valley', campaignSpells: false });
+        expect(toml(back)).toContain('campaign_spells = false');
+        expect(toml(back).indexOf('campaign_spells')).toBeLessThan(toml(back).indexOf('[target]'));
+        // Spells back on: the key goes away again; a pack without a campaign never writes it.
+        back.campaign!.spells = true;
+        expect(campaignMeta(parseProject(serializeProject(back))).campaignSpells).toBeUndefined();
+        expect(buildManifestToml({ id: 'm', target: { profile: 'pal' }, campaignSpells: false })).not.toContain(
+            'campaign_spells',
+        );
+    });
     it('forgets a removed start level', () => {
         expect(removeLevel(campaignProject(), 'One Copy').campaign!.start).toBeNull();
     });

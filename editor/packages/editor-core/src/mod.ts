@@ -61,6 +61,12 @@ export interface ModMeta {
      */
     campaignTitleMusic?: number;
     /**
+     * `campaign_spells = false`: the campaign has no spells (Drakan: Order of the Flame). While it is the game being
+     * played there is no Spells page in either inventory screen, no mana orb or bar, and Circle only parries; Drakan
+     * keeps its spells. Left out (or true) = spells as on the disc.
+     */
+    campaignSpells?: boolean;
+    /**
      * Levels whose cut scenes are framed for one picture shape: level title -> aspect (`4:3`, `16:9` or a number).
      * While such a level is loaded the game renders and shows its world at that aspect instead of the window's
      * (manifest `level_aspect`; the OotF converter marks the "Ruined Village Book", whose paintings fill a 4:3 screen).
@@ -178,6 +184,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.campaign && m.campaignStart) l.push(`campaign_start = ${tomlStr(m.campaignStart)}`);
     if (m.campaign && m.campaignSaves) l.push(`campaign_saves = ${tomlStr(m.campaignSaves)}`);
     if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
+    if (m.campaign && m.campaignSpells === false) l.push('campaign_spells = false');
     const aspects = Object.entries(m.levelAspect ?? {});
     if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
     if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);

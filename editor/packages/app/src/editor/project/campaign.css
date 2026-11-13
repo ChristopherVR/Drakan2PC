@@ -138,3 +138,15 @@
 /* The workspace help button sits in the top right corner: the Campaign header's switch keeps clear of it. */
 header.pjx-pane-head:has(> .cpg-inline[for='cpg-on']) { padding-right: 40px !important; }
 header.pjx-pane-head .pjx-count { white-space: nowrap; flex: none; }
+
+/* Gameplay: the spells switch with its state written beside it. */
+.cpg-switch-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: 28px;
+}
+.cpg-switch-text {
+    font-size: var(--fs-sm);
+    color: var(--fg);
+}

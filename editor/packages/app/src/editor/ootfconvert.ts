@@ -137,6 +137,8 @@ export async function runConversion(
         description: 'Levels converted from Drakan: Order of the Flame.',
         target: { profile: req.profile ?? 'pal' },
         ...(start ? { campaign: 'ootf', campaignName: 'Drakan: Order of the Flame', campaignStart: start.title } : {}),
+        // Rynn has no spells in Order of the Flame: no Spells page, mana orb or casting while the campaign is played
+        ...(start ? { campaignSpells: false } : {}),
         // the rendered OotF title theme plays on the title menu while the campaign is chosen
         ...(start && result.music?.title ? { campaignTitleMusic: result.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for

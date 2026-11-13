@@ -151,6 +151,29 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
         });
     }
 
+    // Rynn can learn and cast spells in this campaign (manifest `campaign_spells`); Order of the Flame has none.
+    function spellsSwitch(c: ProjectCampaign): HTMLElement {
+        const on = c.spells !== false;
+        return h(
+            'div',
+            { class: 'cpg-switch-row' },
+            h('button', {
+                type: 'button',
+                class: `ui-switch${on ? ' on' : ''}`,
+                id: 'cpg-spells',
+                role: 'switch',
+                'aria-checked': on ? 'true' : 'false',
+                'aria-label': 'Rynn can learn and cast spells',
+                onclick: () => update({ spells: !on }),
+            }),
+            h(
+                'span',
+                { class: 'cpg-switch-text' },
+                on ? 'Rynn can learn and cast spells' : 'No spells in this campaign',
+            ),
+        );
+    }
+
     const field = (
         label: string,
         id: string,
@@ -396,6 +419,19 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
                     text('cpg-saves', c.saves, (v) => update({ saves: v.trim() }), c.id),
                     `Saves go to mc0_${c.saves || c.id}, apart from Drakan's`,
                     savesBad,
+                ),
+            ),
+            h('div', { class: 'pjx-sub' }, 'Gameplay'),
+            h(
+                'div',
+                { class: 'pjx-props cpg-props' },
+                field(
+                    'Spells',
+                    'cpg-spells',
+                    spellsSwitch(c),
+                    c.spells === false
+                        ? 'No Spells page, no mana orb and no casting, as in Order of the Flame. Circle still parries.'
+                        : 'Rynn learns spells from scrolls and casts them, as in Drakan.',
                 ),
             ),
             h('div', { class: 'pjx-sub' }, 'Cover picture'),

@@ -276,6 +276,8 @@ const pack = await buildOotfPack(
         target: { profile: 'pal' },
         // --campaign: the levels are the campaign in play order (the title menu offers "Drakan: Order of the Flame")
         ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
+        // Rynn has no spells in Order of the Flame: no Spells page, mana orb or casting while the campaign is played
+        ...(opt['campaign'] !== undefined ? { campaignSpells: false } : {}),
         // the rendered OotF title theme ("gui", PC Background Music ID 4) plays on the title menu while the campaign is chosen
         ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for (the Ruined Village Book: 4:3)

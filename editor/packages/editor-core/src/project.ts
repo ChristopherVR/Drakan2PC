@@ -71,6 +71,8 @@ export interface ProjectCampaign {
     /** Memory card folder suffix: the saves live in `<card>_<saves>`. */
     saves: string;
     cover: CampaignCover | null;
+    /** false: Rynn has no spells in this campaign (manifest `campaign_spells = false`). Left out = she has them. */
+    spells?: boolean;
 }
 
 /** A position on the Campaign map, in map units (pixels at 100% zoom). */
@@ -959,6 +961,7 @@ function parseCampaign(v: unknown): ProjectCampaign | undefined {
         start: typeof o['start'] === 'string' ? (o['start'] as string) : null,
         saves: s('saves'),
         cover,
+        ...(o['spells'] === false ? { spells: false } : {}),
     };
 }
 
@@ -972,6 +975,7 @@ export function campaignMeta(p: ModProject): Partial<ModMeta> {
         ...(c.description.trim() ? { campaignDescription: c.description.trim() } : {}),
         ...(c.start ? { campaignStart: c.start } : {}),
         ...(c.saves && c.saves !== c.id ? { campaignSaves: c.saves } : {}),
+        ...(c.spells === false ? { campaignSpells: false } : {}),
     };
 }
 
