@@ -41,6 +41,17 @@ Mines at 101 / 139. The opt-in frame queue changes no Order of the Flame frame t
 low 27 to 19 ms); it stays off until a contention check and a played session. See
 [performance](../journal/2026-11-14/ootf-performance.md).
 
+**November 14 play check of Alwarren, Succubus Lair, Volcanic, Wartok Canyons (round 5):** converted terrain hung the
+game: Wartok Canyons in the lower canyon (4 of 4 runs on the `dist` pack, also on the pack from before rounds 3 and 4) and
+the load from Alwarren into the Islands (2 of 2). Cutting crowded terrain chunks down to single cells (formats `b4deb22`)
+gave layers up to 752 chunks (disc: 25); the engine builds a draw page per chunk texture for every layer in view and ran out
+of guest heap while building one (`FUN_00154060`, page list read from a failed allocation). Each disc-sized chunk now keeps
+at most 8 textures, so no chunk is cut (formats `e671be8`, `limitChunkTextures`; `DRAKAN_TERRAIN_CHUNKS=split` keeps the old
+form); 8 to 27 % of drawn cells per level take a neighbour's texture. On the new pack Wartok runs through the same spots,
+quick-loads to the exact spot and its exit loads Grimstone Mines; Alwarren's exit loads the Islands. Water surfaces that draw
+as flat pale blue or lilac planes in all four levels are left to the water work. Needs a regenerated pack. See
+[play check B](../journal/2026-11-14/ootf-check-b.md).
+
 **November 14 renderer draw cost (round 4):** the Direct3D 11 renderer now binds only the draw state that changed
 (`[video] draw_state_cache`, on by default, `0` = the old path). Same picture (identical replays, a read-back check of
 every draw's state in the game). On a quiet machine at 4K with the owner's settings Wartok Canyons runs at 38.2 / 55.3
