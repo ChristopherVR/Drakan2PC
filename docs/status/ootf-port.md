@@ -278,6 +278,15 @@ model's last channels (their right forearm, the Leather Wartok's right hand, a W
 off with the stump caps miscounted; fixed and seen in the ambush. The scene Wartoks' head sits low between the shoulders by
 design. Needs a regenerated pack. See [grunt poses](../journal/2026-11-08/ootf-grunt-pose-fixes.md).
 
+**November 14 dead bodies standing upright:** the slaves placed dead in Wartok Canyons and Grimstone Mines stood upright
+holding their pickaxe. Their converted class took the standing pickaxe idle as `Idle Death` and `Sleep Death` (template
+death fields the PC class leaves empty got the Base Idle stand-in), and that idle was written to play once, so living
+slaves froze after one swing. Empty death fields now take the creature's own converted death clip (formats `0fdd0a8`; it
+changes only the three slave classes). Seen lying after the fix and through walking over, fighting beside and an F5 / F8
+reload in Wartok Canyons, Grimstone Mines (two slaves) and Ruined Village (the dead orc, unchanged). All eight creatures
+placed dead and the body props are listed in [placed corpses](../journal/2026-11-14/ootf-placed-corpses.md). Needs a
+regenerated pack.
+
 **November 8 level map:** the map screen of converted levels showed Surdana's picture (the converter never set the Level
 Properties `Map Object`) and no quest markers (PC markers have no coordinates; they were written as journal-only). Each campaign
 level now gets a Map class with its `Dragon.rrc` parchment (5 tiles joined to 640 x 480) and an estimated calibration, quest
