@@ -26,40 +26,53 @@ D3D11_COMPARISON_FUNC toD3D(rhi::Compare c) {
 } // namespace
 
 void D3D11Backend::Impl::clearTarget(RT& rt, const float rgba[4]) {
-    ctx->ClearRenderTargetView(rt.rtv.Get(), rgba);
+    if (rt.rtv)
+        ctx->ClearRenderTargetView(rt.rtv.Get(), rgba);
 }
 
 // Ring buffer: append with NO_OVERWRITE and discard only on wrap. A DISCARD per draw exhausts the driver's
 // renaming pool once the GPU runs a frame behind, and Map then blocks until the GPU catches up.
+// A failed buffer or Map (a removed device: d3d11_device_loss.cpp) hands the shared draw code a copy in vbFallback
+// instead, so it never writes through a null pointer; nothing of that draw reaches the GPU.
 DrawVertex* D3D11Backend::Impl::beginVertices(const DrawVertex* v, uint32_t count) {
     const uint32_t need = count * sizeof(DrawVertex);
-    if (need > vbCapacity) {
-        vbCapacity = std::max(need, 16u << 20);
+    vbMapped = false;
+    if (need > vbCapacity && !gone()) {
         D3D11_BUFFER_DESC bd{};
-        bd.ByteWidth = vbCapacity;
+        bd.ByteWidth = std::max(need, 16u << 20);
         bd.Usage = D3D11_USAGE_DYNAMIC;
         bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         vb.Reset();
-        dev->CreateBuffer(&bd, nullptr, &vb);
-        vbOffset = vbCapacity; // the first map discards
+        vbCapacity = 0;
+        if (deviceOk(dev->CreateBuffer(&bd, nullptr, &vb), "draw vertex buffer")) {
+            vbCapacity = bd.ByteWidth;
+            vbOffset = vbCapacity; // the first map discards
+        }
     }
-    D3D11_MAP vbMode = D3D11_MAP_WRITE_NO_OVERWRITE;
-    if (need > vbCapacity - vbOffset) {
-        vbMode = D3D11_MAP_WRITE_DISCARD;
-        vbOffset = 0;
-    }
-    vbDrawOffset = vbOffset;
-    vbOffset += need;
     D3D11_MAPPED_SUBRESOURCE ms{};
-    ctx->Map(vb.Get(), 0, vbMode, 0, &ms);
-    ms.pData = static_cast<uint8_t*>(ms.pData) + vbDrawOffset;
-    std::memcpy(ms.pData, v, need);
-    return static_cast<DrawVertex*>(ms.pData);
+    if (need <= vbCapacity) {
+        D3D11_MAP vbMode = D3D11_MAP_WRITE_NO_OVERWRITE;
+        if (need > vbCapacity - vbOffset) {
+            vbMode = D3D11_MAP_WRITE_DISCARD;
+            vbOffset = 0;
+        }
+        if (SUCCEEDED(map(vb.Get(), vbMode, ms, "draw vertices", device_loss::Site::Map))) {
+            vbDrawOffset = vbOffset;
+            vbOffset += need;
+            vbMapped = true;
+            auto* const out = reinterpret_cast<DrawVertex*>(static_cast<uint8_t*>(ms.pData) + vbDrawOffset);
+            std::memcpy(out, v, need);
+            return out;
+        }
+    }
+    vbFallback.assign(v, v + count);
+    return vbFallback.data();
 }
 
 void D3D11Backend::Impl::endVertices() {
-    ctx->Unmap(vb.Get(), 0);
+    if (vbMapped)
+        ctx->Unmap(vb.Get(), 0);
 }
 
 void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW,
@@ -89,11 +102,13 @@ void D3D11Backend::Impl::setPass(const PSConsts& k, const rhi::BlendState& blend
     // cbPS is only written here: an upload identical to the buffer's current content is skipped.
     if (!cbPSValid || std::memcmp(&cbPSContent, &k, sizeof(k)) != 0) {
         D3D11_MAPPED_SUBRESOURCE cm{};
-        ctx->Map(cbPS.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &cm);
-        std::memcpy(cm.pData, &k, sizeof(k));
-        ctx->Unmap(cbPS.Get(), 0);
-        cbPSContent = k;
-        cbPSValid = true;
+        if (SUCCEEDED(map(cbPS.Get(), D3D11_MAP_WRITE_DISCARD, cm, "draw constants", device_loss::Site::Map))) {
+            std::memcpy(cm.pData, &k, sizeof(k));
+            ctx->Unmap(cbPS.Get(), 0);
+            cbPSContent = k;
+            cbPSValid = true;
+        } else
+            cbPSValid = false; // the buffer holds what it held: the next draw uploads again
     }
     ID3D11BlendState* bs =
         getBlendState(blend.enable, toD3D(blend.op), toD3D(blend.src), toD3D(blend.dst), blend.writeMask);
@@ -102,13 +117,16 @@ void D3D11Backend::Impl::setPass(const PSConsts& k, const rhi::BlendState& blend
 }
 
 void D3D11Backend::Impl::drawVertices(uint32_t count) {
-    ctx->Draw(count, 0);
+    if (vbMapped) // the vertices of a failed Map never reached the buffer
+        ctx->Draw(count, 0);
 }
 
 // The velocity pass of the colour pass just drawn, with the constants setPass uploaded for it. The final draw
 // leaves the motion pipeline bound; every later user of the context binds its own state.
 void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi::Compare depthCompare, bool restore,
                                       bool materialDraw, bool useHw) {
+    if (!vbMapped) // see drawVertices
+        return;
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
     ctx->OMSetRenderTargets(1, rt.motionRtv.GetAddressOf(), db.dsv.Get());
     ctx->OMSetBlendState(blendOff.Get(), nullptr, 0xffffffffu);

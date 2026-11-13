@@ -185,7 +185,7 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         terrain::buildConsts(g.unproject, terrainCfg, gradient, consts, g.grid ? &g.gridInfo : nullptr);
         if (!g.contentValid || std::memcmp(&consts, &g.content, sizeof(consts)) != 0) {
             D3D11_MAPPED_SUBRESOURCE m{};
-            if (FAILED(ctx->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
+            if (FAILED(map(g.cb.Get(), D3D11_MAP_WRITE_DISCARD, m, "terrain constants")))
                 return 0;
             std::memcpy(m.pData, &consts, sizeof(consts));
             ctx->Unmap(g.cb.Get(), 0);

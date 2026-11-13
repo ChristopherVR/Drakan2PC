@@ -58,6 +58,7 @@
 #include "runtime_flags.h"
 #include "terrain_detail.h"
 #include "material_detail.h"
+#include "device_loss.h"
 #include <gsr/scene_models.h>
 #include "resident_scene.h"
 #include <gsr/scene_guide_camera.h>
@@ -198,6 +199,7 @@ public:
     bool init() override;
     bool valid() const override;
     std::string adapterName() const override;
+    bool deviceLost(std::string* reason = nullptr) const override; // d3d11_device_loss.cpp
     void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) override;
     void flushToMemory(uint32_t firstBlock, uint32_t lastBlock) override;
     void flushForRead(uint32_t firstBlock, uint32_t lastBlock, const VramRect* rect = nullptr) override;
@@ -348,6 +350,27 @@ struct D3D11Backend::Impl {
 
     ComPtr<ID3D11Device> dev;
     ComPtr<ID3D11DeviceContext> ctx;
+    // ---- a removed device (d3d11_device_loss.cpp; which results count, the words and the test hook: device_loss.h).
+    // Once `lost` is set no call may reach the device or write through a pointer it returned: gsr::Backend stops
+    // forwarding at its next call, and the call in progress checks gone() where it would use a failed result.
+    std::atomic<bool> lostHere{false};   // when the Impl runs without its D3D11Backend (renderer tests)
+    std::atomic<bool>* lost = &lostHere; // the owning backend's BackendApi::lostNow
+    mutable std::mutex lossMutex;
+    mutable std::string lossReason; // plain words (device_loss::plainWords), for deviceLost()
+    bool gone() const { return lost->load(std::memory_order_relaxed); }
+    // The result of a call on the device or its context: true when it succeeded. A failure that means the device is
+    // gone latches the loss (logged once with the device's reason); any other failure is the caller's to handle.
+    bool deviceOk(HRESULT hr, const char* site) const { return SUCCEEDED(hr) || deviceFailed(hr, site); }
+    bool deviceFailed(HRESULT hr, const char* site, bool simulated = false) const; // always false
+    void probeDevice(const char* site) const; // asks GetDeviceRemovedReason (after a failure without an HRESULT)
+    // Map subresource 0 with the checks above; a failure leaves `out` unusable. `test` is the forced-loss site.
+    HRESULT map(ID3D11Resource* resource, D3D11_MAP mode, D3D11_MAPPED_SUBRESOURCE& out, const char* site,
+                device_loss::Site test = device_loss::Site::Off);
+    // GSR_TEST_DEVICE_LOSS / GSR_TEST_DEVICE_LOSS_SITE: this call is to fail as if the device were removed (once).
+    device_loss::TestPlan lossTest = device_loss::testPlanFromEnvironment();
+    mutable std::atomic<bool> lossTestArmed{false}, lossTestFired{false};
+    bool testLoss(device_loss::Site site) const;
+    void testLossFrameEnd();
     ComPtr<ID3D11DeviceContext1> inventoryContext1;
     ComPtr<ID3D11PixelShader> psInventoryCanvas;
     // Optional wide menu backdrops from <texDir>/wide (d3d11_backdrop.cpp).
@@ -474,6 +497,8 @@ struct D3D11Backend::Impl {
     PSConsts cbPSContent{}; // last upload to cbPS (draw() is its only writer)
     bool cbPSValid = false;
     uint32_t vbCapacity = 0, vbOffset = 0, vbDrawOffset = 0;
+    bool vbMapped = false;              // beginVertices mapped vb; false: the draw writes into vbFallback only
+    std::vector<DrawVertex> vbFallback; // the vertices of a draw whose Map failed (nothing reaches the GPU)
     ComPtr<ID3D11SamplerState> smpPt, smpLin;
     // ---- terrain detail (d3d11_terrain.cpp; policy and maths in terrain_detail.h) ----
     terrain::Settings terrainCfg;

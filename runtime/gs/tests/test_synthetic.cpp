@@ -2253,47 +2253,91 @@ static void lastPageMirrorTest(Config cfg) {
     expectTrue(gs->stats().rtReadbacks == before, "reading the probe needs no GPU readback");
 }
 
-#if defined(GSR_TEST_WEBGPU)
 static void uploadImageTo(Renderer& gs) {
     Gif g;
     uploadImage(g, 0x100u * 32u, 1, 0, 0, 0, 16, 16, std::vector<uint8_t>(16 * 16 * 4, 33));
     gs.submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
 }
-#endif
 
-#if defined(GSR_TEST_WEBGPU)
-// A lost graphics device (GSR_TEST_DEVICE_LOSS destroys it at a frame boundary, as a driver reset would) must leave a
-// renderer that reports the loss and ignores further work: wgpu-native ends the process on some calls to a lost
-// device. Direct3D 11 has no such handling yet, so this runs on the WebGPU backend only.
-static void deviceLossTest(Config cfg) {
+// A lost graphics device must leave a renderer that reports the loss and ignores further work, on both backends, from
+// one source. GSR_TEST_DEVICE_LOSS=1 makes the loss happen in frame 1:
+// - WebGPU destroys its device at the end of that frame (wgpu-native ends the process on some calls to a lost device).
+// - Direct3D 11 acts as if the device were removed at the site GSR_TEST_DEVICE_LOSS_SITE names (device_loss.h):
+//   `frame` (end of the frame), `map` (the first draw Map of the frame), `texture` (the first texture creation of the
+//   frame). `present` and `upscale` need a window and DLSS and are run in the game.
+// Every frame draws kDraws separate textured draws, each with a texture uploaded that frame, so each frame creates
+// textures and maps the vertex buffer. Stats::drawCalls is counted inside the backend's draw, so it shows where
+// forwarding stopped: at the end of frame 1 (frame site, WebGPU), or right after the draw that found the loss.
+static void deviceLossTest(Config cfg, const char* site) {
     auto gs = Renderer::create(cfg);
     if (!gs) {
         ++g_fail;
         return;
     }
-    const auto drawSomething = [&] {
+    std::printf("device loss on '%s', site %s\n", gs->adapterName().c_str(), site);
+    constexpr uint32_t kDraws = 3;
+    uint32_t serial = 0;
+    const auto drawFrame = [&] {
         Gif g;
         g.ad({{PRMODECONT, 1},
               {FRAME_1, 0x100ull | (1ull << 16)},
               {ZBUF_1, 140ull | 1ull << 32},
               {XYOFFSET_1, kOfs},
               {SCISSOR_1, 63ull << 16 | 63ull << 48},
-              {TEST_1, mkTest(0, 0, 0, 0, 0, 0, 1, 1)}});
-        sprite(g, 0, 0, 32, 32, 200, 100, 50, 0x80, 0, (int)mkPrim(6, 0, 0, 0, 0, 0));
+              {TEST_1, mkTest(0, 0, 0, 0, 0, 0, 1, 1)},
+              {TEX1_1, 0},
+              {CLAMP_1, 1}});
+        for (uint32_t i = 0; i < kDraws; ++i) {
+            const uint32_t tbp = 0x2000 + i * 0x40;
+            std::vector<uint8_t> texels(16 * 16 * 4, uint8_t(16 + (++serial % 200)));
+            uploadImage(g, tbp, 1, 0, 0, 0, 16, 16, texels);
+            g.ad({{TEXFLUSH, 0}, {TEX0_1, mkTex0(tbp, 1, 0, 4, 4, 1, 1, 0, 0, 0, 0, 0)}});
+            sprite(g, float(i * 16), 0, float(i * 16 + 16), 16, 0x80, 0x80, 0x80, 0x80, 0,
+                   (int)mkPrim(6, 0, 1, 0, 0, 1), 0, 0, 16, 16);
+        }
         gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
-    };
-    drawSomething();
-    gs->vsync(false);
-    expectTrue(!gs->deviceLost(), "the device is alive before the loss");
-    for (int i = 0; i < 4; ++i) { // the loss happens at the end of frame 1
-        drawSomething();
         gs->vsync(false);
-    }
+    };
+    drawFrame(); // frame 0
+    expectTrue(!gs->deviceLost(), "the device is alive before the loss");
+    const uint64_t perFrame = gs->stats().drawCalls;
+    expectTrue(perFrame >= kDraws, "each frame draws its textured sprites");
+    for (int i = 0; i < 4; ++i) // the loss happens in frame 1
+        drawFrame();
     std::string reason;
     expectTrue(gs->deviceLost(&reason), "the renderer reports the lost device");
     expectTrue(!reason.empty(), "with a reason");
-    // Everything a game frame does must now be harmless.
-    drawSomething();
+    const bool atFrameEnd = !std::strcmp(site, "frame");
+#if defined(GSR_TEST_WEBGPU)
+    const uint64_t expected = 2 * perFrame; // frames 0 and 1
+    (void)atFrameEnd;
+#else
+    // Direct3D 11 reports plain words for the player (device_loss::plainWords).
+    expectTrue(reason.find("DXGI") == std::string::npos && reason.find("0x") == std::string::npos,
+               "the reason is in plain words");
+    // A loss found in a draw stops forwarding right after that draw. A texture may be created on a worker thread (an
+    // upscaled copy of an earlier frame's texture), and then the next forwarded call of frame 1 stops: any count
+    // within frame 1 after its first draw.
+    const bool onWorker = !std::strcmp(site, "texture");
+    const uint64_t expected = atFrameEnd ? 2 * perFrame : perFrame + 1;
+#endif
+    char what[200];
+#if !defined(GSR_TEST_WEBGPU)
+    if (onWorker) {
+        std::snprintf(what, sizeof what, "forwarding stopped within the frame of the loss (%llu draws, %llu to %llu)",
+                      (unsigned long long)gs->stats().drawCalls, (unsigned long long)expected,
+                      (unsigned long long)(2 * perFrame));
+        expectTrue(gs->stats().drawCalls >= expected && gs->stats().drawCalls <= 2 * perFrame, what);
+    } else
+#endif
+    {
+        std::snprintf(what, sizeof what, "forwarding stopped where the loss was found (%llu draws, expected %llu)",
+                      (unsigned long long)gs->stats().drawCalls, (unsigned long long)expected);
+        expectTrue(gs->stats().drawCalls == expected, what);
+    }
+    // Everything a game frame does must now be harmless, and no draw reaches the backend.
+    const uint64_t draws = gs->stats().drawCalls, decodes = gs->stats().textureDecodes;
+    drawFrame();
     uploadImageTo(*gs);
     gs->flushToMemory();
     (void)gs->readVram(PSM_CT32, 0x100u * 32u, 1, 1, 1);
@@ -2301,9 +2345,11 @@ static void deviceLossTest(Config cfg) {
     expectTrue(!gs->captureFramebuffer(0x100, 1, 0, 64, 64, image), "captures fail instead of touching the device");
     gs->vsync(true);
     gs->vsync(false);
+    drawFrame();
+    expectTrue(gs->stats().drawCalls == draws && gs->stats().textureDecodes == decodes,
+               "no draw or texture decode reaches the backend after the loss");
     expectTrue(gs->deviceLost(), "and it stays lost");
 }
-#endif
 
 // Object-motion scopes (the runtime brackets every object's draws for the temporal upscaler) must not cost a draw
 // call per object: three sprites with identical GS state under three scopes are one batch, and the picture is the
@@ -2568,16 +2614,25 @@ static void mipChainLimitTest(Config cfg, uint32_t upscale) {
 }
 
 int main(int argc, char** argv) {
-#if defined(GSR_TEST_WEBGPU)
-    for (int i = 1; i < argc; ++i)
-        if (!std::strcmp(argv[i], "--device-loss-only")) {
+    // --device-loss-only [--device-loss-site <site>]: the forced-loss case alone (deviceLossTest). The switches are
+    // set before the first renderer reads them.
+    const char* lossSite = "frame";
+    bool lossOnly = false;
+    for (int i = 1; i < argc; ++i) {
+        if (!std::strcmp(argv[i], "--device-loss-only"))
+            lossOnly = true;
+        else if (!std::strcmp(argv[i], "--device-loss-site") && i + 1 < argc)
+            lossSite = argv[++i];
+    }
+    if (lossOnly) {
 #if defined(_WIN32)
-            _putenv_s("GSR_TEST_DEVICE_LOSS", "1");
+        _putenv_s("GSR_TEST_DEVICE_LOSS", "1");
+        _putenv_s("GSR_TEST_DEVICE_LOSS_SITE", lossSite);
 #else
-            setenv("GSR_TEST_DEVICE_LOSS", "1", 1);
+        setenv("GSR_TEST_DEVICE_LOSS", "1", 1);
+        setenv("GSR_TEST_DEVICE_LOSS_SITE", lossSite, 1);
 #endif
-        }
-#endif
+    }
     Config cfg;
     bool alphaOnly = false, rtFilterOnly = false, inventoryAlphaOnly = false, rtShiftedRowOnly = false,
          rtCacheCoherenceOnly = false;
@@ -2640,14 +2695,11 @@ int main(int argc, char** argv) {
         }
     }
 #endif
-#if defined(GSR_TEST_WEBGPU)
-    for (int i = 1; i < argc; ++i)
-        if (!std::strcmp(argv[i], "--device-loss-only")) {
-            deviceLossTest(cfg);
-            std::printf("%d checks, %d failed\n", g_checks, g_fail);
-            return g_fail ? 1 : 0;
-        }
-#endif
+    if (lossOnly) { // small and independent of the adapter's rounding: the same case on a software adapter (CI)
+        deviceLossTest(cfg, lossSite);
+        std::printf("%d checks, %d failed\n", g_checks, g_fail);
+        return g_fail ? 1 : 0;
+    }
     for (int i = 1; i < argc; ++i)
         if (!std::strcmp(argv[i], "--save-preview-only")) {
             std::filesystem::create_directories(outDir);

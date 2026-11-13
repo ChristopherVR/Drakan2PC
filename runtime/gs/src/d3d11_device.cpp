@@ -196,6 +196,13 @@ bool D3D11Backend::Impl::init() {
     D3D11_BLEND_DESC bl{};
     bl.RenderTarget[0].RenderTargetWriteMask = 0xF;
     dev->CreateBlendState(&bl, &blendOff);
+    // The objects above are used without further checks by every draw and present: a device that refused one (or was
+    // removed during start-up) does not make a renderer.
+    if (!vs || !layout || !psHw || !psSb || !cbPS || !cbDisp || !cbPresent || !smpPt || !smpLin || !rast || !blendOff) {
+        probeDevice("start-up");
+        std::fprintf(stderr, "[gsr] Direct3D 11: the device refused a pipeline object at start-up\n");
+        return false;
+    }
 
     vsyncOn = cfg.vsync;
     if (cfg.hwnd)
@@ -527,18 +534,19 @@ void D3D11Backend::Impl::retireNeural(const std::string& failure) {
 void D3D11Backend::Impl::makeSwapRtv() {
     swapRtv.Reset();
     ComPtr<ID3D11Texture2D> bb;
-    if (swap && SUCCEEDED(swap->GetBuffer(0, IID_PPV_ARGS(&bb))))
-        dev->CreateRenderTargetView(bb.Get(), nullptr, &swapRtv);
+    if (swap && !gone() && deviceOk(swap->GetBuffer(0, IID_PPV_ARGS(&bb)), "window image") &&
+        !deviceOk(dev->CreateRenderTargetView(bb.Get(), nullptr, &swapRtv), "window image view"))
+        swapRtv.Reset(); // presentLatched draws nothing without it
 }
 
 void D3D11Backend::Impl::resize(uint32_t w, uint32_t h) {
     if (!w || !h)
         return;
-    if (!swap)
+    if (!swap || gone())
         return;
     ctx->OMSetRenderTargets(0, nullptr, nullptr);
     swapRtv.Reset();
-    swap->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, swapFlags());
+    deviceOk(swap->ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, swapFlags()), "window resize");
     swapW = w;
     swapH = h;
     makeSwapRtv();
@@ -555,7 +563,8 @@ ComPtr<ID3D11Texture2D> D3D11Backend::Impl::makeTex(uint32_t w, uint32_t h, UINT
     d.Usage = D3D11_USAGE_DEFAULT;
     d.BindFlags = bind;
     ComPtr<ID3D11Texture2D> t;
-    dev->CreateTexture2D(&d, nullptr, &t);
+    if (gone() || !deviceOk(dev->CreateTexture2D(&d, nullptr, &t), "render texture"))
+        t.Reset(); // callers handle a null texture; a removed device also stops gsr::Backend's forwarding
     return t;
 }
 

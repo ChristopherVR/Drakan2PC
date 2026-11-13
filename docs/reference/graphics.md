@@ -394,8 +394,19 @@ memory and the targets hold the same with and without them; with automatic textu
 by a few values in 255, because a texture in memory that a still-dirty target occupies is not upscaled. Proofs and
 measurements: [renderer-shared-code.md](../journal/2026-11-12/renderer-shared-code.md).
 
-A lost graphics device ends the session in order (`gsr::Renderer::deviceLost`,
-`gsr/renderer_session.h`). DLSS, DLSS ray
+A lost graphics device ends the session in order on both renderers (`gsr::Renderer::deviceLost`,
+`gsr/renderer_session.h`): the renderer stops forwarding work, the host records the loss in `renderer_session.txt`,
+shows one notice in plain words (what happened, that the game closes, that progress since the last save is lost, what
+to try; `gsr::session::lossNotice`) and closes with exit code 0. Which Direct3D 11 results mean a removed device
+(`DXGI_ERROR_DEVICE_REMOVED`, `_HUNG`, `_RESET`, `DXGI_ERROR_DRIVER_INTERNAL_ERROR`, and any other failure while
+`GetDeviceRemovedReason` reports one) and the words for each are in `device_loss.h`; the Direct3D 11 call sites go
+through `d3d11_device_loss.cpp` (`deviceOk`, `map`), which sets `BackendApi::lostNow`, so `gsr::Backend` stops at the
+next forwarded call rather than at the next frame boundary. After a WebGPU loss the next start uses Direct3D 11 once;
+after a Direct3D 11 loss nothing changes at the next start (there is no safer renderer), and a second loss in a row
+says so in the notice. The device is not recreated in the running game. Forced-loss test hook:
+`GSR_TEST_DEVICE_LOSS` / `GSR_TEST_DEVICE_LOSS_SITE` ([env-flags.md](env-flags.md)). Proofs, the call-site list and
+what recreating the device would take: [d3d11-device-removed.md](../journal/2026-11-13/d3d11-device-removed.md).
+DLSS, DLSS ray
 reconstruction and hardware ray queries need a raw D3D or Vulkan device, which `webgpu.h` does not expose, so they stay
 on `d3d11`; the feature matrix and measurements are in
 [vulkan-backend.md](../journal/2026-11-12/vulkan-backend.md).

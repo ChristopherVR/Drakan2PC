@@ -20,8 +20,16 @@ GpuTexture D3D11Backend::Impl::createSampledTexture(const std::vector<uint32_t>*
         init[l].SysMemPitch = lw[l] * 4;
     }
     GpuTexture texture;
-    if (FAILED(dev->CreateTexture2D(&d, init.data(), &texture.tex)) ||
-        FAILED(dev->CreateShaderResourceView(texture.tex.Get(), nullptr, &texture.srv)))
+    // A worker thread may get here after the device was removed: nothing is created (the job's texture counts as
+    // failed and is never drawn), and a removal found here stops the renderer (d3d11_device_loss.cpp).
+    if (gone())
+        return texture;
+    if (testLoss(device_loss::Site::Texture)) {
+        deviceFailed((HRESULT)device_loss::kDeviceRemoved, "texture creation", true);
+        return texture;
+    }
+    if (!deviceOk(dev->CreateTexture2D(&d, init.data(), &texture.tex), "texture creation") ||
+        !deviceOk(dev->CreateShaderResourceView(texture.tex.Get(), nullptr, &texture.srv), "texture view"))
         texture.reset();
     return texture;
 }

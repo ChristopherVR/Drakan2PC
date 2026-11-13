@@ -4,6 +4,8 @@
 namespace gsr {
 
 bool D3D11Backend::Impl::enterWorld(RT& rt, DepthBuf& db, uint32_t zbp, float zmax, int sx1, int sy1) {
+    if (gone()) // a removed device: no world passes (d3d11_device_loss.cpp)
+        return false;
     const uint32_t fw = std::min<uint32_t>((uint32_t)sx1 + 1, rt.w), fh = std::min<uint32_t>((uint32_t)sy1 + 1, rt.h);
     if (!db.srv || !db.dsv) {
         upFault = true;
@@ -75,7 +77,7 @@ bool D3D11Backend::Impl::stretchDepth(DepthBuf& depth, uint32_t sourceW, uint32_
     }
     const float params[8] = {(float)sourceW, (float)sourceH, (float)destW, (float)destH, jitterX, jitterY, 0, 0};
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(ctx->Map(cbPresent.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+    if (FAILED(map(cbPresent.Get(), D3D11_MAP_WRITE_DISCARD, mapped, "depth stretch constants")))
         return false;
     std::memcpy(mapped.pData, params, sizeof(params));
     ctx->Unmap(cbPresent.Get(), 0);
@@ -123,6 +125,8 @@ bool D3D11Backend::Impl::restoreWorldDepth(RT& rt, DepthBuf& depth, bool resolve
 }
 
 void D3D11Backend::Impl::enterTemporalWorld(RT& rt, uint32_t zbp, float zmax, uint64_t xyoffset) {
+    if (gone())
+        return;
     GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::WorldEntry);
     dumpTemporalStage("entry-color", rt.tex.Get());
     rt.neuralState = 1;
@@ -278,6 +282,8 @@ TemporalPipeline::Geom D3D11Backend::Impl::worldGeometry(uint32_t fw, uint32_t f
 }
 
 bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
+    if (gone())
+        return false;
     D3D11_TEXTURE2D_DESC desc{};
     if (rt.motionTex)
         rt.motionTex->GetDesc(&desc);
@@ -308,7 +314,7 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
 bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const DrawVertex* vertices, uint32_t count,
                                              float sx, float sy) {
     const bool active = motionWorldOpen && (neuralEnabled || upMode) && rt.neuralState == 1;
-    if (!active)
+    if (!active || gone())
         return false;
     if (!ensureMotionTarget(rt))
         return false;
@@ -385,7 +391,7 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         motionVbOffset = 0;
     }
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(ctx->Map(motionVb.Get(), 0, mode, 0, &mapped)))
+    if (FAILED(map(motionVb.Get(), mode, mapped, "motion vertices")))
         return invalidateMotion();
     motionVbDrawOffset = motionVbOffset;
     motionVbOffset += bytes;
@@ -396,7 +402,7 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
 
 void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::TemporalResolve);
-    if (rt.neuralState != 1)
+    if (rt.neuralState != 1 || gone())
         return;
     GpuPassTimer::Scope gpuPass(gpuPasses, gpupass::Pass::Guides);
     rt.neuralState = 2;
@@ -626,6 +632,10 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         haveSROutput = combinedSr->resolve(in);
         srOutput = combinedSr->outputs();
         success = haveSROutput && srOutput.srEvaluated;
+        if (!success) // DLSS reports no HRESULT: ask the device whether that was a removal
+            probeDevice("DLSS evaluate");
+        if (testLoss(device_loss::Site::Upscale))
+            deviceFailed((HRESULT)device_loss::kDeviceRemoved, "DLSS evaluate", true);
         upStatusText = combinedSr->status();
         if (haveSROutput)
             constants.reset = constants.reset || srOutput.historyReset;
@@ -743,7 +753,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
 }
 
 void D3D11Backend::Impl::finalizeWorld(RT& rt) {
-    if (rt.wstate != 1)
+    if (rt.wstate != 1 || gone())
         return;
     finalizeNeuralWorld(rt); // neural RGB is reconstructed before SR and native HUD draws
     DepthBuf* db = worldDepth(rt);
@@ -765,6 +775,10 @@ void D3D11Backend::Impl::finalizeWorld(RT& rt) {
     in.preset = upPreset;
     in.sharpness = upSharp;
     const bool ok = tp->resolve(in);
+    if (!ok)
+        probeDevice("DLSS evaluate");
+    if (testLoss(device_loss::Site::Upscale))
+        deviceFailed((HRESULT)device_loss::kDeviceRemoved, "DLSS evaluate", true);
     if (tpLog)
         std::fprintf(stderr, "[dlss] f%llu resolve fbp=%u dlss=%d reset=%d gpu=%.2fms\n", (unsigned long long)frame,
                      rt.fbp, (int)ok, (int)upReset, tp->lastGpuMs());
@@ -815,6 +829,8 @@ bool D3D11Backend::Impl::upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool d
 }
 
 void D3D11Backend::Impl::recoverReducedWorld(RT& rt) {
+    if (gone())
+        return;
     if (rt.temporalSR && tp) {
         auto* image = snapshot(rt, nullptr);
         auto* depth = getDepth(rt.neuralDepth, rt.w, rt.h);

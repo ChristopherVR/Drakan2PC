@@ -37,21 +37,24 @@ void noteRefresh(const RT& rt, uint32_t width, uint32_t height, bool gpu, size_t
 
 void D3D11Backend::Impl::allocRT(RT& rt, uint32_t newH) {
     const uint32_t W = rt.w * scale, H = newH * scale;
-    ComPtr<ID3D11Texture2D> t = makeTex(W, H, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+    ComPtr<ID3D11Texture2D> t = gone() ? nullptr : makeTex(W, H, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
     ComPtr<ID3D11RenderTargetView> rv;
     ComPtr<ID3D11ShaderResourceView> sv;
-    dev->CreateRenderTargetView(t.Get(), nullptr, &rv);
-    dev->CreateShaderResourceView(t.Get(), nullptr, &sv);
-    const float clr[4] = {0, 0, 0, rt.psm == PSM_CT24 ? 0.5f : 0.0f};
-    ctx->ClearRenderTargetView(rv.Get(), clr);
-    if (rt.tex) {
-        const uint32_t keepH = std::min(rt.h, newH) * scale;
-        D3D11_BOX box{0, 0, 0, W, keepH, 1};
-        ctx->CopySubresourceRegion(t.Get(), 0, 0, 0, 0, rt.tex.Get(), 0, &box);
+    // A removed device (d3d11_device_loss.cpp) gives no objects: the old ones stay, the bookkeeping below still grows
+    // with the height the shared code expects, and no call reaches the device with a null object.
+    if (t && deviceOk(dev->CreateRenderTargetView(t.Get(), nullptr, &rv), "target view") &&
+        deviceOk(dev->CreateShaderResourceView(t.Get(), nullptr, &sv), "target view")) {
+        const float clr[4] = {0, 0, 0, rt.psm == PSM_CT24 ? 0.5f : 0.0f};
+        ctx->ClearRenderTargetView(rv.Get(), clr);
+        if (rt.tex) {
+            const uint32_t keepH = std::min(rt.h, newH) * scale;
+            D3D11_BOX box{0, 0, 0, W, keepH, 1};
+            ctx->CopySubresourceRegion(t.Get(), 0, 0, 0, 0, rt.tex.Get(), 0, &box);
+        }
+        rt.tex = t;
+        rt.rtv = rv;
+        rt.srv = sv;
     }
-    rt.tex = t;
-    rt.rtv = rv;
-    rt.srv = sv;
     rt.copy.Reset();
     rt.copySrv.Reset();
     rt.copyValid = false;
@@ -146,7 +149,8 @@ void D3D11Backend::Impl::ensureStaging(uint32_t w, uint32_t h) {
     d.Usage = D3D11_USAGE_STAGING;
     d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     staging.Reset();
-    dev->CreateTexture2D(&d, nullptr, &staging);
+    if (!gone() && !deviceOk(dev->CreateTexture2D(&d, nullptr, &staging), "readback staging"))
+        stagingW = stagingH = 0; // created again by the next readback
 }
 
 void D3D11Backend::Impl::prefetchReadback(RT& rt, bool stale) {
@@ -161,7 +165,7 @@ void D3D11Backend::Impl::prefetchReadback(RT& rt, bool stale) {
     // back (beginTargetUpload no longer patches a stale target), usually many frames later: with the copy made now
     // that readback maps a finished copy instead of waiting for everything the GPU still has queued.
     const bool predicted = stale || (rt.readbackFrame != ~0ull && frame <= rt.readbackFrame + 2);
-    if (!enabled || !predicted || !rt.dirty || rt.wstate || rt.neuralState || rt.temporalEpoch ||
+    if (!enabled || !predicted || gone() || !rt.tex || !rt.dirty || rt.wstate || rt.neuralState || rt.temporalEpoch ||
         rt.surfaceSubmittedEpoch || rt.neuralOutputEpoch)
         return;
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h);
@@ -182,7 +186,7 @@ void D3D11Backend::Impl::prefetchReadback(RT& rt, bool stale) {
         d.Usage = D3D11_USAGE_STAGING;
         d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         copy.texture.Reset();
-        if (FAILED(dev->CreateTexture2D(&d, nullptr, &copy.texture)))
+        if (!deviceOk(dev->CreateTexture2D(&d, nullptr, &copy.texture), "readback prefetch copy"))
             return;
         copy.width = w;
         copy.height = h;
@@ -203,6 +207,8 @@ void D3D11Backend::Impl::prefetchReadback(RT& rt, bool stale) {
 // the staging texture (scaled targets gather their native centre samples first).
 const uint8_t* D3D11Backend::Impl::beginReadback(RT& rt, uint32_t y0, uint32_t y1, uint32_t& readScale, size_t& pitch) {
     const uint32_t rows = y1 - y0;
+    if (gone() || !rt.tex)
+        return nullptr; // memory keeps what it has; the session is ending (d3d11_device_loss.cpp)
     auto& copy = rt.readbackCopy;
     const bool prefetched =
         copy.texture && copy.writes == rt.writes && copy.y0 == y0 && copy.y1 == y1 && copy.renderScale == scale;
@@ -213,6 +219,8 @@ const uint8_t* D3D11Backend::Impl::beginReadback(RT& rt, uint32_t y0, uint32_t y
     readScale = prefetched ? copy.readScale : compact ? 1 : scale;
     if (!prefetched) {
         ensureStaging(rt.w * readScale, rows * readScale);
+        if (!staging)
+            return nullptr;
         const uint32_t readY = compact ? 0 : y0 * scale;
         const D3D11_BOX box{0, readY, 0, rt.w * readScale, readY + rows * readScale, 1};
         ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, compact ? compact : rt.tex.Get(), 0, &box);
@@ -223,7 +231,7 @@ const uint8_t* D3D11Backend::Impl::beginReadback(RT& rt, uint32_t y0, uint32_t y
     HRESULT mapResult;
     {
         CpuProfile::Scope mapProfile(cpuProfile, CpuProfile::ReadbackMap);
-        mapResult = ctx->Map(readbackMapped, 0, D3D11_MAP_READ, 0, &ms);
+        mapResult = map(readbackMapped, D3D11_MAP_READ, ms, "target readback");
     }
     if (FAILED(mapResult))
         return nullptr;
@@ -236,6 +244,8 @@ void D3D11Backend::Impl::endReadback() {
 }
 
 void D3D11Backend::Impl::copyTargetTop(RT& src, RT& dst, uint32_t w, uint32_t h) {
+    if (gone() || !src.tex || !dst.tex)
+        return;
     D3D11_BOX box{0, 0, 0, w * scale, h * scale, 1};
     ctx->CopySubresourceRegion(dst.tex.Get(), 0, 0, 0, 0, src.tex.Get(), 0, &box);
 }
@@ -245,10 +255,14 @@ bool D3D11Backend::Impl::preparePartialPatch() {
 }
 
 void D3D11Backend::Impl::patchTargetBlock(RT& rt, uint32_t bx, uint32_t by, const uint32_t* patch) {
+    if (gone() || !rt.tex)
+        return;
     partialUploadGpu.patch(ctx.Get(), rt.tex.Get(), rt.srv.Get(), bx, by, patch);
 }
 
 void D3D11Backend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    if (gone() || !rt.tex)
+        return;
     const size_t count = size_t(width) * height;
     if (uploadPixels.size() < count)
         uploadPixels.resize(count);
@@ -295,7 +309,7 @@ void D3D11Backend::Impl::uploadTargetRect(RT& rt, uint32_t x, uint32_t y, uint32
 // a difference means a skipped readback would have served stale data.
 void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, uint32_t rowLo, uint32_t rowHi,
                                         uint32_t cmpBase, uint32_t cmpFbw, const PartialUpload* requested) {
-    if (rt.wstate == 1 || rt.dy1 <= rt.dy0)
+    if (rt.wstate == 1 || rt.dy1 <= rt.dy0 || gone() || !rt.tex)
         return;
     const uint32_t y0 = rt.dy0, y1 = std::min(rt.dy1, rt.h), rows = y1 - y0;
     ID3D11Texture2D* compact = scale > 1 && nativeReadbackEnabled
@@ -305,9 +319,11 @@ void D3D11Backend::Impl::verifyRTBlocks(RT& rt, uint32_t first, uint32_t last, u
     ensureStaging(rt.w * readScale, rows * readScale);
     const uint32_t readY = compact ? 0 : y0 * scale;
     D3D11_BOX box{0, readY, 0, rt.w * readScale, readY + rows * readScale, 1};
+    if (!staging)
+        return;
     ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, compact ? compact : rt.tex.Get(), 0, &box);
     D3D11_MAPPED_SUBRESOURCE ms{};
-    if (FAILED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &ms)))
+    if (FAILED(map(staging.Get(), D3D11_MAP_READ, ms, "readback verify")))
         return;
     static uint64_t compared = 0, bad = 0, calls = 0;
     const uint8_t* src = (const uint8_t*)ms.pData;
@@ -382,6 +398,10 @@ DepthBuf* D3D11Backend::Impl::getDepth(uint32_t zbp, uint32_t w, uint32_t h) {
     d->zbp = zbp;
     d->w = w;
     d->h = h;
+    if (gone()) { // no objects on a removed device: draws bind no depth, the world passes see no readable depth
+        d->lastUse = frame;
+        return d;
+    }
     if (upMode || neuralEnabled || modernWater || rayShadows || rayReflections || rayGlobalIllumination) {
         d->tex = makeTex(w * scale, h * scale, D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE,
                          DXGI_FORMAT_R32_TYPELESS);
@@ -452,9 +472,15 @@ GpuView D3D11Backend::Impl::snapshot(RT& rt, const uint32_t* rect) {
     const D3D11_BOX region{rect ? rect[0] : 0, rect ? rect[1] : 0, 0, rect ? rect[2] : 0, rect ? rect[3] : 0, 1};
     const D3D11_BOX* box = rect ? &region : nullptr;
     CpuProfile::Scope profile(cpuProfile, CpuProfile::Snapshot);
+    if (gone() || !rt.tex)
+        return rt.copySrv.Get(); // whatever it held: nothing is drawn with it any more
     if (!rt.copy) {
         rt.copy = makeTex(rt.w * scale, rt.h * scale, D3D11_BIND_SHADER_RESOURCE);
-        dev->CreateShaderResourceView(rt.copy.Get(), nullptr, &rt.copySrv);
+        rt.copySrv.Reset();
+        if (!rt.copy || !deviceOk(dev->CreateShaderResourceView(rt.copy.Get(), nullptr, &rt.copySrv), "target copy")) {
+            rt.copy.Reset();
+            return nullptr;
+        }
     }
     ctx->CopySubresourceRegion(rt.copy.Get(), 0, box ? box->left : 0, box ? box->top : 0, 0, rt.tex.Get(), 0, box);
     return rt.copySrv.Get();

@@ -299,7 +299,7 @@ target_link_libraries(gsr_shader_compile PUBLIC gsr_shader_cache d3dcompiler PRI
 
 add_library(gsr_d3d11_backend STATIC
   src/d3d11_backend.cpp src/d3d11_backend_impl.h src/gs_backend_shared.h src/gs_texture_cache.inl src/gs_draw.inl src/gs_targets.inl src/gs_pipeline_state.h
-  src/d3d11_device.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp src/d3d11_terrain.cpp src/d3d11_material.cpp src/d3d11_vertex_program.cpp
+  src/d3d11_device.cpp src/d3d11_device_loss.cpp src/d3d11_textures.cpp src/d3d11_targets.cpp src/d3d11_world.cpp src/d3d11_backdrop.cpp src/d3d11_terrain.cpp src/d3d11_material.cpp src/d3d11_vertex_program.cpp
   src/d3d11_draw.cpp src/d3d11_present.cpp src/d3d11_capture.cpp src/d3d11_movie.cpp
   src/temporal.cpp src/temporal.h
   src/nr_guides.cpp src/nr_guides.h src/sr_combined.cpp src/sr_combined.h
@@ -526,6 +526,12 @@ if(GSR_BUILD_TESTS)
   target_link_libraries(gsr_test_synthetic PRIVATE gsr)
   target_compile_definitions(gsr_test_synthetic PRIVATE "GSR_OUT_DIR=\"${GSR_OUT_DIR_ESC}\"")
   target_include_directories(gsr_test_synthetic PRIVATE src)
+  # The Direct3D 11 twin of device_loss_webgpu (one source): a removed device found at the end of a frame, in a draw
+  # Map and in a texture creation leaves a renderer that reports it and forwards nothing more.
+  foreach(site frame map texture)
+    add_test(NAME device_loss_d3d11_${site} COMMAND gsr_test_synthetic --device-loss-only --device-loss-site ${site})
+    set_tests_properties(device_loss_d3d11_${site} PROPERTIES TIMEOUT 60)
+  endforeach()
 
   add_executable(gsr_test_partial_upload tests/test_synthetic.cpp)
   target_link_libraries(gsr_test_partial_upload PRIVATE gsr)

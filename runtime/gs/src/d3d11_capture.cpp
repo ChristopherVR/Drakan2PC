@@ -19,7 +19,7 @@ void D3D11Backend::Impl::validateObjectMotion(RT& rt, const nr::guides::Frame& g
         return;
     ctx->CopyResource(staging.Get(), rt.motionTex.Get());
     D3D11_MAPPED_SUBRESOURCE map{};
-    if (FAILED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &map)))
+    if (FAILED(this->map(staging.Get(), D3D11_MAP_READ, map, "motion validation readback")))
         return;
     uint64_t pixels = 0, moving = 0, independent = 0;
     double largest = 0;
@@ -120,7 +120,7 @@ void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* t
         return;
     ctx->CopyResource(copy.Get(), texture);
     D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(ctx->Map(copy.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    if (FAILED(map(copy.Get(), D3D11_MAP_READ, mapped, "temporal stage dump")))
         return;
     char path[2048];
     std::snprintf(path, sizeof(path), "%s/f%llu-s%llu-%s.raw", directory, (unsigned long long)frame,
@@ -140,10 +140,12 @@ void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* t
 
 bool D3D11Backend::Impl::readTexture(ID3D11Texture2D* tex, uint32_t w, uint32_t h, Image& out, bool keepAlpha) {
     ensureStaging(w, h);
+    if (!staging || !tex)
+        return false;
     D3D11_BOX box{0, 0, 0, w, h, 1};
     ctx->CopySubresourceRegion(staging.Get(), 0, 0, 0, 0, tex, 0, &box);
     D3D11_MAPPED_SUBRESOURCE ms{};
-    if (FAILED(ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &ms)))
+    if (FAILED(map(staging.Get(), D3D11_MAP_READ, ms, "texture readback")))
         return false;
     out.width = w;
     out.height = h;

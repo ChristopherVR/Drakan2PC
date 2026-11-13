@@ -6,6 +6,7 @@
 #include "gs_mem.h"
 #include "motion_segments.h"
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -181,6 +182,11 @@ public:
     // The backend lost its graphics device and cannot draw any more (reason for the log and the player). Backend
     // stops forwarding work once this is true; the host ends the session (gsr::Renderer::deviceLost).
     virtual bool deviceLost(std::string* /*reason*/ = nullptr) const { return false; }
+    // Set (from any thread) by a backend that finds its device lost in the middle of a frame; deviceLost() must
+    // report true from then on. Backend reads it on every forwarded call (one relaxed load, no virtual call) and stops
+    // forwarding at once instead of at the next frame boundary. A backend that never sets it (WebGPU, whose loss is
+    // found at the frame boundaries) is latched exactly as before.
+    std::atomic<bool> lostNow{false};
     virtual void draw(const GsDrawState& st, const ClutBuf& clut, const DrawVertex* v, uint32_t count) = 0;
     // Object-motion notes inside a batch (motion_segments.h). A backend that returns true from deferObjectMotion
     // gets the notes of an open batch through setMotionNotes right before that batch's draw() (valid for that one
@@ -343,6 +349,13 @@ private:
     Config::Api m_kind = Config::Api::Auto;
     bool m_dead = false; // the backend reported its device lost: nothing is forwarded any more
     bool dead();         // latches m_dead (asked at the frame boundaries, where a loss is detected)
+    // latches m_dead on a loss the backend found in the middle of a frame (BackendApi::lostNow); every other forwarder
+    bool stopped() {
+        if (!m_dead && m_api->lostNow.load(std::memory_order_relaxed))
+            m_dead = true;
+        return m_dead;
+    }
+    bool stoppedNow() const { return m_dead || m_api->lostNow.load(std::memory_order_relaxed); } // const forwarders
 };
 
 } // namespace gsr

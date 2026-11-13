@@ -6,7 +6,9 @@ namespace gsr {
 
 // ====================================================================================================
 D3D11Backend::D3D11Backend(LocalMemory& mem, const Config& cfg, Stats& stats)
-    : m_impl(std::make_unique<Impl>(mem, cfg, stats)) {}
+    : m_impl(std::make_unique<Impl>(mem, cfg, stats)) {
+    m_impl->lost = &lostNow; // a removed device closes gsr::Backend's latch at the next forwarded call
+}
 D3D11Backend::~D3D11Backend() {
     if (m_impl) {
         m_impl->printLodStat();

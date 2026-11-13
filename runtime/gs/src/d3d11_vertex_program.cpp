@@ -245,6 +245,7 @@ bool D3D11Backend::Impl::prepareProgramMotion(RT& rt, const GsDrawState& s, cons
     const void* data[1] = {g.previous.data()};
     const uint32_t sizes[1] = {batch.vertexCount * (uint32_t)sizeof(motion::ProgramPrevious)};
     if (!appendRing(ctx.Get(), g.previousVb, true, (uint32_t)sizeof(motion::ProgramPrevious), data, sizes, 1)) {
+        probeDevice("vertex program previous stream");
         programFailed("the previous-frame vertex stream could not be written");
         g.previousConstants.clear();
         const float clear[4]{};
@@ -253,7 +254,7 @@ bool D3D11Backend::Impl::prepareProgramMotion(RT& rt, const GsDrawState& s, cons
     }
     const float raster[4] = {sx, sy, 0, 0};
     D3D11_MAPPED_SUBRESOURCE ms{};
-    if (FAILED(ctx->Map(g.cbMotion.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))
+    if (FAILED(map(g.cbMotion.Get(), D3D11_MAP_WRITE_DISCARD, ms, "vertex program motion constants")))
         return false;
     std::memcpy(ms.pData, raster, sizeof(raster));
     ctx->Unmap(g.cbMotion.Get(), 0);
@@ -278,13 +279,14 @@ void D3D11Backend::Impl::bindProgramDraw(const GsDrawState& s, const VertexProgr
         !appendRing(ctx.Get(), g.ib, true, (uint32_t)sizeof(uint32_t), indexData, indexSizes, 1)) {
         // Only a removed device gets here (the buffers were reserved before the draw started); nothing can be drawn
         // with it any more.
+        probeDevice("vertex program buffers");
         programFailed("a buffer of the draw could not be written");
         return;
     }
     const int32_t words[4] = {(int32_t)(s.xyoffset & 0xFFFF), (int32_t)((s.xyoffset >> 32) & 0xFFFF),
                               (int32_t)(g.constants.drawOffset / 16u), 0};
     D3D11_MAPPED_SUBRESOURCE ms{};
-    if (SUCCEEDED(ctx->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms))) {
+    if (SUCCEEDED(map(g.cb.Get(), D3D11_MAP_WRITE_DISCARD, ms, "vertex program constants"))) {
         std::memcpy(ms.pData, words, sizeof(words));
         ctx->Unmap(g.cb.Get(), 0);
     }
@@ -407,8 +409,10 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
             ready = SUCCEEDED(i.dev->CreateBuffer(&bd, nullptr, &g.cb)) &&
                     SUCCEEDED(i.dev->CreateBuffer(&bd, nullptr, &g.cbMotion));
         }
-        if (!ready)
+        if (!ready) {
+            i.probeDevice("vertex program buffer creation");
             i.programFailed("a buffer could not be created");
+        }
     }
     if (!ready) {
         // The exact CPU evaluation of the batch as a triangle list, through the ordinary draw (no motion history

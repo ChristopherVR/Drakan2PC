@@ -97,8 +97,8 @@ void D3D11Backend::Impl::createMaterialTexture(UpDone& d) const {
         w = std::max(1u, w / 2);
         h = std::max(1u, h / 2);
     }
-    if (FAILED(dev->CreateTexture2D(&td, init.data(), &d.material.tex)) ||
-        FAILED(dev->CreateShaderResourceView(d.material.tex.Get(), nullptr, &d.material.srv))) {
+    if (gone() || !deviceOk(dev->CreateTexture2D(&td, init.data(), &d.material.tex), "material texture") ||
+        !deviceOk(dev->CreateShaderResourceView(d.material.tex.Get(), nullptr, &d.material.srv), "material view")) {
         d.material.reset();
         d.materialBytes = 0;
     }
@@ -194,7 +194,7 @@ bool D3D11Backend::Impl::prepareMaterial(const GsDrawState& s, GpuView materialS
     auto& g = materialGpu;
     if (!g.contentValid || std::memcmp(&g.content, &k, sizeof(k)) != 0) {
         D3D11_MAPPED_SUBRESOURCE m{};
-        if (FAILED(ctx->Map(g.cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
+        if (FAILED(map(g.cb.Get(), D3D11_MAP_WRITE_DISCARD, m, "material constants")))
             return false;
         std::memcpy(m.pData, &k, sizeof(k));
         ctx->Unmap(g.cb.Get(), 0);

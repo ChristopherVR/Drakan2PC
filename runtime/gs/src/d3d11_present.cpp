@@ -12,8 +12,12 @@ void D3D11Backend::Impl::ensureDisp(uint32_t w, uint32_t h) {
     dispTex = makeTex(w, h, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
     dispRtv.Reset();
     dispSrv.Reset();
-    dev->CreateRenderTargetView(dispTex.Get(), nullptr, &dispRtv);
-    dev->CreateShaderResourceView(dispTex.Get(), nullptr, &dispSrv);
+    if (!dispTex) {
+        dispW = dispH = 0; // made again by the next display; a removed device ends the session first
+        return;
+    }
+    deviceOk(dev->CreateRenderTargetView(dispTex.Get(), nullptr, &dispRtv), "display view");
+    deviceOk(dev->CreateShaderResourceView(dispTex.Get(), nullptr, &dispSrv), "display view");
 }
 
 // returns display size in native pixels
@@ -124,7 +128,8 @@ bool D3D11Backend::Impl::renderDisplay(const DisplayState& d, uint32_t& outW, ui
     dc.bg[1] = (float)((d.bgcolor >> 8) & 0xFF) / 255.0f;
     dc.bg[2] = (float)((d.bgcolor >> 16) & 0xFF) / 255.0f;
     D3D11_MAPPED_SUBRESOURCE ms{};
-    ctx->Map(cbDisp.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    if (FAILED(map(cbDisp.Get(), D3D11_MAP_WRITE_DISCARD, ms, "display constants")))
+        return false; // a removed device (d3d11_device_loss.cpp): nothing is composed or shown any more
     std::memcpy(ms.pData, &dc, sizeof(dc));
     ctx->Unmap(cbDisp.Get(), 0);
 
@@ -245,11 +250,11 @@ void D3D11Backend::Impl::renderViewImage(const DisplayState& d, uint32_t w, uint
     pc.m[3] = scale;
     const uint32_t sizes[4] = {rt->srTargetW, rt->srTargetH, rt->srViewW, rt->srViewH};
     D3D11_MAPPED_SUBRESOURCE ms{};
-    if (FAILED(ctx->Map(cbPresent.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))
+    if (FAILED(map(cbPresent.Get(), D3D11_MAP_WRITE_DISCARD, ms, "view constants")))
         return;
     std::memcpy(ms.pData, &pc, sizeof(pc));
     ctx->Unmap(cbPresent.Get(), 0);
-    if (FAILED(ctx->Map(cbView.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms)))
+    if (FAILED(map(cbView.Get(), D3D11_MAP_WRITE_DISCARD, ms, "view constants")))
         return;
     std::memcpy(ms.pData, sizes, sizeof(sizes));
     ctx->Unmap(cbView.Get(), 0);
@@ -279,7 +284,7 @@ void D3D11Backend::Impl::renderViewImage(const DisplayState& d, uint32_t w, uint
 
 void D3D11Backend::Impl::latchDisplay(const DisplayState& d, uint32_t field) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::LatchDisplay);
-    if (!ok)
+    if (!ok || gone())
         return;
     if (pendingTemporalEnd) {
         for (auto& target : rts)
@@ -364,7 +369,7 @@ void D3D11Backend::Impl::present(const DisplayState& d) {
 
 void D3D11Backend::Impl::presentLatched() {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::PresentLatched);
-    if (!ok || !haveLatch || !swapRtv)
+    if (!ok || !haveLatch || !swapRtv || gone())
         return;
     const uint32_t w = latchedW, h = latchedH;
     float aspect = cfg.forcedAspect > 0.0f ? cfg.forcedAspect : (float)w / (float)h;
@@ -403,7 +408,8 @@ void D3D11Backend::Impl::presentLatched() {
     pc.m[2] = cfg.sharpPresent ? 1u : 0u;
     pc.m[3] = latchedScale;
     D3D11_MAPPED_SUBRESOURCE ms{};
-    ctx->Map(cbPresent.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &ms);
+    if (FAILED(map(cbPresent.Get(), D3D11_MAP_WRITE_DISCARD, ms, "present constants")))
+        return; // a removed device: no Present (d3d11_device_loss.cpp)
     std::memcpy(ms.pData, &pc, sizeof(pc));
     ctx->Unmap(cbPresent.Get(), 0);
     ID3D11RenderTargetView* rtv = swapRtv.Get();
@@ -556,7 +562,12 @@ void D3D11Backend::Impl::presentLatched() {
     CpuProfile::Scope presentProfile(cpuProfile, CpuProfile::PresentCall);
     gpuPasses.frameBoundary();
     if (swap) {
-        const HRESULT hr = swap->Present(vsyncOn ? 1 : 0, (!vsyncOn && tearingOk) ? DXGI_PRESENT_ALLOW_TEARING : 0u);
+        HRESULT hr = (HRESULT)device_loss::kDeviceRemoved;
+        if (!testLoss(device_loss::Site::Present))
+            hr = swap->Present(vsyncOn ? 1 : 0, (!vsyncOn && tearingOk) ? DXGI_PRESENT_ALLOW_TEARING : 0u);
+        else
+            deviceFailed(hr, "Present", true);
+        deviceOk(hr, "Present"); // DXGI_ERROR_DEVICE_REMOVED / _RESET end the session (d3d11_device_loss.cpp)
         presentSlotHeld = false;
         neuralPresentation.present(false, latchedGameWorld, latchedWorldEpoch,
                                    SUCCEEDED(hr) && hr != DXGI_STATUS_OCCLUDED);
@@ -608,6 +619,11 @@ void D3D11Backend::Impl::clusterHud() {
 }
 
 void D3D11Backend::Impl::endFrame() {
+    testLossFrameEnd(); // GSR_TEST_DEVICE_LOSS (d3d11_device_loss.cpp)
+    if (upFault)        // DLSS / neural rendering failed this frame: a removed device is not retried as a fault
+        probeDevice("upscaler fault");
+    if (gone())
+        return;
     nativeSubtitleOpen = false;
     tutorialBandRows.endFrame();
     CpuProfile::Scope profile(cpuProfile, CpuProfile::EndFrame);
