@@ -19,7 +19,7 @@
 //
 //   gsr_test_vertex_records [--scale N] [--frames N] [--gpu-api vulkan|d3d12] [--warp] [--out DIR [--pictures]]
 //                           [--scene NAME]
-// --scene NAME: only that scene, records under each evaluation mode (a stress loop; the rest is not run).
+// --scene NAME: only that scene's sequences (development and stress loops; the controls are skipped).
 // Exit 77: no hardware adapter (or not the graphics API asked for).
 #include "gsr/gsr.h"
 #include "gsr/renderer_choice.h"
@@ -1261,6 +1261,79 @@ Scene batchMixScene(uint32_t frame) {
     return s;
 }
 
+// Scene "outside": strip and batch records drawn into a 512 wide target beside the frame under a scissor that is wider
+// and taller than that target. Their vertices lie right of the target inside the scissor, right of the scissor, below
+// the scissor inside the target's rows, or across the target's right edge. Then a magnified, bilinear sprite on the
+// frame samples the side target. The packets path skips a draw that covers no pixel of the target and marks as drawn
+// only the rows its vertices span; a vertex-program draw must do the same (exact bounds), or rows of the side target
+// that hold an upload count as drawn and the sprite samples the target instead of memory, which differs at internal
+// scales above one.
+constexpr uint32_t kSideFbp = 360, kSideFbw = 8; // pages; 512 wide, after the textures
+constexpr uint32_t kFst = 1u << 8;
+Scene outsideScene(uint32_t frame) {
+    Scene s;
+    beginFrame(s, frame, frame == 0);
+    std::mt19937 rng(8008);
+    const float turn = 0.05f * static_cast<float>(frame);
+    const uint32_t plain[4] = {170, 90, 60, 0x80};
+    {
+        // the side target's first 64 rows from memory: noise, 128 x 64 pixels
+        std::vector<uint8_t> image(128u * 64u * 4u);
+        uint32_t noise = 99u + frame;
+        for (size_t i = 0; i < image.size(); i += 4) {
+            noise = noise * 1664525u + 1013904223u;
+            image[i] = static_cast<uint8_t>(noise >> 24);
+            image[i + 1] = static_cast<uint8_t>(noise >> 16);
+            image[i + 2] = static_cast<uint8_t>(noise >> 8);
+            image[i + 3] = 0x80;
+        }
+        Gif g;
+        g.ad({{kRegBitBltBuf, (static_cast<uint64_t>(kSideFbp * 32u) << 32) | (static_cast<uint64_t>(kSideFbw) << 48)},
+              {kRegTrxPos, 0},
+              {kRegTrxReg, 128ull | (64ull << 32)},
+              {kRegTrxDir, 0}});
+        g.image(image);
+        s.raw(GifPath::Path3, std::move(g));
+    }
+    // viewport offset shifts in pixels: right of the target inside the scissor, right of the scissor, below the
+    // scissor (inside the target's rows), across the target's right edge
+    const float shifts[4][2] = {{250, 0}, {520, 0}, {0, 300}, {180, -40}};
+    for (uint32_t i = 0; i < 12; ++i) {
+        const Variant v = setVariant(s, i);
+        Gif g;
+        g.ad({{kRegFrame, kSideFbp | (static_cast<uint64_t>(kSideFbw) << 16)},
+              {kRegZbuf, s.zbuf | (1ull << 32)},
+              {kRegTest, testReg(0, 0, 0, 0, kZAlways)}});
+        s.raw(GifPath::Path2, std::move(g));
+        Run r = patchForBatch(rng, v, Place{0.6f * static_cast<float>(i) + turn, -1.0f, 0, 0, 900}, 3, 6, 120.0f, turn);
+        r.k.offset[0] = bitsOf(2048.0f + shifts[i % 4u][0]);
+        r.k.offset[1] = bitsOf(2048.0f + shifts[i % 4u][1]);
+        if (i < 8)
+            s.run(std::move(r));
+        else
+            s.batch(cornerBatch(r, v.program == vp::StripsLit, plain));
+    }
+    {
+        // the side target, 512 x 448, magnified over the whole frame with bilinear filtering
+        Gif g;
+        g.ad({{kRegFrame, static_cast<uint64_t>(kFbw) << 16},
+              {kRegZbuf, s.zbuf | (1ull << 32)},
+              {kRegTest, testReg(0, 0, 0, 0, kZAlways)},
+              {kRegTex0, (kSideFbp * 32u) | (static_cast<uint64_t>(kSideFbw) << 14) | (9ull << 26) | (9ull << 30) |
+                             (1ull << 34) | (1ull << 35)},
+              {kRegTex1, 0x60},
+              {kRegClamp, 5},
+              {kRegAlpha, alphaReg(0, 1, 0, 1)}});
+        g.tag(2, true, kSprite | kTme | kFst, 0, 2, 0x53); // UV, XYZ2
+        g.qw(0, 0);
+        g.qw(screenXy(0, 0), 0);
+        g.qw((512ull * 16u) | ((448ull * 16u) << 16), 0);
+        g.qw(screenXy(kWidth, kHeight), 0);
+        s.raw(GifPath::Path2, std::move(g));
+    }
+    return s;
+}
+
 // Records a renderer has to ignore without reading outside them: each is a batch record with one field broken.
 std::vector<std::vector<uint8_t>> malformedBatches() {
     std::mt19937 rng(7007);
@@ -1369,12 +1442,13 @@ CounterShot counters() {
 struct Totals {
     uint64_t scenes = 0, sequences = 0, runsAsRecords = 0, runsAsPackets = 0, verticesAsRecords = 0;
     uint64_t verticesAsPackets = 0, backendFallbacks = 0, cpuVertices = 0, gpuVertices = 0, gpuBatchVertices = 0;
-    uint64_t batchRecords = 0, batchVertices = 0;
+    uint64_t batchRecords = 0, batchVertices = 0, memoryWords = 0, memoryDiffering = 0;
     Tally colour, depth;
     Tally controlColour, controlDepth; // the negative controls: these are meant to differ
 } g_totals;
 
 std::string g_outDir;
+std::string g_onlyScene;     // --scene NAME: only that scene's sequences (development; the controls are skipped)
 bool g_dumpPictures = false; // --pictures: frame 0 of every sequence as PNG files into --out
 
 enum class Stream { Packets, Records, FollowWord };
@@ -1388,12 +1462,16 @@ struct Sequence {
     uint32_t rungs = 256;
     Stream stream = Stream::Records;
     bool control = false;
+    // after every frame both renderers write their targets back and the whole local memory is compared (what the
+    // targets remember: the rows marked as drawn decide what is read back)
+    bool memory = false;
 };
 struct Result {
     Tally colour, depth;
     uint64_t recordFrames = 0, packetFrames = 0, records = 0, vertices = 0;
     Image lastA, lastB;
     bool ran = false;
+    uint64_t memoryWords = 0, memoryDiffering = 0;
 };
 
 void display(Renderer& gs) {
@@ -1511,6 +1589,19 @@ Result runSequence(const Config& cfg, const Sequence& q) {
             b->vsync(true);
             res.depth.add(compareFrames(*a, *b, q.name, "depth", f, nullptr, nullptr, q.control));
         }
+        if (q.memory) {
+            a->flushToMemory();
+            b->flushToMemory();
+            uint64_t differing = 0;
+            const uint8_t *ma = a->vram(), *mb = b->vram();
+            for (size_t i = 0; i < (4u << 20); i += 4)
+                differing += std::memcmp(ma + i, mb + i, 4) != 0;
+            if (differing)
+                std::printf("  [DIFF] %s frame %u (memory): %llu of %u words differ\n", q.name, f,
+                            static_cast<unsigned long long>(differing), 1u << 20);
+            res.memoryWords += 1u << 20;
+            res.memoryDiffering += differing;
+        }
         (records ? res.recordFrames : res.packetFrames)++;
         if (records) {
             res.records += runCount;
@@ -1553,6 +1644,9 @@ void expectIdentical(const Result& r, const char* what) {
     expect(r.ran && r.colour.frames != 0, what);
     expectEqual(r.colour.pixelsDiffering, 0, "colour pixels differing");
     expectEqual(r.depth.pixelsDiffering, 0, "depth picture pixels differing");
+    expectEqual(r.memoryDiffering, 0, "local memory words differing after the targets are written back");
+    g_totals.memoryWords += r.memoryWords;
+    g_totals.memoryDiffering += r.memoryDiffering;
 }
 
 struct NamedScene {
@@ -1560,9 +1654,8 @@ struct NamedScene {
     Scene (*build)(uint32_t);
 };
 const NamedScene kScenes[] = {{"world", worldScene},         {"many", manyScene},   {"interleaved", interleavedScene},
-                              {"generated", generatedScene}, {"batch", batchScene}, {"batchmix", batchMixScene}};
-
-const char* g_onlyScene = nullptr; // --scene
+                              {"generated", generatedScene}, {"batch", batchScene}, {"batchmix", batchMixScene},
+                              {"outside", outsideScene}};
 
 void resetPath() {
     vpath::configure(vpath::pack(vpath::Eval::Microprogram, vpath::kAllStages), 0);
@@ -1603,10 +1696,11 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
     const vpath::Eval kModes[] = {vpath::Eval::Records, vpath::Eval::Gpu, vpath::Eval::Microprogram};
     for (const NamedScene& ns : kScenes)
         for (const vpath::Eval mode : kModes) {
-            if (g_onlyScene && std::strcmp(g_onlyScene, ns.name) != 0)
+            if (!g_onlyScene.empty() && g_onlyScene != ns.name)
                 continue;
             vpath::configure(vpath::pack(mode, vpath::kAllStages), 0);
             Sequence q{ns.name, ns.build, nullptr, 2, 1, rungs, Stream::Records, false};
+            q.memory = ns.build == outsideScene;
             const Result r = runSequence(cfg, q);
             const std::string what = std::string("records, mode ") + vpath::evalName(mode);
             report(what.c_str(), q, r);
@@ -1619,9 +1713,6 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
             }
             ++g_totals.scenes;
         }
-    if (g_onlyScene)
-        return;
-
     // The mode flipping at frame boundaries (DRAKAN_VERTEX_TOGGLE): the second renderer gets records in the frames
     // the control word asks for them and packets in the others, like the game.
     struct Toggle {
@@ -1631,12 +1722,15 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
     };
     const Toggle kToggles[] = {{2, vpath::Eval::Records, 1}, {0, vpath::Eval::Gpu, 3},     {1, vpath::Eval::Records, 5},
                                {3, vpath::Eval::Gpu, 2},     {4, vpath::Eval::Records, 2}, {5, vpath::Eval::Gpu, 1},
-                               {5, vpath::Eval::Records, 3}};
+                               {5, vpath::Eval::Records, 3}, {6, vpath::Eval::Gpu, 1},     {6, vpath::Eval::Gpu, 3}};
     for (const Toggle& t : kToggles) {
+        if (!g_onlyScene.empty() && g_onlyScene != kScenes[t.scene].name)
+            continue;
         vpath::configure(vpath::pack(t.mode, vpath::kAllStages), t.every);
         const uint64_t switchesBefore = vpath::state().counters.switches.load();
         Sequence q{
             kScenes[t.scene].name, kScenes[t.scene].build, nullptr, toggleFrames, 8, rungs, Stream::FollowWord, false};
+        q.memory = kScenes[t.scene].build == outsideScene;
         const Result r = runSequence(cfg, q);
         const std::string what =
             std::string("toggle every ") + std::to_string(t.every) + ", mode " + vpath::evalName(t.mode);
@@ -1652,6 +1746,8 @@ void runScale(Config cfg, uint32_t scale, uint32_t toggleFrames) {
         ++g_totals.scenes;
     }
     resetPath();
+    if (!g_onlyScene.empty())
+        return;
 
     // ---- negative controls: one constant of one record changed in the second renderer only ----
     vpath::configure(vpath::pack(vpath::Eval::Records, vpath::kAllStages), 0);
@@ -1975,6 +2071,8 @@ int main(int argc, char** argv) {
                 static_cast<unsigned long long>(t.controlDepth.frames),
                 static_cast<unsigned long long>(t.controlDepth.framesDiffering),
                 static_cast<unsigned long long>(t.controlDepth.pixelsDiffering));
+    std::printf("local memory compared after write-back: %llu words, differing: %llu\n",
+                static_cast<unsigned long long>(t.memoryWords), static_cast<unsigned long long>(t.memoryDiffering));
     std::printf("%llu checks, %d failed\n", static_cast<unsigned long long>(g_checks), g_failures);
     return g_failures ? 1 : 0;
 }

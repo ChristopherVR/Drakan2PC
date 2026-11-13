@@ -5,7 +5,8 @@
 // blend, depth, alpha test, scissor, passes and what the target remembers are one code. Three things differ and are
 // decided here:
 //   * which records may take the path at all (stateTakes, backendTakes), each decline with its counted reason;
-//   * what Impl::draw reads of a draw's vertices: three stand-in vertices answer it (standIns);
+//   * what Impl::draw reads of a draw's vertices: three stand-in vertices over the exact bounds answer it (standIns,
+//     programBounds);
 //   * the motion vectors: the previous constants and raw positions of every record (trackBatch), which a velocity
 //     shader turns into the value the CPU path computes in motion::History::track (historyOf is that computation,
 //     written once for the shader text, the tests and the documentation).
@@ -16,9 +17,10 @@
 //   bindProgramDraw          after bindDraw: the batch's buffers and vertex program replace the stand-ins'
 //   drawProgramVertices      one indexed pass over the batch
 //   drawProgramVelocity      the velocity pass of the colour pass just drawn
-// The bounds of a batch are its scissor (the vertices are not known on the CPU). That is exact for everything a
-// frame-sized target remembers per draw, and too coarse for the small scratch targets the game reads back (shadow
-// and portrait targets, 128 wide): records into a target less than kMinTargetWidth wide keep the CPU evaluation.
+// The bounds of a batch are exact (programBounds: the vertices' places estimated with an error bound, the possible
+// extremes evaluated exactly), so a draw that covers no pixel of its target is skipped and only the rows its vertices
+// span count as drawn, as on the CPU path. Records into a target less than kMinTargetWidth wide (shadow and portrait
+// targets, 128 wide, which the game reads back every frame) keep the CPU evaluation.
 #pragma once
 #include "gs_internal.h"
 #include "program_motion.h"
@@ -195,12 +197,63 @@ inline void prepare(const vp::Pass& pass, PreparedPass& out) {
         out.scale[l] = asDouble(pass.k[6][l]);
     }
 }
+constexpr double kRel = 1.0 / (1u << 20);
+constexpr double kLarge = 1e36; // well below the largest float: no product or sum on the way saturates
+// One Transform or Project pass on an estimated position (`pos`, with its error bound `posErr`): the fixed-point x
+// and y (before the truncation to an integer and the 16-bit wrap) replace lanes 0 and 1. Lane 2 is not estimated (no
+// bound depends on it, and no position pass may follow). False when the result cannot be bounded.
+inline bool projectEstimate(const PreparedPass& p, double pos[4], double posErr[4]) {
+    double clip[4] = {0, 0, 0, 0}, clipErr[4] = {0, 0, 0, 0};
+    for (int l = 0; l < 4; ++l) {
+        if (l == 2)
+            continue;
+        if (p.kind == vp::PassTransform) {
+            double sum = 0, magnitude = 0, carried = 0;
+            for (int c = 0; c < 4; ++c) {
+                const double term = p.m[c][l] * pos[c];
+                sum += term;
+                magnitude += std::fabs(term);
+                carried += std::fabs(p.m[c][l]) * posErr[c];
+            }
+            if (!(magnitude < kLarge))
+                return false; // the VU saturates at the largest float where a double does not
+            clip[l] = sum;
+            clipErr[l] = kRel * magnitude + carried;
+        } else {
+            clip[l] = pos[l];
+            clipErr[l] = posErr[l];
+        }
+    }
+    const double w = clip[3];
+    if (!(std::fabs(w) > 4.0 * clipErr[3] + 1e-30) || !(std::fabs(1.0 / w) < kLarge))
+        return false; // 1 / w not bounded
+    const double q = 1.0 / w, qErr = std::fabs(q) * (clipErr[3] / (std::fabs(w) - clipErr[3]) + kRel);
+    for (int l = 0; l < 2; ++l) {
+        const double scaled = clip[l] * p.scale[l];
+        if (!(std::fabs(scaled) < kLarge && std::fabs(scaled * q) < kLarge))
+            return false;
+        const double value = p.offset[l] + scaled * q;
+        const double valueErr = std::fabs(p.scale[l]) * (clipErr[l] * std::fabs(q) + std::fabs(clip[l]) * qErr) +
+                                kRel * (std::fabs(p.offset[l]) + 2.0 * std::fabs(scaled * q));
+        pos[l] = value * 16.0;
+        posErr[l] = valueErr * 16.0 + kRel * std::fabs(pos[l]) + 1.0; // the truncation to an integer
+    }
+    return true;
+}
+// The bound of a projected place: false when it saturates or wraps.
+inline bool placeOf(const double pos[4], const double posErr[4], double place[2], double& error) {
+    error = std::max(posErr[0], posErr[1]);
+    for (int l = 0; l < 2; ++l) {
+        place[l] = pos[l];
+        if (!(pos[l] - error >= 0.0 && pos[l] + error <= 65535.0)) // saturation or the 16-bit wrap
+            return false;
+    }
+    return true;
+}
 // Estimates the fixed-point x and y (before the 16-bit wrap) of a vertex from its position passes (`mask` over the
 // record's passes, `prepared` indexed by pass): false when it cannot be bounded.
 inline bool estimatePlace(const PreparedPass* prepared, uint32_t mask, const vp::BatchVertex& v, double place[2],
                           double& error) {
-    constexpr double kRel = 1.0 / (1u << 20);
-    constexpr double kLarge = 1e36; // well below the largest float: no product or sum on the way saturates
     double pos[4] = {0, 0, 0, 0}, posErr[4] = {0, 0, 0, 0};
     bool raw = true; // the position lanes are still the raw row (a grid pass replaces all four)
     bool projected = false;
@@ -229,50 +282,60 @@ inline bool estimatePlace(const PreparedPass* prepared, uint32_t mask, const vp:
             }
             raw = false;
         }
-        double clip[4], clipErr[4];
-        for (int l = 0; l < 4; ++l) {
-            if (p.kind == vp::PassTransform) {
-                double sum = 0, magnitude = 0, carried = 0;
-                for (int c = 0; c < 4; ++c) {
-                    const double term = p.m[c][l] * pos[c];
-                    sum += term;
-                    magnitude += std::fabs(term);
-                    carried += std::fabs(p.m[c][l]) * posErr[c];
-                }
-                if (!(magnitude < kLarge))
-                    return false; // the VU saturates at the largest float where a double does not
-                clip[l] = sum;
-                clipErr[l] = kRel * magnitude + carried;
-            } else {
-                clip[l] = pos[l];
-                clipErr[l] = posErr[l];
-            }
-        }
-        const double w = clip[3];
-        if (!(std::fabs(w) > 4.0 * clipErr[3] + 1e-30) || !(std::fabs(1.0 / w) < kLarge))
-            return false; // 1 / w not bounded
-        const double q = 1.0 / w, qErr = std::fabs(q) * (clipErr[3] / (std::fabs(w) - clipErr[3]) + kRel);
-        for (int l = 0; l < 2; ++l) {
-            const double scaled = clip[l] * p.scale[l];
-            if (!(std::fabs(scaled) < kLarge && std::fabs(scaled * q) < kLarge))
-                return false;
-            const double value = p.offset[l] + scaled * q;
-            const double valueErr = std::fabs(p.scale[l]) * (clipErr[l] * std::fabs(q) + std::fabs(clip[l]) * qErr) +
-                                    kRel * (std::fabs(p.offset[l]) + 2.0 * std::fabs(scaled * q));
-            pos[l] = value * 16.0;
-            posErr[l] = valueErr * 16.0 + kRel * std::fabs(pos[l]) + 1.0; // the truncation to an integer
-        }
+        if (!projectEstimate(p, pos, posErr))
+            return false;
         projected = true;
     }
-    if (!projected)
-        return false;
-    error = std::max(posErr[0], posErr[1]);
+    return projected && placeOf(pos, posErr, place, error);
+}
+// A strip record's constants as the Transform pass with the same x and y: the strip stage computes them with the
+// operations of passTransform (whose offset is first multiplied by one, which changes no bit).
+inline void prepareStrip(const vp::Constants& k, PreparedPass& out) {
+    out.kind = vp::PassTransform;
+    out.usable = true;
+    for (int c = 0; c < 4; ++c)
+        for (int l = 0; l < 4; ++l) {
+            out.usable = out.usable && ordinary(k.mvp[c][l]);
+            out.m[c][l] = asDouble(k.mvp[c][l]);
+        }
     for (int l = 0; l < 2; ++l) {
-        place[l] = pos[l];
-        if (!(pos[l] - error >= 0.0 && pos[l] + error <= 65535.0)) // saturation or the 16-bit wrap
-            return false;
+        out.usable = out.usable && ordinary(k.offset[l]) && ordinary(k.scale[l]);
+        out.offset[l] = asDouble(k.offset[l]);
+        out.scale[l] = asDouble(k.scale[l]);
     }
-    return true;
+}
+// The estimate of a strip vertex's fixed-point x and y: false when it cannot be bounded.
+inline bool estimateStrip(const PreparedPass& p, const vp::Vertex& v, double place[2], double& error) {
+    if (!p.usable)
+        return false;
+    double pos[4], posErr[4] = {0, 0, 0, 0};
+    for (int l = 0; l < 4; ++l) {
+        if (!ordinary(v.pos[l]))
+            return false;
+        pos[l] = asDouble(v.pos[l]);
+    }
+    return projectEstimate(p, pos, posErr) && placeOf(pos, posErr, place, error);
+}
+// The exact x and y of a strip vertex: the place lanes of vp::evaluate, nothing else.
+inline void exactStripPlace(const vp::Constants& k, const vp::Vertex& v, int32_t& x, int32_t& y) {
+    using namespace vp::vu;
+    uint32_t p[4], clip[4] = {0, 0, 0, 0};
+    for (int i = 0; i < 4; ++i)
+        p[i] = operand(v.pos[i]);
+    for (int l = 0; l < 4; ++l) {
+        if (l == 2)
+            continue;
+        uint32_t acc = mul(operand(k.mvp[0][l]), p[0]);
+        acc = add(acc, mul(operand(k.mvp[1][l]), p[1]));
+        acc = add(acc, mul(operand(k.mvp[2][l]), p[2]));
+        clip[l] = add(acc, mul(operand(k.mvp[3][l]), p[3]));
+    }
+    const uint32_t q = reciprocal(clip[3]);
+    int32_t fixed[2];
+    for (int l = 0; l < 2; ++l)
+        fixed[l] = toFixed(add(operand(k.offset[l]), mul(mul(clip[l], operand(k.scale[l])), q)), 4);
+    x = static_cast<uint16_t>(fixed[0]);
+    y = static_cast<uint16_t>(fixed[1]);
 }
 // The exact x and y (16-bit fixed point) of a vertex: its position passes with the VU's arithmetic.
 inline void exactPlace(const vp::Pass* passes, uint32_t mask, const vp::BatchVertex& v, int32_t& x, int32_t& y) {
@@ -356,6 +419,69 @@ inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
     out.x1 = (exact[2] - offsetX) * (1.0f / 16.0f);
     out.y1 = (exact[3] - offsetY) * (1.0f / 16.0f);
     return out;
+}
+
+// The exact bounds of a batch of strip records, by the same method as batchBounds: per vertex the estimate of the
+// strip stage's place from the record's constants (one prepared transform per record), then the vertices that can
+// be an extreme evaluated exactly (the place lanes of vp::evaluate alone).
+inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
+    Bounds out;
+    if (b.batchPath || !b.indexCount)
+        return out;
+    scratch.used.assign(b.vertexCount, 0);
+    for (uint32_t i = 0; i < b.indexCount; ++i)
+        if (b.indices[i] < b.vertexCount)
+            scratch.used[b.indices[i]] = 1;
+    scratch.estimates.clear();
+    double lowX = 1e300, lowY = 1e300, highX = -1e300, highY = -1e300;
+    int32_t exact[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
+    const auto evaluate = [&](uint32_t i) {
+        int32_t x, y;
+        batchdetail::exactStripPlace(b.constants[b.vertices[i].constants], b.vertices[i].in, x, y);
+        exact[0] = std::min(exact[0], x);
+        exact[1] = std::min(exact[1], y);
+        exact[2] = std::max(exact[2], x);
+        exact[3] = std::max(exact[3], y);
+        ++out.exact;
+    };
+    batchdetail::PreparedPass prepared;
+    for (uint32_t r = 0; r < b.recordCount; ++r) {
+        const VertexProgramRecord& record = b.records[r];
+        if (record.constants >= b.constantCount || record.firstVertex + record.vertexCount > b.vertexCount)
+            continue;
+        batchdetail::prepareStrip(b.constants[record.constants], prepared);
+        for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
+            if (!scratch.used[i])
+                continue;
+            double place[2], error = 0;
+            if (b.vertices[i].constants != record.constants ||
+                !batchdetail::estimateStrip(prepared, b.vertices[i].in, place, error)) {
+                evaluate(i);
+                continue;
+            }
+            scratch.estimates.push_back({i, 0, r, place[0], place[1], error});
+            lowX = std::min(lowX, place[0] + error);
+            lowY = std::min(lowY, place[1] + error);
+            highX = std::max(highX, place[0] - error);
+            highY = std::max(highY, place[1] - error);
+        }
+    }
+    for (const BoundsScratch::Estimate& e : scratch.estimates)
+        if (e.x - e.error <= lowX || e.y - e.error <= lowY || e.x + e.error >= highX || e.y + e.error >= highY)
+            evaluate(e.vertex);
+    if (exact[0] == INT32_MAX)
+        return out;
+    out.any = true;
+    out.x0 = (exact[0] - offsetX) * (1.0f / 16.0f);
+    out.y0 = (exact[1] - offsetY) * (1.0f / 16.0f);
+    out.x1 = (exact[2] - offsetX) * (1.0f / 16.0f);
+    out.y1 = (exact[3] - offsetY) * (1.0f / 16.0f);
+    return out;
+}
+
+// The exact bounds of either kind of batch.
+inline Bounds programBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
+    return b.batchPath ? batchBounds(b, offsetX, offsetY, scratch) : stripBounds(b, offsetX, offsetY, scratch);
 }
 
 // Three vertices over the scissor: perspective (q is not a UI value), fog 0, so Impl::draw classifies the draw as

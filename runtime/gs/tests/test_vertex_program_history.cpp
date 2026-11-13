@@ -21,6 +21,7 @@
 #include <dxgi.h>
 #include <wrl/client.h>
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -376,6 +377,94 @@ int main() {
             ++bad;
         }
     }
+    {
+        // program_draw::stripBounds (estimate, then the possible extremes exactly) against vp::evaluate of every
+        // vertex, over batches of 1 to 200 strip vertices with the triangles (i, i + 1, i + 2); one record per run of
+        // vertices with the same constants. Also its cost per bounded vertex, against evaluating every vertex.
+        std::vector<VertexProgramVertex> vertices(strips.size());
+        const size_t recordedFrom = strips.size() - standard.recorded;
+        for (size_t i = 0; i < strips.size(); ++i)
+            vertices[i] = VertexProgramVertex{strips[i].in, strips[i].constants, strips[i].program, {0, 0}};
+        std::mt19937 rng(78u);
+        program_draw::BoundsScratch scratch;
+        uint64_t batches = 0, differ = 0, bounded = 0, exactly = 0;
+        double boundsSeconds = 0, everySeconds = 0;
+        // the same for the batches of recorded game vertices alone (the cases put them last)
+        double gameSeconds = 0;
+        uint64_t gameBounded = 0, gameExactly = 0;
+        for (size_t first = 0; first < vertices.size();) {
+            const uint32_t n = std::min<uint32_t>(1u + rng() % 200u, (uint32_t)(vertices.size() - first));
+            std::vector<uint32_t> indices;
+            for (uint32_t i = 0; i + 2 < n; ++i)
+                for (uint32_t c = 0; c < 3; ++c)
+                    indices.push_back(i + c);
+            std::vector<VertexProgramRecord> records;
+            for (uint32_t i = 0; i < n; ++i) {
+                if (records.empty() || records.back().constants != vertices[first + i].constants) {
+                    VertexProgramRecord r;
+                    r.firstVertex = i;
+                    r.constants = vertices[first + i].constants;
+                    r.program = vertices[first + i].program;
+                    records.push_back(r);
+                }
+                ++records.back().vertexCount;
+            }
+            VertexProgramBatch b;
+            b.records = records.data();
+            b.recordCount = (uint32_t)records.size();
+            b.vertices = vertices.data() + first;
+            b.vertexCount = n;
+            b.constants = standard.cases.constants.data();
+            b.constantCount = (uint32_t)standard.cases.constants.size();
+            b.indices = indices.data();
+            b.indexCount = (uint32_t)indices.size();
+            const int32_t ox = (int32_t)(rng() % 65536u), oy = (int32_t)(rng() % 65536u);
+            const auto t0 = std::chrono::steady_clock::now();
+            const program_draw::Bounds got = program_draw::stripBounds(b, ox, oy, scratch);
+            const auto t1 = std::chrono::steady_clock::now();
+            int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
+            for (uint32_t i = 0; i < (n >= 3 ? n : 0); ++i) {
+                const VertexProgramVertex& v = b.vertices[i];
+                const vp::Output o = vp::evaluate(v.program, b.constants[v.constants], v.in);
+                want[0] = std::min(want[0], (int32_t)o.x);
+                want[1] = std::min(want[1], (int32_t)o.y);
+                want[2] = std::max(want[2], (int32_t)o.x);
+                want[3] = std::max(want[3], (int32_t)o.y);
+            }
+            const auto t2 = std::chrono::steady_clock::now();
+            boundsSeconds += std::chrono::duration<double>(t1 - t0).count();
+            everySeconds += std::chrono::duration<double>(t2 - t1).count();
+            const bool any = want[0] != INT32_MAX;
+            const bool same =
+                got.any == any &&
+                (!any || (got.x0 == (want[0] - ox) * (1.0f / 16.0f) && got.y0 == (want[1] - oy) * (1.0f / 16.0f) &&
+                          got.x1 == (want[2] - ox) * (1.0f / 16.0f) && got.y1 == (want[3] - oy) * (1.0f / 16.0f)));
+            if (!same && differ < 4)
+                std::printf("  [FAIL] strip bounds at vertex %zu: got %g %g %g %g, want %g %g %g %g\n", first, got.x0,
+                            got.y0, got.x1, got.y1, (want[0] - ox) / 16.0, (want[1] - oy) / 16.0, (want[2] - ox) / 16.0,
+                            (want[3] - oy) / 16.0);
+            differ += !same;
+            ++batches;
+            bounded += n >= 3 ? n : 0;
+            exactly += got.exact;
+            if (first >= recordedFrom) {
+                gameSeconds += std::chrono::duration<double>(t1 - t0).count();
+                gameBounded += n >= 3 ? n : 0;
+                gameExactly += got.exact;
+            }
+            first += n;
+        }
+        std::printf("strip bounds: %llu batches (%llu vertices, %llu of them evaluated exactly), %llu differ; %.1f ns "
+                    "per vertex (every vertex evaluated: %.1f ns)\n",
+                    (unsigned long long)batches, (unsigned long long)bounded, (unsigned long long)exactly,
+                    (unsigned long long)differ, bounded ? boundsSeconds * 1e9 / (double)bounded : 0.0,
+                    bounded ? everySeconds * 1e9 / (double)bounded : 0.0);
+        std::printf("%s bounds of the recorded game vertices alone: %llu vertices, %llu evaluated exactly, %.1f ns per "
+                    "vertex\n",
+                    "strip", (unsigned long long)gameBounded, (unsigned long long)gameExactly,
+                    gameBounded ? gameSeconds * 1e9 / (double)gameBounded : 0.0);
+        bad += differ;
+    }
     // The batch path: every vertex of the batch cases (and of GSR_VB_RECORDS).
     const vbcases::Cases batchCases = vbcases::standardCases();
     std::printf("batch path: ");
@@ -384,6 +473,7 @@ int main() {
         // program_draw::batchBounds (estimate, then the possible extremes exactly) against the exact evaluation of
         // every vertex, over batches of 1 to 64 vertices of the cases with the triangles (i, i + 1, i + 2).
         std::vector<vp::BatchVertex> vertices(batchCases.vertices.size());
+        const size_t recordedFrom = vertices.size() - batchCases.recorded;
         for (size_t i = 0; i < vertices.size(); ++i) {
             vertices[i] = vbcases::batchVertexOf(batchCases.vertices[i]);
             vertices[i].slot = batchCases.vertices[i].base;
@@ -391,6 +481,10 @@ int main() {
         std::mt19937 rng(77u);
         program_draw::BoundsScratch scratch;
         uint64_t batches = 0, differ = 0, bounded = 0, exactly = 0;
+        double boundsSeconds = 0, everySeconds = 0;
+        // the same for the batches of recorded game vertices alone (the cases put them last)
+        double gameSeconds = 0;
+        uint64_t gameBounded = 0, gameExactly = 0;
         for (size_t first = 0; first < vertices.size();) {
             const uint32_t n = std::min<uint32_t>(1u + rng() % 64u, (uint32_t)(vertices.size() - first));
             std::vector<uint32_t> indices;
@@ -422,7 +516,9 @@ int main() {
             b.indices = indices.data();
             b.indexCount = (uint32_t)indices.size();
             const int32_t ox = (int32_t)(rng() % 65536u), oy = (int32_t)(rng() % 65536u);
+            const auto t0 = std::chrono::steady_clock::now();
             const program_draw::Bounds got = program_draw::batchBounds(b, ox, oy, scratch);
+            const auto t1 = std::chrono::steady_clock::now();
             int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
             for (uint32_t i = 0; i < (n >= 3 ? n : 0); ++i) {
                 const vp::BatchVertex& v = b.batchVertices[i];
@@ -432,6 +528,9 @@ int main() {
                 want[2] = std::max(want[2], (int32_t)o.x);
                 want[3] = std::max(want[3], (int32_t)o.y);
             }
+            const auto t2 = std::chrono::steady_clock::now();
+            boundsSeconds += std::chrono::duration<double>(t1 - t0).count();
+            everySeconds += std::chrono::duration<double>(t2 - t1).count();
             const bool any = want[0] != INT32_MAX;
             const bool same =
                 got.any == any &&
@@ -445,11 +544,22 @@ int main() {
             ++batches;
             bounded += n >= 3 ? n : 0;
             exactly += got.exact;
+            if (first >= recordedFrom) {
+                gameSeconds += std::chrono::duration<double>(t1 - t0).count();
+                gameBounded += n >= 3 ? n : 0;
+                gameExactly += got.exact;
+            }
             first += n;
         }
-        std::printf("batch bounds: %llu batches (%llu vertices, %llu of them evaluated exactly), %llu differ\n",
+        std::printf("batch bounds: %llu batches (%llu vertices, %llu of them evaluated exactly), %llu differ; %.1f ns "
+                    "per vertex (every vertex evaluated: %.1f ns)\n",
                     (unsigned long long)batches, (unsigned long long)bounded, (unsigned long long)exactly,
-                    (unsigned long long)differ);
+                    (unsigned long long)differ, bounded ? boundsSeconds * 1e9 / (double)bounded : 0.0,
+                    bounded ? everySeconds * 1e9 / (double)bounded : 0.0);
+        std::printf("%s bounds of the recorded game vertices alone: %llu vertices, %llu evaluated exactly, %.1f ns per "
+                    "vertex\n",
+                    "batch", (unsigned long long)gameBounded, (unsigned long long)gameExactly,
+                    gameBounded ? gameSeconds * 1e9 / (double)gameBounded : 0.0);
         bad += differ;
     }
     for (const vp::ArithmeticRequest request : {vp::ArithmeticRequest::Limbs, vp::ArithmeticRequest::Doubles}) {

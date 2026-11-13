@@ -49,6 +49,7 @@ struct WgpuBackend::Impl::ProgramGpu {
     std::vector<DrawVertex> evaluated; // the batch evaluated on the CPU, as a triangle list
     bool shaderPass = false, cpuPass = false;
     vpath::Fallback cpuReason = vpath::Fallback::NotReady;
+    program_draw::BoundsScratch boundsScratch;
     // Counts for the summary line at the end of the session.
     uint64_t shaderBatches = 0, shaderVertices = 0, notReadyBatches = 0, notReadyVertices = 0, failedBatches = 0;
     uint64_t skippedBatches = 0, skippedVertices = 0;
@@ -331,6 +332,11 @@ void WgpuBackend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut, 
     g.xyoffset = st.xyoffset;
     DrawVertex standIns[3];
     program_draw::standIns(st, standIns);
+    // The exact bounds of the batch: the stand-ins span them instead of the scissor (program_draw::programBounds)
+    const program_draw::Bounds bounds = program_draw::programBounds(
+        batch, (int32_t)(st.xyoffset & 0xFFFF), (int32_t)((st.xyoffset >> 32) & 0xFFFF), g.boundsScratch);
+    if (bounds.any)
+        program_draw::standInsOver(bounds, standIns);
     i.programBatch = &batch;
     i.draw(st, clut, standIns, 3);
     i.programBatch = nullptr;

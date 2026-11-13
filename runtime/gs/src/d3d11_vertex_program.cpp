@@ -57,14 +57,14 @@ struct D3D11Backend::Impl::ProgramGpu {
     std::vector<vp::Pass> previousPasses;
     std::vector<DrawVertex> fallback;
     program_draw::BoundsScratch boundsScratch;
-    uint64_t boundsExact = 0, boundsVertices = 0; // vertices batchBounds evaluated exactly, of all it bounded
+    uint64_t boundsExact = 0, boundsVertices = 0; // vertices programBounds evaluated exactly, of all it bounded
     bool motionTracked = false;
     uint64_t batches_ = 0, velocityBatches = 0;
 
     Shaders& of(bool batchPath) { return batchPath ? batches : strips; }
     ~ProgramGpu() {
         if (boundsVertices && std::getenv("DRAKAN_VERTEX_LOG"))
-            std::fprintf(stderr, "[gsr] vertex programs: batch bounds over %llu vertices, %llu evaluated exactly\n",
+            std::fprintf(stderr, "[gsr] vertex programs: bounds over %llu vertices, %llu evaluated exactly\n",
                          (unsigned long long)boundsVertices, (unsigned long long)boundsExact);
     }
 };
@@ -542,9 +542,9 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
     }
     DrawVertex standIns[3];
     program_draw::standIns(st, standIns);
-    if (bp) {
-        // The exact bounds of the batch: the stand-ins span them instead of the scissor (program_draw::batchBounds)
-        const program_draw::Bounds bounds = program_draw::batchBounds(
+    {
+        // The exact bounds of the batch: the stand-ins span them instead of the scissor (program_draw::programBounds)
+        const program_draw::Bounds bounds = program_draw::programBounds(
             batch, (int32_t)(st.xyoffset & 0xFFFF), (int32_t)((st.xyoffset >> 32) & 0xFFFF), g.boundsScratch);
         g.boundsExact += bounds.exact;
         g.boundsVertices += batch.vertexCount;
