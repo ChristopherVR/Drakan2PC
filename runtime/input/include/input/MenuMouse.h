@@ -171,6 +171,9 @@ public:
     bool journalDisabled() const { return journalDisabled_; }
     // A campaign without spells: the Spells tab (section 1, not drawn) takes no click.
     void setSpellsDisabled(bool disabled) { spellsDisabled_ = disabled; }
+    // Shift in tab slots of inventory tab `index` (of five) while the Spells tab is hidden: the drawn tabs stand evenly
+    // over the old row (drakan_views::tabSlotShift), so tab 2 moves 2/3 and tab 3 1/3 of a slot left.
+    static float categorySlotShift(unsigned index, bool spellsHidden);
     bool spellsDisabled() const { return spellsDisabled_; }
     // Section-plane point -> native GUI pixels through the camera installed right now (projectPlane).
     bool projectInventoryPlane(IGuest& g, uint32_t transform, float x, float y, float& sx, float& sy) const;

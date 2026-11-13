@@ -128,6 +128,38 @@ struct Fixture {
 };
 
 static void categoryChecks() {
+    // A campaign without spells: the guest draws tabs 2 and 3 2/3 and 1/3 of a slot left of their captured boxes, so
+    // the hit test moves those boxes; the old Skills spot is empty, the Spells box swallows its clicks.
+    {
+        check(MenuMouse::categorySlotShift(0, true) == 0.0f && MenuMouse::categorySlotShift(4, true) == 0.0f &&
+                  MenuMouse::categorySlotShift(2, false) == 0.0f,
+              "end tabs and the disc game keep their boxes");
+        Fixture f;
+        f.initCategories();
+        f.mouse.setSpellsDisabled(true);
+        f.g.write32(Fixture::screen + 0x154, 0);
+        f.captureCategories();
+        auto at = [](float guiX) {
+            auto s = Fixture::categorySample(0, false);
+            s.cx = 256 + guiX * 2.56f;
+            return s;
+        };
+        f.mouse.update(f.g, at(-70 + 2 * 30), f.view, 0); // the old Skills spot
+        check(f.mouse.debug().categoryHit == -1, "old Skills spot hits nothing");
+        f.captureCategories();
+        f.mouse.update(f.g, at(-70 + 2 * 30 - 20), f.view, 0); // where Skills is drawn now
+        check(f.mouse.debug().categoryHit == 2, "drawn Skills tab hits Skills");
+        f.captureCategories();
+        f.mouse.update(f.g, at(-70 + 3 * 30 - 10), f.view, 0);
+        check(f.mouse.debug().categoryHit == 3, "drawn Map tab hits Map");
+        f.captureCategories();
+        f.mouse.update(f.g, at(-70 + 4 * 30), f.view, 0);
+        check(f.mouse.debug().categoryHit == 4, "Journal unchanged");
+        f.mouse.setSpellsDisabled(false);
+        f.captureCategories();
+        f.mouse.update(f.g, at(-70 + 2 * 30), f.view, 0);
+        check(f.mouse.debug().categoryHit == 2, "with spells the boxes stay");
+    }
     {
         Fixture f;
         f.initCategories();

@@ -293,6 +293,13 @@ void MenuMouse::setHotspots(uint32_t screen, const std::vector<Hotspot>& list) {
     hotFrame_ = frame_;
 }
 
+float MenuMouse::categorySlotShift(unsigned index, bool spellsHidden) {
+    // Tabs 0, 2, 3, 4 spread over slots 0..4: slot 4 * k / 3 for the k-th drawn tab.
+    if (!spellsHidden || index < 2 || index > 4)
+        return 0.0f;
+    return 4.0f * float(index - 1) / 3.0f - float(index);
+}
+
 void MenuMouse::captureInventoryCategory(IGuest& g, uint32_t record) {
     const auto span = [](uint32_t p, uint32_t bytes) {
         return p >= 0x100000u && bytes <= kRamEnd && p <= kRamEnd - bytes && (p & 3u) == 0;
@@ -1144,6 +1151,14 @@ MenuMouseResult MenuMouse::updateInventory(IGuest& g, uint32_t scr, const MenuMo
     };
     int categoryHit = -1;
     bool categoryBand = false;
+    // A campaign without spells draws the four tabs evenly over the old row (the guest moves the icons after their
+    // boxes are captured, drakan_campaign_spells.inl): the boxes move the same way. One slot is a quarter of the
+    // distance between the first and the last box, which never move.
+    float slotWidth = 0.0f;
+    if (spellsDisabled_ && categoryCount == 5 && categories_[0].record && categories_[4].record)
+        slotWidth = 0.25f *
+                    ((categories_[4].left + categories_[4].right) - (categories_[0].left + categories_[0].right)) *
+                    0.5f;
     for (unsigned i = 0; i < 5; ++i) {
         auto& r = categories_[i];
         if (r.age < 100)
@@ -1156,7 +1171,8 @@ MenuMouseResult MenuMouse::updateInventory(IGuest& g, uint32_t scr, const MenuMo
             continue;
         if (ty >= r.top && ty < r.bottom)
             categoryBand = true;
-        if (tx >= r.left && tx < r.right && ty >= r.top && ty < r.bottom)
+        const float dx = slotWidth > 0.0f ? categorySlotShift(i, true) * slotWidth : 0.0f;
+        if (tx >= r.left + dx && tx < r.right + dx && ty >= r.top && ty < r.bottom)
             categoryHit =
                 ((journalDisabled_ && i == 4) || (spellsDisabled_ && i == 1)) ? -1 : int(i); // the band swallows it
     }

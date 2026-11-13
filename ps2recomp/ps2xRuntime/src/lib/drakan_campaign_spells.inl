@@ -88,8 +88,9 @@ void hookSummonSpell(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 
 // ---- native Skills section ----
 constexpr uint32_t kSkillCountVar = 0x4fbad0u; // stats block skill count (0x4fbac8 + 8)
+constexpr uint32_t kSkillsVtable = 0x54f1f0u;  // section+0x18 of the Skills section
 constexpr uint32_t kSkillRowsField = 0xfcu, kSkillRowField = 0x58u, kSkillRowStride = 0x1b4u, kSkillRowLit = 0x24u;
-uint32_t g_skillGraphicsSection = 0; // a0 of 446290 while it draws (its hidden rows' objects are skipped)
+uint32_t g_skillGraphicsSection = 0; // a0 of the last 446290 (its hidden rows' objects are skipped)
 
 uint32_t spellRead32(const uint8_t* ram, uint32_t a) {
     uint32_t v = 0;
@@ -149,25 +150,20 @@ void hookSkillFirstRow(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         return g_origSkillFirstRow(ram, c, rt);
     withVisibleSkills(ram, c, rt, g_origSkillFirstRow, false);
 }
+// 446290(section, transform) draws the rows' frames, level orbs and skill icons. It is long and the scheduler can
+// suspend it between its calls (it resumes past this hook), so the section is remembered, not scoped to the call.
 void hookSkillGraphics(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc != 0x446290u || !campaignSpellsOff())
-        return g_origSkillGraphics(ram, c, rt);
-    const uint32_t section = getRegU32(c, 4);
-    static int logged = 0;
-    if (logged < 2 && ++logged)
-        std::fprintf(stderr, "[spells] Skills graphics of section %x without the Magic row\n", section);
-    withTemporaryGuestState(
-        [&] {
-            g_skillGraphicsSection = section;
-            g_origSkillGraphics(ram, c, rt);
-        },
-        [&] { g_skillGraphicsSection = 0; });
+    if (c->pc == 0x446290u)
+        g_skillGraphicsSection = getRegU32(c, 4);
+    g_origSkillGraphics(ram, c, rt);
 }
-// 4316c8(object, transform, list) from 446290: the hidden rows' frame, bar and bar fill are not drawn.
+// 4316c8(object, transform, list) from 446290: the hidden rows' frame, orb and icon (row+0x148 / +0x16c / +0x190)
+// are not drawn.
 void hookRecordDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t section = g_skillGraphicsSection;
     const uint32_t ra = getRegU32(c, 31);
-    if (c->pc == 0x4316c8u && section && ra > 0x446290u && ra < 0x4468e0u) {
+    if (c->pc == 0x4316c8u && section && ra > 0x446290u && ra < 0x4468e0u && campaignSpellsOff() &&
+        spellRead32(ram, section + 0x18u) == kSkillsVtable) {
         const uint32_t rows = spellRead32(ram, section + kSkillRowsField);
         const uint32_t obj = getRegU32(c, 4);
         const int visible = drakan_views::visibleSkillRows(int(spellRead32(ram, kSkillCountVar)), true);
@@ -200,17 +196,14 @@ bool tabNodeX(const uint8_t* ram, uint32_t record, uint32_t which, uint32_t& nod
 
 // 42b0a8(record, scale) places one tab every frame, before the glows (42faa0) and the draws (42b308). After it a tab
 // right of the hidden Spells tab moves left by its tabSlotShift: the icon's page frame (reset by the next placement)
-// gets the shift, the ring is placed from the first ring, which never moves. The glow is placed from the ring and the
-// menu mouse projects the icon's rendered box, so both follow.
+// gets the shift, the ring is placed from the first ring. The glow is placed from the ring and the menu mouse projects
+// the icon's rendered box, so both follow.
 void hookTabPlace(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     using namespace drakan_views;
     if (c->pc != 0x42b0a8u || !campaignSpellsOff() || !g_invTabScreen)
         return g_origTabPlace(ram, c, rt);
-    const uint32_t ra = getRegU32(c, 31);
+    const uint32_t screen = g_invTabScreen, record = getRegU32(c, 4); // read before the call clobbers a0
     g_origTabPlace(ram, c, rt);
-    if (c->pc != ra)
-        return;
-    const uint32_t screen = g_invTabScreen, record = getRegU32(c, 4);
     const uint32_t base = spellRead32(ram, screen + 0x19c);
     const int count = int(spellRead32(ram, screen + 0x1a4));
     if (!base || record < base || (record - base) % 0x24u || count != kSectionCount ||
@@ -220,11 +213,18 @@ void hookTabPlace(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const float shift = tabSlotShift(index, count, disabledSections(count, false, true));
     uint32_t icon = 0, ring = 0, ring0 = 0, ringLast = 0;
     float iconX = 0, ringX = 0, first = 0, last = 0;
+    // The rings of the first and the last tab never move: a quarter of their distance is one slot (the last ring is
+    // the one placed last frame). Accepted only near the slot the icons' own width implies (the first frames of a
+    // new screen have no last ring yet).
     if (shift == 0.0f || !tabNodeX(ram, record, 0x1c, icon, iconX) || !tabNodeX(ram, record, 0x20, ring, ringX) ||
         !tabNodeX(ram, base, 0x20, ring0, first) ||
-        !tabNodeX(ram, base + uint32_t(count - 1) * 0x24u, 0x20, ringLast, last) || !(last > first))
+        !tabNodeX(ram, base + uint32_t(count - 1) * 0x24u, 0x20, ringLast, last))
         return;
+    float width = 0;
+    std::memcpy(&width, ram + icon + 0xc4u, 4); // the icon's box: x edge
     const float slot = (last - first) / float(count - 1);
+    if (!(width > 0) || !(slot > 0.8f * width && slot < 2.0f * width))
+        return;
     const float movedIcon = iconX + shift * slot, movedRing = first + (float(index) + shift) * slot;
     std::memcpy(ram + icon + kNodePosition, &movedIcon, 4);
     std::memcpy(ram + ring + kNodePosition, &movedRing, 4);
