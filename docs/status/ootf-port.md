@@ -565,6 +565,13 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
 
 ## Known gaps
 
+* **Crash or hang in the Islands (and Wartok Canyons) when too much terrain is in view** (2026-11-14 play check): the
+  terrain draw pages of the visible layers no longer fit in guest memory (`[memset] bad size ... ra=0x157d7c`, then a jump
+  to 0 or a frozen frame). Converted levels have 10 to 30 times the terrain chunks of any disc level per visible list
+  (Islands 5,656 against at most 524), because chunks with more than 8 textures are cut down to single cells. Also on the
+  packs from before rounds 3 and 4. Needs a converter decision (fewer textures per chunk window, 10 to 20 % of Islands cells
+  repainted). Islands Night, Rift Crystal and Rift World played without it. The Islands Ctrl landing always ends on one
+  rock where Rynn is stuck on Arokh's back. See [play check A](../journal/2026-11-14/ootf-playcheck-islands-rift.md).
 * German (or other localized) PC installs are handled from source review and synthetic tests only: header texts, Dragon.rrc
   ids, folder layout, Intro/Book timer lengths against a German dub and a German playthrough are unverified
   (`journal/2026-11-06/issue-3-localized-ootf.md`, "Still needs a real German install").
