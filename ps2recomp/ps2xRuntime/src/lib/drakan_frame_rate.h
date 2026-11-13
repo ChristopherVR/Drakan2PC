@@ -91,8 +91,30 @@ inline void waitHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
 inline bool flipOnSubmit = false;
 inline PS2Runtime::RecompiledFunction submitOriginal = nullptr;
 inline uint64_t submitWakes = 0;
+// DRAKAN_FLIP_ON_SUBMIT_TOGGLE=<seconds> (test): the hook is installed and switches itself on and off every <seconds>,
+// starting with the ini value, so both paths can be compared in one run under the same machine load.
+inline double flipOnSubmitToggle = 0;
+inline bool flipOnSubmitActive() {
+    if (flipOnSubmitToggle <= 0)
+        return true;
+    static const auto start = std::chrono::steady_clock::now();
+    static long long lastPhase = -1;
+    const auto phase = static_cast<long long>(
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() / flipOnSubmitToggle);
+    const bool on = (phase % 2 == 0) == flipOnSubmit;
+    if (phase != lastPhase) {
+        lastPhase = phase;
+        std::fprintf(stderr, "[frame-rate] flip on submit now %s at %lld us\n", on ? "on" : "off",
+                     (long long)std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::steady_clock::now().time_since_epoch())
+                         .count());
+    }
+    return on;
+}
 inline void submitHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     submitOriginal(ram, ctx, rt);
+    if (!flipOnSubmitActive())
+        return;
     const uint32_t object = readWord(ram, 0x4e8ee0u);
     if (object < 0x100000u || object > PS2_RAM_SIZE - 16)
         return;
@@ -518,7 +540,10 @@ inline void install(PS2Runtime& rt) {
         flipOnSubmit = drakan_region::build().identityAddresses &&
                        drakan_cfg::getBool("video", "flip_on_submit", "DRAKAN_FLIP_ON_SUBMIT", false) &&
                        rt.hasFunction(0x1d86d0u);
-        if (flipOnSubmit) {
+        if (const char* toggle = std::getenv("DRAKAN_FLIP_ON_SUBMIT_TOGGLE"))
+            flipOnSubmitToggle =
+                drakan_region::build().identityAddresses && rt.hasFunction(0x1d86d0u) ? std::atof(toggle) : 0.0;
+        if (flipOnSubmit || flipOnSubmitToggle > 0) {
             submitOriginal = rt.lookupFunction(0x1d86d0u);
             for (const uint32_t address : {0x1d86d0u, 0x1d8708u, 0x1d8710u, 0x1d8720u})
                 rt.replaceFunction(address, submitHook);
