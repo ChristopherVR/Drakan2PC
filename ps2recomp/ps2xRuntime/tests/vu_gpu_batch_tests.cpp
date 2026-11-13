@@ -667,6 +667,10 @@ struct Follow {
     Tracker t;
     std::vector<std::vector<uint8_t>> packets;
     uint64_t staleDeclines = 0;
+    // The hook's rest (vu1gpu::live::beforeRun): under a word without a batch stage a clean tracker stops following at
+    // a call; then no run steps it and no write is reported to it, until a word with a batch stage comes.
+    bool resting = false;
+    uint64_t rests = 0, wakes = 0, unfollowedRuns = 0;
 };
 
 // The set-up stage executes always: with flag 8 it fills the colour rows with the constant colour.
@@ -677,12 +681,50 @@ void executeSetup(Machine& m) {
                 m.word(kCol + s, l, m.word(kQwColour, l));
 }
 
+// A run executed without the tracker (it rests): what the microprogram does on that memory.
+void executeUnfollowed(Follow& f, bool resume, uint32_t startPc) {
+    ++f.unfollowedRuns;
+    if (!resume) {
+        if (startPc == kPcSetup) {
+            executeSetup(f.m);
+            f.m.pc = kPcAfterSetup;
+        } else {
+            f.m.pc = 0x2A60;
+        }
+        return;
+    }
+    if (f.m.pc == 0x2A60)
+        return;
+    if (static_cast<int16_t>(f.m.word(kQwHeader, 2)) > 0) {
+        Tracker plain;
+        std::vector<uint8_t> packet;
+        uint32_t at = kPcAfterVertex;
+        CHECK(plain.step(true, at, f.m.vf, f.m.data.data(), FamPrimitive, true, packet) == Action::Skip);
+        for (auto& pk : packetsOf(packet))
+            f.packets.push_back(pk);
+        f.m.pc = kPcAfterList;
+    } else {
+        executeVertexRun(f.m);
+        f.m.pc = kPcAfterVertex;
+    }
+}
+
 // One run the way the hook drives the tracker. mask == kMicroprogram stands for the evaluation mode `microprogram`:
-// what was deferred is written before the run and nothing is taken.
+// what was deferred is written before the run and nothing is taken. A mask without a batch family (FamStrips alone,
+// or none) does the same under `records`. Under either a clean tracker rests from the next call on.
 constexpr uint32_t kMicroprogram = 0x80000000u;
 void hookRun(Follow& f, bool resume, uint32_t startPc, uint32_t mask) {
     const bool micro = mask == kMicroprogram;
-    if (micro)
+    const bool batchFamilies = !micro && (mask & ~static_cast<uint32_t>(FamStrips)) != 0u;
+    if (f.resting) {
+        if (!batchFamilies) {
+            executeUnfollowed(f, resume, startPc);
+            return;
+        }
+        f.resting = false; // a batch stage is on again: follow from the clean state the tracker rested in
+        ++f.wakes;
+    }
+    if (!batchFamilies)
         f.t.materialiseAll(f.m.data.data());
     const uint32_t families = micro ? 0u : mask;
     Stepped s;
@@ -698,6 +740,10 @@ void hookRun(Follow& f, bool resume, uint32_t startPc, uint32_t mask) {
             f.m.pc = kPcAfterSetup;
         } else {
             f.m.pc = 0x2A60; // another program: it stops somewhere outside the batch dispatcher
+        }
+        if (!batchFamilies && f.t.clean()) {
+            f.resting = true;
+            ++f.rests;
         }
         return;
     }
@@ -729,13 +775,14 @@ void hookRun(Follow& f, bool resume, uint32_t startPc, uint32_t mask) {
     }
 }
 
-// An EE write: the same in both memories, reported to both trackers.
+// An EE write: the same in both memories, reported to both trackers unless one rests (the VIF does not report then).
 void eeWrite(Follow& a, Follow& b, uint32_t qw, uint32_t lanes, const uint32_t value[4]) {
     for (Follow* f : {&a, &b}) {
         for (uint32_t l = 0; l < 4u; ++l)
             if ((lanes >> l) & 1u)
                 f->m.word(qw, l, value[l]);
-        f->t.noteWrite(qw, lanes);
+        if (!f->resting)
+            f->t.noteWrite(qw, lanes);
     }
 }
 
@@ -859,13 +906,37 @@ void modeSwitchTests() {
                              const uint32_t r = random[run % 4096u];
                              return (r % 7u) == 0u ? kMicroprogram : (r >> 8) & FamAll;
                          }});
-    uint64_t switchesSeen = 0, takenUnderSwitching = 0;
+    // the strip stage alone (the tracker rests), and switching between every family and the strips alone, as a
+    // stage toggle (DRAKAN_VERTEX_TOGGLE_STAGES) does at frame boundaries
+    schedules.push_back({"strips only", [](uint32_t) { return static_cast<uint32_t>(FamStrips); }});
+    for (uint32_t period : {1u, 2u, 5u, 11u, 40u})
+        schedules.push_back({"stage toggle", [period](uint32_t run) {
+                                 return ((run / period) & 1u) ? static_cast<uint32_t>(FamStrips)
+                                                              : static_cast<uint32_t>(FamAll);
+                             }});
+    schedules.push_back({"random stage sets", [&random](uint32_t run) {
+                             const uint32_t r = random[(run / (1u + random[run / 8u % 4096u] % 9u)) % 4096u];
+                             switch (r % 4u) {
+                                 case 0:
+                                     return static_cast<uint32_t>(FamStrips);
+                                 case 1:
+                                     return kMicroprogram;
+                                 case 2:
+                                     return static_cast<uint32_t>(FamAll);
+                                 default:
+                                     return (r >> 8) & FamAll;
+                             }
+                         }});
+    uint64_t switchesSeen = 0, takenUnderSwitching = 0, rests = 0, wakes = 0, unfollowed = 0;
     for (const Schedule& q : schedules) {
         Follow test, ref;
         uint32_t last = 0, switches = 0;
+        const auto takesBatch = [](uint32_t m) {
+            return m != kMicroprogram && (m & ~static_cast<uint32_t>(FamStrips)) != 0u;
+        };
         const auto mask = [&](uint32_t run) {
             const uint32_t now = q.mask(run);
-            switches += run != 0u && (now == kMicroprogram) != (last == kMicroprogram);
+            switches += run != 0u && takesBatch(now) != takesBatch(last);
             last = now;
             return now;
         };
@@ -878,17 +949,32 @@ void modeSwitchTests() {
         const Counters& c = test.t.counters;
         const uint64_t taken =
             c.taken[static_cast<uint32_t>(Stage::Vertex)] + c.taken[static_cast<uint32_t>(Stage::List)];
-        if (std::strcmp(q.name, "microprogram") == 0) {
+        if (std::strcmp(q.name, "microprogram") == 0 || std::strcmp(q.name, "strips only") == 0) {
             CHECK(taken == 0 && c.passesDeferred == 0 && c.records == 0 && test.t.clean());
+            // it rests at the first call and never follows again: the hook costs one test per run from there on
+            CHECK(test.rests == 1 && test.wakes == 0 && test.unfollowedRuns != 0);
         } else {
             CHECK(taken != 0);
         }
+        if (std::strcmp(q.name, "records") == 0)
+            CHECK(test.rests == 0 && test.unfollowedRuns == 0);
+        if (std::strcmp(q.name, "random stage sets") == 0)
+            CHECK(test.wakes != 0); // it rested and followed again (a short stage toggle may never find it clean)
         if (switches) {
             switchesSeen += switches;
             takenUnderSwitching += taken;
         }
+        rests += test.rests;
+        wakes += test.wakes;
+        unfollowed += test.unfollowedRuns;
     }
     CHECK(switchesSeen > 500 && takenUnderSwitching > 1000);
+    CHECK(rests > 20 && wakes > 20 && unfollowed > 500);
+    std::printf("mode and stage switches: %llu switches, %llu runs taken while switching; the tracker rested %llu "
+                "times and followed again %llu times, %llu runs not followed\n",
+                static_cast<unsigned long long>(switchesSeen), static_cast<unsigned long long>(takenUnderSwitching),
+                static_cast<unsigned long long>(rests), static_cast<unsigned long long>(wakes),
+                static_cast<unsigned long long>(unfollowed));
 
     // Leaving in the middle of a batch: the deferred stages are written, memory is the microprogram's from then on.
     {

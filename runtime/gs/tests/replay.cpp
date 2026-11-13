@@ -172,9 +172,10 @@ int main(int argc, char** argv) {
         vpath::Choice choice = vpath::Choice::Cpu;
         vpath::parseChoice(std::getenv("DRAKAN_VERTEX_PROCESSING"), choice);
         const char* toggle = std::getenv("DRAKAN_VERTEX_TOGGLE");
-        vpath::configure(vpath::configuredWord(choice, gs->vertexPathCapability(), std::getenv("DRAKAN_VERTEX_EVAL"),
-                                               std::getenv("DRAKAN_VERTEX_STAGES")),
-                         toggle ? (uint32_t)std::strtoul(toggle, nullptr, 10) : 0u);
+        const uint32_t word = vpath::configuredWord(
+            choice, gs->vertexPathCapability(), std::getenv("DRAKAN_VERTEX_EVAL"), std::getenv("DRAKAN_VERTEX_STAGES"));
+        vpath::configure(word, toggle ? (uint32_t)std::strtoul(toggle, nullptr, 10) : 0u,
+                         vpath::toggleWordOf(word, std::getenv("DRAKAN_VERTEX_TOGGLE_STAGES")));
     }
 
     static const uint32_t privOff[20] = {0x00, 0x10, 0x20, 0x30, 0x40, 0x50,       0x60,       0x70,   0x80,   0x90,

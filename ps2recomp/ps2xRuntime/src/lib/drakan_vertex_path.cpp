@@ -31,15 +31,19 @@ void applyLocked() {
     const uint32_t word =
         vpath::configuredWord(g_choice, cap, std::getenv("DRAKAN_VERTEX_EVAL"), std::getenv("DRAKAN_VERTEX_STAGES"));
     const uint32_t before = vpath::state().baseWord.load(std::memory_order_relaxed);
-    vpath::configure(word, toggle);
+    // DRAKAN_VERTEX_TOGGLE_STAGES: the toggled frames keep the mode and run another stage set
+    const char* toggleStages = std::getenv("DRAKAN_VERTEX_TOGGLE_STAGES");
+    const uint32_t other = vpath::toggleWordOf(word, toggleStages);
+    vpath::configure(word, toggle, other);
     if (vu1check::shadowRequested()) // DRAKAN_VERTEX_SHADOW: the VU1 worker compares records beside the microprogram
         vpath::requestVuAttention();
     if (word != before || toggle)
         std::fprintf(stderr,
                      "[vertex-path] vertex_processing = %s: %s (renderer path %d, adapter exact %d, proven %d), "
-                     "stages 0x%02x%s\n",
+                     "stages 0x%02x%s%s (stages 0x%02x)\n",
                      vpath::choiceName(g_choice), vpath::evalName(vpath::evalOf(word)), int(cap.backendHasPath),
-                     int(cap.adapterExact), int(cap.proven), vpath::stagesOf(word), toggle ? ", toggling" : "");
+                     int(cap.adapterExact), int(cap.proven), vpath::stagesOf(word), toggle ? ", toggling with " : "",
+                     toggle ? vpath::evalName(vpath::evalOf(other)) : "", toggle ? vpath::stagesOf(other) : 0u);
 }
 } // namespace
 

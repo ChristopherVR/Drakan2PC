@@ -121,6 +121,29 @@ int main() {
         last = now;
     }
     expect(changes == 32, "64 frames at a period of 2 switch 32 times");
+    // DRAKAN_VERTEX_TOGGLE_STAGES: the toggled frames keep the mode and run another stage set
+    {
+        const uint32_t all = pack(Eval::Gpu, kAllStages), stripsOnly = toggleWordOf(all, "strips");
+        expect(stripsOnly == pack(Eval::Gpu, kStrips), "the toggle word keeps the mode with the given stages");
+        expect(toggleWordOf(all, nullptr) == pack(Eval::Microprogram, kAllStages) &&
+                   toggleWordOf(all, "nonsense") == pack(Eval::Microprogram, kAllStages),
+               "without a stage list the toggle word is the microprogram");
+        expect(toggledTo(all, stripsOnly, 3, 4) == all && toggledTo(all, stripsOnly, 4, 4) == stripsOnly &&
+                   toggledTo(all, stripsOnly, 8, 4) == all && toggledTo(all, stripsOnly, 5, 0) == all,
+               "periods between two words");
+        configure(all, 3, stripsOnly);
+        expect(controlWord() == stripsOnly, "a stage toggle starts on the other word until a frame ends");
+        uint32_t stageChanges = 0, previous = controlWord();
+        for (uint64_t frame = 0; frame < 60; ++frame) {
+            frameBoundary(frame);
+            const uint32_t now = controlWord();
+            expect(now == toggledTo(all, stripsOnly, frame, 3), "the word of a stage-toggled frame");
+            expect(evalOf(now) == Eval::Gpu, "a stage toggle never leaves the mode");
+            stageChanges += now != previous;
+            previous = now;
+        }
+        expect(stageChanges == 20, "60 frames at a period of 3 switch 20 times");
+    }
     configure(pack(Eval::Microprogram, kAllStages));
 
     countFallback(Fallback::Clipper);

@@ -28,6 +28,7 @@ struct Live {
     uint64_t unknownLanes = 0;               // lanes written with a value made from their old content
     uint64_t observedRuns = 0, liveRuns = 0; // runs followed under the microprogram, and under records
     uint64_t materialisedOnLeave = 0;        // slots brought up to date because the mode left `records`
+    uint64_t unfollowedRuns = 0;             // runs under a word without a batch stage while the tracker rested
     // followed UNPACKs: count, and processor ticks of the unpack and of the report (slow path: both in unpackTicks)
     uint64_t unpacks = 0, slowUnpacks = 0, unpackTicks = 0, reportTicks = 0, slowTicks = 0;
     uint64_t ticksAtStart = 0;
@@ -128,6 +129,14 @@ Before beforeRun(const Run& run) {
     }
     const uint32_t word = vpath::controlWord();
     const bool records = vpath::evalOf(word) != vpath::Eval::Microprogram;
+    // Whether the word lets a batch stage leave the microprogram. Without one the tracker can take nothing, so a
+    // clean tracker (every lane the microprogram's) stays clean whatever runs: it need not follow, and the strip stage
+    // is handed over on its own, as before the tracker existed.
+    const bool batchStages = records && (familiesOfStages(vpath::stagesOf(word)) & ~batch::FamStrips) != 0u;
+    if (!l.data && !batchStages && records && !vu1check::enabled() && !vu1check::recording() && !vu1batch::enabled()) {
+        ++l.unfollowedRuns;
+        return run.resume && intercept(run.vu, run.data, run.dataSize, run.memory) ? Before::Skipped : Before::Execute;
+    }
     const uint32_t pc = run.resume ? run.vu.state().pc : run.startPc;
 
     // The tracker needs every write into VU memory and every run. The parallel batch executor runs groups on private
@@ -150,7 +159,10 @@ Before beforeRun(const Run& run) {
             vpath::vuRest();
             return Before::Execute;
         }
-        // Start following: the tracker is in its initial state, or in the clean state it stopped in.
+        // Start following (a batch stage was switched on): the tracker is in its initial state, or in the clean state
+        // it stopped in. Either is true of memory at any run boundary, because nothing was deferred since: the
+        // tracker stops only when clean, and while it rests no run leaves the microprogram but the strip stage, which
+        // writes nothing a batch stage reads before its own uploads.
         l.data = run.data;
         g_following.store(true, std::memory_order_relaxed);
         if (++l.engaged == 1u) {
@@ -164,13 +176,13 @@ Before beforeRun(const Run& run) {
     const bool image = Vu1Fast::spare(run.vu).aotValid != 0u && Vu1Func::enabled();
     const bool engineOk = image && (!run.resume || Vu1Func::canEnter(run.vu));
     const uint32_t families = records ? familiesOfStages(vpath::stagesOf(word)) : 0u;
-    if (!records) {
-        // Leaving `records`: what was deferred is written before anything executes, also before a new call, which
-        // would otherwise drop it and leave the lanes behind as unknown.
+    if (!batchStages) {
+        // Leaving `records`, or the batch stages switched off: what was deferred is written before anything
+        // executes, also before a new call, which would otherwise drop it and leave the lanes behind as unknown.
         const uint64_t before = l.tracker.counters.slotsMaterialised;
         l.tracker.materialiseAll(run.data);
         l.materialisedOnLeave += l.tracker.counters.slotsMaterialised - before;
-        ++l.observedRuns;
+        ++(records ? l.liveRuns : l.observedRuns);
     } else {
         ++l.liveRuns;
     }
@@ -208,8 +220,9 @@ Before beforeRun(const Run& run) {
     // The run executes. The strip stage may still leave as a record of its own.
     if (records && run.resume && image && intercept(run.vu, run.data, run.dataSize, run.memory, &l.tracker))
         return Before::Skipped;
-    if (!records && !run.resume && l.tracker.clean()) {
-        // Every lane of VU memory is the microprogram's: nothing left to follow.
+    if (!batchStages && !run.resume && l.tracker.clean()) {
+        // Every lane of VU memory is the microprogram's: nothing left to follow. Under a word with strips alone the
+        // hook stays called (vuRest keeps the flag) and hands strips over without the tracker.
         l.data = nullptr;
         g_following.store(false, std::memory_order_relaxed);
         ++l.rested;
@@ -319,7 +332,7 @@ void countersText(char* text, size_t size) {
     if (size == 0u)
         return;
     text[0] = 0;
-    if (l.engaged == 0u)
+    if (l.engaged == 0u && l.unfollowedRuns == 0u)
         return;
     using U = unsigned long long;
     const auto at = [](batch::Stage s) { return static_cast<uint32_t>(s); };
@@ -329,13 +342,14 @@ void countersText(char* text, size_t size) {
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l.timeAtStart).count();
     const double msPerTick = elapsedTicks ? elapsedMs / double(elapsedTicks) : 0.0;
     std::snprintf(text, size,
-                  "batch tracker: runs followed %llu under records, %llu under the microprogram; vertex runs %llu "
+                  "batch tracker: runs followed %llu under records, %llu under the microprogram, %llu not followed "
+                  "(no batch stage on); vertex runs %llu "
                   "(deferred %llu), index lists %llu (taken %llu), with clip codes %llu (taken %llu); records %llu "
                   "with %llu vertices; slots written back %llu (%llu when leaving records); lanes left unknown at "
                   "set-ups %llu, runs that drew one %llu; started following %llu times, stopped %llu; EE direct "
                   "accesses %llu, lanes of unknown content written %llu; followed UNPACKs %llu fast (%.3f ms the "
                   "unpack, %.3f ms the report) and %llu slow (%.3f ms)",
-                  U(l.liveRuns), U(l.observedRuns), U(c.runs[at(batch::Stage::Vertex)]),
+                  U(l.liveRuns), U(l.observedRuns), U(l.unfollowedRuns), U(c.runs[at(batch::Stage::Vertex)]),
                   U(c.taken[at(batch::Stage::Vertex)]), U(c.runs[at(batch::Stage::List)]),
                   U(c.taken[at(batch::Stage::List)]), U(c.runs[at(batch::Stage::ClipList)]),
                   U(c.taken[at(batch::Stage::ClipList)]), U(c.records), U(c.recordVertices), U(c.slotsMaterialised),

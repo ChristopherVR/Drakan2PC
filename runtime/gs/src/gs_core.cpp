@@ -826,13 +826,15 @@ struct Renderer::Impl {
         backend->endFrame();
         ++stats.frames;
         {
-            // DRAKAN_VERTEX_TOGGLE: one line at each change, so pictures of a run can be matched to the path in use
+            // DRAKAN_VERTEX_TOGGLE (and _STAGES): one line at each change, so pictures of a run can be matched to the
+            // path in use
             const uint32_t before = vpath::controlWord();
             vpath::frameBoundary(stats.frames);
             const uint32_t now = vpath::controlWord();
             if (now != before && vpath::state().toggleFrames.load(std::memory_order_relaxed) != 0u)
-                std::fprintf(stderr, "[vertex-path] frame %llu: now %s\n", (unsigned long long)stats.frames,
-                             vpath::evalName(vpath::evalOf(now)));
+                std::fprintf(stderr, "[vertex-path] frame %llu: now %s, stages 0x%02x\n",
+                             (unsigned long long)stats.frames, vpath::evalName(vpath::evalOf(now)),
+                             vpath::stagesOf(now));
         }
     }
 

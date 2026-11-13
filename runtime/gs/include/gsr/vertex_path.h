@@ -9,7 +9,8 @@
 // The player's setting is `[video] vertex_processing = cpu | gpu | auto`; `resolve()` turns it into an evaluation mode
 // from what the renderer reports. Finer switches for diagnosis override it (docs/reference/env-flags.md):
 // DRAKAN_VERTEX_EVAL (microprogram | records | gpu), DRAKAN_VERTEX_STAGES (which stage families may leave the
-// microprogram) and DRAKAN_VERTEX_TOGGLE (switch back and forth inside one run).
+// microprogram), DRAKAN_VERTEX_TOGGLE (switch back and forth inside one run) and DRAKAN_VERTEX_TOGGLE_STAGES (what
+// the toggle switches to: another stage set under the same mode instead of the microprogram).
 //
 // One control word is shared by the VU1 worker (which decides per run whether to build a record) and the renderer
 // (which decides per record whether to draw or evaluate it). It may change at any time: a run or record that started
@@ -197,6 +198,20 @@ inline constexpr uint32_t toggled(uint32_t word, uint64_t frame, uint32_t everyF
         return word;
     return pack(Eval::Microprogram, stagesOf(word));
 }
+// The same between two given words (DRAKAN_VERTEX_TOGGLE_STAGES: the configured mode with another stage set).
+inline constexpr uint32_t toggledTo(uint32_t word, uint32_t other, uint64_t frame, uint32_t everyFrames) {
+    if (everyFrames == 0u || ((frame / everyFrames) & 1u) == 0u)
+        return word;
+    return other;
+}
+// The word the toggle switches to: `stagesText` (a stage list as for DRAKAN_VERTEX_STAGES) under the mode of `word`,
+// or the microprogram when it is null or does not parse.
+inline uint32_t toggleWordOf(uint32_t word, const char* stagesText) {
+    uint32_t stages = 0;
+    if (!parseStages(stagesText, stages))
+        return pack(Eval::Microprogram, stagesOf(word));
+    return pack(evalOf(word), stages);
+}
 
 struct Counters {
     std::atomic<uint64_t> taken[kStageCount]{};            // runs that left the microprogram, per stage family
@@ -213,9 +228,10 @@ struct Counters {
 };
 
 struct State {
-    std::atomic<uint32_t> word{pack(Eval::Microprogram, kAllStages)};     // what runs and records obey right now
-    std::atomic<uint32_t> baseWord{pack(Eval::Microprogram, kAllStages)}; // the configured word (before the toggle)
-    std::atomic<uint32_t> toggleFrames{0};                                // DRAKAN_VERTEX_TOGGLE
+    std::atomic<uint32_t> word{pack(Eval::Microprogram, kAllStages)};       // what runs and records obey right now
+    std::atomic<uint32_t> baseWord{pack(Eval::Microprogram, kAllStages)};   // the configured word (before the toggle)
+    std::atomic<uint32_t> toggleFrames{0};                                  // DRAKAN_VERTEX_TOGGLE
+    std::atomic<uint32_t> toggleWord{pack(Eval::Microprogram, kAllStages)}; // the word of the toggled frames
     // Not zero: the VU1 worker has to look at the control word before a run. Set by every change of the word; the
     // worker clears it when the word says `microprogram` and it has nothing left to follow (vuRest), so that the
     // player's `cpu` costs one load per run and nothing else.
@@ -265,19 +281,23 @@ inline uint32_t configuredWord(Choice choice, const Capability& cap, const char*
     parseStages(stagesOverride, stages);
     return pack(eval, stages);
 }
-// Applies a configuration. Safe from any thread at any time.
-inline void configure(uint32_t word, uint32_t toggleEveryFrames = 0) {
+// Applies a configuration. Safe from any thread at any time. `toggleWord`: what the toggled frames run under (by
+// default the microprogram with the same stage bits).
+inline void configure(uint32_t word, uint32_t toggleEveryFrames = 0, uint32_t toggleWord = ~0u) {
     State& s = state();
+    const uint32_t other = toggleWord == ~0u ? pack(Eval::Microprogram, stagesOf(word)) : toggleWord;
     s.baseWord.store(word, std::memory_order_relaxed);
+    s.toggleWord.store(other, std::memory_order_relaxed);
     s.toggleFrames.store(toggleEveryFrames, std::memory_order_relaxed);
-    setControlWord(toggleEveryFrames ? pack(Eval::Microprogram, stagesOf(word)) : word);
+    setControlWord(toggleEveryFrames ? other : word);
 }
 // Called by the renderer at the end of each frame: applies the toggle.
 inline void frameBoundary(uint64_t frame) {
     State& s = state();
     const uint32_t every = s.toggleFrames.load(std::memory_order_relaxed);
     if (every)
-        setControlWord(toggled(s.baseWord.load(std::memory_order_relaxed), frame, every));
+        setControlWord(toggledTo(s.baseWord.load(std::memory_order_relaxed),
+                                 s.toggleWord.load(std::memory_order_relaxed), frame, every));
 }
 
 inline void countFallback(Fallback why, uint64_t n = 1) {
