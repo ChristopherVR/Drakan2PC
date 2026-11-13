@@ -29,7 +29,9 @@ int main() {
         lost.reason = "driver reset";
         const Decision d = decide(lost, WebGpu, true);
         expect(d.api == D3D11 && d.changed, "device lost: Direct3D 11 this once");
-        expect(d.notice.find("driver reset") != std::string::npos, "the notice carries the driver's reason");
+        expect(d.notice.find("driver reset") == std::string::npos && d.notice.find("device") == std::string::npos,
+               "the start notice is plain words: the driver's text stays in the record");
+        expect(d.notice.find("Direct3D 11") != std::string::npos, "and names the renderer this start uses");
         const Decision linux_ = decide(lost, WebGpu, false);
         expect(linux_.api == WebGpu && !linux_.changed && !linux_.notice.empty(),
                "device lost without Direct3D 11: same renderer, with a notice");
@@ -118,8 +120,9 @@ int main() {
         expect(second.lostInRow == 2, "a second loss in a row is counted");
         const std::string twice = lossNotice(second, second.reason, false);
         expect(twice.find("2 sessions in a row") != std::string::npos, "the second notice says it happened again");
-        Record clean = begin(second, D3D11);
-        clean.end = End::Clean;
+        const Record clean = cleanEnd(begin(second, D3D11));
+        expect(clean.end == End::Clean && clean.abnormalInRow == 0 && clean.lostInRow == 0,
+               "a clean end clears both counts in the record");
         expect(begin(clean, D3D11).lostInRow == 0, "a clean session ends the run of losses");
         expect(begin(first, WebGpu).lostInRow == 0, "a loss on another renderer is not counted");
         const Record back = parse(serialize(second));

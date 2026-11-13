@@ -717,8 +717,7 @@ GsrBridge::GsrBridge() : m_impl(new Impl) {}
 
 GsrBridge::~GsrBridge() {
     if (m_impl && m_impl->gs && !m_impl->deviceLostHandled) { // an orderly end of the renderer session
-        m_impl->session.end = gsr::session::End::Clean;
-        m_impl->session.abnormalInRow = 0;
+        m_impl->session = gsr::session::cleanEnd(m_impl->session);
         gsr::session::save(rendererSessionPath(), m_impl->session);
     }
     if (m_impl) {
@@ -908,7 +907,7 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         const gsr::session::Record previous = gsr::session::interpret(gsr::session::load(sessionPath), previousLog);
         const gsr::session::Decision start = gsr::session::decide(previous, cfg.api, haveD3D11);
         if (!start.notice.empty()) {
-            std::fprintf(stderr, "[gsr] %s\n", start.notice.c_str());
+            std::fprintf(stderr, "[gsr] %s (previous session: %s)\n", start.notice.c_str(), previous.reason.c_str());
             drakan_win::notice("Drakan: renderer", start.notice.c_str());
         }
         cfg.api = start.api;
@@ -1473,16 +1472,14 @@ void GsrBridge::hostTick() {
         std::string reason;
         if (s.gs->deviceLost(&reason)) {
             s.deviceLostHandled = true;
-            s.session.end = gsr::session::End::DeviceLost;
-            s.session.reason = reason;
+            s.session = gsr::session::lost(s.session, reason);
             gsr::session::save(rendererSessionPath(), s.session);
-            std::fprintf(stderr, "[gsr] the graphics device was lost (%s): ending the session\n", reason.c_str());
-            const std::string text =
-                "The graphics device was lost (" + (reason.empty() ? std::string("no reason given") : reason) +
-                "). This is a driver reset, a time-out or exhausted video memory.\n\nThe game will close now. The "
-                "next start uses Direct3D 11 once where it is available; lowering the "
-                "internal resolution or switching ray tracing off makes this less likely.";
-            drakan_win::notice("Drakan: graphics device lost", text.c_str());
+            std::fprintf(stderr, "[gsr] the graphics device was lost (%s): ending the session (losses in a row: %u)\n",
+                         reason.c_str(), s.session.lostInRow);
+            const bool fallback =
+                gsr::session::lossFallsBack(s.session.api, gsr::backendAvailable(gsr::Config::Api::D3D11));
+            const std::string text = gsr::session::lossNotice(s.session, reason, fallback);
+            drakan_win::notice(gsr::session::lossNoticeTitle(), text.c_str());
             drakan_win::requestClose();
         }
     }

@@ -46,15 +46,17 @@ inline Decision decide(const Record& previous, Config::Api wanted, bool haveD3D1
     const bool repeated = previous.end == End::Running && previous.abnormalInRow >= 2;
     if (!lost && !repeated)
         return d;
-    const std::string what = lost ? "The graphics device was lost in the last session" +
-                                        (previous.reason.empty() ? std::string() : " (" + previous.reason + ")")
-                                  : std::string("The last two sessions on this renderer ended unexpectedly");
+    // Plain words for the player: the driver's or the library's text stays in the record and the log.
+    const std::string what =
+        lost ? std::string("The graphics card stopped working in the last session")
+             : std::string("The game closed unexpectedly the last two times it ran on this renderer");
     if (haveD3D11) {
         d.api = Config::Api::D3D11;
         d.changed = true;
-        d.notice = what + ". This session runs on Direct3D 11; the renderer setting is unchanged.";
+        d.notice = what + ". This time the game uses the Direct3D 11 renderer; your renderer setting is not changed.";
     } else {
-        d.notice = what + ". Lower the internal resolution or switch ray tracing off if it happens again.";
+        d.notice = what + ". If it happens again: update your graphics driver, lower the Internal render scale in the "
+                          "settings (F1), or turn off the ray-traced effects.";
     }
     return d;
 }
@@ -102,6 +104,14 @@ inline Record begin(const Record& previous, Config::Api api) {
     r.abnormalInRow = sameRenderer && abnormal ? previous.abnormalInRow : 0;
     ++r.abnormalInRow; // this session counts until it ends cleanly
     r.lostInRow = sameRenderer && previous.end == End::DeviceLost ? previous.lostInRow : 0;
+    return r;
+}
+
+// The record of a session that ends in order: neither count runs on.
+inline Record cleanEnd(Record r) {
+    r.end = End::Clean;
+    r.abnormalInRow = 0;
+    r.lostInRow = 0;
     return r;
 }
 

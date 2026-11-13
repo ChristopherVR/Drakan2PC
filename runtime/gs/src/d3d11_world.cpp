@@ -636,6 +636,8 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
             probeDevice("DLSS evaluate");
         if (testLoss(device_loss::Site::Upscale))
             deviceFailed((HRESULT)device_loss::kDeviceRemoved, "DLSS evaluate", true);
+        if (gone()) // the rest of the pass would draw and copy on a removed device
+            return;
         upStatusText = combinedSr->status();
         if (haveSROutput)
             constants.reset = constants.reset || srOutput.historyReset;
@@ -779,6 +781,8 @@ void D3D11Backend::Impl::finalizeWorld(RT& rt) {
         probeDevice("DLSS evaluate");
     if (testLoss(device_loss::Site::Upscale))
         deviceFailed((HRESULT)device_loss::kDeviceRemoved, "DLSS evaluate", true);
+    if (gone())
+        return;
     if (tpLog)
         std::fprintf(stderr, "[dlss] f%llu resolve fbp=%u dlss=%d reset=%d gpu=%.2fms\n", (unsigned long long)frame,
                      rt.fbp, (int)ok, (int)upReset, tp->lastGpuMs());
