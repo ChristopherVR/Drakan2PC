@@ -53,7 +53,7 @@ the game. Small final-blit rounding differences were at most two color levels.
 
 Menu and credits art is a baked 4:3 image, drawn in a centered native canvas (see `menuMap`, `hud_page.h`); the
 margins used to be cleared to black. When `<texture_dir>/wide/` holds images they are drawn instead
-(`d3d11_backdrop.cpp`, right after the margin clear).
+(`gs_images.inl`, right after the margin clear).
 
 * **Names**: `<name>_<a>x<b>.png`, e.g. `screen8_16x9.png`, `screen8_7x3.png` (21:9), `screen8_32x9.png`.
   `screen<GUI screen id>` (title menu = `screen8`) images are *complete*: the engine's own art tiles for that screen

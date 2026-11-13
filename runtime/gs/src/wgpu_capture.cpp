@@ -1,4 +1,4 @@
-// Image captures: display, last gameplay image, frame buffers (WebGPU backend).
+// Reading textures back to the CPU (WebGPU backend). The captures that use it are shared (gs_images.inl).
 #include "wgpu_backend_impl.h"
 
 namespace gsr {
@@ -19,32 +19,6 @@ bool WgpuBackend::Impl::readTexture(rhi::Texture& tex, uint32_t w, uint32_t h, I
         for (size_t i = 3; i < out.rgba.size(); i += 4)
             out.rgba[i] = 255;
     return true;
-}
-
-bool WgpuBackend::Impl::capture(const DisplayState& d, Image& out) {
-    if (!ok)
-        return false;
-    uint32_t w, h;
-    renderDisplay(d, w, h);
-    return readTexture(*dispTex, dispW, dispH, out);
-}
-
-bool WgpuBackend::Impl::captureLastGameplay(Image& out, float& aspect) {
-    aspect = latchedGameWorld ? gameplayAspect : savePreviewAspect;
-    if (latchedGameWorld)
-        return dispTex && readTexture(*dispTex, dispW, dispH, out);
-    return savePreviewTex && readTexture(*savePreviewTex, savePreviewW, savePreviewH, out);
-}
-
-bool WgpuBackend::Impl::captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h,
-                                           Image& out) {
-    if (!ok)
-        return false;
-    RT* rt = getRT(fbp, fbw, psm, h);
-    if (rt->wstate == 1)
-        finalizeWorld(*rt);
-    syncRT(*rt);
-    return readTexture(*rt->tex, std::min(w, rt->w) * scale, std::min(h, rt->h) * scale, out);
 }
 
 } // namespace gsr

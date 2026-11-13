@@ -176,7 +176,7 @@ Pieces:
 | Pack builder | `analysis/scripts/fmv_hd_pack.py` | reads the movies from the ISO, decodes them with FFmpeg's `ipu` decoder, upscales every frame 4x with Real-ESRGAN (`realesrgan-x4plus`, `tools/hdpack/realesrgan`), encodes `<out>/<key>.mkv` (HEVC CRF 18, yuv420p, keyframe each second) and writes `<key>.txt` (frame index). Default output `dist/DrakanPC/movies` (kept by `Build-LocalGame.ps1`). Default movies: intro (`level0ro_6`), outro (`level0ro_7`), logo (`interfce_4`), English disc folders. |
 | IPU hook | `ps2_ipu.cpp` (`PS2Ipu::setFrameObserver`) | after each IDEC: the compressed bytes IDEC consumed and the 1024 RGB32 macroblocks |
 | Host glue | `ps2xRuntime/src/lib/drakan_fmv_hd.cpp` | loads the pack (`[video] hd_movies`, env `DRAKAN_HD_MOVIES`), identifies the frame, registers its signature with the renderer, decodes the HD video ahead on a thread (FFmpeg, already linked for the MPEG stubs) |
-| Renderer | `gsr/movie_frames.h`, `gs_core.cpp` (movie tracking), `d3d11_movie.cpp` | recognises a complete frame in a frame buffer and draws the HD frame over it |
+| Renderer | `gsr/movie_frames.h`, `gs_core.cpp` (movie tracking), `gs_images.inl` | recognises a complete frame in a frame buffer and draws the HD frame over it |
 
 Frame identity (pack <-> runtime): CRC-32 + length of the frame's bytes after the flags byte up to the `00 00 01 b0` end
 marker, which is exactly the byte range IDEC consumes at run time (start bit / 8 up to the start code the IPU skips to). Runs

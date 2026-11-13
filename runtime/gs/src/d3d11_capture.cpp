@@ -159,29 +159,4 @@ bool D3D11Backend::Impl::readTexture(ID3D11Texture2D* tex, uint32_t w, uint32_t 
     return true;
 }
 
-bool D3D11Backend::Impl::capture(const DisplayState& d, Image& out) {
-    if (!ok)
-        return false;
-    uint32_t w, h;
-    renderDisplay(d, w, h);
-    return readTexture(dispTex.Get(), dispW, dispH, out);
-}
-
-bool D3D11Backend::Impl::captureLastGameplay(Image& out, float& aspect) {
-    aspect = latchedGameWorld ? gameplayAspect : savePreviewAspect;
-    return latchedGameWorld ? readTexture(dispTex.Get(), dispW, dispH, out)
-                            : savePreviewTex && readTexture(savePreviewTex.Get(), savePreviewW, savePreviewH, out);
-}
-
-bool D3D11Backend::Impl::captureFramebuffer(uint32_t fbp, uint32_t fbw, uint32_t psm, uint32_t w, uint32_t h,
-                                            Image& out) {
-    if (!ok)
-        return false;
-    RT* rt = getRT(fbp, fbw, psm, h);
-    if (rt->wstate == 1)
-        finalizeWorld(*rt);
-    syncRT(*rt);
-    return readTexture(rt->tex.Get(), std::min(w, rt->w) * scale, std::min(h, rt->h) * scale, out);
-}
-
 } // namespace gsr
