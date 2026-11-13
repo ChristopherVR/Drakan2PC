@@ -946,6 +946,15 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         };
         drakan_dlss::attach(b.get(), s.gs.get());
         drakan_vertex_path::attach(s.gs.get());
+        // [video] present_latency: frames the swap chain may queue before Present waits (1 = as before). 2 lets the
+        // renderer build the next frame while the GPU still works on the last one, at one more frame of latency.
+        {
+            const int latency = drakan_cfg::getInt("video", "present_latency", "GSR_PRESENT_LATENCY", 1);
+            if (latency > 1) {
+                s.gs->setFrameLatency((uint32_t)std::min(latency, 3));
+                std::fprintf(stderr, "[gsr] present latency %d frames\n", std::min(latency, 3));
+            }
+        }
         drakan_settings_host::attachRenderer(s.gs.get(), s.parent, ops);
     }
     drakan_ws::attachRenderer(s.gs.get(), s.parent);

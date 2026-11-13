@@ -128,6 +128,10 @@ const Entry kEntries[] = {
     {"video", "tick_snap", "1",
      "1 = with vsync, advance the world by whole display refreshes per frame (smooth motion; total game time "
      "unchanged); restart required (env DRAKAN_TICK_SNAP)"},
+    {"video", "present_latency", "1",
+     "frames the window may queue before the game waits for the graphics card: 1 = as before (lowest input "
+     "latency), 2 or 3 = the next frame is prepared while the card still draws the last one (smoother when the card "
+     "is busy, one more frame of input latency); needs a restart (env GSR_PRESENT_LATENCY)"},
     {"video", "frame_queue", "0",
      "experimental: 1 = the game's per-frame picture read-back and its display commits no longer stop the game "
      "thread (steadier frame times; the game sees that small read-back picture one frame late); 0 = original; "
