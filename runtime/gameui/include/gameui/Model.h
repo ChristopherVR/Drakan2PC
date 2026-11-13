@@ -87,6 +87,11 @@ struct SkillEntry {
     int committed = 0; // the level points cannot be returned below (= level outside the Skills page)
     std::string name;
 };
+inline constexpr int kMagicSkillId = 3;
+// A campaign without spells (Snapshot::spellsEnabled false) lists no Magic skill and spends no points on it.
+inline bool skillShown(const SkillEntry& e, bool spellsEnabled) {
+    return spellsEnabled || e.id != kMagicSkillId;
+}
 struct SkillSheet {
     std::vector<SkillEntry> entries;
     int unspentPoints = 0;

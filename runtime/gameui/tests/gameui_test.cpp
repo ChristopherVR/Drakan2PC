@@ -743,6 +743,56 @@ void testScreenSpellsOffInCampaign() {
     CHECK(sp.page() == Page::Inventory);
 }
 
+// A campaign without spells: the Skills page and the Character page list Melee and Archery only, focus never reaches
+// the Magic row and no point can be spent on it; the disc game keeps all three.
+void testSkillsWithoutMagic() {
+    World w;
+    ReaderState st;
+    const Viewport vp{0, 0, 1920, 1080};
+    Snapshot d = w.read(st);
+    CHECK(d.skills.entries.size() == 3 && d.skills.entries[2].id == kMagicSkillId && d.skills.unspentPoints > 0);
+    InventoryScreen disc;
+    disc.open(d, Page::Skills);
+    FrameOutput o = disc.frame(d, {}, vp);
+    CHECK(hasText(o.draw, "Magic"));
+    bool magicTarget = false;
+    for (const HitTarget& t : disc.targets())
+        magicTarget |= t.id == TargetId{TargetKind::SkillPlus, 2};
+    CHECK(magicTarget);
+
+    Snapshot s = w.read(st);
+    s.spellsEnabled = false;
+    InventoryScreen scr;
+    scr.open(s, Page::Skills);
+    o = scr.frame(s, {}, vp);
+    CHECK(scr.page() == Page::Skills && hasText(o.draw, "Melee") && hasText(o.draw, "Archery") &&
+          !hasText(o.draw, "Magic"));
+    for (const HitTarget& t : scr.targets())
+        CHECK(t.id.index != 2 || (t.id.kind != TargetKind::Skill && t.id.kind != TargetKind::SkillPlus &&
+                                  t.id.kind != TargetKind::SkillMinus));
+    // Down from Archery stays on Archery (or wraps to Melee); Right there never spends on row 2.
+    o = scr.frame(s, keys({UiKey::Down, UiKey::Down, UiKey::Down}), vp);
+    CHECK(scr.focus().kind == TargetKind::Skill && scr.focus().index != 2);
+    o = scr.frame(s, keys({UiKey::Right}), vp);
+    CHECK(!hasAction(o, ActionKind::SpendSkillPoint, 2) &&
+          hasAction(o, ActionKind::SpendSkillPoint, scr.focus().index));
+    // The rows close up: Archery stands where it stands with spells (row 1), nothing is drawn in row 2's place.
+    const HitTarget* archery = nullptr;
+    for (const HitTarget& t : scr.targets())
+        if (t.id == TargetId{TargetKind::Skill, 1})
+            archery = &t;
+    const HitTarget* archeryDisc = nullptr;
+    for (const HitTarget& t : disc.targets())
+        if (t.id == TargetId{TargetKind::Skill, 1})
+            archeryDisc = &t;
+    CHECK(archery && archeryDisc && archery->rect.y == archeryDisc->rect.y);
+
+    InventoryScreen ch;
+    ch.open(s, Page::Character);
+    o = ch.frame(s, {}, vp);
+    CHECK(ch.page() == Page::Character && hasText(o.draw, "Archery") && !hasText(o.draw, "Magic"));
+}
+
 void testScreenShopAndGuards() {
     World w;
     using S = FakeGame::ItemSpec;
@@ -958,6 +1008,7 @@ int main() {
     testScreenMouse();
     testScreenJournalDisabledInMultiplayer();
     testScreenSpellsOffInCampaign();
+    testSkillsWithoutMagic();
     testScreenShopAndGuards();
     testKeyGate();
     testCloseExecutor();

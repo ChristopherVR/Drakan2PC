@@ -189,6 +189,31 @@ int main() {
         check(near(m.x0, 8) && near(m.y0, 8) && near(m.x1, 470) && near(m.y1, 504), "map area clipped");
         check(clipToWindow({600, 0, 700, 100}, 512, 512, 8).w() <= 0, "outside: empty");
     }
+    // A campaign without spells: the four drawn tabs of the native row spread evenly over the old span (first to last
+    // slot), the Journal stays, nothing moves with spells on or in multiplayer (the Journal tab is still drawn there).
+    {
+        const uint32_t hidden = 1u << kSpellsSection;
+        check(near(tabSlotShift(0, kSectionCount, hidden), 0) && near(tabSlotShift(4, kSectionCount, hidden), 0),
+              "the end tabs stay");
+        check(near(tabSlotShift(2, kSectionCount, hidden), 4.0f / 3 - 2) &&
+                  near(tabSlotShift(3, kSectionCount, hidden), 8.0f / 3 - 3),
+              "Skills and Map move left");
+        const float s0 = 0, s2 = 2 + tabSlotShift(2, kSectionCount, hidden), s3 = 3 + tabSlotShift(3, 5, hidden),
+                    s4 = 4 + tabSlotShift(4, kSectionCount, hidden);
+        check(near(s2 - s0, s3 - s2) && near(s3 - s2, s4 - s3), "even gaps");
+        check(near(tabSlotShift(1, kSectionCount, hidden), 0), "the hidden tab itself is not moved");
+        for (int i = 0; i < kSectionCount; ++i)
+            check(near(tabSlotShift(i, kSectionCount, 0), 0), "nothing hidden: nothing moves");
+        // A shop (Equipment, Spells, shop list): the two drawn tabs keep the ends.
+        check(near(tabSlotShift(0, kShopSectionCount, hidden), 0) &&
+                  near(tabSlotShift(2, kShopSectionCount, hidden), 0),
+              "shop tabs keep their ends");
+        check(near(tabSlotShift(-1, 5, hidden), 0) && near(tabSlotShift(5, 5, hidden), 0), "out of range");
+    }
+    // Skills rows: Magic (the last of three) is neither drawn nor reachable without spells.
+    check(visibleSkillRows(3, true) == 2 && visibleSkillRows(3, false) == 3, "Magic row hidden only without spells");
+    check(visibleSkillRows(2, true) == 2 && visibleSkillRows(0, true) == 0, "other counts untouched");
+
     std::printf("inventory views policy: %u checks passed\n", checks);
     return 0;
 }

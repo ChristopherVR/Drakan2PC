@@ -446,12 +446,16 @@ void InventoryScreen::buildTargets(const Snapshot& s) {
                     add(TargetKind::Spell, sp.index, spellRow(sp.index), sp.knownLevel > 0, sp.knownLevel > 0);
             break;
         case Page::Skills:
-            for (size_t i = 0; i < s.skills.entries.size() && i < 3; ++i) {
+            // Targets keep the native row index; a hidden skill (Magic without spells) leaves no gap on screen.
+            for (size_t i = 0, slot = 0; i < s.skills.entries.size() && i < 3; ++i) {
                 const int row = static_cast<int>(i);
                 const SkillEntry& sk = s.skills.entries[i];
-                add(TargetKind::Skill, row, skillRow(row));
-                add(TargetKind::SkillMinus, row, skillMinus(row), false, sk.level > sk.committed);
-                add(TargetKind::SkillPlus, row, skillPlus(row), false, s.skills.unspentPoints > 0 && sk.level < sk.max);
+                if (!skillShown(sk, s.spellsEnabled))
+                    continue;
+                const int at = static_cast<int>(slot++);
+                add(TargetKind::Skill, row, skillRow(at));
+                add(TargetKind::SkillMinus, row, skillMinus(at), false, sk.level > sk.committed);
+                add(TargetKind::SkillPlus, row, skillPlus(at), false, s.skills.unspentPoints > 0 && sk.level < sk.max);
             }
             break;
         case Page::Journal: {
@@ -731,7 +735,8 @@ void InventoryScreen::activate(const TargetId& t, const Snapshot& s, FrameOutput
             break;
         case TargetKind::Skill:
         case TargetKind::SkillPlus:
-            if (s.skills.unspentPoints > 0)
+            if (s.skills.unspentPoints > 0 && t.index >= 0 && t.index < static_cast<int>(s.skills.entries.size()) &&
+                skillShown(s.skills.entries[static_cast<size_t>(t.index)], s.spellsEnabled))
                 push(ActionKind::SpendSkillPoint, t.index);
             break;
         case TargetKind::SkillMinus:
@@ -1505,6 +1510,8 @@ void InventoryScreen::drawCharacter(const Snapshot& s, DrawList& d) const {
     textD(d, {x, y, w, 40}, "Skills", FontRole::Heading, th.heading);
     y += 52;
     for (const SkillEntry& sk : s.skills.entries) {
+        if (!skillShown(sk, s.spellsEnabled))
+            continue;
         textD(d, {x, y, w, 34}, sk.name, FontRole::Body, th.text);
         textD(d, {x, y, w, 34}, fmtPair(sk.level, sk.max), FontRole::Body, th.textMuted, TextAlign::Right);
         y += 42;
@@ -1597,10 +1604,12 @@ void InventoryScreen::drawSkills(const Snapshot& s, DrawList& d) const {
     textD(d, {960, kContentTop + 18, 600, 40},
           s.skills.unspentPoints > 0 ? fmtInt(s.skills.unspentPoints) + " points to spend" : "No points to spend",
           FontRole::Body, s.skills.unspentPoints > 0 ? th.ember : th.textMuted, TextAlign::Right);
-    for (size_t i = 0; i < s.skills.entries.size() && i < 3; ++i) {
+    for (size_t i = 0, slot = 0; i < s.skills.entries.size() && i < 3; ++i) {
         const int row = static_cast<int>(i);
         const SkillEntry& sk = s.skills.entries[i];
-        const Rect r = skillRow(row);
+        if (!skillShown(sk, s.spellsEnabled))
+            continue;
+        const Rect r = skillRow(static_cast<int>(slot++));
         d.panel(lf_.map(r), PanelStyle::Card, th.panel);
         textD(d, {r.x + 32, r.y + 20, 500, 44}, sk.name, FontRole::Heading, th.text);
         textD(d, {r.x + 32, r.y + 70, 300, 34}, "Level " + fmtPair(sk.level, sk.max), FontRole::Body, th.textMuted);

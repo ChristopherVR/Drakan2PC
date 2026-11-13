@@ -40,6 +40,7 @@
 #include "drakan_modes.h"
 #endif
 #include "drakan_game.h"
+#include "settings/Bindings.h"
 #include "drakan_netplay.h"
 #endif
 #include "spu2/AudioOutput.h"
@@ -2237,6 +2238,24 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                         "PC Settings");
         host->iop.res.addOverride(pcText);
     }
+#endif
+    if constexpr (drakan_region::build().identityAddresses) {
+        // A campaign without spells: the disc's interface texts that speak of spells (the Skills help box, the Circle
+        // action of the controller screen) get our own wording. The texts are read from the disc when a screen asks
+        // for them, so the rule follows the current game (drakan_game::spellsEnabled).
+        auto noSpells = std::make_shared<hle::XdbTextOverride>();
+        noSpells->addRule([](const hle::ResourceId& id, int lang, std::string& text) {
+            if (drakan_game::spellsEnabled() || id.file != "INTERFCE.XDB")
+                return false;
+            const char* t = dsettings::textWithoutSpells(id.id, lang);
+            if (!t)
+                return false;
+            text = t;
+            return true;
+        });
+        host->iop.res.addOverride(noSpells);
+    }
+#if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
     drakan_settings_host::setArtSource(
         &host->fs); // the F1 menu draws in the game's own style (UI textures decoded from the disc)
 #if defined(PS2X_HAVE_GSR)

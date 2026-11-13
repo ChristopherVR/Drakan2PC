@@ -21,6 +21,10 @@ const char* actionLabel(const ActionDef& d);
 // Whether the current game has spells (the host sets it when the game is chosen; default true). Thread safe.
 void setGameHasSpells(bool spells);
 bool gameHasSpells();
+// Own wording for the disc's interface strings that speak of spells (INTERFCE.XDB, PAL string ids: 10 the Circle action
+// of the game's controller screen, 150 the Skills help box), shown while the current game has no spells. Windows-1252
+// bytes for the language slot `lang` (0 English, 1 German, 2 French, 3 Italian, 4 Spanish); nullptr = keep the disc's.
+const char* textWithoutSpells(unsigned interfaceTextId, int lang);
 
 // Input source names accepted by drakan_input.ini (same table as input/Config.cpp).
 bool isKnownSource(const std::string& upperName);

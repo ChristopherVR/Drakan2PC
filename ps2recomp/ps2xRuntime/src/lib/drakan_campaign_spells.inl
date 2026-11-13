@@ -9,14 +9,26 @@
 //     drawn bow, an item's charge). Its mana branch alone calls the stats getter 3d5838 (return 3adf9c); there the
 //     orb's slide-in offset (hud+0xc, -90 = out of the picture, 20 = in) is put back to -90 before the orb's draws, so
 //     they land outside the picture and the orb stays out. Arrows and charges still slide the orb in as on the disc.
+//   * the native Skills section (vtable 0x54f1f0): its Magic row, the last of three, is neither drawn nor reachable.
+//     The row loops of the key handler 445898 (Up / Down wrap, Left / Right on the current row), the text pass 445b78
+//     and the first-row choice 447150 read the skill count *0x4fbad0; during those calls it reads 2. The row frames
+//     and bars of 446290 (a fixed loop of three, each row's objects row+0x148 / +0x16c / +0x190 drawn by 4316c8) skip
+//     the third row's draws;
+//   * the native tab row: the Spells tab is not drawn (drakan_inventory_views.inl) and the drawn tabs spread evenly
+//     over the old span (drakan_views::tabSlotShift). 42b308(record, transform) draws a tab at the transform's
+//     position (camera space, the inventory camera is the identity); the shift is added to its x for the call. The
+//     slot spacing is read from the tabs that never move, the first and the last (their nodes' cached boxes, the same
+//     boxes the menu mouse projects), so the glow (42faa0, placed from the node) and the mouse boxes follow.
 // The Spells sections of the native screens are skipped and their tab not drawn in drakan_inventory_views.inl; the
-// modern screens hide their Spells page and mana bars from gameui::Snapshot::spellsEnabled.
+// modern screens hide their Spells page, the Magic skill and the mana bars from gameui::Snapshot::spellsEnabled.
 // docs/reference/modding.md "Campaign packs", journal docs/journal/2026-11-14/ootf-no-spells.md.
 
 namespace {
 
 PS2Runtime::RecompiledFunction g_origSpellHud = nullptr, g_origManaMax = nullptr, g_origCanSummon = nullptr,
-                               g_origSummonPrepare = nullptr, g_origSummonSpell = nullptr;
+                               g_origSummonPrepare = nullptr, g_origSummonSpell = nullptr, g_origSkillKeys = nullptr,
+                               g_origSkillText2 = nullptr, g_origSkillFirstRow = nullptr, g_origSkillGraphics = nullptr,
+                               g_origRecordDraw = nullptr, g_origTabDraw = nullptr;
 uint32_t g_spellHudObj = 0;                    // a0 of the HUD draw 3ac540 (0x510150 on the PAL disc)
 constexpr uint32_t kHudManaReturn = 0x3adf9cu; // 3ac540's call of 3d5838 in its mana branch
 constexpr uint32_t kHudRightOrbSlide = 0xcu;   // hud+0xc: the right orb's slide offset (float)
@@ -75,6 +87,145 @@ void hookSummonSpell(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     g_origSummonSpell(ram, c, rt);
 }
 
+// ---- native Skills section ----
+constexpr uint32_t kSkillCountVar = 0x4fbad0u; // stats block skill count (0x4fbac8 + 8)
+constexpr uint32_t kSkillRowsField = 0xfcu, kSkillRowField = 0x58u, kSkillRowStride = 0x1b4u, kSkillRowLit = 0x24u;
+uint32_t g_skillGraphicsSection = 0; // a0 of 446290 while it draws (its hidden rows' objects are skipped)
+
+uint32_t spellRead32(const uint8_t* ram, uint32_t a) {
+    uint32_t v = 0;
+    a &= 0x1fffffffu;
+    if (a >= 0x100000u && a + 4 <= PS2_RAM_SIZE)
+        std::memcpy(&v, ram + a, 4);
+    return v;
+}
+void spellWrite32(uint8_t* ram, uint32_t a, uint32_t v) {
+    a &= 0x1fffffffu;
+    if (a >= 0x100000u && a + 4 <= PS2_RAM_SIZE)
+        std::memcpy(ram + a, &v, 4);
+}
+
+// A section that was built with the Magic row current (it had the highest level) moves to the first row.
+void skillRowIntoRange(uint8_t* ram, uint32_t section, int visible) {
+    const uint32_t rows = spellRead32(ram, section + kSkillRowsField);
+    const int row = int(spellRead32(ram, section + kSkillRowField));
+    if (!rows || row < visible || row >= drakan_views::kSkillRows)
+        return;
+    spellWrite32(ram, rows + uint32_t(row) * kSkillRowStride + kSkillRowLit, 0);
+    spellWrite32(ram, section + kSkillRowField, 0);
+    spellWrite32(ram, rows + kSkillRowLit, 1);
+}
+
+// Runs a Skills function with the skill count lowered to the visible rows.
+void withVisibleSkills(uint8_t* ram, R5900Context* c, PS2Runtime* rt, PS2Runtime::RecompiledFunction orig,
+                       bool section) {
+    const uint32_t count = spellRead32(ram, kSkillCountVar);
+    const int visible = drakan_views::visibleSkillRows(int(count), campaignSpellsOff());
+    if (visible == int(count)) {
+        orig(ram, c, rt);
+        return;
+    }
+    if (section)
+        skillRowIntoRange(ram, getRegU32(c, 4), visible);
+    withTemporaryGuestState(
+        [&] {
+            spellWrite32(ram, kSkillCountVar, uint32_t(visible));
+            orig(ram, c, rt);
+        },
+        [&] { spellWrite32(ram, kSkillCountVar, count); });
+}
+
+void hookSkillKeys(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc != 0x445898u)
+        return g_origSkillKeys(ram, c, rt);
+    withVisibleSkills(ram, c, rt, g_origSkillKeys, true);
+}
+void hookSkillText2(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc != 0x445b78u)
+        return g_origSkillText2(ram, c, rt);
+    withVisibleSkills(ram, c, rt, g_origSkillText2, true);
+}
+void hookSkillFirstRow(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc != 0x447150u)
+        return g_origSkillFirstRow(ram, c, rt);
+    withVisibleSkills(ram, c, rt, g_origSkillFirstRow, false);
+}
+void hookSkillGraphics(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc != 0x446290u || !campaignSpellsOff())
+        return g_origSkillGraphics(ram, c, rt);
+    const uint32_t section = getRegU32(c, 4);
+    withTemporaryGuestState(
+        [&] {
+            g_skillGraphicsSection = section;
+            g_origSkillGraphics(ram, c, rt);
+        },
+        [&] { g_skillGraphicsSection = 0; });
+}
+// 4316c8(object, transform, list) from 446290: the hidden rows' frame, bar and bar fill are not drawn.
+void hookRecordDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t section = g_skillGraphicsSection;
+    const uint32_t ra = getRegU32(c, 31);
+    if (c->pc == 0x4316c8u && section && ra > 0x446290u && ra < 0x4468e0u) {
+        const uint32_t rows = spellRead32(ram, section + kSkillRowsField);
+        const uint32_t obj = getRegU32(c, 4);
+        const int visible = drakan_views::visibleSkillRows(int(spellRead32(ram, kSkillCountVar)), true);
+        if (rows && obj >= rows + uint32_t(visible) * kSkillRowStride &&
+            obj < rows + uint32_t(drakan_views::kSkillRows) * kSkillRowStride) {
+            c->pc = ra;
+            return;
+        }
+    }
+    g_origRecordDraw(ram, c, rt);
+}
+
+// ---- native tab row ----
+uint32_t g_tabSpacingScreen = 0;
+float g_tabSpacing = 0.0f; // camera-space x from one tab slot to the next
+
+// Centre x of a tab's icon from its node's cached box (node+0xb8: origin, then the x / y / z edges), or NaN.
+float tabCentreX(const uint8_t* ram, uint32_t record) {
+    const uint32_t node = spellRead32(ram, record + 0x1c);
+    if (!node || node + 0xc8u > PS2_RAM_SIZE || !(spellRead32(ram, node + 0x104) & 0x2000u))
+        return std::nanf("");
+    float x = 0, w = 0;
+    std::memcpy(&x, ram + (node + 0xb8u), 4);
+    std::memcpy(&w, ram + (node + 0xc4u), 4);
+    return std::isfinite(x) && std::isfinite(w) && w > 0 ? x + 0.5f * w : std::nanf("");
+}
+
+void hookTabDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    using namespace drakan_views;
+    if (c->pc != 0x42b308u || !campaignSpellsOff() || !g_invTabScreen)
+        return g_origTabDraw(ram, c, rt);
+    const uint32_t screen = g_invTabScreen, record = getRegU32(c, 4), xform = getRegU32(c, 5) & 0x1fffffffu;
+    const uint32_t base = spellRead32(ram, screen + 0x19c);
+    const int count = int(spellRead32(ram, screen + 0x1a4));
+    if (!base || record < base || (record - base) % 0x24u || count != kSectionCount ||
+        int((record - base) / 0x24u) >= count || xform < 0x100000u || xform + 4 > PS2_RAM_SIZE)
+        return g_origTabDraw(ram, c, rt);
+    const int index = int((record - base) / 0x24u);
+    const float shift = tabSlotShift(index, count, disabledSections(count, false, true));
+    const float first = tabCentreX(ram, base), last = tabCentreX(ram, base + uint32_t(count - 1) * 0x24u);
+    if (std::isfinite(first) && std::isfinite(last) && last > first) {
+        g_tabSpacing = (last - first) / float(count - 1);
+        g_tabSpacingScreen = screen;
+    }
+    if (shift == 0.0f || g_tabSpacingScreen != screen || !(g_tabSpacing > 0.0f))
+        return g_origTabDraw(ram, c, rt);
+    float x = 0;
+    std::memcpy(&x, ram + xform, 4);
+    const float moved = x + shift * g_tabSpacing;
+    static int logged = 0;
+    if (logged < 4 && ++logged)
+        std::fprintf(stderr, "[spells] tab %d moved by %.2f slots (slot %.3f)\n", index, shift, g_tabSpacing);
+    withTemporaryGuestState(
+        [&] {
+            std::memcpy(ram + xform, &moved, 4);
+            g_origTabDraw(ram, c, rt);
+        },
+        [&] { std::memcpy(ram + xform, &x, 4); });
+}
+
 } // namespace
 
 // After installInventoryViewHooks (the HUD hook wraps the views' 3ac540 hook). PAL addresses, like the view hooks.
@@ -85,9 +236,17 @@ void installCampaignSpellHooks(PS2Runtime& rt) {
         PS2Runtime::RecompiledFunction hook;
     };
     const Hook hooks[] = {
-        {0x3ac540u, &g_origSpellHud, &hookSpellHud},       {0x3d5838u, &g_origManaMax, &hookManaMax},
-        {0x38f370u, &g_origCanSummon, &hookCanSummon},     {0x3895c0u, &g_origSummonPrepare, &hookSummonPrepare},
+        {0x3ac540u, &g_origSpellHud, &hookSpellHud},
+        {0x3d5838u, &g_origManaMax, &hookManaMax},
+        {0x38f370u, &g_origCanSummon, &hookCanSummon},
+        {0x3895c0u, &g_origSummonPrepare, &hookSummonPrepare},
         {0x38bd48u, &g_origSummonSpell, &hookSummonSpell},
+        {0x445898u, &g_origSkillKeys, &hookSkillKeys},
+        {0x445b78u, &g_origSkillText2, &hookSkillText2},
+        {0x447150u, &g_origSkillFirstRow, &hookSkillFirstRow},
+        {0x446290u, &g_origSkillGraphics, &hookSkillGraphics},
+        {0x4316c8u, &g_origRecordDraw, &hookRecordDraw},
+        {0x42b308u, &g_origTabDraw, &hookTabDraw},
     };
     for (const auto& h : hooks)
         if ((*h.original = rt.lookupFunction(h.address)))

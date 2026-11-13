@@ -129,6 +129,36 @@ const char* actionLabel(const ActionDef& d) {
     return d.label;
 }
 
+const char* textWithoutSpells(unsigned interfaceTextId, int lang) {
+    // Our own sentences (not the disc's), one per language slot; no spells, no Magic skill.
+    static const char* const kParry[5] = {
+        "Parry", "Parieren", "Parade", "Para", "Esquivar",
+    };
+    static const char* const kSkillsHelp[5] = {
+        "Skills: As she defeats creatures, Rynn earns skill points to spend on Melee or Archery. Higher skill levels "
+        "let her use stronger weapons.",
+        "Fertigkeiten: F\xfcr besiegte Kreaturen erh\xe4lt Rynn Punkte f\xfcr Nahkampf oder Bogenschie\xdf"
+        "en. H\xf6here Stufen erlauben st\xe4rkere Waffen.",
+        "Comp\xe9tences : en battant des cr\xe9"
+        "atures, Rynn gagne des points \xe0 r\xe9partir entre le combat et le tir \xe0 l'arc. Un niveau plus "
+        "\xe9lev\xe9 donne acc\xe8s \xe0 des armes plus puissantes.",
+        "Abilit\xe0: sconfiggendo le creature, Rynn ottiene punti da assegnare a Mischia o Arco. Livelli pi\xf9 alti "
+        "permettono di usare armi pi\xf9 potenti.",
+        "Habilidades: al derrotar criaturas, Rynn gana puntos para lucha o tiro con arco. Los niveles m\xe1s altos le "
+        "permiten usar armas m\xe1s poderosas.",
+    };
+    if (lang < 0 || lang >= 5)
+        return nullptr;
+    switch (interfaceTextId) {
+        case 10:
+            return kParry[lang];
+        case 150:
+            return kSkillsHelp[lang];
+        default:
+            return nullptr;
+    }
+}
+
 const std::vector<ActionDef>& menuActions() {
     static const std::vector<ActionDef> v = {
         {"DPAD_UP", "Menu up", "D-pad up", "Navigation"},

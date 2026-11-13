@@ -1,6 +1,7 @@
 // Unit tests for the settings library core (ini round trips, bindings editing). No ImGui, no window.
 //   settings_test [path\to\real\drakan_input.ini] [path\to\real\drakan.ini]
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -208,6 +209,21 @@ static void testDefaults() {
             CHECK(std::string(actionLabel(a)) == a.label);
         setGameHasSpells(true);
         CHECK(std::string(actionLabel(*circle)) == "Use Magic / Parry");
+        // The disc texts replaced without spells: every language, none speaks of spells or magic, no em-dash (0x97 in
+        // Windows-1252), short enough for the game's 256-byte text buffers; other ids keep the disc's text.
+        for (unsigned id : {10u, 150u})
+            for (int lang = 0; lang < 5; ++lang) {
+                const char* t = textWithoutSpells(id, lang);
+                CHECK(t != nullptr);
+                std::string low = t ? t : "";
+                for (char& ch : low)
+                    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                for (const char* word : {"spell", "magic", "magie", "magia", "zauber", "sort", "hechizo", "incantesim"})
+                    CHECK(low.find(word) == std::string::npos);
+                CHECK(low.find('\x97') == std::string::npos && low.size() < 256 && !low.empty());
+            }
+        CHECK(textWithoutSpells(150, 5) == nullptr && textWithoutSpells(149, 0) == nullptr &&
+              textWithoutSpells(156, 0) == nullptr && textWithoutSpells(10, -1) == nullptr);
     }
     // all default sources are known names
     for (const auto& l : d.controls.game.lines)

@@ -64,6 +64,38 @@ constexpr uint32_t leaveSectionKey(int current, int count) {
     return current * 2 >= count ? kKeyNext : kKeyPrevious;
 }
 
+// The section tab icons of the native screen (records screen+0x19c + i * 0x24) stand in one row, one slot apart, in
+// section order. A section whose tab is not drawn (Spells in a campaign without spells) would leave an empty slot: the
+// drawn tabs are spread evenly over the span from the first to the last drawn tab instead. Returns the shift of tab
+// `index` in slots (negative = left), 0 when nothing is hidden or the tab itself is hidden.
+inline float tabSlotShift(int index, int count, uint32_t hidden) {
+    if (count <= 1 || index < 0 || index >= count || !hidden || sectionDisabled(hidden, index))
+        return 0.0f;
+    int first = -1, last = -1, shown = 0, rank = -1;
+    for (int i = 0; i < count; ++i) {
+        if (sectionDisabled(hidden, i))
+            continue;
+        if (first < 0)
+            first = i;
+        last = i;
+        if (i == index)
+            rank = shown;
+        ++shown;
+    }
+    if (shown < 2 || rank < 0)
+        return 0.0f;
+    const float slot = float(first) + float(rank) * float(last - first) / float(shown - 1);
+    return slot - float(index);
+}
+
+// Skills section (vtable 0x54f1f0): one row per skill of the stats block (count *0x4fbad0), rows in the order of the
+// disc's row table 0x54f258 (skill ids 1 Melee, 2 Archery, 3 Magic). The Magic row is the last; a campaign without
+// spells shows and steps through the rows before it only.
+constexpr int kSkillRows = 3, kMagicSkillRow = 2;
+constexpr int visibleSkillRows(int count, bool spellsOff) {
+    return spellsOff && count == kSkillRows ? kMagicSkillRow : count;
+}
+
 constexpr int targetSection(View v) {
     return v == View::Map ? kMapSection : kEquipmentSection;
 }

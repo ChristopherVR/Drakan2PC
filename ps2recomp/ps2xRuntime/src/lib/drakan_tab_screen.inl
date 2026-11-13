@@ -506,7 +506,9 @@ void tabExecute(const gameui::Snapshot& s) {
             // Skills (section 2): the row is the section's +0x58, stepped by Up / Down taps (three rows, wrapping;
             // rows only move while points are unspent); Right spends a point, Left takes one back (445898).
             const bool spend = a.kind == ActionKind::SpendSkillPoint;
-            if (s.native.section != 2 || s.native.skillRow < 0 || a.target < 0 || a.target > 2 ||
+            // A campaign without spells has no Magic row (the last): the native rows stop before it.
+            if (s.native.section != 2 || s.native.skillRow < 0 || a.target < 0 ||
+                a.target >= drakan_views::visibleSkillRows(drakan_views::kSkillRows, campaignSpellsOff()) ||
                 (spend && s.skills.unspentPoints <= 0))
                 return tabFinish(Outcome::Refused);
             if (s.native.skillRow != a.target) {

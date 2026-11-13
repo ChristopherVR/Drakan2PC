@@ -643,8 +643,11 @@ void MenuMouse::captureInventorySkills(IGuest& g, uint32_t section) {
     if (!settledSection(g, a_.activeScreenVar, section, kSkillsVtable, 2, screen))
         return;
     const uint32_t player = g.read32(screen + 0x14c);
-    if (!validPtr(player) || g.read32(player + 0x590) || g.read32(section + 0x100) != 3 || g.read32(0x4fbad0u) != 3 ||
-        g.read32(screen + 0x1e4))
+    // A campaign without spells shows the first two rows only (Melee, Archery; the guest hooks lower the count to 2
+    // around the section's own row loops).
+    const uint32_t skills = g.read32(0x4fbad0u);
+    if (!validPtr(player) || g.read32(player + 0x590) || g.read32(section + 0x100) != 3 ||
+        (skills != 3 && !(spellsDisabled_ && skills == 2)) || g.read32(screen + 0x1e4))
         return;
     startContent(Content::Skills, screen, section, 0, 2);
     // Unspent points, stored rotated against a key: rotr8(*0x4fbaf4 ^ *0x4fe86c).
@@ -653,8 +656,9 @@ void MenuMouse::captureInventorySkills(IGuest& g, uint32_t section) {
     const uint32_t rows = g.read32(section + 0xfc);
     if (points <= 0 || !validPtr(rows))
         return;
-    contentCount_ = 3;
-    for (unsigned i = 0; i < 3; ++i) {
+    const unsigned shown = spellsDisabled_ ? 2u : 3u;
+    contentCount_ = shown;
+    for (unsigned i = 0; i < shown; ++i) {
         const uint32_t row = rows + i * 0x1b4;
         const float left = g.readF(row + 0x28), top = g.readF(row + 0x2c), bottom = g.readF(row + 0x34);
         const float right = std::max(g.readF(row + 0x30), g.readF(row + 0x38) + 40.0f);
@@ -874,9 +878,10 @@ MenuMouseResult MenuMouse::updateContent(IGuest& g, uint32_t scr, const MenuMous
             }
             contentTarget_ = -1;
         } else if (contentWait_ % 3 == 1) {
-            if (contentKind_ == Content::Skills)
-                res.padTap = (contentTarget_ - selected + 3) % 3 == 1 ? Pad::DOWN : Pad::UP;
-            else // any arrow that reaches the native selector, which substitutes the target (edges refuse one way)
+            if (contentKind_ == Content::Skills) {
+                const int rows = static_cast<int>(contentCount_ ? contentCount_ : 3u);
+                res.padTap = (contentTarget_ - selected + rows) % rows == 1 ? Pad::DOWN : Pad::UP;
+            } else // any arrow that reaches the native selector, which substitutes the target (edges refuse one way)
                 res.padTap = (contentWait_ / 3) % 2 ? Pad::LEFT : Pad::RIGHT;
             ++dbg_.taps;
         }
