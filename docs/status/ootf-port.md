@@ -59,6 +59,14 @@ fps (was 34.4 / 53.1, DLSS quality / off), the Ruined Village at 60 / 83.4 (60 /
 / 134). Joining the terrain passes into fewer draws (a texture array of the ground tiles) is not built. See
 [renderer draw cost](../journal/2026-11-14/ootf-terrain-gpu.md).
 
+**November 14 terrain batching (round 5):** `[video] terrain_batching` (default 0, env `GSR_TERRAIN_BATCHING`) keeps
+consecutive ground passes that differ only in their texture in one batch and draws them with one classification,
+binding and constants upload, switching only the texture between them, in order. Replays hash identically off and on
+(Direct3D 11 and WebGPU, six captures); in the game 78 % of the Wartok Canyons draws are joined, 7.3 passes each. A
+played canyon tour (walk, fight attempt, F5/F8, mine exit, F5/F8 in the mines) looks the same both ways. Frame times are
+not measured yet (the machine was never quiet), so the default stays off. See
+[terrain batching](../journal/2026-11-14/ootf-terrain-join.md).
+
 **November 14, CPU side (round 4):** the Ruined Village is not capped at 60 fps: with DLSS quality the frame is the GS
 worker's submission plus a `Present` that blocks about 5 ms for the GPU, while the GS worker waits for that present;
 switching only the DLSS mode moves the rate (performance 65, quality 60, DLAA 38, off 85) and the `Present` wait with it.
