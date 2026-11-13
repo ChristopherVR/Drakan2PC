@@ -379,7 +379,14 @@ adapter itself reported. There is no hand-written Vulkan backend: Vulkan is reac
 | --- | --- | --- |
 | `gs_texture_cache.inl` | the texture cache: keys, decode, CLUT, mip chains, HD replacement and upscale jobs, the worker pool, palette-animated textures | `GpuTexture`, `createSampledTexture`, `copyAliasedBlocks` |
 | `gs_draw.inl` | `Impl::draw`: classification of a draw, widescreen and HUD mapping, blend / depth / alpha-test decisions (`gs_pipeline_state.h`), constants, scissor, passes | `clearTarget`, `beginVertices`, `bindDraw`, `setPass`, `drawVertices`, `endDraw` |
-| `gs_targets.inl` | target lookup and aliasing, which target a texture samples, dirty rows and stamps, readback skips, row refresh, target copies, uploads into targets, partial uploads | `allocRT`, `beginReadback`, `uploadTargetRect`, `copyTargetTop`, `patchTargetBlock` |
+| `gs_targets.inl` | target lookup and aliasing, which target a texture samples, dirty rows and stamps, readback skips, row refresh, target copies, uploads into targets, partial uploads, target storage, inventory canvas clears, depth buffers, the item grid capture | `beginReadback`, `copyTargetTop`, `patchTargetBlock`, hooks `replaceTargetTexture`, `clearCanvasMargins`, `replicateTargetRect`, `writeTargetRect`, `createDepthTexture`, grid copies |
+| `gs_backend_api.inl` | the `BackendApi` forwarding, the scene-camera phase machine (world / GUI / subtitle / water / grid markers), object motion scopes, level changes, ray-tracing status lines | hooks `markGpuPass`, `worldPhaseOpened`, `motionWorldOpened`, `levelHistoryReset`, `sceneModelsNoted`, `acquireRayPass`, `rayPassOf` |
+| `gs_present.inl` | the display image (circuits, PMODE, save preview, held menu over the loading screen), the latch, the window viewport and letterbox, the overlay's context, window screenshots, HUD clusters, `endFrame` (cache sweep, eviction, ageing) | `ensureDisp`, hooks `drawDisplay`, `acquireWindowImage`, `drawWindowImage`, `readWindowImage`, `presentWindowImage` and the upscaler's parts |
+| `gs_images.inl` | captures, HD movie frames, wide menu backdrops | `readTarget`, hooks `readImage`, `createMovieTexture`, `writeMovieImage`, `drawMovieImage`, `createBackdropTexture`, `drawBackdrop` |
+
+The hooks (namespace `gsr::backend_hook`) are free functions over the backend's `Impl`, defined in the backend file
+before it includes the unit; they become members of the `Impl` when its state is shared (each unit's header comment
+lists its own).
 
 A backend file (`d3d11_textures.cpp`, `wgpu_draw.cpp`, ...) defines those functions, sets `GSR_IMPL` to its `Impl`
 and includes the unit. A feature only one backend has is a flag in its `BackendCaps kCaps`, asked with
@@ -388,8 +395,10 @@ readback prefetch, textures created off the render thread and `GSR_RB_VERIFY` ar
 rules with their own unit tests stay in neutral headers (`gs_solid_mirror.h`, `rt_sync_rows.h`, `rt_local_copy.h`,
 `rt_upload_runs.h`, `rt_texture_source.h`). The rule for new work: GS logic goes into a shared unit or header, a
 backend file only holds API calls, and a missing capability is a flag, never a second copy of the logic. Still
-written twice: the `Impl` state (`*_backend_impl.h`), presentation (`*_present.cpp`) and the scene-camera phase
-machine (`*_backend.cpp`). The readback skips (block and exact-bit, clean-block retention) are memory-exact: GS
+written twice: the `Impl` state and the class declarations (`*_backend_impl.h`) and live settings / scale changes
+(`*_device.cpp`); the other identical lines left are API boilerplate and hook signatures
+([renderer-shared-code-2.md](../journal/2026-11-13/renderer-shared-code-2.md) lists them). The readback skips
+(block and exact-bit, clean-block retention) are memory-exact: GS
 memory and the targets hold the same with and without them; with automatic texture upscaling the picture can differ
 by a few values in 255, because a texture in memory that a still-dirty target occupies is not upscaled. Proofs and
 measurements: [renderer-shared-code.md](../journal/2026-11-12/renderer-shared-code.md).
