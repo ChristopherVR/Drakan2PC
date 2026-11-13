@@ -132,6 +132,10 @@ const Entry kEntries[] = {
      "experimental: 1 = the game's per-frame picture read-back and its display commits no longer stop the game "
      "thread (steadier frame times; the game sees that small read-back picture one frame late); 0 = original; "
      "restart required (env PS2X_FRAME_QUEUE=1 with PS2X_READBACK=late)"},
+    {"video", "flip_on_submit", "0",
+     "1 = show each finished frame as soon as the game hands it over; 0 = original (the frame may wait for the "
+     "game's own 60 Hz display tick, which can hold heavy scenes at exactly 60 fps); world_rate = uncapped only; "
+     "restart required (env DRAKAN_FLIP_ON_SUBMIT)"},
     {"video", "anisotropic", "16", "anisotropic filtering: 1 = off, 2, 4, 8, 16 (env GSR_ANISO)"},
     {"video", "texture_upscale", "auto",
      "texture upscaling: 1 = off, 2, 4, 8, auto (internal scale 2-3 -> 2x, 4+ -> 4x) (env GSR_TEXUP)"},

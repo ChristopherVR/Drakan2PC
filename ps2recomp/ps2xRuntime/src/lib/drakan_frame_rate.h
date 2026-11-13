@@ -82,6 +82,27 @@ inline void waitHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     waitOriginal(ram, ctx, rt);
     traceHandshake('r', ctx->pc, 0);
 }
+// 1d86d0 hands a finished frame to the flip worker (object+4 = 0 under the object's semaphore). The worker only looks
+// at it when it is woken: by the main thread's next 1d8660 request (waitHook) or by the guest vblank, which is a host
+// timer of 16,667 us. When the main thread then blocks before its next request (on the GS read-back, which waits for
+// the present of the frame the worker has not flipped yet), only the vblank breaks the chain and the frame rate locks
+// to 60 (the Ruined Village with DLSS quality, 14 November). [video] flip_on_submit = 1 wakes the worker as soon as
+// the frame is handed over; the worker still runs its own readiness tests before it flips.
+inline bool flipOnSubmit = false;
+inline PS2Runtime::RecompiledFunction submitOriginal = nullptr;
+inline uint64_t submitWakes = 0;
+inline void submitHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    submitOriginal(ram, ctx, rt);
+    const uint32_t object = readWord(ram, 0x4e8ee0u);
+    if (object < 0x100000u || object > PS2_RAM_SIZE - 16)
+        return;
+    traceHandshake('u', object, readWord(ram, object + 4));
+    // Only once the frame is handed over (a resume inside the semaphore wait leaves object+4 at 1: nothing to do).
+    if (readWord(ram, object + 4) == 0) {
+        ++submitWakes;
+        wakePending(ram, rt, object, static_cast<int>(readWord(ram, object + 12)));
+    }
+}
 inline void flipHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     const bool worker = ctx->pc == 0x1e0048u && GPR_U32(ctx, 31) == 0x1d7a04u &&
                         validWorker(ram, GPR_U32(ctx, 16), rt->eeScheduler().currentThreadId());
@@ -122,11 +143,12 @@ inline void flipHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
 #endif
         const double elapsed = std::chrono::duration<double>(now - begin).count();
         if (elapsed >= 2) {
-            std::fprintf(stderr, "[frame-uncapped] seconds=%.6f completedFlips=%llu wakes=%llu retries=%llu\n", elapsed,
-                         (unsigned long long)completedFlips, (unsigned long long)wakeRequests,
-                         (unsigned long long)retryRequests);
+            std::fprintf(stderr,
+                         "[frame-uncapped] seconds=%.6f completedFlips=%llu wakes=%llu retries=%llu submitWakes=%llu\n",
+                         elapsed, (unsigned long long)completedFlips, (unsigned long long)wakeRequests,
+                         (unsigned long long)retryRequests, (unsigned long long)submitWakes);
             begin = now;
-            completedFlips = wakeRequests = retryRequests = 0;
+            completedFlips = wakeRequests = retryRequests = submitWakes = 0;
         }
     }
 }
@@ -492,6 +514,16 @@ inline void install(PS2Runtime& rt) {
         rt.replaceFunction(0x1d8660u, waitHook);
         flipOriginal = rt.lookupFunction(0x1e0048u);
         rt.replaceFunction(0x1e0048u, flipHook);
+        // The frame hand-over and its resume points (after the dirty-region call, the semaphore wait and the signal).
+        flipOnSubmit = drakan_region::build().identityAddresses &&
+                       drakan_cfg::getBool("video", "flip_on_submit", "DRAKAN_FLIP_ON_SUBMIT", false) &&
+                       rt.hasFunction(0x1d86d0u);
+        if (flipOnSubmit) {
+            submitOriginal = rt.lookupFunction(0x1d86d0u);
+            for (const uint32_t address : {0x1d86d0u, 0x1d8708u, 0x1d8710u, 0x1d8720u})
+                rt.replaceFunction(address, submitHook);
+        }
+        std::fprintf(stderr, "[frame-rate] flip on submit %s\n", flipOnSubmit ? "on" : "off");
     }
     // Ropes keep their carried objects on the rope and their swing centred at any tick length
     // (DRAKAN_ROPE_TICK=0: the native update).
