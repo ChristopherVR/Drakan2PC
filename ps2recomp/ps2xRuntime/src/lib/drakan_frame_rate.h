@@ -38,10 +38,31 @@ inline bool validWorker(uint8_t* ram, uint32_t object, int thread) {
     return object >= 0x100000u && object <= PS2_RAM_SIZE - 16 && readWord(ram, 0x4e8ee0u) == object &&
            readWord(ram, object + 12) == static_cast<uint32_t>(thread);
 }
-inline void wakePending(uint8_t* ram, PS2Runtime* rt, uint32_t object, int thread) {
-    if (!validWorker(ram, object, thread) || readWord(ram, object + 4) != 0)
+// DRAKAN_FRAME_AUDIT=4: one `[ft] K <us> <event> <a> <b>` line per step of the display worker hand-shake.
+inline bool handshakeTrace() {
+    static const bool on = [] {
+        const char* v = std::getenv("DRAKAN_FRAME_AUDIT");
+        return v && std::atoi(v) >= 4;
+    }();
+    return on;
+}
+inline void traceHandshake(char event, uint32_t a, uint32_t b) {
+    if (!handshakeTrace())
         return;
+    std::fprintf(stderr, "[ft] K %lld %c %x %x\n",
+                 (long long)std::chrono::duration_cast<std::chrono::microseconds>(
+                     std::chrono::steady_clock::now().time_since_epoch())
+                     .count(),
+                 event, a, b);
+}
+inline void wakePending(uint8_t* ram, PS2Runtime* rt, uint32_t object, int thread) {
+    if (!validWorker(ram, object, thread) || readWord(ram, object + 4) != 0) {
+        traceHandshake('n', readWord(ram, object + 4), 0);
+        return;
+    }
     auto* worker = rt->eeScheduler().thread(thread);
+    if (handshakeTrace())
+        traceHandshake('w', worker ? unsigned(worker->status) : 99u, worker ? unsigned(worker->wait.reason) : 99u);
     // Never accumulate wake credits: a ready/running worker already has work.
     if (worker && worker->entry == 0x1d78f0u && worker->status == EeThreadStatus::Waiting &&
         worker->wait.reason == EeWaitReason::Sleep) {
@@ -54,14 +75,18 @@ inline void wakePending(uint8_t* ram, PS2Runtime* rt, uint32_t object, int threa
 inline void waitHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     if (ctx->pc == 0x1d8660u) {
         const uint32_t object = GPR_U32(ctx, 4);
+        traceHandshake('q', object, GPR_U32(ctx, 31));
         if (object >= 0x100000u && object <= PS2_RAM_SIZE - 16)
             wakePending(ram, rt, object, static_cast<int>(readWord(ram, object + 12)));
     }
     waitOriginal(ram, ctx, rt);
+    traceHandshake('r', ctx->pc, 0);
 }
 inline void flipHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     const bool worker = ctx->pc == 0x1e0048u && GPR_U32(ctx, 31) == 0x1d7a04u &&
                         validWorker(ram, GPR_U32(ctx, 16), rt->eeScheduler().currentThreadId());
+    if (worker)
+        traceHandshake('f', readWord(ram, GPR_U32(ctx, 16) + 4), 0);
     flipOriginal(ram, ctx, rt);
     // This leaf routine has completed every privileged display-register write.
     if (worker && ctx->pc == 0x1d7a04u) {
@@ -122,6 +147,7 @@ inline void sleepHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         std::memcpy(&count, ram + 0x4e8e98u, 4);
         // The worker increments before sleeping. Reaching two wake cycles
         // satisfies the original four-count gate on its next iteration.
+        traceHandshake('s', count, readWord(ram, object + 4));
         count = cadenceCount(count, highRate, ctx->pc, GPR_U32(ctx, 31));
         std::memcpy(ram + 0x4e8e98u, &count, 4);
         if (uncapped) {
