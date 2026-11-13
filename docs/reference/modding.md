@@ -613,6 +613,16 @@ touched. Multiplayer keeps spells (arena characters get every spell). While it i
   (`drakan_views::skipSectionPreset`), a screen that is on it leaves towards Equipment, and its tab icon (the stars) is
   not drawn (42b308 for record 1). The modern Tab screen has no Spells tab (`gameui::Snapshot::spellsEnabled`,
   `InventoryScreen::visiblePages`) and no mana bar on the Character page. A shop's Spells pane is skipped the same way.
+  The four tabs left in the native row stand evenly over the old row (Equipment and Journal stay, Skills moves 2/3 and Map
+  1/3 of a slot left, `drakan_views::tabSlotShift`): their icon and ring nodes move after the per-frame tab placement
+  42b0a8, so the glow follows, and the menu mouse moves the captured boxes of those two tabs by the same slots
+  (`MenuMouse::categorySlotShift`), so a click lands where the icon is drawn and the old spots are empty.
+* **Skills**: Magic is not listed. The native Skills section shows and steps through Melee and Archery only: its key
+  handler 445898 (Up / Down wrap, Left / Right), its text pass 445b78 and its first-row choice 447150 see a skill count
+  of 2 (the Magic row is the last of three), and the third row's level orb and frames are not drawn (446290's draws of
+  row+0x148 / +0x16c / +0x190). The empty strip and the faint emblem of that row are painted into the section's page art
+  and stay. The modern Skills and Character pages leave Magic out (`gameui::skillShown`), and a point can never be spent
+  on it (the modern action and the menu mouse's Skills rows stop at the second row).
 * **HUD**: the mana orb does not appear. The right orb of the HUD still slides in when it has arrows or an item's charge
   to show; when it would show mana it stays out of the picture (the OotF PC HUD has no mana either). Nothing is shown in
   its place.
@@ -621,13 +631,16 @@ touched. Multiplayer keeps spells (arena characters get every spell). While it i
 * **Casting**: Circle with empty hands parries instead of starting a spell (the summon test 38f370 says no), and the
   summon entries (3895c0, 38bd48: the inventory's Summon, the debug console) start nothing. The PC Settings controls page
   calls the Circle action "Parry" (`dsettings::actionLabel`).
+* **Texts**: the disc's Skills help box (shown on the first visit, in both Tab screens) and the Circle line of the game's
+  own Controls screen (Options > Controls) mention magic; while spells are off they are served with our own wording, in
+  all five languages (`dsettings::textWithoutSpells`, PAL `INTERFCE.XDB` ids 150 and 10, an `XdbTextOverride` rule in
+  `drakan_overrides.cpp` that asks `drakan_game::spellsEnabled()` each time the game reads the text).
 * **Getting spells**: a converted OotF level has no spell scroll and no shop. A spell scroll that a custom campaign still
   places can be picked up and read (it is an ordinary item), but the spell it teaches can never be seen or cast. A mana
   power-up (the converter's stand-in for OotF's Magic Crystal) still raises the hidden mana; nothing uses it.
 
-Not covered: the native Skills section still lists Magic (points can be spent on it, to no effect), and the game's own
-first-time help boxes about magic, if a campaign triggers one, are unchanged. Code: `drakan_campaign_spells.inl`,
-`drakan_inventory_views.inl`; journal `docs/journal/2026-11-14/ootf-no-spells.md`.
+Code: `drakan_campaign_spells.inl`, `drakan_inventory_views.inl`, `drakan_inventory_views_policy.h`; journals
+`docs/journal/2026-11-14/ootf-no-spells.md` and `ootf-no-spells-2.md`.
 
 ### Campaign credits
 
