@@ -269,6 +269,13 @@ public:
     uint8_t* getRDRAM() { return m_rdram; }
     // Host pages behind guest RAM (commit / decommit above the retail RAM).
     GuestRamReservation& guestRam() { return m_ram; }
+    // Guest RAM that may hold game data: the retail 32 MB plus the extended part committed so far. Host code that scans
+    // all of guest RAM bounds itself by this, not by PS2_RAM_SIZE (which would commit every reserved page).
+    uint32_t guestRamInUse() const {
+        const size_t used = m_ram.committedEnd();
+        return static_cast<uint32_t>(used > PS2_RETAIL_RAM_SIZE ? (used < PS2_RAM_SIZE ? used : PS2_RAM_SIZE)
+                                                                : PS2_RETAIL_RAM_SIZE);
+    }
     uint8_t* getScratchpad() { return m_scratchpad; }
     uint8_t* getIOPRAM() { return iop_ram; }
     uint64_t dmaStartCount() const { return m_dmaStartCount.load(std::memory_order_relaxed); }

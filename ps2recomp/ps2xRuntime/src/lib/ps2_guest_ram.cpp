@@ -141,7 +141,8 @@ void GuestRamReservation::release() {
     std::free(m_base);
 #endif
     m_base = nullptr;
-    m_size = m_committed = 0;
+    m_size = 0;
+    m_committed = 0;
     m_explicit = m_ownsMapping = false;
 }
 
@@ -149,10 +150,11 @@ bool GuestRamReservation::commitTo(size_t end) {
     if (!m_base)
         return false;
     end = std::min(roundUp(end), m_size);
-    if (end <= m_committed)
+    const size_t committed = m_committed.load();
+    if (end <= committed)
         return true;
 #if defined(_WIN32)
-    if (!VirtualAlloc(m_base + m_committed, end - m_committed, MEM_COMMIT, PAGE_READWRITE))
+    if (!VirtualAlloc(m_base + committed, end - committed, MEM_COMMIT, PAGE_READWRITE))
         return false;
 #endif
     m_committed = end;
@@ -163,14 +165,15 @@ void GuestRamReservation::decommitFrom(size_t end) {
     if (!m_base)
         return;
     end = std::min(roundUp(end), m_size);
-    if (end >= m_committed)
+    const size_t committed = m_committed.load();
+    if (end >= committed)
         return;
 #if defined(_WIN32)
-    VirtualFree(m_base + end, m_committed - end, MEM_DECOMMIT);
+    VirtualFree(m_base + end, committed - end, MEM_DECOMMIT);
 #elif defined(PS2_GUEST_RAM_MMAP) && defined(MADV_DONTNEED)
-    madvise(m_base + end, m_committed - end, MADV_DONTNEED); // private anonymous: reads 0 afterwards
+    madvise(m_base + end, committed - end, MADV_DONTNEED); // private anonymous: reads 0 afterwards
 #else
-    std::memset(m_base + end, 0, m_committed - end);
+    std::memset(m_base + end, 0, committed - end);
 #endif
     m_committed = end;
 }

@@ -41,7 +41,7 @@ fencepost stores of 5 = 4 | in use). So `drakan_extended_heap.cpp` answers sbrk 
 * a negative sbrk (dlmalloc's trim) lowers the break and decommits the pages above it.
 
 Every malloc, realloc, memalign, calloc and free of the game then works on its own chunk headers and bins, on both
-ranges, with no wrapper on the hot allocator path (the old pool wrapped every malloc and free with a lock). newlib's
+ranges. Only sbrk stays wrapped; malloc and free carry a return-address compare until the start-up probe has run and then get their original entries back (the old pool wrapped every malloc and free with a lock for the whole session). newlib's
 own `_malloc_r` shares the same sbrk and is covered the same way. Rules: `world/ExtendedHeap.h` `decideSbrk`.
 
 One guard was needed: a static initialiser (`0x4ac1f0`) probes memory at start by mallocing most of the heap and then
@@ -81,7 +81,10 @@ agents' game instances ran during most runs.
 
 "Exe A" is the worktree build of 10:32 (heap extension, before the cache default and the top slack), "exe B" the build
 of 11:29 (all of this change, on main of 10:38 with the texture limits and cache settings of the other agents); "dist"
-the coordinator's exe of 14 November (the 64 MB terrain pool).
+the coordinator's exe of 14 November (the 64 MB terrain pool); "exe C" the final build of 13:17 (`748e9cde` with
+the retail break and stray-page log lines, malloc / free back to their original entries after the start-up probe,
+and the DLSS scene scan bounded by the RAM in use, see below). The 10-minute Islands and Wartok runs used exe A; the
+runs with the raised caches used exe B or C.
 
 | Run | Exe | What was played / placed | Result |
 | --- | --- | --- | --- |
@@ -90,10 +93,26 @@ the coordinator's exe of 14 November (the 64 MB terrain pool).
 | `stress1` | A | Islands as `is-mem1`, 5 minutes of waypoints, with `DRAKAN_HEAP_EXTEND_AT=0x00c00000` (the retail heap ends at 12 MB, so the level's data lives above 32 MB) | 7 minutes, clean exit, no `bad size`; heap 19 MB above 32 MB; enemies, fights, water, three F5 / F8 (one in water drifted 2,000 units while swimming); pictures as usual (`evidence/stress1_sheet.png`) |
 | `su-mem1` | B | Drakan 2, Surdana from the New Game start: 7 minutes of waypoints round the start outside the town gate (124 of 124 reached), F5 / walk / F8 twice | clean exit, no `bad size`; caches raised to 16 / 8 MiB on every load, model cache in use up to 4.9 MB, no drop lines; heap inside the retail RAM |
 | `su-stress1` | B | the same with `DRAKAN_HEAP_EXTEND_AT=0x00c00000` and `DRAKAN_ENGINE_LIMITS_LOG` | 6 minutes, clean exit, no `bad size`; heap 13 MB above 32 MB; 16 cache trims, **0 bytes dropped**; pictures normal (`evidence/su-stress1_sheet.png`) |
+| `chain1` | C without the scan fix (12:55) | Level change by loading: Wartok Canyons start, pad dismount, 2 minutes of waypoints, F8 loads an Islands quicksave from the card (the `is-mem1` card), 4 minutes of waypoints round the crash spot, F5 / walk / F8, 2 more minutes | 9.5 minutes, clean exit, no `bad size`; three level loads (Wartok, Islands, Islands); retail break peak 0x1f00000, heap continued above 32 MB on the Islands load and peaked 1.1 MB above; caches 16 / 8 MiB, 16 trims, **0 bytes dropped**. The new stray-page count read 3,584 (all 224 MB): the DLSS scene model registry scanned all of `PS2_RAM_SIZE` for actors at the level load, and every read of an uncommitted page committed it |
+| `chain2` | C | the same | 9 minutes, clean exit, no `bad size`; the same three loads; **0 stray pages**; heap peaked 1.0 MB above 32 MB, host committed 1.0 MB above 32 MB; caches 16 trims, 0 bytes dropped; F8 back within 10 units; peak working set 1,453 MB against 1,691 MB in `chain1` |
 | `membefore2` / `memafter2` | dist / B | Islands as `is-mem1`, 5 minutes | working set 1,367..1,462 MB / 1,593..1,638 MB, private 2,165..2,829 / 1,879..2,865 MB; exe B also carries the texture memory raise and cache settings merged from main, so the process numbers do not isolate this change. Guest RAM itself: dist commits and clears 64 MB at start; exe B commits 32 MB and then only what the heap reaches (0.1 to 3 MB in these levels) |
+
+The scan was fixed: `PS2Memory::guestRamInUse()` (the retail 32 MB plus the committed extended part) bounds the DLSS
+scene capture instead of `PS2_RAM_SIZE`. Other host code only bounds pointers by `PS2_RAM_SIZE`, it does not sweep it.
 
 Host pages above 32 MB appear in the log as `[extended-heap] continued / grew: game heap N MB above the retail RAM ...
 host committed N MB above 32 MB` (each new MB of peak), and `trimmed` when the allocator gives memory back.
+
+## Frame time (quick check)
+
+`scene_ab_bench.py` under its turn lock, `surdana-town` pose (the town square), owner's ini, exe of 12:05 (exe C
+without the log lines and scan fix), three interleaved pairs, `heap_extend = 0` (pool; caches at the level's budget)
+against the default (heap extension; caches 16 / 8 MiB). One other game instance ran during 4 of the 6 runs. Median
+world frame 13.50 ms (pool) against 14.22 ms (extend), extend faster in 2 of 3 pairs (-4.5 %, range -41 to +41 %):
+noise; the two runs on a quiet machine were 98.4 fps (pool) and 124.8 fps (extend). EE / VU1 / GS CPU per world frame
+8.86 / 6.95 / 7.09 against 7.91 / 6.72 / 6.14 ms. No cost is measurable. In the same runs the pool variant's model
+cache dropped 1 MiB or more in 15 to 16 trims at the square (level budget 5.4 MiB); the extend variant (16 MiB)
+logged no drop.
 
 ## Tests
 
@@ -115,10 +134,10 @@ host committed N MB above 32 MB` (each new MB of peak), and `trimmed` when the a
 
 ## Not verified
 
-* No campaign level exit chain was played (Alwarren to Islands, Wartok to Grimstone): level loads were only the
-  starts and the F8 quick-loads (four to five per run). Islands Night, Volcanic, Rift World and Alwarren were not played.
-* The Surdana runs walked round the New Game start outside the town gate, not the town square the survey measured; no
-  cache drop was seen, but the square itself was not visited.
+* No level exit was walked through: the level change in `chain1` / `chain2` is Wartok to Islands by loading a
+  quicksave. Islands Night, Volcanic, Rift World and Alwarren were not played.
+* The Surdana square was only seen in the frame-time bench (pose, 8 s windows): no drop line at 16 MiB there; the play
+  runs walked round the New Game start outside the gate.
 * Flown Arokh over Wartok was not repeated (the 14 November runs flew it with the pool).
 * Process working set before / after is not a clean comparison (exe B also carries the other agents' texture memory
   raise); the guest RAM part is 64 MB resident before, 32 MB plus the heap's reach after.

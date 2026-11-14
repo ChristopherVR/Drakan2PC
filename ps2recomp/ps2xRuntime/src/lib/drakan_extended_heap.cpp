@@ -37,7 +37,7 @@ uint32_t g_extLimit = kExtBase; // end of the usable extended range
 PS2Runtime::RecompiledFunction g_origSbrk = nullptr;
 std::mutex g_heapMutex;
 uint32_t g_lowEnd = 0; // retail heap end override (DRAKAN_HEAP_EXTEND_AT, tests only); 0 = EndOfHeap
-uint32_t g_extPeak = 0, g_extReported = 0;
+uint32_t g_extPeak = 0, g_extReported = 0, g_retailPeak = 0, g_retailReported = 0;
 uint64_t g_extFailures = 0, g_trims = 0;
 std::atomic<int> g_probeDepth{0}; // 1 while the start-up heap probe runs
 
@@ -68,9 +68,21 @@ void reportHeapLocked(PS2Runtime* rt, const char* what, uint32_t brk) {
             g_extReported = g_extPeak / kReportStep * kReportStep;
         std::fprintf(stderr,
                      "[extended-heap] %s: game heap %.1f MB above the retail RAM (peak %.1f MB of %u MB), host "
-                     "committed %.1f MB above 32 MB\n",
+                     "committed %.1f MB above 32 MB (+%llu stray 64 KB pages); retail break peak 0x%x\n",
                      what, above / 1048576.0, g_extPeak / 1048576.0, (g_extLimit - kExtBase) >> 20,
-                     hostRam(rt).committedEnd() > kExtBase ? (hostRam(rt).committedEnd() - kExtBase) / 1048576.0 : 0.0);
+                     hostRam(rt).committedEnd() > kExtBase ? (hostRam(rt).committedEnd() - kExtBase) / 1048576.0 : 0.0,
+                     static_cast<unsigned long long>(GuestRamReservation::strayCommits()), g_retailPeak);
+    }
+}
+
+// The retail part of the heap: its break peak, logged at each further MB (the heap high-water below 32 MB).
+void noteRetailLocked(uint32_t brk) {
+    if (brk >= kExtBase || brk <= g_retailPeak)
+        return;
+    g_retailPeak = brk;
+    if (brk >= g_retailReported + kReportStep) {
+        g_retailReported = brk / kReportStep * kReportStep;
+        std::fprintf(stderr, "[extended-heap] retail heap break 0x%x (%.1f MB)\n", brk, brk / 1048576.0);
     }
 }
 
@@ -88,6 +100,7 @@ void hookSbrk(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         a = rules::SbrkAnswer{}; // the host is out of memory: the allocator sees a full heap as before
     if (a.result != rules::kSbrkFail) {
         wr32(ram, kBreak, a.brk);
+        noteRetailLocked(a.brk);
         if (a.continued)
             reportHeapLocked(rt, "continued", a.brk);
         else if (a.brk < old && old > kExtBase) {
@@ -117,9 +130,14 @@ void hookHeapMalloc(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 }
 
 void hookHeapFree(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc == kFree && GPR_U32(c, 31) == rules::kProbeFreeReturn && g_probeDepth.exchange(0) && g_log)
-        std::fprintf(stderr, "[extended-heap] start-up heap probe done\n");
-    g_heapOrigFree(ram, c, rt);
+    const PS2Runtime::RecompiledFunction original = g_heapOrigFree;
+    if (c->pc == kFree && GPR_U32(c, 31) == rules::kProbeFreeReturn && g_probeDepth.exchange(0)) {
+        // The probe runs once, at start: malloc and free get their original entries back (no wrapper from here on).
+        rt->replaceFunction(kMalloc, g_heapOrigMalloc);
+        rt->replaceFunction(kFree, g_heapOrigFree);
+        std::fprintf(stderr, "[extended-heap] start-up heap probe done (retail answer); allocator hooks removed\n");
+    }
+    original(ram, c, rt);
 }
 
 // ---- terrain page pool (heap_extend off)

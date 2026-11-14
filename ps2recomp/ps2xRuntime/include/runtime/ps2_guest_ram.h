@@ -11,6 +11,7 @@
 // * Anything else (WebAssembly): one zeroed allocation of the whole size. commit is bookkeeping.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 
@@ -28,7 +29,7 @@ public:
     uint8_t* base() const { return m_base; }
     size_t size() const { return m_size; }
     // End of the contiguous committed prefix [0, committedEnd()).
-    size_t committedEnd() const { return m_committed; }
+    size_t committedEnd() const { return m_committed.load(std::memory_order_acquire); }
     // True when commit really maps host pages (Windows); false when the whole range is backed lazily by the OS.
     bool explicitCommit() const { return m_explicit; }
 
@@ -43,7 +44,7 @@ public:
 private:
     uint8_t* m_base = nullptr;
     size_t m_size = 0;
-    size_t m_committed = 0;
+    std::atomic<size_t> m_committed{0}; // read by other threads (scans bound by the RAM in use)
     bool m_explicit = false;
     bool m_ownsMapping = false;
 };

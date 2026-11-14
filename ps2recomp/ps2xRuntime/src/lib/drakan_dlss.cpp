@@ -121,7 +121,8 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
         const bool on = lease->gs && lease->gs->sceneModelsRequested();
         drakan_scene_camera::setWaterCaptureEnabled(lease->gs && lease->gs->waterRenderingRequested());
         const uint64_t currentLayout =
-            on ? drakan_scene_geometry::layoutIdentity(runtime.memory().getRDRAM(), PS2_RAM_SIZE) : 0;
+            on ? drakan_scene_geometry::layoutIdentity(runtime.memory().getRDRAM(), runtime.memory().guestRamInUse())
+               : 0;
         static drakan_scene_models::Capture capture;
         static std::optional<uint64_t> failedLayout;
         if (!on)
@@ -133,10 +134,12 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
             if (on &&
                 (!wasOn || (++checks % 32) == 0 || layoutChanged || (camera.flags & gsr::SceneGuideCamera::Reset))) {
                 layout = currentLayout;
-                auto geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity);
+                auto geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(),
+                                                               runtime.memory().guestRamInUse(), identity);
                 if (geometry.identity != identity || !wasOn) {
                     if (!wasOn && geometry.identity == identity)
-                        geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE);
+                        geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(),
+                                                                  runtime.memory().guestRamInUse());
                     identity = geometry.identity;
                     std::fprintf(stderr, "[resident-scene] identity=%llx layers=%u waterLayers=%u triangles=%zu\n",
                                  (unsigned long long)identity, geometry.layers, geometry.waterLayers,
@@ -170,8 +173,8 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                     return !value || value[0] != '0';
                 }();
                 capture.motionOnly = motionOnlyAllowed && lease->gs->sceneModelsMotionOnly();
-                auto models =
-                    capture.capture(runtime.memory().getRDRAM(), PS2_RAM_SIZE, identity, includeSkyForComparison);
+                auto models = capture.capture(runtime.memory().getRDRAM(), runtime.memory().guestRamInUse(), identity,
+                                              includeSkyForComparison);
                 shadowFrame.begin(models);
                 if (!wasOn || checks % 120 == 0)
                     std::fprintf(stderr,
