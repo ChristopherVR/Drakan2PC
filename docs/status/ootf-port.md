@@ -605,6 +605,15 @@ the other 19 were not visited; a weapon effect's light class with the same cube 
 and a new game (the game refuses a save made on another pack build). See
 [detector squares](../journal/2026-11-12/ootf-detector-squares.md).
 
+**November 14 invisible plates in the tomb of Heron's Crystal (round 7):** the owner's "trigger plates not visible and you can
+see through the floor" after taking the crystal: the three tiles were never drawn, before or after the pickup, and each showed
+as a square hole in the floor model with the clear colour behind it. The native Pressure Plates (since 12 November) kept a
+converted model without the strip display list (0x0211), which the disc's plate models have; the converter now adds it for
+engine 29 too (formats `f568393`), the bounds are unchanged. Played on a full pack with the owner's ini (windowed): the whole
+puzzle with real input, the crystal taken, F5 / F8, all tiles drawn and pressing as before; one Rift Crystal plate drawn as
+well (the other 38 campaign plates had the same defect). Not compared with the PC: the look of the open pit after the ring
+hides. Needs a regenerated pack and a new game. See [crystal plates](../journal/2026-11-14/ootf-ruined-crystal-plates.md).
+
 **November 14 item requirements:** the Chain Mail of Ruined Village could not be worn ("Exp. Level Needed 3",
 "That can't be used right now." on the modern screen, greyed on the native one; Rynn is level 1). The PC game has no
 requirement on any item, but converted armour kept the Drakan 2 template's Skill Level, which the engine checks against
