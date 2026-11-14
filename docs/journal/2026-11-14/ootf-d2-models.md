@@ -187,3 +187,29 @@ Rynn dismounted (Ctrl), placed at the same poses (`tools/body_wc.json`, `tools/b
 Not verified for the refined rows: Grimstone Mines (Torture Gyro Victim; my record comparison matched another model of
 the same name there, so that row was not checked) and Islands Night (dead villagers) were not run; walking into the
 refined bodies was not played (they collide as converted by construction).
+
+## 7. Props with no Drakan 2 model of the same name (owner: "a PS2 equivalent for every one")
+
+Inventory (`build/review/d2-models/inventory.txt`, from the census, the model match and the class audit of a full conversion):
+1,038 placed classes are still drawn with a converted OotF model. Ranked by placements times size, the top is: Grimstone
+crystals (189), pines and snowy pines (115 + 23 + 37 + 38 large/medium/small, 59 + 43 snowy), the Multiplayer light beams,
+the Succubus Lair ruin pieces, palms and tropical plants (Islands, Alwarren), the corridor pieces of Islands and Rift
+Crystal (flat 4 to 8 vertex walls, ceilings, pits), torch bases and sconces, the Volcanic talon torches and pillars.
+
+Done: looser Drakan 2 analogs of the same kind, stretched onto the OotF model (`fit`) and colliding as the OotF one.
+
+| OotF class (model) | Drakan 2 model | Default | Seen |
+| --- | --- | --- | --- |
+| Large Tree, MedTree, Small Tree (Large / Med / Small Pine) | WORLDCON "Pine Tree 01" (716 triangles) | on | Ruined Village: the small pine is a layered Drakan 2 pine instead of flat cards (`evidence/pines_rv_pairs.png`, placed; the large ones are at twice scale and the placements landed too close to judge them) |
+| Large Tree (Snowy), MedTree (Snowy) | WORLDCON "Snowy Pine" | on | Wartok Canyons: snow-laden Drakan 2 pines in place of the flat OotF cards, a clear improvement (`evidence/pines_snowy_crystals_wc_pairs.png`, three poses) |
+| Grimstone Crystals 1, 2 | LEVEL1ON "Crystal Blue" | off | blue-white where the Grimstone crystals are green; looks wrong (same picture, bottom rows) |
+
+Real input (`tools/treewalk.py`, runs `tw_cur` / `tw_ana1`, Wartok Canyons, dismounted): W into two snowy pines, S, D round
+them, W past, two swings: every position agrees within 60 units between the packs (collision is the OotF tree's).
+
+Not done (rows not made): palms and tropical plants (no Drakan 2 palm; the tropical plant is the same model on the disc),
+the corridor and pit pieces (flat walls, nothing to add), torch bases and sconces (the flames agent changes those torches;
+a Drakan 2 torch body would carry its own head), Light Beams, Succubus Lair ruins, talon torches, pillars. No new
+procedural models were written in this round. The refined-mesh path (section 6) is available for rows if wanted.
+Not verified: the pines' falling (the converted trees that fall when struck share the PC model, so they would fall
+drawn as the Drakan 2 pine; not played), Grimstone Mines and Grotto pines, the Intro's pines, the large pines up close.
