@@ -97,6 +97,9 @@ int main() {
         // the cap keeps the original entries
         CHECK((widenedList(0, 11, 25.0f, 4, boxOf, listOf) == std::vector<uint16_t>{0, 1, 300, 2}));
         CHECK((widenedList(0, 11, 25.0f, 2, boxOf, listOf) == std::vector<uint16_t>{0, 1, 300}));
+        // a layer that is not kept is walked through but not added
+        CHECK((widenedList(0, 11, 25.0f, 64, boxOf, listOf, [](uint32_t i) { return i != 2; }) ==
+               std::vector<uint16_t>{0, 1, 300, 3}));
         // a view layer out of range gives nothing
         CHECK(widenedList(12, 11, 25.0f, 64, boxOf, listOf).empty());
     }

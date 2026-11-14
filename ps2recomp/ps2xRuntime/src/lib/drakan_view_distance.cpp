@@ -80,6 +80,8 @@ std::unordered_map<uint32_t, std::vector<uint16_t>> g_lists;
 uint32_t g_buf = 0, g_bufEntries = 0; // guest block for the widened list, from the game's heap
 uint32_t g_bufView = 0xffffffffu, g_bufBase = 0;
 uint32_t g_allocFailures = 0;
+uint32_t g_sceneryTypes = 7u;
+float g_sceneryReachCap = 0.0f;
 struct Swap {
     bool active = false;
     int thread = 0;
@@ -222,7 +224,12 @@ const std::vector<uint16_t>& sceneryList(const uint8_t* ram, uint32_t base, uint
         return true;
     };
     auto& slot = g_lists[view];
-    slot = rules::widenedList(view, count, reach, std::min<size_t>(kMaxEntries, count), boxOf, listOf);
+    // Diagnostic: which layer types are added (bit 1 floor, 2 ceiling, 4 water; DRAKAN_FAR_SCENERY_TYPES).
+    auto keep = [&](uint32_t i) {
+        const uint32_t type = u32(ram, base + i * kLayerStride + 0x4c);
+        return type < 3 && (g_sceneryTypes >> type & 1u) != 0;
+    };
+    slot = rules::widenedList(view, count, reach, std::min<size_t>(kMaxEntries, count), boxOf, listOf, keep);
     if (g_log)
         std::fprintf(stderr, "[view-distance] far scenery: layer %u lists %u, draws %zu (reach %.1f cells)\n", view,
                      u32(ram, base + view * kLayerStride + kLayerListCount), slot.size(), reach);
@@ -242,7 +249,9 @@ void hookTerrainDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
             const uint32_t base = u32(ram, terrain + 8) & 0x1fffffffu, count = u32(ram, terrain + 0x10);
             const uint32_t view = u32(ram, kViewLayer);
             if (count && count <= kMaxEntries && view < count && inGuest(base, count * kLayerStride)) {
-                const float reach = rules::scenicReach(g_args.farCells, factor);
+                float reach = rules::scenicReach(g_args.farCells, factor);
+                if (g_sceneryReachCap > 0.0f) // diagnostic: DRAKAN_FAR_SCENERY_REACH (cells)
+                    reach = std::min(reach, g_sceneryReachCap);
                 const uint32_t layer = base + view * kLayerStride;
                 const uint32_t origList = u32(ram, layer + kLayerList), origCount = u32(ram, layer + kLayerListCount);
                 const std::vector<uint16_t>& list = sceneryList(ram, base, count, view, reach);
@@ -375,6 +384,10 @@ void install(PS2Runtime& rt) {
     rt.replaceFunction(kTerrainView, &hookTerrainView);
     rt.replaceFunction(kObjectActivity, &hookActivity);
     configureScenery(drakan_cfg::getBool("video", "far_scenery", "DRAKAN_FAR_SCENERY", true));
+    if (const char* types = std::getenv("DRAKAN_FAR_SCENERY_TYPES"))
+        g_sceneryTypes = static_cast<uint32_t>(std::strtoul(types, nullptr, 0)) & 7u;
+    if (const char* cap = std::getenv("DRAKAN_FAR_SCENERY_REACH"))
+        g_sceneryReachCap = static_cast<float>(std::atof(cap));
     g_sceneryAllowed = drakan_cfg::getBool("general", "heap_extend", "DRAKAN_HEAP_EXTEND", true) &&
                        rt.hasFunction(kTerrainDraw) && rt.hasFunction(kCellLookup) && rt.hasFunction(kMalloc) &&
                        rt.hasFunction(kFree) && rt.hasFunction(kSignalSema);

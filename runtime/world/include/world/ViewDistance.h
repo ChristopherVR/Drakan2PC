@@ -100,11 +100,12 @@ inline float scenicReach(float farCells, float factor) {
     return farCells * clampFactor(factor) + 2.0f;
 }
 
-// `boxOf(i, box)` gives layer i's box (false when the layer is not usable), `listOf(i, out)` its visible list.
+// `boxOf(i, box)` gives layer i's box (false when the layer is not usable), `listOf(i, out)` its visible list,
+// `keep(i)` whether a reached layer is added (the walk goes on through layers that are not).
 // Returns the widened list for view layer `view` (at most `maxEntries` long): the original list first, as it is.
-template <class BoxOf, class ListOf>
+template <class BoxOf, class ListOf, class Keep>
 std::vector<uint16_t> widenedList(uint32_t view, uint32_t layerCount, float reach, size_t maxEntries, BoxOf boxOf,
-                                  ListOf listOf) {
+                                  ListOf listOf, Keep keep) {
     std::vector<uint16_t> out;
     std::vector<uint16_t> list;
     if (view >= layerCount || !listOf(view, list))
@@ -136,7 +137,8 @@ std::vector<uint16_t> widenedList(uint32_t view, uint32_t layerCount, float reac
             const float d = boxDistance(home, b);
             if (!(d <= reach))
                 continue;
-            added.push_back({d, j});
+            if (keep(j))
+                added.push_back({d, j});
             queue.push_back(j);
         }
     }
@@ -147,6 +149,12 @@ std::vector<uint16_t> widenedList(uint32_t view, uint32_t layerCount, float reac
         out.push_back(j);
     }
     return out;
+}
+
+template <class BoxOf, class ListOf>
+std::vector<uint16_t> widenedList(uint32_t view, uint32_t layerCount, float reach, size_t maxEntries, BoxOf boxOf,
+                                  ListOf listOf) {
+    return widenedList(view, layerCount, reach, maxEntries, boxOf, listOf, [](uint32_t) { return true; });
 }
 
 } // namespace world::view_distance
