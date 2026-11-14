@@ -106,6 +106,15 @@ islands out of the fog but shows gaps where the PC sea ends; in Drakan 2 (Ravens
 from 1.25 on, so the default stays 1. Linking the sea from further (`DRAKAN_WATER_VISIBLE_CELLS`) did not close the gaps.
 Exe only; no pack change. See [view distance](../journal/2026-11-14/ootf-view-distance.md).
 
+**November 14 point lights per model (round 6):** the engine lights a model with the sun and the three nearest point
+lights (four VU1 slots). Counted in play: in the Catacombs 1C corridor about one light set in ten cuts one or two
+lights, nearly all real point lights of large room pieces (walls, the gate frame); characters keep every light that
+reaches them (2 cut in all runs), the Inquisitor's Lair never reached the limit. `[video] model_lights` (4 to 16, default
+4 = original) folds the cut lights into the four slots (a point light into the nearest point light slot). The change
+shows on the room piece next to the gate and nowhere else; it is not clearly better, so the default stays 4. OotF
+interiors were not measured (the Grimstone Mines direct start did not load). Exe only. See
+[model lights](../journal/2026-11-14/model-lights.md).
+
 **November 14 renderer draw cost (round 4):** the Direct3D 11 renderer now binds only the draw state that changed
 (`[video] draw_state_cache`, on by default, `0` = the old path). Same picture (identical replays, a read-back check of
 every draw's state in the game). On a quiet machine at 4K with the owner's settings Wartok Canyons runs at 38.2 / 55.3

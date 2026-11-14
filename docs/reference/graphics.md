@@ -155,6 +155,15 @@ and the packet layout exactly for no gain.
 | vertex slots | P0 inputs at `[9].x` (set A), `+225` (set B), `+450` (set C); processed arrays at `65(vi)` (position), `290(vi)` (colour/UV), `515(vi)` (`.w` = 6-bit clip outcode) - the 225-entry stride gives at most ~225 vertices per batch **[inferred]** |
 | 773-980 | GIF output buffers (773/774 A, 802 clip ping-pong, 899 B, 980 fan output) |
 
+**Model light block (PAL, 2026-11-14, `journal/2026-11-14/model-lights.md`).** The light set builder `0x1c4148` keeps
+the sun and the nearest point lights while the set holds fewer than the caller's limit (models 4, terrain 16); the
+model upload `0x1e9fa0` writes ambient into `[8]` and exactly four slots into `[13..20]` (directions x 1/254 as a 4 x 4
+matrix, colours as integers c x 255 packed in 8 bits as c / 2, so 2.0 is the brightest). A set of a model must never
+hold more than four slots. `[video] model_lights` (4 .. 16, default 4 = original, `drakan_model_lights.cpp`, rules in
+`runtime/world/include/world/ModelLights.h`) keeps the engine's set and folds the lights the limit cut off into those
+four slots. In Catacombs 1C the cut lights are almost all real point lights (slot type 1) of large room pieces;
+characters keep all their lights.
+
 ### 3.4 What the microcode asks of the GS
 
 Output is always a packed-mode GIF packet: `[tag]` + N x `{ST(s*q,t*q,q), RGBAQ(r,g,b,a,q), FOG(.w=F<<4), XYZ2 (12.4 fixed, .w = ADC)}`,
