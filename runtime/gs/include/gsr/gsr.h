@@ -146,7 +146,7 @@ struct Config {
     // draw that has no previous position anywhere (untracked ground and scenery) are left out where no valid motion
     // entry can lie under the draw yet (motion_coverage.h). The upscaler reads the same motion either way. Env
     // GSR_VELOCITY_SKIP=0|1 wins.
-    bool velocitySkip = false;
+    bool velocitySkip = true;
     // ---- material detail (drakan.ini [video]; runtime/gs/src/material_detail.h). 0 = the picture without it. ----
     uint32_t materialDetail = 0; // material_detail: 0 off, 1 hard surfaces (terrain, stone, wood, metal, generic),
                                  // 2 all classes. Needs <textureDir>/materials. Env GSR_MATERIAL_DETAIL=off|hard|all

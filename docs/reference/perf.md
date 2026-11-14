@@ -762,3 +762,13 @@ to the motion target and back for its velocity pass. The `GSR_PROFILE` buckets `
 `drawVelocity`, `drawEnd` and `drawConstants` split `drawSubmit`. A swap chain frame latency of 2 was measured and
 changes nothing (the Ruined Village stays at 60 fps with DLSS). See
 [the journal](../journal/2026-11-14/ootf-terrain-gpu.md).
+
+## Velocity skip with DLSS (2026-11-15)
+
+`[video] velocity_skip` (default 1, env `GSR_VELOCITY_SKIP`): with DLSS on, a world draw without a previous position
+no longer uploads a zero previous stream and draws a velocity pass where that cannot change what the guides read
+(`motion_coverage.h`). The pass itself was cheap on the GS worker (5 to 10 ms per second); its cost was the target and
+state switches in the driver's threads and the `Present` wait. DLSS quality frame time -20 to -29 % in Order of the
+Flame scenes, -2 % Surdana, -7 % Ravenshold. Measured with `GSR_VELOCITY_SKIP_TOGGLE` inside one run, because
+interleaved runs on the shared machine swung by up to 18 % with DLSS off, where the setting cannot act. See
+[the journal](../journal/2026-11-14/gpu-dlss-finish.md).

@@ -4,6 +4,23 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## Velocity passes that change nothing are left out, 15 November 2026
+
+- With DLSS on every world draw used to be followed by a velocity pass into the object-motion target. A draw with no
+  previous position anywhere (ground, scenery, rejected objects) can only write invalid entries, and the guide pass
+  reads object motion only where an entry is valid (camera motion elsewhere). `[video] velocity_skip` (default 1, env
+  `GSR_VELOCITY_SKIP`; `runtime/gs/src/motion_coverage.h`, `d3d11_world.cpp` `prepareObjectMotion`) keeps a 64 x 64
+  tile map per world of where valid entries may lie and leaves out the upload and velocity pass of such a draw when its
+  vertex box touches no marked tile: 58 to 88 % of all velocity passes.
+- Same motion for DLSS: `GSR_VELOCITY_SKIP_VERIFY=<n>` compares the guide region with a shadow target that receives
+  every pass; 0 differing pixels in every compared world of start poses and played runs, and the wrong-on-purpose
+  `GSR_VELOCITY_SKIP_DEBUG=1` does show differences. `GSR_VELOCITY_SKIP_TOGGLE=<s>` switches it inside one run.
+- DLSS quality at 3840x2160 (same-run toggle, quiet machine, start poses): Wartok Canyons 17.73 to 13.91 ms, Islands
+  10.23 to 7.23, Ruined Village 10.67 to 7.34, Grimstone Mines 8.98 to 7.14, Surdana 6.58 to 6.45, Ravenshold 4.92 to
+  4.49. DLSS quality is then faster than DLSS off in the converted levels; in Drakan 2 the remaining 0.5 to 1.1 ms is
+  the upscaler's fixed GPU cost (evaluate about 1.3 ms, guides and write-back 0.6 ms). See
+  [the journal](../journal/2026-11-14/gpu-dlss-finish.md).
+
 ## What the upscaler reads and writes, 12 November 2026
 
 Sizes are decided by `upscale::plan` (`runtime/gs/src/upscale_render_size.h`, backend neutral, unit tested):
