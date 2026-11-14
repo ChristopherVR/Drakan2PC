@@ -508,6 +508,8 @@ campaign_spells = false                              # optional: the campaign ha
                                                      #   "Campaigns without spells")
 campaign_treasure = false                            # optional: nothing drops gold or trinkets (default true; see
                                                      #   "Campaigns without gold and trinket drops")
+campaign_gold_counter = false                        # optional: the screens show no gold amount (default true;
+                                                     #   see "Campaigns without a gold counter")
 ```
 
 Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover picture of the game card (PNG, at most 8 MiB, 16:9;
@@ -675,6 +677,27 @@ no gold or trinkets`). The rest of a death is untouched: the creature's `Death I
 data gives orcs) are made and thrown before 2eeb98, a chest still spews what the level put in it, and Rynn's own gold is
 dropped at her death as before (0 in such a campaign). Nothing is written to a save. Co-op follows the campaign on both
 sides. PAL addresses (`drakan_region::guestAddress`); journal `docs/journal/2026-11-14/ootf-no-drops.md`.
+
+### Campaigns without a gold counter
+
+`campaign_gold_counter = false` (same spelling rules) says the campaign has no use for gold, so the screens leave out
+Rynn's gold amount while it is the current game: the modern Tab screen's header (bag, amount, "Gold") and the Gold line
+of its Character page, the native Tab screen's Equipment gold and the Gold row of the PC pause menu. The game's own
+pause menu shows no gold. On the native Equipment page `4330b0` (from the Equipment draw `433610`) still runs: its text
+box `42ae00` gets an empty string instead of the amount and the bag record (section `+0x34`) is placed (`42b0a8`) but
+not drawn (`42b308`); skipping all of `4330b0` also lost the last, indented line of the item details. The page art
+keeps the round dark socket the bag sat in. Only while the drawn screen has five sections. A shop (the three-section screen) keeps its gold, since the player pays with it
+there; the modern screen also keeps it while a shop is open (`gameui::goldVisible`). Rynn's gold itself is untouched
+(a Conversation Handler can still give some, and it is saved as before).
+
+It is a key of its own, not part of `campaign_treasure`: a campaign without drops may still pay gold for quests and run
+shops. Order of the Flame has neither, so the editor's OotF converter and `ootf-convert.ts --campaign 1` write both keys
+(the importer's "Gold and trinket drops" box and `--treasure 1` keep both the drops and the counter). A custom campaign
+sets it in Project Settings > Campaign > Gameplay > **Gold** (`ProjectCampaign.goldCounter`, `campaignMeta` writes
+`campaignGoldCounter: false`). Runtime: `hle::mods::Manifest::campaignGoldCounter` -> `drakan_game::Campaign::goldCounter`,
+`drakan_game::goldCounterShown()` (switched in `select()`; log `[game] gold counter hidden (ootf)`),
+`gameui::Snapshot::goldShown`. PvP arenas keep the disc's screens; co-op follows the campaign. Journal
+`docs/journal/2026-11-15/ootf-gold-counter.md`.
 
 ### Campaign credits
 
