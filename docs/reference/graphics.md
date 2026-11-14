@@ -442,15 +442,6 @@ PAL addresses only):
 | `0x18ba28` draw-distance test (a0 object): hidden when the camera is beyond `min(object +0xf8, level view distance * 2048) + radius`; flag 0x200 (fade) beyond 0.75 of it | object `+0xf8` | `[video] draw_distance` multiplies `+0xf8` for the call |
 | `0x189b38` render method (passes `+0xf8` to the VU1 distance fade) | object `+0xf8` | same factor, for the call |
 
-Object `+0xf8` comes from the model's 0x0200 float (`shading & 0x20000`), from `radius * 70.71` (`0x17f8d8`) or from a
-setter (`0x17d2c8`); the mode is in object `+4` bits 0x30000000 and 0x5f0ac723 means no limit. Only skinned models
-have LOD tables (57 on the PAL disc). Both renderers draw what VU1 emits, so the settings need no backend code.
-Numbers, pictures and what is not established: [gfx-models](../journal/2026-11-12/gfx-models.md).
-
-## Material detail: per-pixel relief on the GS path (2026-11-12)
-
-What a GS draw carries: screen-space vertices (x, y, z, fog), one vertex colour (the game's lighting, baked or summed
-by VU1), ST and Q, one texture, the blend / test state. No normal, tangent, world position or light. The engine's
 **View distance and distance fog** (`[video] view_distance`, 1 to 3, default 1, PAL; `drakan_view_distance.cpp`,
 rules `runtime/world/include/world/ViewDistance.h`). The "level view distance" above is one world field, written with
 the distance fog by the world's fog setter `0x142f70` (a0 = world `0x4de5e0`, f12 = far in cells, f13 = fog range in
@@ -488,6 +479,15 @@ grid); at 2 the 8 MB pack texture cache overflowed, so `game_texture_cache_kb = 
 scenery widens the draw. Pictures and numbers:
 [view horizon](../journal/2026-11-14/ootf-view-horizon.md).
 
+Object `+0xf8` comes from the model's 0x0200 float (`shading & 0x20000`), from `radius * 70.71` (`0x17f8d8`) or from a
+setter (`0x17d2c8`); the mode is in object `+4` bits 0x30000000 and 0x5f0ac723 means no limit. Only skinned models
+have LOD tables (57 on the PAL disc). Both renderers draw what VU1 emits, so the settings need no backend code.
+Numbers, pictures and what is not established: [gfx-models](../journal/2026-11-12/gfx-models.md).
+
+## Material detail: per-pixel relief on the GS path (2026-11-12)
+
+What a GS draw carries: screen-space vertices (x, y, z, fog), one vertex colour (the game's lighting, baked or summed
+by VU1), ST and Q, one texture, the blend / test state. No normal, tangent, world position or light. The engine's
 world camera (`SceneGuideCamera`) is published separately, and with DLSS or a ray effect on the lighting snapshot
 (`SceneLighting`: the sun vector, colour and ambient of the terrain layer under the eye, read from the layer record at
 `+0x124`, `+0x130`, `+0x13c`, plus its point lights).
