@@ -868,6 +868,12 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
 * Issue 6 (both games): the quicksave is listed in Load Game as its own page and Continue can resume from it
   (`[general] quicksave_in_load`), and the camera no longer snaps sideways when she turns across one world direction
   while moving. Needs a rebuilt exe, no pack change. See [issue 6 save and camera](../journal/2026-11-15/issue6-save-cam.md).
+* Issue 6 (both games): with a 16:9 picture or a field of view above 80, far ground and scenery at the screen edges
+  are no longer cut off (the terrain draw's cell rectangle was built for the 4:3 view at 80 degrees; also in v0.1.17).
+  `[video] wide_view_cells`, default 1. It costs about 6 % frame time at 90 degrees when looking diagonally across the
+  grid, near zero along an axis. The object draw distance cost (item 1) was measured, not changed: it is CPU vertex and
+  draw work in proportion to the added props (72 at 1.5 in the Surdana meadow, +14 % frame time). Needs a rebuilt exe,
+  no pack change. See [issue 6 view distance](../journal/2026-11-15/issue6-view-distance.md).
 
 ## Known gaps
 

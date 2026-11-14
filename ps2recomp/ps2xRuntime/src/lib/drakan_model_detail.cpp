@@ -7,8 +7,10 @@
 #include "runtime/ee_scheduler.h"
 #include "world/ModelDetail.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -127,6 +129,7 @@ LookRule lookRule(const uint8_t* ram, uint32_t m) {
 // Counts per report window: which LOD each skinned model seen by the selector ended on and how many polygons that is,
 // and how many objects the distance test hid.
 bool g_log = false;
+const uint8_t* g_ram = nullptr; // guest RAM, for the log report
 struct LogState {
     std::mutex mutex;
     struct Actor {
@@ -135,6 +138,11 @@ struct LogState {
     };
     std::unordered_map<uint32_t, Actor> actors; // by controller
     std::unordered_map<uint32_t, bool> tested;  // object -> hidden by distance
+    struct Extra {
+        uint32_t resource = 0, vertices = 0, polygons = 0;
+        float distance = 0, stored = 0;
+    };
+    std::unordered_map<uint32_t, Extra> extra; // object -> drawn only because of the draw distance factor
     uint64_t selectorCalls = 0, renderCalls = 0, scaledObjects = 0;
     std::chrono::steady_clock::time_point next{};
 } g_logState;
@@ -180,6 +188,47 @@ void logReport() {
     uint32_t hidden = 0;
     for (const auto& [object, isHidden] : g_logState.tested)
         hidden += isHidden;
+    // What the factor added: objects the original distance would have hidden, grouped by model resource.
+    struct Group {
+        uint32_t objects = 0, vertices = 0, polygons = 0;
+        float nearest = 1e30f, stored = 0;
+    };
+    std::unordered_map<uint32_t, Group> groups;
+    // Resident models by id: the model manager 0x4dae20 hashes them into 128 chains (id at +0, next at +20).
+    std::unordered_map<uint32_t, uint32_t> models;
+    if (g_ram && !g_logState.extra.empty())
+        for (uint32_t b = 0; b < 128; ++b)
+            for (uint32_t m = u32(g_ram, 0x4dae20u + 0x20 + b * 4) & kRamMask, n = 0; inRam(m, 0xc8) && n < 8192;
+                 m = u32(g_ram, m + 20) & kRamMask, ++n)
+                models.emplace(u32(g_ram, m), m);
+    uint32_t extraVertices = 0, extraPolygons = 0;
+    for (const auto& [object, e] : g_logState.extra) {
+        if (auto it = g_logState.tested.find(object); it == g_logState.tested.end() || it->second)
+            continue; // hidden anyway
+        Group& g = groups[e.resource];
+        ++g.objects;
+        const auto model = models.find(e.resource);
+        const uint32_t vertices = model == models.end() ? 0 : u32(g_ram, model->second + 0x1c);
+        const uint32_t polygons = model == models.end() ? 0 : u32(g_ram, model->second + 0x20);
+        g.vertices += vertices;
+        g.polygons += polygons;
+        g.nearest = e.distance < g.nearest ? e.distance : g.nearest;
+        g.stored = e.stored;
+        extraVertices += vertices;
+        extraPolygons += polygons;
+    }
+    std::vector<std::pair<uint32_t, Group>> top(groups.begin(), groups.end());
+    std::sort(top.begin(), top.end(),
+              [](const auto& a, const auto& b) { return a.second.vertices > b.second.vertices; });
+    std::fprintf(stderr, "[model-detail] added by the draw distance: %zu models, vertices %u, polygons %u\n",
+                 groups.size(), extraVertices, extraPolygons);
+    for (size_t i = 0; i < top.size() && i < 10; ++i)
+        std::fprintf(stderr,
+                     "[model-detail]   model %08x: objects %u, vertices %u, polygons %u, own distance %.0f, "
+                     "nearest %.0f\n",
+                     top[i].first, top[i].second.objects, top[i].second.vertices, top[i].second.polygons,
+                     top[i].second.stored, top[i].second.nearest);
+    g_logState.extra.clear();
     std::fprintf(stderr,
                  "[model-detail] lod x%.2f draw x%.2f | characters %zu: LOD0 %u LOD1 %u LOD2+ %u, polygons %u "
                  "(all on LOD0: %u), vertices %u, look rule on %u | distance test: objects %zu, hidden %u, own "
@@ -296,6 +345,24 @@ void leaveDrawScope(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t func
 void hookDistanceTest(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const bool entry = c->pc == kDistanceTest;
     const uint32_t object = GPR_U32(c, 4) & kRamMask, ra = GPR_U32(c, 31);
+    // For the log: would the original distance have hidden this object? (0x18ba28: hidden when the camera at
+    // 0x4dad58 +0x6c is at least min(+0xf8, view distance x 2048) + radius from the bounds centre in a1.)
+    bool hiddenAtOne = false;
+    LogState::Extra extra;
+    const uint32_t bounds = GPR_U32(c, 5) & kRamMask;
+    if (g_log && entry && inRam(object, 0x120) && inRam(bounds, 16) && (u32(ram, object + 4) & kDrawDistanceMode)) {
+        const float far = f32(ram, 0x4de968u) * 2048.0f, stored = f32(ram, object + kDrawDistance);
+        const float limit = (stored < far ? stored : far) + f32(ram, bounds + 12);
+        float d2 = 0;
+        for (uint32_t i = 0; i < 3; ++i) {
+            const float d = f32(ram, 0x4dad58u + 0x6c + 4 * i) - f32(ram, bounds + 4 * i);
+            d2 += d * d;
+        }
+        hiddenAtOne = limit * limit <= d2;
+        extra.distance = std::sqrt(d2);
+        extra.stored = stored;
+        extra.resource = u32(ram, object + 8); // model id; the model is looked up at report time
+    }
     const bool scaled = enterDrawScope(ram, c, rt, kDistanceTest);
     g_origDistance(ram, c, rt);
     leaveDrawScope(ram, c, rt, kDistanceTest);
@@ -303,6 +370,8 @@ void hookDistanceTest(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         std::lock_guard<std::mutex> lock(g_logState.mutex);
         g_logState.tested[object] = GPR_U32(c, 2) != 0;
         g_logState.scaledObjects += scaled;
+        if (hiddenAtOne)
+            g_logState.extra[object] = extra;
     }
 }
 
@@ -352,6 +421,7 @@ void install(PS2Runtime& rt) {
               static_cast<float>(
                   drakan_cfg::getFloat("video", "draw_distance", "DRAKAN_DRAW_DISTANCE", rules::kDefaultDrawFactor)));
     g_log = std::getenv("DRAKAN_MODEL_DETAIL_LOG") != nullptr;
+    g_ram = rt.memory().getRDRAM();
     g_origLod = rt.lookupFunction(kLodSelect);
     g_origFarModel = rt.lookupFunction(kFarModelSelect);
     g_origDistance = rt.lookupFunction(kDistanceTest);
