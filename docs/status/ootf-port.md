@@ -614,6 +614,19 @@ puzzle with real input, the crystal taken, F5 / F8, all tiles drawn and pressing
 well (the other 38 campaign plates had the same defect). Not compared with the PC: the look of the open pit after the ring
 hides. Needs a regenerated pack and a new game. See [crystal plates](../journal/2026-11-14/ootf-ruined-crystal-plates.md).
 
+**November 14 boulders and the felled tree in Ruined Village (round 7):** the owner's boulders that "roll down but don't
+set off the explosive barrels or kill the NPCs", and the tree that "has to be chopped down to walk over it". Boulders: PC
+"Boulder" was name-mapped onto the disc's "Boulder", whose damage is 1 per lu/s, so a boulder hit sent 1 or 2 damage (a
+barrel has 5); Rigid Body objects now keep their PC class defaults (damage 50, also in Alwarren, Islands Night and Wartok
+Canyons with their own values). Tree: the PS2 Ground Object has no push-over fields, so the tree was a prop with health 0; a
+struck PC tree that falls when dead now becomes a Ground Object one blow destroys plus a hidden Mover with the tree model,
+shown by the level's own Visibility Toggler and turned a quarter turn toward the gap it bridges (formats `dd830b1`). Played
+from New Game with real input after placements (windowed, owner's ini): before, the boulder rolls through the camp and the
+barrels and orcs are untouched, six strikes leave the tree standing; after, the barrels blow up, orcs die (by the blast and,
+in a run without the barrels, by the boulder alone), one strike fells the tree and Rynn crosses on it with a running jump.
+Seen, not changed: Rynn dies at once when she walks into a boulder whose centre is above her (on the old pack too). Needs a
+regenerated pack and a new game. See [boulders and tree](../journal/2026-11-14/ootf-ruined-boulders-tree.md).
+
 **November 14 item requirements:** the Chain Mail of Ruined Village could not be worn ("Exp. Level Needed 3",
 "That can't be used right now." on the modern screen, greyed on the native one; Rynn is level 1). The PC game has no
 requirement on any item, but converted armour kept the Drakan 2 template's Skill Level, which the engine checks against
