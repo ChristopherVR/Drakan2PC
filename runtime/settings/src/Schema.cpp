@@ -354,9 +354,9 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
     b.slider("video.view_distance", "View distance",
              caps.viewDistance
                  ? "How far the world is drawn before the distance haze hides it: 1 = the original PlayStation 2 "
-                   "distance, 2 = twice as far, with the haze moved out with it. Far islands and mountains appear, "
-                   "but some levels then show where their world ends. Creatures, sounds and events keep their "
-                   "original distances. Costly: more ground and objects are drawn."
+                   "distance, 2 = twice as far, with the haze moved out with it. Far islands and mountains appear. "
+                   "Creatures, sounds and events keep their original distances. Costly: more ground and objects "
+                   "are drawn, several times the work in the large Order of the Flame levels."
                  : "Needs the PAL executable layout; not available for this disc.",
              v.viewDistance, 1.0f, 3.0f, "x%.2f", 0.25f, caps.viewDistance);
     b.toggle("video.far_scenery", "Far scenery",

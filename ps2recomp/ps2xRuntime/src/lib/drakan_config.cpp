@@ -220,8 +220,8 @@ const Entry kEntries[] = {
      "1 (original) .. 4; about twice the terrain drawing work at 2 (PAL only; env DRAKAN_TERRAIN_DISTANCE)"},
     {"video", "view_distance", "1.0",
      "the world is drawn and its distance fog starts and ends this many times further out, 1 (original) .. 3; "
-     "creatures, sounds and events keep their original distances; some levels then show where their world ends "
-     "(PAL only; env DRAKAN_VIEW_DISTANCE)"},
+     "creatures, sounds and events keep their original distances; with far_scenery off some levels then show where "
+     "their world ends (PAL only; env DRAKAN_VIEW_DISTANCE)"},
     {"video", "far_scenery", "1",
      "1 = with view_distance above 1 the world also draws the hills, islands and sea the level only shows from "
      "nearer places, so it does not end in a straight edge; 0 = only what the level lists for each place (PAL "
