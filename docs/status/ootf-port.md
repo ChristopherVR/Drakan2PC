@@ -75,6 +75,15 @@ generator, but the engine starts only their light, so the OotF fire quads stay (
 Alwarren, played there with walking, swings and F5 / F8. Needs a regenerated pack and a new game. See
 [Drakan 2 models](../journal/2026-11-14/ootf-d2-models.md).
 
+**November 14 harpies (round 7):** the succubi and the Queen (the flying women of the Islands, Islands Night and Succubus
+Lair) keep their converted PC model: Drakan 2 has no harpy (its fliers are dragons, crows and gryphons). Posed offline
+against the PC data, the converted mesh, skinning and all clips match the PC picture exactly; only the graded alpha of the
+wing membranes is cut at 50 % (opaque wings, unchanged). The flying template's "Idle On Ground" played the succubus's wing
+slash and the Queen's spell attack; it now plays the succubus's own idle, and foreign clip fields of a flier fall back to its
+hover (formats `ootfclass.ts`; also the Drone's crash and the Grotto Ice Dragon). Played in Succubus Lair (mace pickup, two
+hits kill a hovering succubus, crash and corpse) and the Islands (flight, beam attack). A landed succubus was not seen in
+game. Needs a regenerated pack and a new game. See [harpies](../journal/2026-11-14/ootf-harpies.md).
+
 **November 14 AI run limit and shadow default (round 6, owner's decision):** the level's "AI Run Max" (4) let only four
 creatures think at once, and a creature keeps its slot after Rynn leaves it (a Surdana villager and a cave Wartok held two
 of the four while she fought at the orc mine). `[general] ai_run_max` (default 8, 0 = the level's own, never lower) raises
