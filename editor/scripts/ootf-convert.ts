@@ -20,7 +20,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, re
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { Iso9660, SrscReader, SubtitleTable, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { Iso9660, SrscReader, SubtitleTable, classifySubtitleLines, listObjectSounds, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -192,16 +192,22 @@ const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage swit
 // machine from the install's own audio; the PC game has no subtitle text). Without it the pack has no scene subtitles.
 // Several files separated by `;`: a later file's lines replace an earlier one's, so a hand-corrected file (the player's or a pack
 // author's) listed last wins over a fresh transcription.
-const subtitles = opt['subtitles']
-    ? new SubtitleTable(
-          mergeSubtitleFiles(
-              opt['subtitles']
-                  .split(';')
-                  .filter(Boolean)
-                  .map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8')))),
-          ),
-      )
-    : undefined;
+// Only dialogue and narration are subtitled: a line whose clip a class or an object plays by itself (an idle mumble, a pain or
+// attack list, a waypoint's sound) is a bark and gets no text, unless a file gives the line a kind (`kind` in the line).
+const subtitles = await (async () => {
+    if (!opt['subtitles']) return undefined;
+    const merged = mergeSubtitleFiles(
+        opt['subtitles']
+            .split(';')
+            .filter(Boolean)
+            .map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8')))),
+    );
+    for (const l of classifySubtitleLines(merged, await listObjectSounds(src)))
+        console.warn(`subtitles: ${l.bank} #${l.id} (${l.name ?? ''}) is a bark, no subtitle: ${l.kindReason}`);
+    const table = new SubtitleTable(merged);
+    console.warn(`subtitles: ${table.size} line(s) shown, ${table.withheld.length} withheld by their kind`);
+    return table;
+})();
 const res = await convertOotfLevels(
     src,
     levels,

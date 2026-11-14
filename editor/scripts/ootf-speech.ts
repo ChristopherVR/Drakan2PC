@@ -3,10 +3,11 @@
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-speech.ts --ootf <OotF install dir> --out <work dir>
 //
 // Writes <out>/clips/<n>.wav (mono 16 bit) and <out>/manifest.json: one row per clip with its sound bank, id, name, length and
-// the scenes that play it. The output is the player's own game audio: keep it out of the repository (use a folder under build/).
+// the scenes that play it, and `played_by`: the classes and objects that play the same clip by themselves (a bark, which the
+// subtitle tool marks so it gets no subtitle). The output is the player's own game audio: keep it out of the repository (use a folder under build/).
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { listSequenceSounds, parsePcSounds, pcmWav, type PcFileSource, type PcSoundBank } from '@drakan/formats';
+import { listObjectSounds, listSequenceSounds, objectSoundUseText, parsePcSounds, pcmWav, type PcFileSource, type PcSoundBank } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -31,6 +32,7 @@ const src: PcFileSource = {
 };
 mkdirSync(join(out, 'clips'), { recursive: true });
 const banks = new Map<string, PcSoundBank | null>();
+const byObjects = new Map((await listObjectSounds(src)).map((s) => [`${s.bank}#${s.id}`, s.uses.map(objectSoundUseText)]));
 const rows: unknown[] = [];
 let n = 0;
 for (const s of await listSequenceSounds(src)) {
@@ -51,6 +53,7 @@ for (const s of await listSequenceSounds(src)) {
         duration: Math.round((snd.pcm.length / snd.rate) * 1000) / 1000,
         loop: (snd.flags & 8) !== 0,
         file,
+        played_by: byObjects.get(`${s.bank}#${s.id}`) ?? [],
         uses: s.uses.map((u) => ({ ...u, time: Math.round(u.time * 1000) / 1000, duration: Math.round(u.duration * 1000) / 1000 })),
     });
 }

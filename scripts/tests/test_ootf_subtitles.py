@@ -162,6 +162,14 @@ class ReviewedFiles(unittest.TestCase):
         self.assertIn("A story line.", text)
 
 
+class ClipKind(unittest.TestCase):
+    def test_a_clip_played_outside_a_scene_is_a_bark(self):
+        self.assertEqual(SUB.clip_kind({"played_by": []}), {})
+        self.assertEqual(SUB.clip_kind({}), {})
+        kind = SUB.clip_kind({"played_by": ["Grunt . Ambient Sounds", "Post . Sound to Play"]})
+        self.assertEqual(kind, {"kind": "bark", "kindReason": "played by Grunt . Ambient Sounds"})
+
+
 class ModelNotice(unittest.TestCase):
     def test_a_missing_model_is_named_with_source_licence_and_size(self):
         with tempfile.TemporaryDirectory() as tmp:

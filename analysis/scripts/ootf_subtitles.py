@@ -18,6 +18,11 @@ emptied ones) and only clips it does not hold are transcribed; --retranscribe st
 `confidence` (the model's mean log probability, 0 = certain) and `review: true` when it is below --review-below, and
 --review writes the lines to check as a text file.
 
+Only dialogue and narration get a subtitle. A clip that the game also plays by itself, outside a scene (a creature's idle
+mumble, pain or attack lists, a waypoint's sound: the export lists these as `played_by`), is a bark: its line is written
+with `kind: "bark"` and the converter gives it no text. Drakan 2 does the same (its creature voices carry an empty subtitle).
+A hand-written file can set `kind` on any line (`dialogue`, `narration`, `bark`, `effect`), with or without cues.
+
 Speech model: the tool uses a faster-whisper conversion of an OpenAI Whisper model from the Hugging Face hub
 (https://huggingface.co/Systran/faster-whisper-<model>, MIT licence), kept in the user's Hugging Face cache
 (~/.cache/huggingface/hub). If the model is not in the cache the tool names it and its size and stops; run it again with
@@ -159,6 +164,14 @@ def model_notice(name: str, cache: Path | None = None) -> str | None:
     )
 
 
+def clip_kind(clip: dict) -> dict:
+    """The `kind` fields of a line from its clip in the export: a clip something plays by itself is a bark."""
+    played_by = clip.get("played_by") or []
+    if not played_by:
+        return {}
+    return {"kind": "bark", "kindReason": f"played by {played_by[0]}"}
+
+
 def merge_reviewed(existing: list[dict], fresh: list[dict]) -> list[dict]:
     """Lines of an existing (possibly hand-corrected) file win; fresh lines only fill clips it does not hold."""
     have = {(line["bank"], line["id"]) for line in existing}
@@ -238,6 +251,7 @@ def transcribe(
                     "duration": clip["duration"],
                     "confidence": round(float(logprob), 3),
                     **({"review": True} if logprob < review_below else {}),
+                    **clip_kind(clip),
                     "cues": cues,
                 }
             )
