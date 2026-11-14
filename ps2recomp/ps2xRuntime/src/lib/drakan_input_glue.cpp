@@ -406,6 +406,7 @@ inline bool campaignSpellsOff() {
 #include "drakan_inventory_content_hooks.inl"
 #include "drakan_inventory_views.inl"
 #include "drakan_campaign_spells.inl"
+#include "drakan_campaign_treasure.inl"
 #include "drakan_tab_screen.inl"
 int g_quickOperation = 0; // 1 save, 2 load; EE thread, native card transaction in progress
 #include "drakan_pause_screen.inl"
@@ -1566,8 +1567,9 @@ void drakanInstallInput(PS2Runtime& rt) {
     if (!drakan_win::handle())
         SetExitKey(0); // raylib's default exit key is Esc: Esc is the game's pause key (and the module's mouse release)
 
-    installInventoryViewHooks(rt); // first: the mouse and content hooks below wrap these
-    installCampaignSpellHooks(rt); // a campaign without spells: no casting, no mana orb
+    installInventoryViewHooks(rt);    // first: the mouse and content hooks below wrap these
+    installCampaignSpellHooks(rt);    // a campaign without spells: no casting, no mana orb
+    installCampaignTreasureHooks(rt); // a campaign without treasure: no gold or trinket drops
     g_origTabDialogFrame = rt.lookupFunction(0x2c94a8u);
     if (g_origTabDialogFrame)
         rt.replaceFunction(0x2c94a8u, &hookTabDialogFrame);

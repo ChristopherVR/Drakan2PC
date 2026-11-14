@@ -616,6 +616,19 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign_spells = true\n[target]\nprofile = \"pal\"\n", false, m,
                             err));
         CHECK(m.campaignSpells);
+        CHECK(m.campaignTreasure); // no campaign_treasure: the level's gold is dealt out as on the disc
+        // `campaign_treasure = false`: no gold or trinkets in the pack's campaign; it leaves the spells alone.
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign = \"c\"\ncampaign_treasure = false\n"
+                            "[target]\nprofile = \"pal\"\n",
+                            false, m, err));
+        CHECK(!m.campaignTreasure && m.campaignSpells);
+        CHECK(parseManifest("{\"format\": 1, \"id\": \"a\", \"campaign_treasure\": false, \"target\": {\"profile\": "
+                            "\"pal\"}}",
+                            true, m, err));
+        CHECK(!m.campaignTreasure);
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign_treasure = yes\n[target]\nprofile = \"pal\"\n", false, m,
+                            err));
+        CHECK(m.campaignTreasure);
     }
 
     // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.

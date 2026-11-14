@@ -56,6 +56,11 @@ struct Manifest {
     // current game the Spells pages, the mana orb and bar and the casting are gone (drakan_game::spellsEnabled).
     // Missing, or any value but false / 0 / no / off: spells as on the disc.
     bool campaignSpells = true;
+    // top-level `campaign_treasure = false`: nothing in the campaign leaves gold or trinkets (Drakan: Order of the
+    // Flame has no shops). While it is the current game, defeated creatures, broken barrels and crates and opened
+    // chests drop only the items the level gives them (drakan_game::treasureEnabled). Missing, or any value but false /
+    // 0 / no / off: the level's gold is dealt out as on the disc.
+    bool campaignTreasure = true;
     // top-level `level_aspect = ["Level title = 4:3"]`: levels whose cut scenes are framed for one picture shape (flat
     // pictures that fill a 4:3 screen, such as the Order of the Flame "Ruined Village Book"). While such a level is
     // loaded its world is rendered and shown at that aspect instead of the window's (drakan_widescreen).

@@ -29,7 +29,8 @@ bool g_settingFromEnv = false;
 bool g_rewrite = false; // the campaign's New Game path rewrite is armed (not while DRAKAN_START_LEVEL drives the start)
 bool g_mpRedirect = false; // a multiplayer launch holds its own file redirect: no campaign rewrite meanwhile
 std::filesystem::path g_baseCard;
-std::atomic<bool> g_spells{true}; // the current game has spells (updated with g_index, under g_m)
+std::atomic<bool> g_spells{true};   // the current game has spells (updated with g_index, under g_m)
+std::atomic<bool> g_treasure{true}; // the current game deals out gold and trinkets (likewise)
 
 const Campaign* cur() {
     return g_index > 0 && g_index <= static_cast<int>(g_campaigns.size()) ? &g_campaigns[g_index - 1] : nullptr;
@@ -41,6 +42,10 @@ void applySpells() {
     dsettings::setGameHasSpells(on); // the controls page labels Circle "Parry" without spells
     if (g_spells.exchange(on) != on || !on)
         std::fprintf(stderr, "[game] spells %s (%s)\n", on ? "on" : "off", c ? c->id.c_str() : "d2");
+    const bool treasure = !c || c->treasure;
+    if (g_treasure.exchange(treasure) != treasure || !treasure)
+        std::fprintf(stderr, "[game] gold and trinket drops %s (%s)\n", treasure ? "on" : "off",
+                     c ? c->id.c_str() : "d2");
 }
 
 Game kindOf(const Campaign* c) {
@@ -243,6 +248,10 @@ std::string currentName() {
 
 bool spellsEnabled() {
     return g_spells.load(std::memory_order_relaxed);
+}
+
+bool treasureEnabled() {
+    return g_treasure.load(std::memory_order_relaxed);
 }
 
 bool offerChoice() {

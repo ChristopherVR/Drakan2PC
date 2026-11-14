@@ -446,12 +446,14 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.campaignDescription = one("campaign_description");
     m.campaignSaves = one("campaign_saves");
     m.campaignTitleMusic = one("campaign_title_music");
-    {
-        std::string v = one("campaign_spells");
+    const auto switchedOff = [&](const char* key) {
+        std::string v = one(key);
         for (char& ch : v)
             ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-        m.campaignSpells = !(v == "false" || v == "0" || v == "no" || v == "off");
-    }
+        return v == "false" || v == "0" || v == "no" || v == "off";
+    };
+    m.campaignSpells = !switchedOff("campaign_spells");
+    m.campaignTreasure = !switchedOff("campaign_treasure");
     m.levelCopies = many("level_copies");
     m.levelAspect = many("level_aspect");
     m.oneWayExits = many("one_way_exits");
