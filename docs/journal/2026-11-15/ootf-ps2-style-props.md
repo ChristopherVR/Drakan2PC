@@ -6,7 +6,8 @@ flame ring, the talon torches, the Succubus pillars and ruins, the light beams. 
 `editor/packages/formats`: new `ootfpropremake.ts`, rows in `ootfps2model.ts`, one dispatch in `ootfassets.ts`, one stage
 and a morph guard in `ootfpipeline.ts`). Formats `e48eef6` (first committed as `357a92f`, which was lost with the local formats repository at 07:13 and
 recreated from the scratch copy onto the recreated voices commit `484f8e0`; the recreation also keeps turning corners only
-on open borders, so a crease inside a talon horn no longer kinks it). Scratch, packs, runs and frames are under `build/review/ps2-models-new/` (not
+on open borders, so a crease inside a talon horn no longer kinks it). Formats `30349ee` then keeps the borders between two textures
+sharp. Scratch, packs, runs and frames are under `build/review/ps2-models-new/` (not
 tracked); nothing from either game is quoted here.
 
 ## 1. What the props are
@@ -63,9 +64,10 @@ fire does not run there at all). The particles are the OotF emitter's own; no Dr
 round the barrier crystals"), all off by default (the round's rule: the shipped behaviour stays the default). The editor's
 import dialog lists them with the other rows; `--ps2-model-map` turns them on with `{"ootf": "<class>", "ps2": "(new
 PS2-style model)"}` or `"(OotF fire shown, harmless)"`, and a remake row also takes `"refine"`. With all rows off the pack
-equals one from formats e5f395c: against the dist pack (built at e5f395c) only the previews the dist build adds,
-`mod.toml`, `story/subtitles.json` and two class sound records differ (inputs of the dist build, not models). With all
-rows on, only `RESOURES.MOD`, the Alwarren LVL and `mod.toml` differ from the off pack.
+is byte-identical, every file, to one converted from the formats commit before this change (`packs/base` from the voices
+commit against `packs/off2` from the rebuilt change, same script and inputs). With all rows on (`packs/on5`, converted
+from the landed `e48eef6` in the main checkout), only `RESOURES.MOD`, the Alwarren LVL and `mod.toml` differ from the off
+pack.
 
 ## 3. Evidence (owner's ini, `play/` = copy of `baseline-play` with the dist exe 5fdf3a1a, private ELF)
 
@@ -76,7 +78,7 @@ subtitle files. Direct level starts on an empty card, god mode unless stated, th
 
 | Prop | Level | Frames | Seen |
 | --- | --- | --- | --- |
-| Talon torch, pillars | Volcanic, torch 2513, pillars 2680 to 2689, a talon by the lava | `evidence/volcanic_talon_pillar_zoom_pairs.png` (crops brightened), `evidence/volcanic_pairs.png` | the horn shades smoothly and its band edge curves instead of breaking at facets; the pillars are rounder with soft shading; places and sizes unchanged |
+| Talon torch, pillars | Volcanic, torch 2513, pillars 2680 to 2689, a talon by the lava | `evidence/volcanic_talon_pillar_zoom_pairs.png` (crops brightened), `evidence/volcanic_pairs.png` | the horn shades smoothly and is rounder; the pillars are rounder with soft shading; places and sizes unchanged. Up to `e48eef6` the horn's carved band edge dipped into a V notch where smoothing crossed the texture border (`evidence/volcanic_talon_pillar_zoom_pairs_e48eef6.png`); with `30349ee` the band edge is a smooth line again (`evidence/volcanic_talon_notch_fix_pairs.png`, `e48eef6` left, `30349ee` right, packs `on5` / `on6`) |
 | Ruins | Succubus Lair start corridor (no placement), three headings | `evidence/succubus_ruins_pairs.png` | vaults and arches curve a little more smoothly; no gaps at the piece borders; frame rate as before |
 | Light beam | Relic, pads 265 and 267 | `evidence/relic_beam_pairs.png` | a rounder, softer beam with a halo at the pad, a little brighter than the OotF tube |
 | Flame rings | Alwarren, the three barrier crystals | `evidence/alwarren_rings_pairs.png` | fire on every skull of each ring and a plume above it, where nothing showed before |
@@ -91,7 +93,7 @@ standing in it.
   the runs with the fire it turned purple and blue for a few seconds while the lizard creatures of that room fought her.
   Standing still outside the ring, 2,600 units away, for 32 s (runs `rs_off1`, `rs_on4`, `runs/rs_orbs.png`), the
   creatures come and the orb flashes blue in both packs, with the fire and without: the colour comes from the creatures,
-  not from the ring.
+  not from the ring (`evidence/ring1_outside_orbs.png`).
 
 Collision: identical by construction (records above); no walk into a talon, pillar or ruin wall was played.
 
