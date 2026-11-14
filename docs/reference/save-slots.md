@@ -22,7 +22,18 @@ with native menus selected. Native error dialogs remain interactive. Cancellatio
 restoring slot names and rescans any surviving slot screen.
 
 The save-exists hook checks the quicksave page too, including with `save_pages = 1`, so F8 can load a card that has
-only a quicksave. The title's Continue action still selects the newest **manual** save; F8 selects the quicksave.
+only a quicksave.
+
+Quicksave in Load Game (2026-11-15, issue 6 item 2): until then the quicksave could only be loaded with F8. Load Game
+(pause and title, modern and native screens) listed only the manual slots 1..`save_pages * 4`, yet was enabled by a
+quicksave alone, and Continue picked the newest **manual** save, so a player who quick saved, quit and came back found
+nothing to load. With `[general] quicksave_in_load = 1` (default, env `DRAKAN_QUICKSAVE_IN_LOAD`; 0 = as before) Load
+Game shows one more page after the manual ones while a quicksave is on the card: the modern screen titles it
+"Quicksave" and shows its one slot, the native grid shows it as page `n+1` with "33 - <level>" (34..36 empty). Save
+Game never shows it (the slot cells go back to the manual page as soon as Load Game is gone, not while its question
+box is up), and Continue considers the quicksave too. Folder pages vs pager pages and the step order are in
+`ps2xRuntime/src/lib/drakan_save_pages_policy.h` (tests `save_pages_policy_tests.cpp`, gameui `testQuickPage`).
+Notes: `docs/journal/2026-11-15/issue6-save-cam.md`.
 Validation notes: `docs/journal/2026-10-25/quick-save-load.md`.
 
 Known issue: one player report of a freeze at F5 (guest stops inside the slot scan, log ends after `flags 9`) is not

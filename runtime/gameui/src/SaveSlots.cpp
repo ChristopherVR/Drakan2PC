@@ -125,6 +125,12 @@ const SaveSlot* SaveSlotsState::slot(int number) const {
     return nullptr;
 }
 
+std::string SaveSlotsState::slotName(int number) const {
+    if (isQuickSlot(number))
+        return menuText("Quicksave");
+    return menuFormat("Slot {0}", {std::to_string(number)});
+}
+
 bool readSaveSlots(const IGuestMemory& mem, uint32_t screen, const SaveReadOptions& opt, SaveSlotsState& out) {
     namespace su = addr::saveui;
     out.page = std::max(0, opt.page);

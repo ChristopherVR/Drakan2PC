@@ -212,7 +212,7 @@ void SaveLoadScreen::buildTargets(const SaveSlotsState& st) {
         return;
     }
     if (listLive(st))
-        for (size_t i = 0; i < st.slots.size() && i < 4; ++i)
+        for (size_t i = 0; i < st.slots.size() && i < (st.onQuickPage() ? 1u : 4u); ++i) // the quicksave: one slot
             targets_.push_back(
                 {{TargetKind::SaveSlot, st.slots[i].number}, lf_.map(design::saveload::slotCard(static_cast<int>(i)))});
     if (st.pageCount > 1 && st.card != CardState::NoCard && st.card != CardState::Unformatted) {
@@ -247,9 +247,9 @@ void SaveLoadScreen::ensureFocus(const SaveSlotsState& st) {
     if (st.slots.empty())
         return;
     // The native selection, else the kept row, else the first slot this mode can use.
-    int pick = 0;
-    if (st.nativeRow >= 0 && st.nativeRow < static_cast<int>(st.slots.size()) && focus_.kind == TargetKind::None &&
-        lastSelected_ == 0)
+    int pick = st.onQuickPage() ? st.slots.front().number : 0; // the quicksave page shows its one slot only
+    if (!pick && st.nativeRow >= 0 && st.nativeRow < static_cast<int>(st.slots.size()) &&
+        focus_.kind == TargetKind::None && lastSelected_ == 0)
         pick = st.slots[static_cast<size_t>(st.nativeRow)].number;
     if (!pick && focusRow_ > 0 && focusRow_ < static_cast<int>(st.slots.size()))
         pick = st.slots[static_cast<size_t>(focusRow_)].number;
@@ -314,7 +314,7 @@ void SaveLoadScreen::changePage(const SaveSlotsState& st, int delta, SaveLoadFra
     out.actions.push_back({0, SaveLoadActionKind::ChangePage, page});
     pendingPage_ = page;
     pendingAge_ = 0;
-    wantFocus_ = page * 4 + focusRow_ + 1;
+    wantFocus_ = page == st.quickPage ? st.firstNumberOf(page) : st.firstNumberOf(page) + focusRow_;
     lastSelected_ = 0; // the rescan may move the native selection
     focus_ = {};
     out.sound = UiSound::Page;
@@ -563,8 +563,10 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
     const Rect lp = design::saveload::listPanel();
     d.panel(p.map(lp), PanelStyle::Main, th.panel);
     const Rect bar = design::saveload::pageBar();
-    const int first = st.page * 4 + 1;
-    p.label(d, {bar.x + 4, bar.y, 400, bar.h}, menuFormat("Slots {0} - {1}", {fmtInt(first), fmtInt(first + 3)}),
+    const int first = st.firstNumber();
+    p.label(d, {bar.x + 4, bar.y, 400, bar.h},
+            st.onQuickPage() ? std::string(menuText("Quicksave"))
+                             : menuFormat("Slots {0} - {1}", {fmtInt(first), fmtInt(first + 3)}),
             th.brass);
     if (st.pageCount > 1) {
         const bool en = pendingPage_ < 0;
@@ -606,7 +608,7 @@ void SaveLoadScreen::draw(const SaveSlotsState& st, DrawList& d) const {
         case CardState::Reading:
         case CardState::Ready:
         case CardState::Full:
-            for (int i = 0; i < 4; ++i) {
+            for (int i = 0; i < (st.onQuickPage() ? 1 : 4); ++i) { // the quicksave page has its one slot
                 const bool live = listLive(st) && i < static_cast<int>(st.slots.size());
                 if (live) {
                     drawSlot(st, st.slots[static_cast<size_t>(i)], design::saveload::slotCard(i), d);
@@ -667,7 +669,7 @@ void SaveLoadScreen::drawSlot(const SaveSlotsState& st, const SaveSlot& s, const
 
     const float tx = tb.right() + 28, tw = rd.right() - 24 - tx;
     const Color headC = !usable ? th.textMuted : (foc ? th.heading : th.text);
-    p.label(d, {tx, rd.y + 14, tw, 26}, menuFormat("Slot {0}", {fmtInt(s.number)}), foc ? th.brass : th.brassDim);
+    p.label(d, {tx, rd.y + 14, tw, 26}, st.slotName(s.number), foc ? th.brass : th.brassDim);
     const char* t = slotTitle(s, mode_);
     p.text(d, {tx, rd.y + 42, tw, 44}, t ? std::string(t) : locationOf(s), FontRole::Heading, headC);
     std::string sub;
@@ -719,7 +721,7 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
     }
     d.outline(ip, th.gilt, p.px(1.5f));
 
-    p.label(d, {x, y, w, 26}, menuFormat("Slot {0}", {fmtInt(s->number)}), th.brass);
+    p.label(d, {x, y, w, 26}, st.slotName(s->number), th.brass);
     if (s->state == SlotState::Used && !s->file.empty())
         p.text(d, {x, y, w, 26}, s->file, FontRole::Small, th.textMuted, TextAlign::Right);
     y += 30;
@@ -776,7 +778,7 @@ void SaveLoadScreen::drawPreview(const SaveSlotsState& st, DrawList& d) const {
 void SaveLoadScreen::drawProgress(const SaveSlotsState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const SaveSlot* s = st.slot(progressSlot_);
-    std::string body = menuFormat("Slot {0}", {fmtInt(progressSlot_)});
+    std::string body = st.slotName(progressSlot_);
     if (s && s->state == SlotState::Used && !locationOf(*s).empty())
         body += ": " + locationOf(*s);
     p.confirmCard(d, design::saveload::cardPanel(),
@@ -798,7 +800,7 @@ void SaveLoadScreen::drawCard(const SaveSlotsState& st, DrawList& d) const {
             break;
         case SaveCard::Load:
             title = menuText("Load this game?");
-            body = menuFormat("Progress since your last save is lost. Slot {0}: {1}.", {fmtInt(cardSlot_), what});
+            body = menuFormat("Progress since your last save is lost. {0}: {1}.", {st.slotName(cardSlot_), what});
             primary = menuText("Load");
             break;
         case SaveCard::Save:

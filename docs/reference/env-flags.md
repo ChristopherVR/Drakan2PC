@@ -196,6 +196,8 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_NATIVE_FONT_ATLAS` | `[general] native_font_atlas` | on |
 | `DRAKAN_QUIT_EXITS` / `DRAKAN_TITLE_QUIT` | `[general] quit_exits` / `title_quit` | on / on |
 | `DRAKAN_SAVE_PAGES` | `[general] save_pages` (1..8) | 4 |
+| `DRAKAN_QUICKSAVE_IN_LOAD` | `[general] quicksave_in_load`: Load Game lists the quicksave (Slot33) as a page after the manual pages and the title's Continue considers it (`save-slots.md`); 0 = hidden as in v0.1.17 and earlier | on |
+| `DRAKAN_CAMERA_TRACE` | `1`: one `[cam-tick]` line per camera follow tick (camera position before the PC carry, after it, after the native tick; native follow fields), for camera jump investigations (`input.md` section 15) | off |
 | `DRAKAN_CPU_AFFINITY` | `[general] cpu_affinity` | `auto` |
 | `DRAKAN_PAUSE_UNFOCUSED` / `DRAKAN_RESUME_ON_CLOSE` | `[general] pause_when_unfocused` / `resume_on_close` | off / off |
 | `DRAKAN_SUBTITLES` | `[subtitles] narration` | on |

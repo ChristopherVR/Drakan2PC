@@ -79,9 +79,18 @@ struct SaveSlotsState {
     // whatever the list shows. 0 = none.
     int loadingSlot = 0;
     int quickOperation = 0; // 1 = quicksave, 2 = quickload: progress only, no interactive slot browser
+    // Load Game with [general] quicksave_in_load: the page index (the last one) that shows the quicksave, whose one
+    // slot is number quickSlot (33, outside the manual slots); -1 = no such page.
+    int quickPage = -1;
+    int quickSlot = 33;
 
     const SaveSlot* slot(int number) const;
-    int firstNumber() const { return page * 4 + 1; }
+    int firstNumberOf(int p) const { return p == quickPage ? quickSlot : p * 4 + 1; }
+    int firstNumber() const { return firstNumberOf(page); }
+    bool onQuickPage() const { return quickPage >= 0 && page == quickPage; }
+    bool isQuickSlot(int number) const { return quickPage >= 0 && number == quickSlot; }
+    // "Slot 5", or "Quicksave" for the quicksave (menu language).
+    std::string slotName(int number) const;
 };
 
 // Why a save cannot be loaded with the mod packs active now (docs/reference/modding.md "Saves and pack builds"); the

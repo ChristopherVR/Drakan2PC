@@ -4,6 +4,7 @@
 #include "drakan_save_guard.h"
 #include "drakan_save_previews.h"
 #include "drakan_region.h"
+#include "drakan_save_pages_policy.h"
 
 #if defined(PS2X_HAVE_DRAKAN_INPUT) || defined(PS2X_HAVE_PORTABLE_UI)
 #include "ps2_runtime.h"
@@ -22,6 +23,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -81,6 +83,8 @@ uint32_t g_hotspotScreen = 0;
 int g_pages = 4;
 bool g_quickPage = false;
 int g_quickPreviousPage = 0;
+bool g_quickInLoad = true; // [general] quicksave_in_load: Load Game lists the quicksave as a page after the manual ones
+int g_listReturnPage = 0;  // the manual page shown before the quicksave page; restored when Load Game closes
 bool g_titleQuit = true;
 bool g_namesChecked = false, g_namesOk = false;
 uint32_t g_quitBoxScreen = 0, g_titleDone = 0;
@@ -294,16 +298,53 @@ void writeSlotNames(IGuest& g, int page) {
 // New page: rewrite the folder names and ask the screen to rescan. The screen handler (message 10) rebuilds the slot
 // list when bit 3 of the u16 at screen + 0x9c is set (the same bit the screen sets itself when it opens): it frees the
 // entries and thumbnails and runs the scan again.
-void changePage(IGuest& g, uint32_t screen, int delta, uint32_t sound) {
-    if (g_quickPage || g_pages <= 1 || !namesUsable(g))
-        return;
-    const int p = ((g_page.load() + delta) % g_pages + g_pages) % g_pages;
+// A quicksave (F5) on the card: <card>/<saveId>Slot33/*.rsg. Checked at most every half second.
+bool quickSaveOnCard() {
+    static int64_t checkedMs = -1;
+    static bool present = false;
+    const int64_t now =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    if (checkedMs >= 0 && now - checkedMs < 500)
+        return present;
+    checkedMs = now;
+    present = false;
+    const auto& io = PS2Runtime::getIoPaths();
+    const auto root = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
+    const auto folder =
+        root / (std::string(drakan_region::build().saveId) + "Slot" + std::to_string(policy::kQuickSlot));
+    std::error_code ec;
+    for (std::filesystem::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+        if (it->path().extension() == ".rsg" && it->is_regular_file(ec) && !ec)
+            present = true;
+    return present;
+}
+
+// Load Game (never Save Game) lists the quicksave as one more page after the manual ones (drakan_save_pages_policy.h).
+bool quickListed(IGuest& g, uint32_t screen) {
+    return g_quickInLoad && !g_quickPage && okPtr(screen) &&
+           g.read32(screen + 0x18) == static_cast<uint32_t>(kScreenLoad) && quickSaveOnCard();
+}
+
+void showFolderPage(IGuest& g, uint32_t screen, int p, uint32_t sound) {
+    if (p == policy::kQuickFolderPage && g_page.load() != policy::kQuickFolderPage)
+        g_listReturnPage = g_page.load();
     g_page.store(p);
     writeSlotNames(g, p);
     write16(g, screen + 0x9c, static_cast<uint16_t>(g.read16(screen + 0x9c) | 8u));
     if (sound)
         playSound(g, sound);
-    std::fprintf(stderr, "[menus] save page %d/%d (folders Slot%d..Slot%d)\n", p + 1, g_pages, p * 4 + 1, p * 4 + 4);
+    std::fprintf(stderr, "[menus] save page %d (folders Slot%d..Slot%d)\n", policy::toLogical(p, g_pages) + 1,
+                 p * 4 + 1, p * 4 + 4);
+}
+
+void changePage(IGuest& g, uint32_t screen, int delta, uint32_t sound) {
+    if (g_quickPage || !namesUsable(g))
+        return;
+    const bool quick = quickListed(g, screen);
+    if (policy::logicalCount(g_pages, quick) <= 1)
+        return;
+    showFolderPage(g, screen, policy::step(g_page.load(), delta, g_pages, quick), sound);
 }
 
 std::string guestPath(IGuest& g, uint32_t a) {
@@ -457,7 +498,8 @@ void drawPager(MGuest& g, uint32_t scr) {
     const Labels& lb = labels();
     const uint32_t sBack = g.scratch(0), sNext = g.scratch(0x40), sPage = g.scratch(0x80);
     char page[48];
-    std::snprintf(page, sizeof page, "%s %d/%d", lb.page, g_page.load() + 1, g_pages);
+    std::snprintf(page, sizeof page, "%s %d/%d", lb.page, policy::toLogical(g_page.load(), g_pages) + 1,
+                  policy::logicalCount(g_pages, quickListed(g, scr)));
     putStr(g, sBack, lb.back);
     putStr(g, sNext, lb.next);
     putStr(g, sPage, page);
@@ -843,7 +885,17 @@ void tick(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         g_slotClosing = false;
         g_thumbnailSeen.fill(0);
     }
-    if (!g_quickPage && g_pages > 1 && slots && !g_slotClosing && !g_slotsHosted && namesUsable(g))
+    // The quicksave page belongs to Load Game only: once Load Game is gone (not just covered by its question box),
+    // the cells name the manual page again, so a later Save Game can never write into the quicksave's folder.
+    if (!g_quickPage && g_page.load() == policy::kQuickFolderPage && id != kScreenLoad && id != 1 && id != 2 &&
+        id != 3 && id != 0x1b && namesUsable(g)) {
+        g_page.store(std::clamp(g_listReturnPage, 0, g_pages - 1));
+        writeSlotNames(g, g_page.load());
+        std::fprintf(stderr, "[menus] quicksave page left: folders Slot%d..Slot%d again\n", g_page.load() * 4 + 1,
+                     g_page.load() * 4 + 4);
+    }
+    if (!g_quickPage && slots && !g_slotClosing && !g_slotsHosted && namesUsable(g) &&
+        policy::logicalCount(g_pages, quickListed(g, scr)) > 1)
         drawPager(g, scr);
     else {
         if (g_slotsHosted && g_hotspotScreen) { // the host screen takes the mouse: no native slot / page hotspots
@@ -883,12 +935,25 @@ void endQuickPage(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt, uint32_t scre
 
 bool showPage(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt, uint32_t screen, int p) {
     MGuest g(ram, ctx, rt);
-    if (g_pages <= 1 || !namesUsable(g) || !isSlotScreen(g, screen))
+    if (g_quickPage || !namesUsable(g) || !isSlotScreen(g, screen))
         return false;
-    p = std::clamp(p, 0, g_pages - 1);
+    const bool quick = quickListed(g, screen);
+    if (policy::logicalCount(g_pages, quick) <= 1)
+        return false;
+    if (!(quick && p == policy::kQuickFolderPage))
+        p = std::clamp(p, 0, g_pages - 1);
     if (p != g_page.load())
-        changePage(g, screen, p - g_page.load(), 0);
+        showFolderPage(g, screen, p, 0);
     return true;
+}
+
+bool quickPageListed(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt, uint32_t screen) {
+    MGuest g(ram, ctx, rt);
+    return quickListed(g, screen);
+}
+
+bool quickInLoad() {
+    return g_quickInLoad;
 }
 
 bool titleQuit() {
@@ -935,6 +1000,7 @@ void install(PS2Runtime& rt) {
 #endif
     g_pages = std::clamp(drakan_cfg::getInt("general", "save_pages", "DRAKAN_SAVE_PAGES", 4), 1, 8);
     g_titleQuit = drakan_cfg::getBool("general", "title_quit", "DRAKAN_TITLE_QUIT", true);
+    g_quickInLoad = drakan_cfg::getBool("general", "quicksave_in_load", "DRAKAN_QUICKSAVE_IN_LOAD", true);
     auto hook = [&](uint32_t addr, PS2Runtime::RecompiledFunction& orig, PS2Runtime::RecompiledFunction fn,
                     const char* name) {
         if (!rt.hasFunction(addr)) {
@@ -944,7 +1010,7 @@ void install(PS2Runtime& rt) {
         orig = rt.lookupFunction(addr);
         rt.replaceFunction(addr, fn);
     };
-    if (g_pages > 1) {
+    if (g_pages > 1 || g_quickInLoad) { // the quicksave page needs the pager even with one manual page
         hook(kSlotKeyHandler, g_origKey, &hookSlotKey, "slot key handler");
         hook(kSprintf, g_origSprintf, &hookSprintf, "sprintf");
         drakan_input::module().menuMouseRw().setHotspotHandler(&onHotspot);
@@ -957,7 +1023,8 @@ void install(PS2Runtime& rt) {
         hook(kTitleHandler, g_origTitle, &hookTitle, "title handler");
     if (const char* levelSave = std::getenv("DRAKAN_TEST_LEVEL_SAVE"); levelSave && *levelSave == '1')
         hook(kSaveScreenCtor, g_origSaveCtor, &hookSaveCtor, "save screen (level-change mode)");
-    std::fprintf(stderr, "[menus] save pages: %d, title Quit: %s\n", g_pages, g_titleQuit ? "on" : "off");
+    std::fprintf(stderr, "[menus] save pages: %d, quicksave in Load Game: %s, title Quit: %s\n", g_pages,
+                 g_quickInLoad ? "on" : "off", g_titleQuit ? "on" : "off");
 }
 
 } // namespace drakan_menus
@@ -984,6 +1051,12 @@ bool beginQuickPage(uint8_t*, R5900Context*, PS2Runtime*) {
     return false;
 }
 void endQuickPage(uint8_t*, R5900Context*, PS2Runtime*, uint32_t) {}
+bool quickPageListed(uint8_t*, R5900Context*, PS2Runtime*, uint32_t) {
+    return false;
+}
+bool quickInLoad() {
+    return false;
+}
 bool showPage(uint8_t*, R5900Context*, PS2Runtime*, uint32_t, int) {
     return false;
 }

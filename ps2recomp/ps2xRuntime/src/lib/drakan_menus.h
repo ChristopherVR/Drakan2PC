@@ -40,7 +40,13 @@ int pageCount();
 void setSlotsHosted(bool on);
 // Shows save page `p` on the slot screen `screen` (rewrites the slot folder cells, asks the screen to rescan), as
 // PgDn / PgUp do. False when the pages are off or the folder table is not as expected (EE thread).
+// `p` is a folder page (drakan_save_pages_policy.h): 0 .. pageCount()-1, or the quicksave page 8 on a Load screen that
+// lists it. page() returns the folder page too (8 while Load Game shows the quicksave).
 bool showPage(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt, uint32_t screen, int p);
+// [general] quicksave_in_load (default on): Load Game lists the quicksave (Slot33) as a page after the manual pages,
+// and the title's Continue considers it. quickPageListed: this Load screen lists it now (a quicksave is on the card).
+bool quickInLoad();
+bool quickPageListed(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt, uint32_t screen);
 // EE thread: temporary reserved page (Slot33, outside the configurable 1..32 manual slots).
 // Restore only after native card I/O has left the slot screen; a live screen is rescanned on cancellation.
 bool beginQuickPage(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt);

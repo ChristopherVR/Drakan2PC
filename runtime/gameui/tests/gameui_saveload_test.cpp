@@ -492,6 +492,57 @@ void testPages() {
     CHECK(count(o, SaveLoadActionKind::ChangePage) == 0 && hint(one.hints(), Prompt::PageNext) == nullptr);
 }
 
+// Load Game with the quicksave listed (issue 6): one more page after the manual ones, holding slot 33 alone.
+SaveSlotsState quickPage(int pages = 4) {
+    SaveSlotsState st;
+    st.page = pages;
+    st.pageCount = pages + 1;
+    st.quickPage = pages;
+    st.quickSlot = 33;
+    st.slots = {used(33, "Surdana"), empty(34), empty(35), empty(36)};
+    st.nativeRow = 0;
+    return st;
+}
+
+void testQuickPage() {
+    SaveLoadScreen scr;
+    scr.open(SaveLoadMode::Load, SaveLoadContext::Pause);
+    SaveSlotsState p0 = page(0, 4);
+    p0.pageCount = 5;
+    p0.quickPage = 4;
+    scr.frame(p0, {}, kVp);
+    SaveLoadFrameOutput o = scr.frame(p0, keys({UiKey::Down, UiKey::Down}), kVp); // row 3
+    CHECK(hasText(o.draw, "Page 1 of 5"));
+    o = scr.frame(p0, keys({UiKey::Left}), kVp); // wraps onto the quicksave page
+    CHECK(find(o, SaveLoadActionKind::ChangePage) && find(o, SaveLoadActionKind::ChangePage)->value == 4);
+    SaveSlotsState q = quickPage();
+    o = scr.frame(q, {}, kVp);
+    CHECK(scr.pendingPage() < 0 && scr.focusedSlot() == 33); // its one slot, whatever row was focused before
+    CHECK(hasText(o.draw, "Page 5 of 5") && hasText(o.draw, "QUICKSAVE"));
+    CHECK(!hasText(o.draw, "SLOTS 33 - 36") && !hasText(o.draw, "SLOT 34"));
+    CHECK(target(scr.targets(), TargetKind::SaveSlot, 33) != nullptr);
+    CHECK(target(scr.targets(), TargetKind::SaveSlot, 34) == nullptr);
+    o = scr.frame(q, keys({UiKey::Down, UiKey::Down}), kVp); // nowhere to go
+    CHECK(scr.focusedSlot() == 33);
+    q.inGame = true;
+    o = scr.frame(q, keys({UiKey::Confirm}), kVp); // in game: the load asks first, naming the quicksave
+    bool named = false;
+    for (const DrawCmd& c : o.draw.commands())
+        named = named || (c.kind == DrawKind::Text && c.text.find("lost. Quicksave:") != std::string::npos);
+    CHECK(scr.card() == SaveCard::Load && named);
+    o = scr.frame(q, keys({UiKey::Up, UiKey::Confirm}), kVp); // Load
+    CHECK(find(o, SaveLoadActionKind::ConfirmLoad) && find(o, SaveLoadActionKind::ConfirmLoad)->value == 33);
+    // Next from the quicksave page wraps to the first manual page.
+    SaveLoadScreen n;
+    n.open(SaveLoadMode::Load, SaveLoadContext::Pause);
+    n.frame(q, {}, kVp);
+    o = n.frame(q, keys({UiKey::PageNext}), kVp);
+    CHECK(find(o, SaveLoadActionKind::ChangePage) && find(o, SaveLoadActionKind::ChangePage)->value == 0);
+    // A manual slot keeps its number in the load question.
+    CHECK(q.slotName(33) == "Quicksave" && page(1, 4).slotName(5) == "Slot 5" && !page(0, 4).isQuickSlot(33));
+    CHECK(q.firstNumberOf(4) == 33 && q.firstNumberOf(1) == 5 && q.onQuickPage() && !p0.onQuickPage());
+}
+
 void testBackAndStates() {
     SaveLoadScreen scr;
     scr.open(SaveLoadMode::Load, SaveLoadContext::Pause);
@@ -1386,6 +1437,7 @@ int main() {
     testLoadInGameAsks();
     testSave();
     testPages();
+    testQuickPage();
     testPackRefusal();
     testNativePackMarks();
     testBackAndStates();

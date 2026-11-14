@@ -571,18 +571,22 @@ void slotsExecute(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g,
             if (!select())
                 return refuse("not on the shown page");
             return slotsFinish(gameui::Outcome::Confirmed);
-        case K::ChangePage:
+        case K::ChangePage: {
+            // a.value counts the host screen's pages; the folder page is the quicksave's on its page.
+            const int folder = drakan_menus::policy::toFolder(a.value, drakan_menus::pageCount(),
+                                                              drakan_menus::quickPageListed(ram, c, rt, s));
             if (g_slots.phase == 0) {
-                if (!drakan_menus::showPage(ram, c, rt, s, a.value))
+                if (!drakan_menus::showPage(ram, c, rt, s, folder))
                     return refuse("save pages are off");
                 g_slots.phase = 1;
                 return;
             }
-            if (drakan_menus::page() == a.value && count >= 4 && (g.read16(s + saveui::kFlags) & 0xc) == 0)
+            if (drakan_menus::page() == folder && count >= 4 && (g.read16(s + saveui::kFlags) & 0xc) == 0)
                 return slotsFinish(gameui::Outcome::Confirmed);
             if (wait > kMenuActionMs)
                 return refuse("the page was not read");
             return;
+        }
         case K::ConfirmSave:
         case K::ConfirmOverwrite:
         case K::ConfirmLoad: {
@@ -717,6 +721,15 @@ void slotsTick(uint8_t* ram, R5900Context* c, PS2Runtime* rt, RecompGuest& g, ui
     opt.dateOrder = menuDateOrder(g, opt.clock24);
     gameui::SaveSlotsState st;
     gameui::readSaveSlots(RdramMemory(ram), g_slots.screen, opt, st);
+    // Load Game lists the quicksave as one more page (drakan_save_pages_policy.h): the host screen counts pages
+    // logically, the slot numbers stay the folders' (33 for the quicksave).
+    const bool quickListed = drakan_menus::quickPageListed(ram, c, rt, g_slots.screen);
+    st.pageCount = drakan_menus::policy::logicalCount(opt.pageCount, quickListed);
+    st.page = drakan_menus::policy::toLogical(opt.page, opt.pageCount);
+    if (quickListed) {
+        st.quickPage = opt.pageCount;
+        st.quickSlot = drakan_menus::policy::kQuickSlot;
+    }
     if ((g.read16(g_slots.screen + saveui::kFlags) & 0xc) != 0 && st.card == gameui::CardState::Ready)
         st.card = gameui::CardState::Reading; // a page change is rescanning
     // 43ac40 shows its label (and an OK box) when the card is missing. The label is also up from the layout until the
@@ -795,7 +808,9 @@ void titleScanSaves(gameui::TitleState& st) {
     const auto& io = PS2Runtime::getIoPaths();
     const fs::path root = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
     fs::file_time_type best{};
-    for (int n = 1; n <= drakan_menus::pageCount() * 4; ++n) {
+    for (int n = 1; n <= drakan_menus::policy::kQuickSlot; ++n) {
+        if (!drakan_menus::policy::continueConsiders(n, drakan_menus::pageCount(), drakan_menus::quickInLoad()))
+            continue;
         std::error_code ec;
         for (fs::directory_iterator it(root / (std::string(drakan_region::build().saveId) + "Slot" + std::to_string(n)), ec), end; !ec && it != end;
              it.increment(ec)) {

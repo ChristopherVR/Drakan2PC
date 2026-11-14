@@ -25,6 +25,7 @@
 #include "drakan_game.h"
 #include "drakan_dual_wield.h"
 #include "drakan_menus.h"
+#include "drakan_save_pages_policy.h"
 #if defined(PS2X_HAVE_GSR) // compiled with the GS renderer only
 #include "drakan_ghost.h"
 #include "drakan_intro_movie.h"
@@ -1092,14 +1093,35 @@ void hookCameraUpdateLook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 void hookCameraFollow(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t cam = getRegU32(c, 4);
     RecompGuest g(rdram, c, rt);
+    // DRAKAN_CAMERA_TRACE=1: one [cam-tick] line per follow tick (camera position before the PC carry, after it and
+    // after the native tick, the native follow fields), for camera jump investigations (issue 6 item 3).
+    static const bool trace = std::getenv("DRAKAN_CAMERA_TRACE") && std::atoi(std::getenv("DRAKAN_CAMERA_TRACE")) != 0;
+    const uint32_t obj = trace && cam ? g.read32(cam + drakan_region::build().camera.cameraTransform) : 0;
+    float p0[3] = {}, p1[3] = {};
+    if (obj)
+        for (uint32_t i = 0; i < 3; ++i)
+            p0[i] = g.readF(obj + 0x14 + 4 * i);
     beforeCameraFollow(g, cam);
+    if (obj)
+        for (uint32_t i = 0; i < 3; ++i)
+            p1[i] = g.readF(obj + 0x14 + 4 * i);
     g_followCamera = cam; // the two hooks below read the target the tick's own world tests return
     g_followTarget = false;
     g_origCameraFollow(rdram, c, rt);
     g_followCamera = 0;
     if (g_followTarget)
         noteCameraTarget(g_followTargetAt); // the next tick's carry turns only the part up to it
-    afterCameraFollow(g, cam);              // the over-the-shoulder view while the bow is aimed
+    if (obj) {
+        const uint32_t ctx = g.read32(module().config().addrCtxPtr);
+        ilog(
+            "[cam-tick] t=%.4f f=%d p0=(%.1f %.1f %.1f) p1=(%.1f %.1f %.1f) p2=(%.1f %.1f %.1f) tgt=%d(%.1f %.1f %.1f) "
+            "fl=%x r210=%.3f r20c=%.3f b21c=%.3f dt=%.5f avg=%.5f\n",
+            nowS(), module().frameNo(), p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], g.readF(obj + 0x14),
+            g.readF(obj + 0x18), g.readF(obj + 0x1c), g_followTarget ? 1 : 0, g_followTargetAt[0], g_followTargetAt[1],
+            g_followTargetAt[2], g.read32(cam + 0x48), g.readF(cam + 0x210), g.readF(cam + 0x20c), g.readF(cam + 0x21c),
+            ctx ? g.readF(ctx + 0x24) : 0.f, ctx ? g.readF(ctx + 0x3c) : 0.f);
+    }
+    afterCameraFollow(g, cam); // the over-the-shoulder view while the bow is aimed
 }
 // The follow tick tests its target against the world twice: FUN_0021ad48 (a0 camera, a1 target in / out, a2 origin,
 // a3 = 1: rays to the near-plane corners), then FUN_0021b280 (same arguments, a3 = 0: the sweep against objects,
