@@ -733,6 +733,16 @@ template's voices emptied where the PC has none (a list, `--class-sound-clears`)
 `1a00d13`; needs a regenerated pack and a new game. See
 [class sounds](../journal/2026-11-14/ootf-class-sounds.md).
 
+**November 15 voice choices (round 8):** Rynn and Arokh keep their Drakan 2 voices and the Drakan 2 Wartoks keep their
+idle grunts by default (owner's choice); the importer now offers "Rynn and Arokh: Order of the Flame voices" and "Wartok
+idle grunts: Silent, as in Order of the Flame" (CLI `--pc-voices 1`, `--wartok-idle off`). The records and clips stay
+Drakan 2's: the pack's `sounds/swaps.ini` lists ids the game plays differently only while the campaign is the current game
+(runtime `CampaignSoundSwaps`, a PlaySound hook). The Order of the Flame Wartoks have no idle sound, so there is no PC idle
+sound to choose. Played (logs, not heard): Rynn's attack grunts and hit cries and Arokh's hit cries play the PC clips,
+the Wartok grunts play nothing; Drakan 2 Surdana with the pack installed swaps nothing. Default pack identical to before.
+Formats `e5356e3`, main `79e23174`; needs a rebuilt exe and, for a choice, a regenerated pack. See
+[voices](../journal/2026-11-15/ootf-voices.md).
+
 **November 14 "Wartok Canyons does not load" (round 7):** a wrong level name in the test runs, not a converter
 regression. Wartok Canyons is "OotF 03 - Wartok Canyons" (02 is the Ruined Village Book); the failing runs asked
 `DRAKAN_START_LEVEL` for "OotF 02 - Wartok Canyons", which loads nothing. The runtime now stops at start-up with
