@@ -138,6 +138,14 @@ home above the retail RAM; suggested values once it does: 12 / 8.
 * Ground marks (30), particles per emitter (2,500), memory card space, the sound batch ring (128 entries, flushed when
   full; `iop-and-io.md` 3.3 says 64).
 
+## Frame time of the shadow distance
+
+`scene_ab_bench.py` under the turn lock, `surdana-town` pose, owner's ini, `DRAKAN_SHADOW_DISTANCE` 1 against 3, three
+interleaved pairs; one other game instance ran during all six runs (`bench/town-shadow`). Median frame 15.82 ms (x1)
+against 14.12 ms (x3), x3 faster in 2 of 3 pairs (-29 to +9 %): noise; the CPU columns per world frame are the same
+(EE 8.66 / 8.63 ms, VU1 7.19 / 7.24, GS 8.76 / 8.80). No cost is measurable in this scene. The default stays 1 until
+the coordinator decides; 3 is the suggested value.
+
 ## Order of the Flame and Drakan 2 guard
 
 * Drakan 2, Surdana (guard scene): town pose at x1 and x3 (above), the three-Wartok fight at x1 with the new exe
@@ -151,7 +159,7 @@ home above the retail RAM; suggested values once it does: 12 / 8.
 
 ## Not verified
 
-* Frame time of `shadow_distance` 3 (the bench under the turn lock is listed below if it ran).
+* Frame time of `shadow_distance` 3 in a scene with many shadowed characters (only the Surdana square was benched).
 * A played (not placed) walk with the new shadows, and OotF shadows of far characters.
 * That the model cache drops cost a visible hitch; that a raised cache never exhausts the guest heap over a long
   session (it stays opt-in for that reason).
