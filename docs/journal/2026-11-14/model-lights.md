@@ -92,7 +92,13 @@ ray traced path reads the level's world-space lights itself (`drakan_scene_model
 `capture`), not this set, and motion vectors do not depend on vertex colours; both are reasoned from the code, not
 measured.
 
-Frame time: the bench (`scene_ab_bench.py`, Catacombs start, 4 against 16, three interleaved pairs) was queued behind another agent's bench when this note was first committed; its result follows below when it has run.
+Frame time (`scene_ab_bench.py` under its turn lock, Catacombs start, owner's ini, 4 against 16, three interleaved
+pairs, `bench/catacombs-lights`): not a result, the machine was busy. Pairs 1 and 2 ran beside up to five compiler
+processes (other agents' builds), pair 3 beside one and two other game instances. Median frame 8.53 against 9.81 ms,
+the pairs 8.53 / 9.81, 7.26 / 7.26 (the quietest pair), 12.48 / 19.97; EE CPU per world frame 8.83 (7.33 to 10.89)
+against 9.36 (7.63 to 15.22). The ranges overlap; the cost of the extra work (replaying the accept rule over at most
+five candidates per full search and folding one or two lights) is small next to them. A quiet-machine rerun is owed
+before the default could change.
 
 ## Not verified
 
