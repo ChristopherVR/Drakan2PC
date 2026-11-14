@@ -317,6 +317,26 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
         }
     }
     if (rt.motionEpoch != motionEpoch) {
+        // GSR_VELOCITY_SKIP_TOGGLE=<s> (test): the skip switches at a world's start every s seconds, beginning with the
+        // configured state, so both are measured in one run under the same load.
+        if (const double period = runtimeFlags().velocitySkipToggle; period > 0) {
+            static const bool configured = velocitySkip;
+            static const auto start = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
+            const auto phase = (long long)(std::chrono::duration<double>(now - start).count() / period);
+            const bool on = (phase % 2 == 0) == configured;
+            if (on != velocitySkip || phase == 0) {
+                static long long logged = -1;
+                if (phase != logged) {
+                    logged = phase;
+                    std::fprintf(
+                        stderr, "[velocity-skip] now %s at %lld us\n", on ? "on" : "off",
+                        (long long)std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch())
+                            .count());
+                }
+            }
+            velocitySkip = on;
+        }
         clearMotionTarget(rt);
         rt.motionEpoch = motionEpoch;
     }
@@ -418,7 +438,7 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
                 rt.motionCoverage.markAll();
         } else if (mayBeValid)
             rt.motionCoverage.mark(box);
-        else if (!rt.motionCoverage.touches(box)) {
+        else if (runtimeFlags().velocitySkipIgnoreGrid || !rt.motionCoverage.touches(box)) {
             ++velocityPassesLeftOut;
             if (!rt.motionShadowRtv)
                 return false;

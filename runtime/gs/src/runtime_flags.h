@@ -98,6 +98,9 @@ struct RuntimeFlags {
     std::optional<bool> terrainBatching;              // GSR_TERRAIN_BATCHING: first character '1'
     std::optional<bool> velocitySkip;                 // GSR_VELOCITY_SKIP: first character '1' (motion_coverage.h)
     uint32_t velocitySkipVerify = 0; // GSR_VELOCITY_SKIP_VERIFY=<n>: compare with every velocity pass every n worlds
+    double velocitySkipToggle = 0;   // GSR_VELOCITY_SKIP_TOGGLE=<s>: switch the skip every s seconds (A/B in one run)
+    bool velocitySkipIgnoreGrid =
+        false; // GSR_VELOCITY_SKIP_DEBUG=1: leave out every invalid-only pass (wrong on purpose)
     std::optional<float> terrainStrength; // GSR_TERRAIN_STRENGTH: atof
     uint32_t terrainDebug = 0;            // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
     bool terrainAudit = false;            // GSR_TERRAIN_AUDIT: log what the classification matched

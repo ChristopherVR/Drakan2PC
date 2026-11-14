@@ -148,6 +148,10 @@ RuntimeFlags parse() {
         f.velocitySkip = v[0] == '1';
     if (const char* v = env("GSR_VELOCITY_SKIP_VERIFY"))
         f.velocitySkipVerify = (uint32_t)std::max(0, std::atoi(v));
+    if (const char* v = env("GSR_VELOCITY_SKIP_TOGGLE"))
+        f.velocitySkipToggle = std::max(0.0, std::atof(v));
+    if (const char* v = env("GSR_VELOCITY_SKIP_DEBUG"))
+        f.velocitySkipIgnoreGrid = v[0] == '1';
     if (const char* v = env("GSR_TERRAIN_STRENGTH"))
         f.terrainStrength = (float)std::atof(v);
     if (const char* v = env("GSR_TERRAIN_DEBUG"))

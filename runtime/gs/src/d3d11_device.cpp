@@ -92,7 +92,7 @@ bool D3D11Backend::Impl::init() {
     ctx.attach([](void* owner) { static_cast<Impl*>(owner)->foreignContext(); }, this);
     drawState.enable(runtimeFlags().drawStateCache.value_or(cfg.drawStateCache));
     velocitySkip = runtimeFlags().velocitySkip.value_or(cfg.velocitySkip);
-    velocitySkipVerify = velocitySkip ? runtimeFlags().velocitySkipVerify : 0;
+    velocitySkipVerify = velocitySkip || runtimeFlags().velocitySkipToggle > 0 ? runtimeFlags().velocitySkipVerify : 0;
     if (const char* hold = std::getenv("GSR_DRAW_STATE_HOLD"))
         drawStateHold = hold[0] != '0';
     if (const char* verify = std::getenv("GSR_DRAW_STATE_VERIFY"))
