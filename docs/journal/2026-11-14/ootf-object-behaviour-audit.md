@@ -6,7 +6,7 @@ Owner follow-up to [boulders and tree](ootf-ruined-boulders-tree.md):
 2. Audit the whole campaign for other PC object behaviours that the PS2 engine lacks or the conversion drops, fix the ones
    with a clear PS2 mechanism and list the rest.
 
-Fixed in the converter (formats `0afdb74`); the runtime is unchanged. Scratch, runs and evidence are under
+Fixed in the converter (formats `0afdb74`, `7266f98`); the runtime is unchanged. Scratch, runs and evidence are under
 `build/review/rv-physics/` (`audit/`, `runs/tr*`, `runs/br1`, `evidence/`). Nothing from either game is quoted here.
 
 ## 1. The tree as the PC level chains it
@@ -37,8 +37,9 @@ What changed (`ootftree.ts`, on top of the round 7 fix):
 * Sound: the PC "Hit Ground Sound" is offered to the Mover's stop sound, but the converter has not converted that sound (the
   PS2 Ground Object has no such field, so nothing asks for it); the falling sound 2455 plays on the strike as on the PC.
 
-Played (own play folder, owner's ini, windowed, exe `a3b2703c...` = current dist exe; pack `packs/p7`, formats as committed
-except the later unrelated `6141d3c`; New Game, Atimar equipped, then placements and real input), run `tr4`:
+Played (own play folder, owner's ini, windowed, exe `a3b2703c...` = current dist exe; pack `packs/p7`, the push-over code of
+`0afdb74` before its rebase over the unrelated `6141d3c`; a pack of `7266f98`, `packs/final3`, has the same Ruined Village
+level and differs only in the Alwarren level and the prop models of `6141d3c`; New Game, Atimar equipped, then placements and real input), run `tr4`:
 
 | Step | Input | Result |
 | --- | --- | --- |
@@ -47,8 +48,18 @@ except the later unrelated `6141d3c`; New Game, Atimar equipped, then placements
 | the orc | none | 1.5 s after the strike the orc is at 0 health and lies dead by the trunk's far end |
 | cross | placed 1,300 east, W only (mouse steering along the trunk, no Space) | first try: over the roots, onto the trunk (24,734 on the trunk over the gap), across to the far ledge (316263, 24451, 197179) |
 
-Contact sheet `evidence/tree_pc_chain.jpg` (`runs/tr4`); an earlier run with the same pack code, `tr3`, also crossed with W
-only on the first try. Before the roots change Rynn stopped at the roots (`tr1`, `tr2`).
+Contact sheet `evidence/tree_pc_chain.jpg` (`runs/tr4`).
+
+How reliable the W-only walk is, on a pack of the committed formats (`packs/final3`, `runs/sw1`): one strike, the orc
+killed again, then six walks from 1,300 units east of the foot, starting 200 north to 300 south of the trunk's line, W with
+the mouse steering along the trunk: 4 crossed, 2 did not. Both failures got onto the trunk and stopped on its north half
+over the gap (318857, 197733 and 319392, 198474): a branch of the PC model lies there on the trunk's north side (its
+collision box rises about 470 units over the trunk between 319060 and 320670). `tr3` and `tr4` (same Ruined Village data)
+crossed on their first try, `tr2` (the same pack as `tr3`) stuck on the trunk near its foot in all three tries, on its north
+half as well. So: no jump is needed, but a player who keeps to the north edge of the trunk meets a branch. The branches'
+collision was left as the PC model has it.
+
+Before the roots change (`tr1`) Rynn stopped at the roots.
 
 ## 2. How the audit was made
 
@@ -88,7 +99,13 @@ break); Wartok Canyons' Shield PC 0 against 999,999.
 | Links to objects not converted | 82 arena weapon links to launch pads, 3 Alwarren toggler links to "Fall01" | | arena exports; the waterfall pieces have no model |
 
 No PC object with health 0 is breakable on the PC either (0 means immortal on both). No timer, mover or gib was found
-whose target was dropped other than the rows above.
+whose target was dropped other than the rows above. The method sees scalar fields and links to objects that were not
+converted; it does not show whether a PS2 handler honours a message that arrives (the orc's Gib was checked in play).
+
+The push-over objects that break now have health 1: any damage breaks them, not only Rynn's blow (a boulder, an explosion
+or a creature's swing would). Alwarren's second brick (1998) links to nothing and stays a prop (`7266f98`). The low
+collision is keyed by model: the roots model of the tree and Wartok's "Push Base" model are used by no other object of
+their levels.
 
 One audit row is an artefact: Grimstone Mines object 286 ("Large Tree (Snowy)") shows a creature class because a creature
 of the converted level has the same id; not a conversion fault.
@@ -96,13 +113,14 @@ of the converted level has the same id; not a conversion fault.
 ## 5. Played and not played
 
 * Ruined Village tree, orc and crossing: played as in section 1 (`tr4`; `tr3` too).
-* Alwarren brick (`br1`, direct start of Alwarren, one placement): Rynn starts without a weapon in a direct start, her
-  clicks did not break the brick, so the break was not seen there. In that run the ring of magic flames round the barrier
-  crystal (1165 to 1226) showed no flame and Rynn walked through the ring to the crystal unharmed: the flames the brick
-  should switch off do not burn in the pack at all. That is a flames matter; told the coordinator.
+* Alwarren brick (`br1`, `br2`, direct start of Alwarren, one placement): the inventory of a direct start is empty
+  (`br2` opened it: no weapon), so the clicks did not break the brick and the break was not seen. The ring of magic flames
+  round the barrier crystal showed no flame and Rynn walked through it to the crystal unharmed. In the PC data 95 of
+  Alwarren's 100 "Alwarren Magic Flame" objects, these included, have no visible flag (flags 0x100), and nothing but the
+  brick links two of them; whether they burn on the PC was not established. Passed to the coordinator for the flame work.
 * Wartok Canyons' pillar and the Islands goblin pillar: not played (both levels start on Arokh; no weapon in a direct
   start). The converter logs: pillar falls toward world -x over the gap, 4,531 long, sinks 106, with its brace.
-* Barrels and crates with PC health: not played (a value change only).
+* Barrels and crates with PC health: not played (a value change only). The flame work's barrels are among them.
 
 ## 6. Not verified
 
