@@ -2289,6 +2289,18 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         host->ioTrace = std::atoi(audit) >= 2;
     if (const char* stats = std::getenv("DRAKAN_IO_STATS"); stats && stats[0] && stats[0] != '0')
         host->startIoStats();
+    if (const char* startLevel = std::getenv("DRAKAN_START_LEVEL"); startLevel && *startLevel) {
+        // A start level with no file loads nothing: the game sits on an empty world until a harness times out (a pack
+        // that inserts a level renumbers the ones after it). Checked after the packs added their levels.
+        std::string suggestion;
+        if (!host->iop.file.levelRedirectTargetExists(suggestion)) {
+            std::fprintf(stderr, "[drakan] start level '%s' is not a level on the disc or in an enabled pack%s%s%s\n",
+                         startLevel, suggestion.empty() ? "" : " (did you mean '", suggestion.c_str(),
+                         suggestion.empty() ? "" : "'?)");
+            std::fflush(stderr);
+            std::exit(3);
+        }
+    }
     hle::setLogSink(logLine);
     hle::setVerbose(g_logBudget.load() > 0);
     std::fprintf(stderr, "[drakan] HLE: %zu files in '%s', language root %s, delivery %s\n", host->fs.entries().size(),

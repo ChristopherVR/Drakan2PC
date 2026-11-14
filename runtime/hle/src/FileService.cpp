@@ -49,6 +49,50 @@ void FileService::setLevelRedirect(std::string from, std::string to) {
     redirectTo_ = std::move(to);
 }
 
+bool FileService::levelRedirectTargetExists(std::string& suggestion) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    suggestion.clear();
+    if (redirectFrom_.empty() || redirectTo_.empty())
+        return true;
+    IsoFs::Node n;
+    if (fs_.lookup("\\Levels\\" + redirectTo_ + "\\" + redirectTo_ + ".lvl", n) && !n.dir)
+        return true;
+    auto title = [](const std::string& name) {
+        const size_t dash = name.find(" - ");
+        std::string t = dash == std::string::npos ? name : name.substr(dash + 3);
+        std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+        return t;
+    };
+    const std::string want = title(redirectTo_);
+    IsoFs::Node list;
+    if (!fs_.lookup("LEVELLST.TXT", list) || list.dir)
+        return false;
+    const std::vector<u8> raw = fs_.readAll(list);
+    const std::string text(raw.begin(), raw.end());
+    std::vector<std::string> matches;
+    for (size_t p = 0; p < text.size();) {
+        const size_t e = text.find('\n', p);
+        std::string line = text.substr(p, e == std::string::npos ? std::string::npos : e - p);
+        p = e == std::string::npos ? text.size() : e + 1;
+        // "\Levels\<name>\<name>.lvl": the folder is the level's name
+        std::vector<std::string> comps;
+        for (size_t s = 0; s <= line.size();) {
+            const size_t t = line.find_first_of("/\\", s);
+            const std::string c = line.substr(s, t == std::string::npos ? std::string::npos : t - s);
+            if (!c.empty())
+                comps.push_back(c);
+            if (t == std::string::npos)
+                break;
+            s = t + 1;
+        }
+        if (comps.size() >= 2 && title(comps[comps.size() - 2]) == want)
+            matches.push_back(comps[comps.size() - 2]);
+    }
+    if (matches.size() == 1)
+        suggestion = matches[0];
+    return false;
+}
+
 void FileService::setReadOverlay(ReadOverlay overlay) {
     std::lock_guard<std::mutex> l(mu_);
     readOverlay_ = std::move(overlay);

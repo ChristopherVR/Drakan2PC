@@ -31,6 +31,10 @@ public:
     // "Level 1A - Surdana", which is both the folder and the file stem) opens the same path with `to` instead, so the
     // game loads another level under the original name. Empty `from` or `to` disables it.
     void setLevelRedirect(std::string from, std::string to);
+    // True when the redirect is off or its target names a level file ("\Levels\<to>\<to>.lvl" on the disc or added by a
+    // pack). Otherwise false, with `suggestion` set to the one level in LEVELLST.TXT with the same title (the part
+    // after " - "), if there is exactly one: a pack that inserts a level renumbers the ones after it.
+    bool levelRedirectTargetExists(std::string& suggestion) const;
     // Per-open view of an existing file (e.g. a campaign-free arena LVL). Never mutates the merged disc or another
     // handle's bytes. Runs under the file-service lock; use IsoFs directly, not FileService, inside the callback.
     using OpenFilter = std::function<bool(const IsoFs&, IsoFs::Node&, std::string&)>;

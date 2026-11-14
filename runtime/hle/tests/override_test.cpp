@@ -239,8 +239,25 @@ int main() {
         s32 reply[2] = {-99, 0};
         CHECK(files.handle(0, req.data(), (u32)req.size(), reply, sizeof reply) == 8 && reply[0] >= 0 &&
               reply[1] == 32);
+        std::string suggestion = "x";
+        CHECK(files.levelRedirectTargetExists(suggestion) && suggestion.empty());
+        // a target with no level file: refused, and the one listed level with the same title is suggested
+        files.setLevelRedirect("Level 1A - Surdana", "Level 9A - Ravenshold");
+        CHECK(!files.levelRedirectTargetExists(suggestion) && suggestion.empty()); // no LEVELLST.TXT yet
+        const std::string list = "\\Levels\\Level 0 - Intro\\Level 0 - Intro.lvl\r\n"
+                                 "\\Levels\\Level 4A - Ravenshold\\Level 4A - Ravenshold.lvl\r\n";
+        writeFile(game / "ENGLISH/LEVELLST.TXT", std::vector<u8>(list.begin(), list.end()));
+        IsoFs lfs2;
+        CHECK(lfs2.openFolder(game.string()));
+        lfs2.setLanguageRoot("\\ENGLISH");
+        FileService files2(lfs2, lmem);
+        files2.setLevelRedirect("Level 1A - Surdana", "Level 9A - RAVENSHOLD");
+        CHECK(!files2.levelRedirectTargetExists(suggestion) && suggestion == "Level 4A - Ravenshold");
+        files2.setLevelRedirect("Level 1A - Surdana", "Level 9A - Nowhere");
+        CHECK(!files2.levelRedirectTargetExists(suggestion) && suggestion.empty());
         files.setLevelRedirect("", "");
         CHECK(files.redirectPath(surdana) == surdana);
+        CHECK(files.levelRedirectTargetExists(suggestion));
     }
 
     fs::remove_all(root);
