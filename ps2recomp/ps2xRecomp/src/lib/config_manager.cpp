@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <thread>
 
@@ -116,6 +117,48 @@ RecompilerConfig ConfigManager::loadConfig() const {
                         }
                     }
                 }
+            }
+        }
+
+        // [[variants]]: name = "...", patches = [{ address = "0x...", value = "0x..." }, ...]
+        if (data.contains("variants") && data.at("variants").is_array()) {
+            auto parseWord = [](const toml::value& v) -> uint32_t {
+                if (v.is_string())
+                    return static_cast<uint32_t>(std::stoul(v.as_string(), nullptr, 0));
+                if (v.is_integer())
+                    return static_cast<uint32_t>(v.as_integer());
+                throw std::runtime_error("variant patch address/value must be a string or an integer");
+            };
+            for (const auto& entry : data.at("variants").as_array()) {
+                if (!entry.is_table() || !entry.contains("name") || !entry.contains("patches"))
+                    throw std::runtime_error("a [[variants]] entry needs a name and patches");
+                FunctionVariantConfig variant;
+                variant.name = toml::find<std::string>(entry, "name");
+                for (char ch : variant.name) {
+                    if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'))
+                        throw std::runtime_error("variant name must be [A-Za-z0-9_]: " + variant.name);
+                }
+                for (const auto& patch : entry.at("patches").as_array()) {
+                    FunctionVariantPatch p;
+                    if (patch.contains("imm_from") && patch.contains("imm_to")) {
+                        const uint32_t from = parseWord(patch.at("imm_from")), to = parseWord(patch.at("imm_to"));
+                        if (from > 0xffffu || to > 0xffffu)
+                            throw std::runtime_error("variant immediate out of 16 bits: " + variant.name);
+                        p.immediate = true;
+                        p.from = static_cast<uint16_t>(from);
+                        p.to = static_cast<uint16_t>(to);
+                    } else if (patch.contains("value")) {
+                        p.value = parseWord(patch.at("value"));
+                    } else {
+                        throw std::runtime_error("variant patch needs a value or imm_from / imm_to: " + variant.name);
+                    }
+                    if (!patch.contains("address"))
+                        throw std::runtime_error("variant patch needs an address: " + variant.name);
+                    const uint32_t address = parseWord(patch.at("address"));
+                    if ((address & 3u) != 0u || !variant.patches.emplace(address, p).second)
+                        throw std::runtime_error("variant patch address unaligned or repeated: " + variant.name);
+                }
+                config.variants.push_back(std::move(variant));
             }
         }
 

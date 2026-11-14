@@ -406,6 +406,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_terrain_distance.cpp
     src/lib/drakan_view_distance.cpp
     src/lib/drakan_extended_heap.cpp
+    src/lib/drakan_terrain_chunks.cpp
     src/lib/drakan_engine_limits.cpp
     src/lib/drakan_model_lights.cpp
     src/lib/drakan_region.cpp
@@ -426,6 +427,7 @@ add_library(ps2_runtime STATIC
     src/lib/ps2_rom_device.cpp
     src/lib/ps2_vfs.cpp
     src/lib/ps2_runtime.cpp
+    src/lib/ps2_function_variants.cpp
     src/lib/ps2_perf.cpp
     src/lib/ps2_vif1_interpreter.cpp
     src/lib/vu/ps2_vu1_core.cpp

@@ -20,7 +20,7 @@ import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, re
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { Iso9660, SrscReader, SubtitleTable, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { Iso9660, SrscReader, SubtitleTable, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -284,6 +284,8 @@ const pack = await buildOotfPack(
         ...(res.levelAspect ? { levelAspect: res.levelAspect } : {}),
         // exits that close once taken (the church stair to the Book: a backed-out save offers it again until then)
         ...(res.oneWayExits?.length ? { oneWayExits: res.oneWayExits } : {}),
+        // DRAKAN_TERRAIN_CHUNKS=wide: chunks of up to 32 textures, which the runtime must read in its wide layout
+        ...(chunkTextureLimit() > 8 ? { terrainChunkTextures: chunkTextureLimit() } : {}),
     },
     template,
     res.levels.map((l) => ({ title: l.title, parts: l.parts, splats: l.splats, arena: arenas.get(l.pcPath), preview: previewPng(arenas.get(l.pcPath)?.name) })),

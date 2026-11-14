@@ -94,6 +94,11 @@ my_mod/
   the top and bottom of the authored picture are cut, at most down to a 16:9 picture (a quarter of a 4:3 level's height);
   a 21:9 or 32:9 window shows that 16:9 picture with bars. A 4:3 window is the same either way. The OotF converter writes
   plain `4:3` unless it runs with `OOTF_PICTURE_FILL=1`.
+* **Wide terrain chunks**: `terrain_chunk_textures = 32` (top-level key, 1 to 32): the pack's terrain chunks list more
+  textures than the disc's 9, so the runtime reads chunk records in its wide layout (`drakan_terrain_chunks.cpp`) for
+  every start with the pack enabled, whatever `[general] terrain_wide_chunks` says. The OotF converter writes it with
+  `DRAKAN_TERRAIN_CHUNKS=wide` ([journal](../journal/2026-11-14/ootf-wide-chunks.md)). An exe without the wide layout
+  hangs on such a pack.
 * **One-way exits**: `one_way_exits = ["Level title @ x, y, z"]` (top-level key; the exit object's position, matched
   within 64 units). When the level-change save of such an exit is written (the player said yes on its save screen), the
   exit is closed in that save (instance flag `0x4`, what message `0x1002` sets), so the level restored after the next

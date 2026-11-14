@@ -1181,6 +1181,46 @@ void register_ps2_recompiler_tests() {
             std::filesystem::remove(configPath, removeError);
         });
 
+        tc.Run("config manager loads function variants with immediate and whole-word patches", [](TestCase& t) {
+            const auto uniqueSuffix = std::to_string(
+                static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+            const std::filesystem::path configPath =
+                std::filesystem::temp_directory_path() / ("ps2recomp-variants-" + uniqueSuffix + ".toml");
+            std::ofstream configFile(configPath);
+            t.IsTrue(static_cast<bool>(configFile), "temp config file should be writable");
+            if (!configFile) {
+                return;
+            }
+            configFile << "[general]\n";
+            configFile << "input = \"dummy.elf\"\n";
+            configFile << "output = \"out\"\n\n";
+            configFile << "[[variants]]\n";
+            configFile << "name = \"wide_test\"\n";
+            configFile << "patches = [\n";
+            configFile << "  { address = \"0x1000\", imm_from = \"0x4c\", imm_to = \"0xa4\" },\n";
+            configFile << "  { address = \"0x1008\", value = \"0x27a40130\" },\n";
+            configFile << "]\n";
+            configFile.close();
+
+            ConfigManager manager(configPath.string());
+            const RecompilerConfig config = manager.loadConfig();
+            t.Equals(config.variants.size(), static_cast<size_t>(1), "one variant should load");
+            if (!config.variants.empty()) {
+                const FunctionVariantConfig& v = config.variants.front();
+                t.IsTrue(v.name == "wide_test", "variant name should parse");
+                t.Equals(v.patches.size(), static_cast<size_t>(2), "two patches should parse");
+                const auto imm = v.patches.find(0x1000u);
+                t.IsTrue(imm != v.patches.end() && imm->second.immediate && imm->second.from == 0x4cu &&
+                             imm->second.to == 0xa4u,
+                         "immediate patch should keep from / to");
+                const auto word = v.patches.find(0x1008u);
+                t.IsTrue(word != v.patches.end() && !word->second.immediate && word->second.value == 0x27a40130u,
+                         "whole-word patch should keep its value");
+            }
+            std::error_code removeError;
+            std::filesystem::remove(configPath, removeError);
+        });
+
         tc.Run("config manager loads modern and legacy guest entry hints", [](TestCase& t) {
             const auto uniqueSuffix = std::to_string(
                 static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));

@@ -1,3 +1,4 @@
+#include "ps2_alias_watch.h"
 #include "drakan_software_frame_clock.h"
 #include "ps2_runtime.h"
 #include "input/CpuAffinity.h"
@@ -2218,7 +2219,19 @@ uint32_t PS2Runtime::reserveAsyncCallbackStack(uint32_t size, uint32_t alignment
     return top - 0x10u;
 }
 
+Ps2AliasWatchFn g_ps2AliasWatch = nullptr;
+
+namespace {
+inline void aliasAccess(R5900Context* ctx, uint32_t& vaddr, uint32_t bytes, bool write) {
+    if (g_ps2AliasWatch && ps2IsAlias(vaddr)) {
+        g_ps2AliasWatch(ctx, vaddr, bytes, write);
+        vaddr &= ~kPs2AliasMask;
+    }
+}
+} // namespace
+
 uint8_t PS2Runtime::Load8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
+    aliasAccess(ctx, vaddr, 1, false);
     try {
         return m_memory.read8(vaddr);
     } catch (const std::exception&) {
@@ -2228,6 +2241,7 @@ uint8_t PS2Runtime::Load8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 }
 
 uint16_t PS2Runtime::Load16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
+    aliasAccess(ctx, vaddr, 2, false);
     try {
         return m_memory.read16(vaddr);
     } catch (const std::exception&) {
@@ -2237,6 +2251,7 @@ uint16_t PS2Runtime::Load16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 }
 
 uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
+    aliasAccess(ctx, vaddr, 4, false);
     try {
         // VIF1 / GIF status read by the flip routine's readiness test with the frame queue on: see
         // runtime/ps2_readback.h.
@@ -2262,6 +2277,7 @@ uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 }
 
 uint64_t PS2Runtime::Load64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
+    aliasAccess(ctx, vaddr, 8, false);
     try {
         // GS CSR read by the FINISH poll of a store-image routine: see runtime/ps2_readback.h.
         if (vaddr == 0x12001000u && ctx && ps2x_readback::eagerFinish(ctx->pc))
@@ -2274,6 +2290,7 @@ uint64_t PS2Runtime::Load64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 }
 
 __m128i PS2Runtime::Load128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
+    aliasAccess(ctx, vaddr, 16, false);
     try {
         return m_memory.read128(vaddr);
     } catch (const std::exception&) {
@@ -2283,6 +2300,7 @@ __m128i PS2Runtime::Load128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 }
 
 void PS2Runtime::Store8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint8_t value) {
+    aliasAccess(ctx, vaddr, 1, true);
     ps2TraceGuestWrite(rdram, vaddr, 1u, value, 0u, "WRITE8", ctx);
     try {
         m_memory.write8(vaddr, value);
@@ -2292,6 +2310,7 @@ void PS2Runtime::Store8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint8
 }
 
 void PS2Runtime::Store16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint16_t value) {
+    aliasAccess(ctx, vaddr, 2, true);
     ps2TraceGuestWrite(rdram, vaddr, 2u, value, 0u, "WRITE16", ctx);
     try {
         m_memory.write16(vaddr, value);
@@ -2301,6 +2320,7 @@ void PS2Runtime::Store16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
 }
 
 void PS2Runtime::Store32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint32_t value) {
+    aliasAccess(ctx, vaddr, 4, true);
     ps2TraceGuestWrite(rdram, vaddr, 4u, value, 0u, "WRITE32", ctx);
     try {
         m_memory.write32(vaddr, value);
@@ -2311,6 +2331,7 @@ void PS2Runtime::Store32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
 }
 
 void PS2Runtime::Store64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint64_t value) {
+    aliasAccess(ctx, vaddr, 8, true);
     ps2TraceGuestWrite(rdram, vaddr, 8u, value, 0u, "WRITE64", ctx);
     try {
         m_memory.write64(vaddr, value);
@@ -2320,6 +2341,7 @@ void PS2Runtime::Store64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
 }
 
 void PS2Runtime::Store128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, __m128i value) {
+    aliasAccess(ctx, vaddr, 16, true);
     alignas(16) uint64_t _parts[2];
     _mm_storeu_si128(reinterpret_cast<__m128i*>(_parts), value);
     ps2TraceGuestWrite(rdram, vaddr, 16u, _parts[0], _parts[1], "WRITE128", ctx);

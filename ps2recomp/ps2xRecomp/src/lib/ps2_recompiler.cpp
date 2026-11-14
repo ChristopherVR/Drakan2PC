@@ -1518,9 +1518,15 @@ void PS2Recompiler::generateOutput() {
             }
         }
 
+        // Function variants ([[variants]] in the config): a second copy of each touched function with the variant's
+        // patches, emitted into register_functions.cpp under "<name>__<variant>" and registered with
+        // ps2RegisterFunctionVariant (ps2_function_variants.h). Nothing else in the generated output changes.
+        std::string variantCode = generateFunctionVariants();
+
         m_decodedFunctions.clear();
 
         std::string registerFunctions = m_codeGenerator->generateFunctionRegistration(m_functions, m_generatedStubs);
+        registerFunctions += variantCode;
         m_generatedStubs.clear();
 
         fs::path registerPath = fs::path(m_config.outputPath) / "register_functions.cpp";
@@ -1541,6 +1547,97 @@ void PS2Recompiler::generateOutput() {
         m_reporter.printSummary(std::cout);
         throw;
     }
+}
+
+std::string PS2Recompiler::generateFunctionVariants() {
+    if (m_config.variants.empty())
+        return {};
+    std::stringstream code;
+    std::stringstream registrations;
+    code << "\n// ---- function variants ----\n";
+    code << "#include <stdexcept>\n";
+    code << "#include \"ps2_runtime_macros.h\"\n";
+    code << "#include \"ps2_function_variants.h\"\n";
+    code << "#ifdef PS2_FUNCTION_LOG_TRACKER\n#include \"ps2_log.h\"\n#endif\n\n";
+    size_t emitted = 0;
+    for (const FunctionVariantConfig& variant : m_config.variants) {
+        std::unordered_set<uint32_t> applied;
+        for (const Function& function : m_functions) {
+            if (!shouldGenerateCodeForFunction(function) || function.isStub || function.isSkipped)
+                continue;
+            bool touches = false;
+            for (const auto& [address, value] : variant.patches) {
+                (void)value;
+                if (address >= function.start && address < function.end) {
+                    touches = true;
+                    break;
+                }
+            }
+            if (!touches)
+                continue;
+            const auto decodedIt = m_decodedFunctions.find(function.start);
+            if (decodedIt == m_decodedFunctions.end())
+                throw std::runtime_error("variant " + variant.name + ": function " + function.name + " not decoded");
+            std::vector<Instruction> instructions = decodedIt->second;
+            for (Instruction& inst : instructions) {
+                const auto patchIt = variant.patches.find(inst.address);
+                if (patchIt == variant.patches.end())
+                    continue;
+                const FunctionVariantPatch& patch = patchIt->second;
+                uint32_t word = patch.value;
+                if (patch.immediate) {
+                    const uint32_t original = m_elfParser->readWord(inst.address);
+                    if ((original & 0xffffu) != patch.from) {
+                        std::ostringstream msg;
+                        msg << "variant " << variant.name << ": the instruction at 0x" << std::hex << inst.address
+                            << " has immediate 0x" << (original & 0xffffu) << ", not 0x" << patch.from
+                            << " (another executable?): variant left out";
+                        m_reporter.warning("variant", msg.str());
+                        return std::string();
+                    }
+                    word = (original & 0xffff0000u) | patch.to;
+                }
+                Instruction patched = m_decoder->decodeInstruction(inst.address, word, !m_config.lowMemoryMode);
+                // The control flow analysis of the original is reused, so a variant may only change plain instructions.
+                if (inst.isBranch || inst.isJump || inst.isCall || inst.isReturn || inst.hasDelaySlot ||
+                    patched.isBranch || patched.isJump || patched.isCall || patched.isReturn || patched.hasDelaySlot) {
+                    std::ostringstream msg;
+                    msg << "variant " << variant.name << ": patch at 0x" << std::hex << inst.address
+                        << " changes control flow";
+                    throw std::runtime_error(msg.str());
+                }
+                inst = patched;
+                applied.insert(inst.address);
+            }
+            Function copy = function;
+            copy.emitNameSuffix = "__" + variant.name;
+            code << m_codeGenerator->generateFunction(copy, instructions, false) << "\n\n";
+            const std::string name = m_codeGenerator->getFunctionName(function.start) + copy.emitNameSuffix;
+            registrations << "    ps2RegisterFunctionVariant(0x" << std::hex << function.start << "u, 0x"
+                          << function.end << "u, \"" << variant.name << "\", &" << name << ");\n"
+                          << std::dec;
+            ++emitted;
+        }
+        for (const auto& [address, value] : variant.patches) {
+            (void)value;
+            if (!applied.contains(address)) {
+                std::ostringstream msg;
+                msg << "variant " << variant.name << ": patch at 0x" << std::hex << address
+                    << " is not inside a recompiled function";
+                throw std::runtime_error(msg.str());
+            }
+        }
+    }
+    code << "namespace {\n";
+    code << "struct GeneratedFunctionVariants {\n";
+    code << "    GeneratedFunctionVariants() {\n" << registrations.str() << "    }\n";
+    code << "};\n";
+    code << "static const GeneratedFunctionVariants g_generatedFunctionVariants;\n";
+    code << "}\n";
+    std::ostringstream msg;
+    msg << "emitted " << emitted << " function variant(s)";
+    m_reporter.progress(msg.str());
+    return code.str();
 }
 
 bool PS2Recompiler::generateStubHeader() {

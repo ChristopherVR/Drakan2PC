@@ -79,6 +79,13 @@ export interface ModMeta {
      * only its scene and a re-offer box fire, formats ootfexitseq.ts).
      */
     oneWayExits?: string[];
+    /**
+     * Most textures one terrain chunk of the pack's levels lists, when above the disc's 8 (manifest
+     * `terrain_chunk_textures`; the OotF converter with DRAKAN_TERRAIN_CHUNKS=wide writes 32). The runtime then reads
+     * the chunk records in its wide layout whatever `[general] terrain_wide_chunks` says (drakan_terrain_chunks.cpp):
+     * the disc layout would hang on them.
+     */
+    terrainChunkTextures?: number;
 }
 
 /** A `one_way_exits` entry: `Level title @ x, y, z` (numbers, the exit object's position). */
@@ -161,6 +168,11 @@ export function validateModMeta(m: ModMeta): void {
     }
     for (const e of m.oneWayExits ?? [])
         if (!ONE_WAY_EXIT_PATTERN.test(e)) throw new ModError(`oneWayExits: "${e}" is not "Level title @ x, y, z"`);
+    if (
+        m.terrainChunkTextures !== undefined &&
+        !(Number.isInteger(m.terrainChunkTextures) && m.terrainChunkTextures >= 1 && m.terrainChunkTextures <= 32)
+    )
+        throw new ModError('terrainChunkTextures must be a whole number from 1 to 32');
     if (m.campaignStart !== undefined && !m.levels?.includes(m.campaignStart))
         throw new ModError('campaignStart must be one of the pack levels');
 }
@@ -188,6 +200,7 @@ export function buildManifestToml(m: ModMeta): string {
     const aspects = Object.entries(m.levelAspect ?? {});
     if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
     if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);
+    if (m.terrainChunkTextures !== undefined) l.push(`terrain_chunk_textures = ${m.terrainChunkTextures}`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

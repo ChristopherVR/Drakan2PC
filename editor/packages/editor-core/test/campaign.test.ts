@@ -65,6 +65,15 @@ describe('campaign manifest keys', () => {
             expect(() => validateModMeta({ ...meta, levelAspect: { 'Picture Level': bad } })).toThrow();
         expect(() => validateModMeta({ ...meta, levelAspect: { 'A = B': '4:3' } })).toThrow();
     });
+    it('writes the most textures per terrain chunk of a wide-chunk pack', () => {
+        const meta = { id: 'p', target: { profile: 'pal' as const }, levels: ['Village'] };
+        const toml = buildManifestToml({ ...meta, terrainChunkTextures: 32 });
+        expect(toml).toContain('terrain_chunk_textures = 32');
+        expect(toml.indexOf('terrain_chunk_textures')).toBeLessThan(toml.indexOf('[target]'));
+        expect(buildManifestToml(meta)).not.toContain('terrain_chunk_textures');
+        for (const bad of [0, 33, 8.5]) expect(() => validateModMeta({ ...meta, terrainChunkTextures: bad })).toThrow();
+    });
+
     it('writes the exits that close once taken', () => {
         const meta = { id: 'p', target: { profile: 'pal' as const }, levels: ['Village'] };
         const toml = buildManifestToml({ ...meta, oneWayExits: ['Village @ 279392, 14761, 152908'] });

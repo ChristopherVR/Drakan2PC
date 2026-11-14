@@ -276,6 +276,13 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   (with the neighbour window, cells x0-1..x1 / z0-1..z1, so a 1x2 chunk sees 12 cells) exceeds 8, down to single cells; a
   single cell that still sees more keeps its own texture and the neighbours' most used ones. Ruined Village (42 textures in a
   layer, 37 in a chunk) loads and draws with all of them (docs/journal/2026-11-01/ootf-texture-limit.md).
+  **Wide chunks [game, 2026-11-14]**: the 10-group limit is the mesh drawer's 10-word flag array on its stack (group 0 is
+  the base pass, so 9 textures; a 10th makes it read a stale flag and draw an empty group). The exe carries a second copy
+  of the twelve functions that use the record (`[[variants]] wide_terrain_chunks` in `configs/drakan.toml`): record
+  0xa4 bytes with `ref[32]` at +0x14 and the descriptor at +0x94, drawer flags 64. `[general] terrain_wide_chunks`
+  switches them in at start-up; a pack whose `mod.toml` says `terrain_chunk_textures = 32` (converter
+  `DRAKAN_TERRAIN_CHUNKS=wide`) always gets them. Then a chunk may list 32 textures and converted layers keep the 12 x
+  12 grid ([journal](../journal/2026-11-14/ootf-wide-chunks.md)).
 * **Chunks [disc]**: the layer is cut into `ceil(w/12) x ceil(h/12)` chunks of `ceil(n/pieces)` cells (last one shorter);
   vertex counts are cells+1. Matches 291 of 297 layers; the other six (13x24, 25x32, 14x12, ...) split z finer, rule open.
 * **No drawn cell = empty form [disc, game]**: in the 14 PAL levels no layer whose cells are all holes / invisible has chunks

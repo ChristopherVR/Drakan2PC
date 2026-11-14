@@ -58,6 +58,10 @@ const Entry kEntries[] = {
     {"general", "terrain_page_pool", "1",
      "only with heap_extend = 0: 1 = the ground's drawing data goes to the extra memory so large levels do not run "
      "the game's memory out; 0 = all in the original 32 MB; needs a restart (env DRAKAN_TERRAIN_PAGE_POOL)"},
+    {"general", "terrain_wide_chunks", "0",
+     "1 = the ground is read in pieces of up to 32 textures instead of 9, so converted levels draw with far fewer "
+     "pieces; always on for a pack that needs it; 0 = as the PlayStation 2; needs a restart (env "
+     "DRAKAN_TERRAIN_WIDE_CHUNKS)"},
     {"general", "pause_when_unfocused", "0",
      "1 = pause the game and its audio while the window is not in the foreground (or minimised); 0 = keep running at "
      "normal speed (env DRAKAN_PAUSE_UNFOCUSED)"},

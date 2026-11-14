@@ -91,6 +91,8 @@ struct Function {
     bool isRecompiled = false;
     bool isStub = false;
     bool isSkipped = false;
+    // Appended to the generated name: a function variant (`[[variants]]` in the config) is emitted under its own name.
+    std::string emitNameSuffix;
 };
 
 // Symbol information
@@ -158,6 +160,21 @@ struct FunctionCall {
     std::string calleeName;
 };
 
+// A named set of instruction patches emitted as a second copy of every function it touches (`[[variants]]` in the
+// config). The original functions stay as they are; the runtime may swap a variant in at start-up
+// (ps2_function_variants.h), so a patched behaviour can be a setting instead of a rebuild.
+struct FunctionVariantPatch {
+    // Either a whole instruction word written for the variant (`value`), or a change of the 16-bit immediate of the
+    // instruction in the ELF (`imm_from` -> `imm_to`), checked against the ELF so the config holds no ELF words.
+    bool immediate = false;
+    uint32_t value = 0;
+    uint16_t from = 0, to = 0;
+};
+struct FunctionVariantConfig {
+    std::string name;
+    std::unordered_map<uint32_t, FunctionVariantPatch> patches;
+};
+
 // Recompiler configuration
 struct RecompilerConfig {
     std::string inputPath;
@@ -183,6 +200,7 @@ struct RecompilerConfig {
     std::vector<std::string> entryPointHints;
     std::unordered_map<uint32_t, uint32_t> mmioByInstructionAddress;
     std::vector<JumpTable> jumpTables;
+    std::vector<FunctionVariantConfig> variants;
 };
 
 } // namespace ps2recomp

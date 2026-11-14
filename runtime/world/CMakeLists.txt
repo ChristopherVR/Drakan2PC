@@ -62,6 +62,9 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(world_extended_heap_test tests/extended_heap_test.cpp)
     target_link_libraries(world_extended_heap_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_extended_heap_test COMMAND world_extended_heap_test)
+    add_executable(world_terrain_chunks_test tests/terrain_chunks_test.cpp)
+    target_link_libraries(world_terrain_chunks_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_terrain_chunks_test COMMAND world_terrain_chunks_test)
 
     # Near-plane clip of the engine's projected polygons (header only): bit-identical front polygons, clipped straddlers.
     add_executable(world_polyclip_test tests/polyclip_test.cpp)

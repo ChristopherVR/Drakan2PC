@@ -69,6 +69,7 @@ std::string FunctionEmitter::emit(const Function& function, const std::vector<In
         nameBuilder << "Errorfunc_" << std::hex << function.start;
         sanitizedName = nameBuilder.str();
     }
+    sanitizedName += function.emitNameSuffix;
 
     ss << "void " << sanitizedName
        << "(uint8_t* __restrict rdram, R5900Context* __restrict ctx, PS2Runtime *runtime) {\n";

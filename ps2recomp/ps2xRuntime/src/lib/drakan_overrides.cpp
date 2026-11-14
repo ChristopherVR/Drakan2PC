@@ -66,6 +66,7 @@
 #include "drakan_save_reference_probe.h"
 #include "drakan_foliage.h"
 #include "drakan_model_detail.h"
+#include "drakan_terrain_chunks.h"
 #include "drakan_terrain_distance.h"
 #include "drakan_view_distance.h"
 #include "drakan_extended_heap.h"
@@ -1688,6 +1689,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     runtime.replaceFunction(guestAddress(kRand), &hookRand);
     if constexpr (supports(Feature::ControlsMenu))
         drakan_controls_menu::install(runtime);
+    // Wide terrain chunk records: before any module wraps one of the functions it swaps (PAL).
+    drakan_terrain_chunks::install(runtime);
     applyTraceEnv(runtime); // DRAKAN_TRACE_FN lists addresses of the running executable, any region
 #if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
     if constexpr (supports(Feature::BasicInput))

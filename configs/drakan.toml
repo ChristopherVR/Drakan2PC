@@ -860,3 +860,54 @@ critical = [
   "__sfvwrite", # Contains heavy loops
   "_multiply", # Uses SIMD instructions
 ]
+
+# Terrain chunks with up to 32 texture references (docs/journal/2026-11-14/ootf-wide-chunks.md). A second copy of every
+# function that uses the 0x4c-byte chunk record: stride 0xa4, ref[32] at +0x14, the weight-array descriptor moved from
+# +0x3c to +0x94, and the terrain mesh drawer's per-group flag array (10 words on its stack) moved to 64 words. The
+# runtime swaps the copies in only with [general] terrain_wide_chunks (drakan_terrain_chunks.cpp); the originals stay.
+[[variants]]
+name = "wide_terrain_chunks"
+patches = [
+  { address = "0x158148", imm_from = "0xfed0", imm_to = "0xfdd0" }, # drawer frame +0x100 for the group flags
+  { address = "0x158e18", imm_from = "0x130", imm_to = "0x230" }, # drawer frame
+  { address = "0x158430", value = "0x27a40130" }, # flags memset base: addiu a0, sp, 0x130
+  { address = "0x158444", imm_from = "0x28", imm_to = "0x100" }, # flags memset size: 64 groups
+  { address = "0x158640", imm_from = "0x0", imm_to = "0x130" }, # flag store at sp+0x130
+  { address = "0x1589dc", imm_from = "0x0", imm_to = "0x130" }, # flag load at sp+0x130
+  { address = "0x154238", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x154364", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x1549c0", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x154bc4", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x154bfc", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x159b84", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15c9a8", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15c9fc", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15ca78", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15caa8", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15cad8", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15cb68", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15cd14", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x15e4c4", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x165b0c", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x165cfc", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x165d48", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x165d78", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x165da4", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x165dd4", imm_from = "0x4c", imm_to = "0xa4" }, # chunk record stride
+  { address = "0x154be0", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x155c20", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x155c68", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x155f8c", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x15611c", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x159b48", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x15c9c0", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x15cb08", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x15cb0c", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x15e488", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x165910", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x165ad0", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x165dc8", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x165dcc", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x165f2c", imm_from = "0x3c", imm_to = "0x94" }, # weight descriptor offset
+  { address = "0x1660b8", imm_from = "0xa", imm_to = "0x20" }, # runtime builder ref limit
+]
