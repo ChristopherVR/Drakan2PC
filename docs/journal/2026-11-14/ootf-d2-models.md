@@ -213,3 +213,19 @@ a Drakan 2 torch body would carry its own head), Light Beams, Succubus Lair ruin
 procedural models were written in this round. The refined-mesh path (section 6) is available for rows if wanted.
 Not verified: the pines' falling (the converted trees that fall when struck share the PC model, so they would fall
 drawn as the Drakan 2 pine; not played), Grimstone Mines and Grotto pines, the Intro's pines, the large pines up close.
+
+### Section 7 continued: crystals, torches, sconces, palms
+
+| OotF class (model) | Drawn as | Default | Seen |
+| --- | --- | --- | --- |
+| Grimstone Crystals 1, 2 (GrimCrystal01 / 02) | the crystal part of LEVEL1ON "Crystal Blue" (its stand left out, `keepTextures`), its texture recoloured green at convert time (`tintImage`), stretched onto the OotF crystal | on | Wartok Canyons spider lair: green faceted crystals in the OotF places and size, a little brighter than the OotF green (`evidence/crystals_green_wc_pairs.png`) |
+| Torch Base, Standing Torch Base (gtorchp) | WORLDCON "Wartok Torch" (torchh, 432 triangles) | on | Ruined Village: the Drakan 2 torch with its pronged head under the OotF / Drakan 2 fire instead of a plain pole (`evidence/torches_sconces_rv_pairs.png`) |
+| Sconce, Sconce Base (TSconce01) | WORLDCON "Wartok Wall Torch" (walltorch, 384 triangles) | on | Ruined Village: the Drakan 2 wall torch on the wall, pointing out of it (same picture); Alwarren interior views landed in walls |
+| Fan Palm 01 (tropical tree01) | a new palm built at convert time (`palmMesh`): the trunk rounded with its own bark bands, every frond a curved, drooping two-sided card with the OotF frond picture | on | Islands: fuller, drooping crowns, trunks as before (`evidence/palms_islands_pairs.png`; a first version with a rebuilt tube trunk striped the bark and bent the trunk and was dropped) |
+| Large Tree (PalmTree_Tall01), SmallTree (PalmTree_Short01) | the same palm builder | off | not seen (the Alwarren pair shows the trunks unchanged, the crowns out of frame) |
+
+All of them collide as the OotF model (records unchanged by construction, as in section 6); no walk was played against
+these thin props. Still not done: tropical plants (the same model is on the disc), Volcanic talon torches and Succubus
+pillars, Succubus Lair ruin pieces, Multiplayer light beams (no analog; not reached), hanging torches, corridor and pit
+pieces (skipped). Not verified: Grimstone Mines crystals and torches, Islands Night and Alwarren fan palms, the palms'
+fronds up close, the crystals' look next to the Grimstone shimmer effect.
