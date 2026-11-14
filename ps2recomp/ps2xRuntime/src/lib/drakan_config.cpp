@@ -68,6 +68,10 @@ const Entry kEntries[] = {
     {"general", "animation_cache_mb", "0",
      "the same for loaded animations: 0 = the level's own budget (2 MB on the disc), 1 .. 64 MB (PAL only; env "
      "DRAKAN_ANIMATION_CACHE_MB)"},
+    {"general", "ai_run_max", "8",
+     "how many creatures may fight and move on their own at once; farther ones wait until one is free: 0 = the "
+     "level's own number (4 on the disc), up to 64; never fewer than the level's own (PAL only; env "
+     "DRAKAN_AI_RUN_MAX)"},
     {"general", "game", "ask",
      "which game the title menu starts: ask (the title menu offers Drakan and, when an Order of the Flame campaign "
      "pack "
@@ -165,7 +169,7 @@ const Entry kEntries[] = {
     {"video", "draw_distance", "1.0",
      "people, creatures, plants and small objects are drawn this many times further out before they fade, 1 "
      "(original) .. 4; the level's view distance still limits it (PAL only; env DRAKAN_DRAW_DISTANCE)"},
-    {"video", "shadow_distance", "1.0",
+    {"video", "shadow_distance", "3",
      "the shadows under people and creatures fade out this many times further from the camera, 1 (original) .. 4; "
      "applied at the next level load (PAL only; env DRAKAN_SHADOW_DISTANCE)"},
     {"video", "model_lights", "4",

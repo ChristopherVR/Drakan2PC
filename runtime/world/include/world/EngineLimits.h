@@ -9,6 +9,10 @@
 // animations in two resource caches whose budgets the level sets (5.4 MiB and 2 MiB on the disc); past the budget the
 // least recently used unreferenced entries are dropped and loaded again from the disc when next needed. The options
 // raise a budget; they never lower one.
+//
+// AI run limit ([general] ai_run_max). The level's "AI Run Max" (4 on the disc levels) is how many creatures that the
+// AI limiter controls may run their AI at once; a farther one is paused until a slot frees. The option raises it; it
+// never lowers it, and leaves a level value of 0 (none) or below 0 (no limit) as it is.
 #pragma once
 
 #include <algorithm>
@@ -19,6 +23,7 @@ namespace world::shadow_distance {
 
 inline constexpr float kOff = 1.0f;
 inline constexpr float kMaxFactor = 4.0f;
+inline constexpr float kDefault = 3.0f; // the option's default; kOff (1) is the original distance
 
 inline float clampFactor(float factor) {
     return std::isfinite(factor) ? std::clamp(factor, kOff, kMaxFactor) : kOff;
@@ -51,3 +56,18 @@ inline uint32_t raisedBudget(uint32_t current, uint32_t target) {
 }
 
 } // namespace world::resource_cache
+
+namespace world::ai_run_max {
+
+inline constexpr int kDefault = 8;
+inline constexpr int kMax = 64;
+
+// The run limit to use for a level value and an option value: 0 (or less) = the level's own, otherwise the larger of
+// the two, at most kMax. Only a positive level value is raised.
+inline int raised(int levelValue, int option) {
+    if (option <= 0 || levelValue <= 0)
+        return levelValue;
+    return std::max(levelValue, std::min(option, kMax));
+}
+
+} // namespace world::ai_run_max
