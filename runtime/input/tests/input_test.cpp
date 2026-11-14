@@ -3116,6 +3116,46 @@ static void testCameraTravelLag() {
     run(true, false, x, z); // no target from the native tick (another disc, a tick without the tests): as before
     NEAR(x, 0.0, 1e-2);
     NEAR(z, 1600.0, 1e-2);
+
+    // Issue 6 item 3: a small turn across the +/-pi seam of her heading is a small turn. It used to read as nearly a
+    // full circle, take the whole lag away in one tick and snap the camera sideways.
+    NEAR(carryYaw(-3.1385f, 3.1386f, 2.5f), 0.0061, 1e-4);
+    NEAR(carryYaw(3.1386f, -3.1385f, 2.5f), -0.0061, 1e-4);
+    NEAR(carryYaw(0.30f, 0.25f, 2.5f), 0.05, 1e-6);
+    NEAR(carryYaw(3.0f, 0.0f, 2.5f), 0.0, 1e-6); // a re-seated transform is not carried
+    NEAR(carryYaw(-0.1f, 3.04159f, 2.5f), 0.0, 1e-6);
+    {
+        Config c = Config::defaults();
+        InputModule m;
+        m.initHeadless(c);
+        FakeGuest g;
+        setupCamera(g, 0, .6283f);
+        g.write32(CAM + 0x14c, 6);
+        g.write32(0x4fb730, 1);
+        g.writeF(CAM + 0x210, 2.0f);
+        g.writeF(CAM + 0x20c, 2.0f);
+        const uint32_t camObj = 0x790000, playerHandle = 0x780000;
+        g.write32(CAM + 0x148, camObj);
+        g.write32(0x600000 + 0x4b0, playerHandle);
+        g.write32(playerHandle + 0xfc, playerHandle + 0x100);
+        g.write32(playerHandle + 0x100 + 0x10, PLAYER);
+        g.writeF(0x600000 + 0x24, 1.0f / 140.0f);
+        const auto face = [&](float heading) { // heading = atan2(row0 z, row0 x)
+            g.writeF(HEAD + 0x20, std::cos(heading));
+            g.writeF(HEAD + 0x28, std::sin(heading));
+        };
+        face(3.1386f);
+        g.writeF(camObj + 0x14, -1600.0f);
+        g.writeF(camObj + 0x18, 300.0f);
+        m.beginFrame(FrameInput{});
+        m.beforeCameraFollow(g, CAM);
+        m.noteCameraTarget(target);
+        face(-3.1385f); // 0.35 degrees, across the seam
+        m.beginFrame(FrameInput{});
+        m.beforeCameraFollow(g, CAM);
+        const float dx = g.readF(camObj + 0x14) + 1600.0f, dz = g.readF(camObj + 0x1c);
+        CHECK(std::sqrt(dx * dx + dz * dz) < 15.0f); // moved by the small turn only (was about 600 units)
+    }
 }
 
 static void testCameraFollowAndPitchGain() {

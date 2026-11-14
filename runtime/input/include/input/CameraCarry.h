@@ -39,6 +39,16 @@ inline float lagKeptAfterTurn(float yaw) {
     return kept > 0.0f ? kept : 0.0f;
 }
 
+// The heading change of one camera tick from two headings in (-pi, pi]: the short way round, so a small turn across
+// the +/-pi seam (facing world -x) is the small turn it is, not a turn of nearly a full circle (which took the whole
+// lag away in one tick and snapped the camera sideways: issue 6 item 3). A change above maxYaw is not steering but the
+// game re-seating the transform: 0, the camera stays where it is.
+inline float carryYaw(float heading, float previous, float maxYaw) {
+    constexpr float kTwoPi = 6.28318531f;
+    const float yaw = std::remainder(heading - previous, kTwoPi);
+    return std::fabs(yaw) > maxYaw ? 0.0f : yaw;
+}
+
 // Splits the camera position into the part up to the native target of the last tick (pivot -> target) and the
 // travel lag (target -> camera). targetAge: camera ticks since the glue reported the
 // target (1 = the tick before this one, the only age that is used). Returns false when the whole offset has to

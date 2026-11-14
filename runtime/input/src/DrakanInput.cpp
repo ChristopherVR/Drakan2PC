@@ -848,12 +848,10 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
         // Heading row 0 turns the opposite way to bearings atan2(dz, dx) (measured: heading -68.8 degrees moves the
         // settled camera bearing by +68.8 degrees); a positive turn about +y lowers atan2(dz, dx), so the heading
         // change is the angle about +y.
+        // The short way round (input/CameraCarry.h): the raw difference is nearly a full circle when she turns
+        // across +/-pi, and the lag shortening below read that as a huge turn.
         const float up[3] = {0, 1, 0};
-        float yaw = heading - orbitHeading_;
-        constexpr float kPi = 3.14159265f;
-        const float wrapped = std::remainder(yaw, 2.0f * kPi);
-        if (std::fabs(wrapped) > kMaxCarryYaw)
-            yaw = 0.0f; // the transform was re-seated, not turned: the camera stays where it is
+        const float yaw = carryYaw(heading, orbitHeading_, kMaxCarryYaw);
         rotateAbout(off, up, yaw);
         rotateAbout(right, up, yaw);
         rotateAbout(back, up, yaw);

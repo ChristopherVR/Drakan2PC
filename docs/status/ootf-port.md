@@ -837,6 +837,9 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   so the palms of the converted Ruined Village move (they were still before). Grass bends as before; `classic` is the old
   whole-tree lean. Visual only, no measured frame cost. Needs a rebuilt exe; the pack is unchanged. See
   [foliage wind](../journal/2026-11-14/foliage-wind.md).
+* Issue 6 (both games): the quicksave is listed in Load Game as its own page and Continue can resume from it
+  (`[general] quicksave_in_load`), and the camera no longer snaps sideways when she turns across one world direction
+  while moving. Needs a rebuilt exe, no pack change. See [issue 6 save and camera](../journal/2026-11-15/issue6-save-cam.md).
 
 ## Known gaps
 
