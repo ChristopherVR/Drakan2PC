@@ -4,7 +4,7 @@ Owner report (Order of the Flame campaign in the PS2 engine, Ruined Village): "A
 through the cave there is a place where you can roll down boulders. It does roll down but doesn't interact with the physics
 properly to cause explosion for the explosive type barrels or even killing the npcs." and "There is also a place where you
 need to chop down a tree to let it fall over for you to walk over it, doesn't seem to work." Fixed in the converter (formats
-`dd830b1`); the runtime is unchanged. Scratch, runs and evidence are under `build/review/rv-physics/` (not tracked); nothing
+`dd830b1`, `e29c435`); the runtime is unchanged. Scratch, runs and evidence are under `build/review/rv-physics/` (not tracked); nothing
 from either game is quoted here.
 
 ## 1. The place (PC data, ids of `Ruined Village.lvl`)
@@ -44,19 +44,23 @@ barrel's 5. Classes with no same-named PS2 class are cloned with the PC defaults
 ### Fix
 
 `keepsPcDefaults` (ootfclass.ts) already gives objects of name-mapped logic classes their PC class defaults where the PS2
-class defaults differ; Rigid Bodies (16) are now included. In the campaign this changes the name-mapped boulders only:
-Ruined Village 366, 2605, 2790 (Damage 50, Damage Player on, Friction 0.15 / 0.2 instead of 2), Alwarren 4 and Islands
-Night 1 (Damage 5, Damage Player on, Health 50 instead of immortal), Wartok Canyons 1 (Friction 0.2). The converter log
-lists them ("PC class defaults kept on ...").
+class defaults differ; Rigid Bodies (16) are now included, except their health (`e29c435`): the body takes its own hits,
+terrain bounces included, off its health (0x45ede0 from the hit handler) and is removed at 0, and the PC explosion generator
+it would shatter with is a class reference that is not carried, so Alwarren's and Islands Night's boulders (PC health 50)
+would have vanished after a few bounces; they stay immortal as the disc class has them. In the campaign this changes the
+name-mapped boulders only: Ruined Village 366, 2605, 2790 (Damage 50, Damage Player on; 2790 Friction 0.2 instead of 2),
+Alwarren 4 and Islands Night 1 (Damage 5, Damage Player on), Wartok Canyons 1 (Friction 0.2). The converter log lists them
+("PC class defaults kept on ..."). A pack converted with `e29c435` differs from the evidence pack of `dd830b1` only in the
+Alwarren and Islands Night levels.
 
 ### What the engine does with it (found by playing)
 
-* Barrels: a boulder rolling into them sets them off (barrels 3 to 0 in run `after1`).
+* Barrels: a boulder rolling into them sets them off (barrels 3 to 0 in runs `n4` and `after1`).
 * Orcs: the orcs are objects of kind 7 and take the boulder's damage directly; in run `n3` an orc went from 40 to -39 hit
-  points with all three barrels still standing. When the barrels go up as well, both orcs die.
-* Rynn: kind 3. The hit handler leaves any kind-3 partner but the dragon (class 0x1001c) before the damage block
-  (0x45a1b8 to 0x45a23c), so "Damage Player" on does not make the hit handler hurt Rynn. She can still die at a boulder
-  (section 4, last part), on the old pack as on the new one.
+  points with all three barrels still standing. When the barrels go up as well, both orcs die (`n4`, `fin_t1`).
+* Rynn: kind 3. As decompiled, the hit handler leaves any kind-3 partner but the dragon (class 0x1001c) before the damage
+  block (0x45a1b8 to 0x45a23c), so "Damage Player" on should not make it hurt Rynn. Not proven in game: no run had a boulder
+  hit Rynn on the new pack with her death clearly from that hit.
 * The boulders creep: the PC friction 0.15 (an object parameter in Ruined Village, so the dist pack had it too) lets them
   roll a few hundred units from their placed spots onto the flat above the slope after a load.
 
@@ -96,56 +100,62 @@ off the Mover's matrix in game (`t1`, `n4`): the model's up axis ends at world -
 
 One strike with Atimar removes the standing tree; the Mover appears and swings down over the gap in about 1.6 s and lies
 from the stump to the far ledge. Rynn stands and walks on it over the gap (runs `n5`, `n7`, `after1`). The trunk is the PC
-model's collision boxes, so its top is about 470 units above the ledge at the stump: Rynn gets onto it with a running jump,
-as on the PC; walking into the butt end stops her. The PC trunk curves, its upper third lies up to 430 units south of the
-foot's line; a straight walk along the foot's line drops off beside the crown, following the trunk works.
+model's collision boxes, so its top is about 470 units above the ledge at the stump: walking into the butt end stops her
+(`n6`), and only a running jump gets her onto it. Of six scripted tries to get on from the near ledge, three succeeded
+(`n7` third try, `after1` first try, and the walk from a placement on the trunk in `n5`); three failed at the butt (`n6`,
+`n7` first and second try, where the jump came too late or not at all). How the PC trunk lies after its fall was not
+compared (the PC game was not run). The PC trunk curves, its upper third lies up to 430 units south of the foot's line; a
+straight walk along the foot's line drops off beside the crown (`n6`), following the trunk works.
 
 ## 4. Played
 
 Own play folder `build/review/rv-physics/play` (a copy of `baseline-play`: the owner's `drakan.ini` and `drakan_input.ini`,
-HD textures, DLSS; exe of current main from `build/final-game/bin`, sha256 `a3b2703c...`; private ELF copy). Runs by
-`scripts/harness/live_drive.py` through `tools/push.py`. Differences from the owner's settings: a 1280 x 960 window instead
-of borderless full screen, `game = d1`, sound off, a fresh memory card.
+HD textures, DLSS; private ELF copy). Exe: `build/final-game/bin/drakan.exe` of 14 November 15:07, sha256 `a3b2703c...`,
+the same file as the round 7 plates agent's main build (`rv-plates/play-main`, main at 90dff87b) and as the current
+`dist/DrakanPC/drakan.exe`. Runs by `scripts/harness/live_drive.py` through `tools/push.py`. Differences from the owner's
+settings: a 1280 x 960 window instead of borderless full screen, `game = d1`, sound off, a fresh memory card.
 
-Both evidence runs use the same plan (`tools/ng_tree.py` with `tools/ev.py`): New Game on an empty card, the Intro and the
-Ruined Village opening skipped by the harness taps, Tab and Enter to equip Atimar, F5; one placement into detector 2606
-(the orcs appear), F5; one placement 1,200 units behind boulder 366 on the line to the barrels; W (real input) in bursts
-toward the boulder until it goes over the edge, then turn to the camp and watch; one placement 800 units east of the tree,
-left mouse (the owner's attack binding) until the tree is gone, F5; one placement 1,300 units east of the tree; W with
-the mouse steering along the trunk and Space once (a running jump) until Rynn is on the far ledge.
+Every run: New Game on an empty card, the Intro and the Ruined Village opening skipped by the harness taps, Tab and Enter to
+equip Atimar, F5; then placements to reach the spots, and real input there (W with mouse steering into the boulder, the left
+mouse button, the owner's attack binding, at the tree, W and Space to cross). The plan files changed between runs; the
+scratch copy of `tools/ev.py` is the last version only.
 
-| Run | Pack | Boulder | Tree |
-| --- | --- | --- | --- |
-| `before3` | the dist pack of 14 November morning (`play/mods`, sha256 `3b1f6b95...`) | rolls down through the camp past the barrels: 3 barrels stay, both orcs stay at 40 hit points (one at 37) and fight Rynn | six sword strikes, the tree stands; no way over the gap |
-| `after1` | full 23-level pack of formats `dd830b1` (`packs/final`) | barrels 3, 2, 0 within half a second as the boulder reaches them; debris, Rynn hurt by the blast (the orcs were still hidden: this run skips the detector) | the first strike fells it; on the first try a running jump onto the butt and W along the trunk take Rynn to the far ledge |
+| Run | Pack | What was done | Boulder | Tree |
+| --- | --- | --- | --- | --- |
+| `before3` | dist pack of 14 November morning (`play/mods`, sha256 `3b1f6b95...`) | placed in detector 2606 (orcs appear), F5; placed 1,200 behind the boulder that had crept from 2605's spot, W in bursts | rolls down through the camp past the barrels: 3 barrels stay, the orcs stay at 40 (one at 37) and fight Rynn | six sword strikes, the tree stands |
+| `n4` | `p4` (same boulder and tree code as `dd830b1`, before the rebase onto the plates fix) | detector, F5; placed 1,100 behind boulder 366, W 4 s | barrels 3, 2, 0; orcs 40 to -56 and -1 | felled; the walk drops off beside the curved crown |
+| `fin_t1` | `packs/final` (formats `dd830b1`) | as `n4`; at boulder 366 Rynn died during the placement settle, then boulder 2605 pushed with W | barrels blown, both orcs lie dead (frames only: the run ended in an error before writing its counts) | not reached |
+| `after1` | `packs/final` | no detector (orcs hidden); four placements 1,100 to 1,400 behind boulder 366 ended in deaths before any input, the fifth (1,500 behind) pushed with W | barrels 3, 2, 0 within half a second; debris, Rynn hurt by the blast | first strike fells it; first try: running jump onto the butt, W along the trunk to the far ledge |
+| `n3` | `p3` (visible Mover test) | detector; boulder 2605 | an orc 40 to -39 with all three barrels still standing: the boulder alone | six strikes, the tree stands (the visible Mover takes the blow) |
 
-Two earlier runs on packs with the same boulder code show the creatures: `n4` (pack `p4`, after the detector, W into
-boulder 366): barrels 3, 2, 0 and both orcs from 40 to -56 and -1 (`evidence/after_boulder_n4.jpg`); `n3` (pack `p3`):
-an orc from 40 to -39 hit points with all three barrels still standing, the boulder alone.
+Contact sheets: `evidence/before_boulder.jpg`, `before_tree.jpg` (`before3`), `after_boulder_n4.jpg` (`n4`),
+`after_boulder_final_orcs.jpg` (`fin_t1`), `after_boulder.jpg`, `after_tree.jpg` (`after1`); single frames in the run
+folders.
 
-Contact sheets: `evidence/before_boulder.jpg`, `before_tree.jpg`, `after_boulder.jpg`, `after_boulder_n4.jpg`,
-`after_tree.jpg`; the single frames are in the run folders.
+### Deaths after placements on the slope (not explained)
 
-### Rynn dies when she walks into a boulder from below (not fixed, seen before the change too)
+Rynn died within half a second to a few seconds after a placement on the flat behind the boulders many times: four times in
+`after1`, once in `fin_t1`, once each in `after1-died`, `after1-crushed`, `after1-crushed2`, and on the dist pack in
+`recon1` and `before2`. In the four `after1` tries the last sample before the reload has her about 900 units from the
+boulder, before any input; in `after1-died` the death prompt is on the first frame after the settle. So these are not deaths
+on contact with a boulder, and the cause was not established (the placement drops of 500 to 700 units onto a slope are the
+likeliest artefact). Placements further up the slope (1,500 units behind) did not die.
 
-Nine times Rynn died the moment she walked into a boulder: whenever her origin was below the boulder's centre
-(30 to 50 units below in `after1`'s first four tries, 3 below in `recon1` on the dist pack, where the boulder has the disc
-class's Damage 1 and Damage Player off). Every push from 150 units or more above the centre worked (`recon2`, `n4`,
-`before3`, `after1` fifth try). It is not the hit handler's damage (it skips Rynn, section 2) and it happens on the old
-pack, so it is the engine's own rule for a body that is on top of something; the first part of the body's contact query
-(0x459a30, the partner at +0x194) calls the damage functions 0x4918d0 / 0x491e28 and is the likely place. On the slope as
-the level leaves the boulders Rynn stands above them; on flat ground next to one that has crept (section 2) she may not.
-Not traced further; it is a candidate for its own look.
-
-The coordinator's save made just after taking Heron's Crystal (`build/review/rv-plates/saves/after-crystal-dist`, dist pack)
-was loaded for two earlier before runs (`before1`, `before2`): with the sword it shows the same defects, but Rynn has
-almost no health in that save, and the placements' short drops killed her twice, so the evidence runs start from New Game.
+The coordinator's save made just after taking Heron's Crystal (`build/review/rv-plates/saves/after-crystal-dist`) loads only
+with the dist pack; it was used for the before runs `before1` and `before2`, which show the same defects, but Rynn has almost
+no health in it and the placements killed her, so the evidence runs start from New Game. There is no save after Heron's
+Crystal on the new pack.
 
 ## 5. Not verified
 
 * The walk from the tomb through the cave to the slope was not walked; each part starts from a placement.
 * Owner's full-screen settings, sound (the boulders' roll sounds stay off: the PS2 class has none), the German tree.
 * The orc the tree is meant to land on (Timer 2624 gibs it on the PC): not looked at.
-* Alwarren's and Islands Night's boulders with their new PC damage and health 50, and Wartok's with PC friction: not played.
+* Alwarren's and Islands Night's boulders with their new PC damage, and Wartok's with PC friction: not played. That the
+  kept-immortal health stops them vanishing is read from the code (0x45ede0), not seen.
+* Creature deaths on the final pack are shown by frames only (`fin_t1`); the counts are from `n4` / `n3` on packs with the
+  same boulder code.
+* Whether a boulder can hurt Rynn on the new pack (Damage Player on): not established either way.
+* Getting onto the trunk takes a running jump; three of six scripted tries failed at its butt end.
 * A save made on the old pack keeps the old objects: the owner needs the rebuilt pack and a new campaign game.
 * Drakan 2 is not reached by the change (converter only); not played.
