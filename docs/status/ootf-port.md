@@ -69,7 +69,7 @@ the OotF model where the disc one would not fit (the hanging skeleton), and the 
 on a skeleton stays reachable. Follow-up: every swapped prop now collides with its OotF model exactly (only the drawing is
 the disc's), and the Ruined Village wine kegs are the Drakan 2 kegs, stretched onto the OotF size and played in the
 cellar. Rope bridges were tried and left as OotF (same span, wider walkway, not better looking); bodies on spikes and in
-cages have no Drakan 2 counterpart and are unchanged. New `props` category of the Drakan 2 model table (rows turn off with `--ps2-model-map`).
+cages have no Drakan 2 counterpart; a refined drawing of their OotF meshes (smooth normals, curved subdivision, collision unchanged) is in the table but off, because in Wartok Canyons it looks nearly the same. New `props` category of the Drakan 2 model table (rows turn off with `--ps2-model-map`).
 Barrels and crates were already the disc's models. Flames are unchanged: the converted flames name the disc torch's fire
 generator, but the engine starts only their light, so the OotF fire quads stay (open). Seen in Ruined Village and
 Alwarren, played there with walking, swings and F5 / F8. Needs a regenerated pack and a new game. See

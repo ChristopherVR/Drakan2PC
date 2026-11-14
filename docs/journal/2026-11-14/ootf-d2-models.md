@@ -157,7 +157,33 @@ off, so the shipped bridges are unchanged.
 * (b) Re-texture the OotF meshes with disc textures: the OotF body textures are atlases (skin, cloth, face and feet laid out
   for that one mesh); every disc body texture is laid out for its own mesh, so either would scramble the UVs. Only the
   spike wood and cage metal tile, and those already get HD images. Not done.
-* (c) Refine the OotF mesh: with the display-list path above the converter can now draw a refined mesh while Rynn collides
-  with the original, which removes the collision risk of subdivision. Smoothing and subdivision of the OotF body meshes
-  is a separate piece of work (seams of the texture atlases must stay put); not started. This is the recommended next
-  step if the owner wants these bodies to look less blocky.
+* (c) Refine the OotF mesh: done as a table option, off (next section).
+
+### Refined body meshes (owner: option c): built, judged in game, left off
+
+`ootfdiscmodel.ts` `refineMesh` draws a prop from its own OotF mesh refined, through the same display-list path, while the
+engine collides with the converted model (polygon and bounds records byte-identical, OotF vertices first: `tools/cmpmod.ts`
+on Cage02wPerson, HangingBody2, Body on Spike02, deadpose01). UVs are per triangle corner, so the texture layouts keep
+their seams. Variants (`refine` in a row, or in `--ps2-model-map` rows):
+
+* `normals`: shading normals smoothed across UV seams, edges sharper than 60 degrees kept.
+* `pn`: plus one curved subdivision step (PN triangles: original corners fixed, the new edge points on the curve the
+  normals describe; edges along creases and open borders stay straight, so no cracks).
+* `pn2`: two steps.
+* `round`: one step that also rounds edges up to 100 degrees (the box-like limbs of these meshes).
+
+Rows: Spiked Body, Spiked Torso, Hanging torso, Cage Body(L), Hanging Guy, Torture Gyro Victim, deadpose1 to 3, dead04;
+all off, mode `round`. Packs `ref_normals`, `ref_pn`, `ref_pn2`, `ref_round` against `off2`; Wartok Canyons torture room,
+Rynn dismounted (Ctrl), placed at the same poses (`tools/body_wc.json`, `tools/body_wc2.json`), owner's ini.
+
+* `pn` and `pn2` look the same as the OotF bodies (`evidence/body_cage_c2_off_pn_pn2.png`): their limbs are boxes whose
+  edges are creases, which the curved step leaves straight. `normals` changes nothing visible. One `ref_normals` pose landed
+  outside the room (a placement artefact, the same spot in the other packs is inside).
+* `round` (`evidence/body_cage_c2_off_pn_round.png`, `evidence/body_hanging_h1_off_pn_round.png`): the shoulders and shins
+  of the caged and hanged men are a little rounder and the shading softer; no blobs, the texture is not distorted, but the
+  bodies stay blocky. Not a clear improvement at the distances the player sees them, so the rows stay off.
+* The cages swing, so cage frames differ a little between runs.
+
+Not verified for the refined rows: Grimstone Mines (Torture Gyro Victim; my record comparison matched another model of
+the same name there, so that row was not checked) and Islands Night (dead villagers) were not run; walking into the
+refined bodies was not played (they collide as converted by construction).
