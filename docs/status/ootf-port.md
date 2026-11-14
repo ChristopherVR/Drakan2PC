@@ -674,7 +674,11 @@ on by default; all rows off gives a byte-identical pack (formats `673f5a4`). See
 Village, Alwarren and Rift Crystal (placed views), a trigger-lit torch lit by walking into its detector, a barrel struck by
 Rynn and barrels set off by a pushed boulder. Cost at a Rift Crystal torch with 50 fires live: frame 6.9 to 8.2 ms (+17 to
 +19 %, 4 quiet pairs), one GS probe read-back per frame as in Surdana. Not seen: the 0.2 lamps (Islands, on Arokh), Mines
-and Canyons torches; sounds not listened to. Needs a regenerated pack. See [flames and barrels](../journal/2026-11-14/ootf-flames.md).
+and Canyons torches; sounds not listened to. Second pass: the fire is now Ravenshold's torch fire grown 1.4 times to the
+OotF card's size, copied into FX without the torch-head model that drew a dark block in the cages (formats `6363165`); a
+dark coal shape stays visible in one Rift Crystal view; frame time unchanged at that torch, 1 % low 7.6 to 11.7 ms
+(3 pairs). Alwarren's magic flame ring was left off: the 16 round the crystal have no sender to put them out. Needs a
+regenerated pack. See [flames and barrels](../journal/2026-11-14/ootf-flames.md).
 
 **November 14 item requirements:** the Chain Mail of Ruined Village could not be worn ("Exp. Level Needed 3",
 "That can't be used right now." on the modern screen, greyed on the native one; Rynn is level 1). The PC game has no

@@ -155,6 +155,42 @@ emitter's reaction to the message) would block the way to the crystal, and none 
 weapon to break the fountain piece). The fix to try is the visible bit on converted class 43 objects whose PC class
 starts on, followed by a played check of the fountain, the ring going out 12 s later, and one of the pulsing groups.
 
+## 7. Second pass: fire size, the dark block, the magic flame ring
+
+The coordinator's review of `evidence/flames_zoom_pairs.png`: the Drakan 2 fire was smaller and dimmer than the OotF card,
+and Rift Crystal torch 99 showed a black patch in its cage.
+
+* **Size.** The first fire was that of "OTF Wall Torch" (particles 45 to 80 units). The flames rows now name Ravenshold's
+  standing torch, WORLDCON "Wartok Torch" (particles 65 to 90, faster rise), grown by `fireScale` 1.4 so it covers the
+  OotF card (about 110 by 300 units): the converter copies the torch's generator and its four particle classes into FX
+  with particle size, rise speed and rate multiplied (`movedClassData`; every class, sound and texture reference is
+  renamed for FX), 5 new FX records, made once for all rows.
+* **The dark block.** Every disc torch generator carries a torch-head model (the burning end of the Drakan 2 torch,
+  "1cwalltouch2_child" for "OTF Wall Torch", a larger head for "Wartok Torch"); it drew inside the OotF cages as a dark
+  block. The copy uses a model-less FX generator record, so no torch head is spawned. What stays dark in torch 99 is the
+  torch base's own coal inside the cage, now seen against the fire: the OotF flame card had drawn its bright lower edge
+  over it. The fire now starts a fifth of the card's height above its lowest point (`FLAME_FOOT_RISE`), which hides most of
+  it (tried: 0, 60 and 120 units higher, `low_check.png`, `up_check.png`); a dark coal shape remains visible in that view.
+  Moving the light back to the old position does not change it (tried, `low2_check.png`).
+* **Embers.** A flame model with flat polygons beside its upright cards (of the converted ones only "banner flame") keeps
+  the flat ones, moved with the object so they stay in place (`uprightPolygons`, `OotfAssetBuilder.shiftModel`); the others
+  show the invisible carrier as before.
+
+Same-pose frames, OotF card / first version / now: `evidence/flames_zoom_pairs_v2.png` (Rift Crystal 97 and 99, Alwarren
+sconce 1452, Ruined Village stands; pack `fl8`). The fire is now about as tall as the OotF card and brighter.
+
+Cost of the grown fire (`bench/rc-flames4`, Rift Crystal torch 97, flames and barrels off against on, 3 interleaved
+pairs, turn lock, owner's ini; one "on" run saw another game start near its end): frame 6.81 / 6.84 / 6.88 ms against
+6.85 / 6.83 / 6.72 ms, no change in the median; 1 % low 7.6 against 11.7 ms; EE 4.2 against 6.0 ms per world frame; one
+GS probe read-back per frame with the fires on. The first version's +17 to +19 % frame time (section 4) did not repeat
+with the model-less generator.
+
+**Magic flame ring: left off.** Of the 93 "Alwarren Magic Flame" objects, the 16 round the barrier crystal (1117 to 1132)
+have no sender at all: no timer, detector or object links to them. The off chain of section 6 (fountain piece 1989, timers
+1987 and 1993) reaches a different group of 18 by the fountain (1328 to 1367), not the crystal ring. With the visible bit
+the crystal ring would burn for good at 1,000 hp/s with nothing to put it out, so it was not landed; how the PC player
+passes it was not established. The fountain group's chain and the pulsing groups were not played.
+
 ## 5. Not verified
 
 * Scaled flames: the 7 flames at 0.6 to 0.75 and the arena relic sconces at 7 to 8 burn at the normal torch size; the
