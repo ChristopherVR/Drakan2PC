@@ -62,6 +62,16 @@ space. Briefs written for more than three point lights per object, terrain chunk
 limit (a game rule) and a model block pool. Needs the rebuilt exe; packs need no rebuild. See
 [engine limits survey](../journal/2026-11-14/engine-limits-survey.md).
 
+**November 14 Drakan 2 skeletons (round 7):** the converted skeleton props (lying, torso, crucified, impaled, on a spike;
+82 placed in 9 levels) now show Drakan 2's remade Mountain World skeletons (about 1,000 triangles against 140), copied from
+the player's disc with their textures, while each object keeps its OotF class and placement; a size and origin check keeps
+the OotF model where the disc one would not fit (the hanging skeleton), and the copies get per-triangle collision so loot
+on a skeleton stays reachable. New `props` category of the Drakan 2 model table (rows turn off with `--ps2-model-map`).
+Barrels and crates were already the disc's models. Flames are unchanged: the converted flames name the disc torch's fire
+generator, but the engine starts only their light, so the OotF fire quads stay (open). Seen in Ruined Village and
+Alwarren, played there with walking, swings and F5 / F8. Needs a regenerated pack and a new game. See
+[Drakan 2 models](../journal/2026-11-14/ootf-d2-models.md).
+
 **November 14 AI run limit and shadow default (round 6, owner's decision):** the level's "AI Run Max" (4) let only four
 creatures think at once, and a creature keeps its slot after Rynn leaves it (a Surdana villager and a cave Wartok held two
 of the four while she fought at the orc mine). `[general] ai_run_max` (default 8, 0 = the level's own, never lower) raises
