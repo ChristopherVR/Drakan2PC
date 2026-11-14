@@ -17,7 +17,7 @@ rope bridges and broken bridges, bodies on spikes and in cages. Scratch, tools, 
 * **Tall and short palms:** the fan palm builder treats every frond polygon as one flat card, but these palms' fronds are
   already curved strips of several triangles; with it they came out thinner, not fuller.
 
-## What changed (formats `3d311b0`, editor app)
+## What changed (formats `ba19875`, editor app)
 
 Every model is still collided with as the converted OotF model: the builder draws a new strip display list over new
 vertices appended after the OotF ones, and the OotF polygon (0x0204) and bounds (0x0207) records stay byte for byte.
@@ -74,9 +74,10 @@ the same poses for both packs.
 * **Bridges, walked with real input** (`tools/bridgewalk.py`, runs `rv_b` / `rv_a`, Ruined Village bridge 692 / 695 /
   694): from the end piece, W held with mouse steering toward the far end, then back the other way. Before: crossed both
   ways (lowest y 22757 forward, 22832 back). After: crossed both ways (22833, 22829), the y profile along the span the
-  same within the 0.25 s sampling. Frames `evidence/rv_bridge_walk.png` (along, middle both ways, end): boards with
+  same: a second before run (`rv3_b`) gave 22838 forward, so the 22757 of the first one was a one-off. Frames `evidence/rv_bridge_walk.png` (along, middle both ways, end): boards with
   gaps and round ropes and Rynn walking on the boards; `evidence/rv_bridges_other.png`: the broken span 178 (side and
-  along) and the break-away bridge 2189 (views only, not walked).
+  along) and the break-away bridge 2189. Walked onto 2189 with W in both packs (runs `rv3_b` / `rv3_a`): it gives way
+  and Rynn falls into the river in both (after about 3,000 and 3,700 units along the 10,240 unit bridge).
 * **Hanging skeleton and bodies** (Wartok Canyons torture room, runs `wc_b2` / `wc_a2`, `wc_b3` / `wc_a3`):
   `evidence/wc_bodies_zoom.png` (brightened crops: the hanged man and the hanging skeleton from the chain, the caged
   man and the hanging torso, the spike pit) and `evidence/wc_spikes_zoom.png` (the dead man folded over his spike, row
@@ -86,11 +87,22 @@ the same poses for both packs.
   drooping crowns on the tall and short palms, trunks as before.
 * Offline previews of every row (software renders of what the pack draws): `prev/`.
 
+## Incident and recreation
+
+The first commit of this change (formats `3d311b0`, main `298230c9`) was lost with the local formats repository: removing
+my private formats worktree with `git worktree remove --force` followed a `node_modules` junction inside it into the npm
+workspace links and deleted the formats checkout (with its `.git`) and the app, desktop and editor-core packages. The
+coordinator restored the main tree; the change was rebuilt from this session in a plain clone and recommitted as
+`ba19875` on top of the recreated round 8 commits. A conversion of Wartok Canyons, Ruined Village and Islands from the
+rebuilt tree draws every swapped model byte for byte like the evidence pack (vertex and display list records), and its
+polygon and bounds records equal those of the same conversion with the rows off. Rule kept since: no junctions or
+symlinks inside any git worktree or clone.
+
 ## Not verified
 
 * Spiked Torso: hangs high on a dark wall, never seen clearly in the game; its row is off.
-* The break-away bridges (Bridge Rope with the "Break Away B/C/D" sections) were looked at, not walked or broken; the
-  sections are engine class 44 objects and stay OotF (not converted by these rows).
+* The break-away bridges: walked onto once per pack and they broke in both, but where the round ropes meet the flat
+  "Break Away B/C/D" sections (engine class 44 objects, left OotF by these rows) was not looked at in a lit frame.
 * Grimstone Mines, Grotto and Wartok Canyons bridges, Alwarren's bridge pieces and hanging skeletons, and Islands Night
   palms were converted the same way but not looked at in the game.
 * The Wartok Canyons views are dark; the crops were brightened for judging. The cages swing, so cage frames differ a

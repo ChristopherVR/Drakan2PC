@@ -40,6 +40,7 @@ describe('Drakan 2 characters and weapons in the import dialog', () => {
         const p = planPs2Models(modelChoiceToOptions(c));
         expect(p.prop('Large Tree', 'PalmTree_Tall01(H)')).toBeNull();
         expect(p.prop('Large Tree', 'Large Pine(H)')?.ps2).toBe('Pine Tree 01');
+        expect(readModelChoice(JSON.parse(JSON.stringify(c))).off).toEqual(['Large Tree|PalmTree_Tall01(H)']); // kept when stored
     });
 
     it('reads a stored choice and explains a bad pair', () => {
