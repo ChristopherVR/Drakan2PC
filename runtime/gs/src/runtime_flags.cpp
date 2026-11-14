@@ -163,6 +163,10 @@ RuntimeFlags parse() {
     f.texDir = optString("GSR_TEXDIR");
     if (const char* v = env("GSR_TEXBUDGET"))
         f.texBudget = std::atoi(v);
+    if (const char* v = env("GSR_TEXKEEP"))
+        f.texKeep = std::atoi(v);
+    if (const char* v = env("GSR_HDMIPS"))
+        f.hdMips = std::atoi(v) != 0;
     if (const char* v = env("GSR_TEXUP_SYNC"))
         f.texUpSync = std::atoi(v) != 0;
     if (const char* v = env("GSR_PALETTE_HD"))

@@ -888,6 +888,8 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         cfg.textureDir = td;
         cfg.textureBudgetMB =
             (uint32_t)std::max(0, drakan_cfg::getInt("video", "texture_budget_mb", nullptr, 0)); // 0 = auto
+        cfg.hdTextureKeepSeconds = (uint32_t)std::max(0, drakan_cfg::getInt("video", "hd_texture_keep_s", nullptr, 60));
+        cfg.hdTextureMips = drakan_cfg::getBool("video", "hd_texture_mips", nullptr, true);
     }
     { // [video] renderer: d3d11 picks the Direct3D 11 backend (Windows builds have both); anything else is WebGPU,
         // on the named graphics API (vulkan, d3d12, opengl) or on its automatic choice

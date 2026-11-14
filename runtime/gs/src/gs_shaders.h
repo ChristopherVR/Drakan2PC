@@ -160,20 +160,25 @@ float4 sampleTexture(float2 uv, float q, uint flags, float2 duvdx, float2 duvdy)
     bool lin = mag ? (mmag == 1u) : (mmin == 1u || mmin >= 4u);
     if (cb_e.y > 0.5) lin = cb_e.y > 1.5; // user override: 1 = point, 2 = bilinear
     if ((flags & F_TEXRT) != 0u) return sampleRT(uv, lin);
+    // hd_texture_mips (cb_d.x bit 13, set for mip-mapped draws of an N times larger HD / upscaled copy): the mip level
+    // is chosen on the copy's own texels, log2(N) = cb_f.w above the GS level, up to the copy's last level (mxl); the
+    // filter (MMAG / MMIN) still follows the game's level. Without it level l of the copy has N times the texels the
+    // game's level l has, so a distant 8x copy was sampled about 8 texels per pixel (shimmer).
+    float hdShift = ((cb_d.x >> 13) & 1u) != 0u ? cb_f.w : 0.0;
 
     // anisotropic filtering: replaces the (isotropic) GS LOD by the screen-space footprint of the pixel in minified, mip-mapped, Q-driven draws
     if (cb_f.z > 1.5 && mxl > 0u && lcm == 0u && !fst && mmin >= 2u)
     {
         float lx = length(duvdx), ly = length(duvdy);
         float major = max(lx, ly), minor = max(min(lx, ly), 1e-6);
-        if (major > 1.0)
+        if (major * exp2(hdShift) > 1.0)
         {
             float ratio = clamp(major / minor, 1.0, cb_f.z);
             float taps = max(1.0, ceil(ratio - 0.02));
-            float lodA = log2(major / taps) + cb_g.x;
+            float lodA = log2(major / taps) + cb_g.x + hdShift;
             float2 axis = (lx >= ly) ? duvdx : duvdy;
             bool magA = lodA < 0.0;
-            bool linA = magA ? (mmag == 1u) : (mmin == 1u || mmin >= 4u);
+            bool linA = (lodA - hdShift < 0.0) ? (mmag == 1u) : (mmin == 1u || mmin >= 4u);
             if (cb_e.y > 0.5) linA = cb_e.y > 1.5;
             float4 acc = float4(0, 0, 0, 0);
             int n = (int)taps;
@@ -185,7 +190,7 @@ float4 sampleTexture(float2 uv, float q, uint flags, float2 duvdx, float2 duvdy)
             return acc / taps;
         }
     }
-    return sampleMip(uv, lodB, mag, mxl, mmag, mmin, lin);
+    return sampleMip(uv, lodB + hdShift, lodB + hdShift < 0.0, mxl, mmag, mmin, lin);
 }
 
 )HLSL"

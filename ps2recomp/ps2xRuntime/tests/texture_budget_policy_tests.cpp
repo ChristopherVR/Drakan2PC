@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 
 int main() {
     using namespace drakan_texture_budget;
@@ -25,6 +26,20 @@ int main() {
     assert(raisedBudget(kCampaignBudget, kNativeBudget) == 0);
     assert(raisedBudget(0, kCampaignBudget) == 0);
     assert(raisedBudget(kNativeBudget, 0) == 0);
+    // The ini words: "auto" is the default rule, "native" keeps the native budget everywhere.
+    assert(budgetFor(true, "auto") == kCampaignBudget);
+    assert(budgetFor(false, "AUTO") == 0);
+    assert(budgetFor(true, "native") == 0);
+    assert(budgetFor(false, "16384") == 16u * 1024u * 1024u);
+    // Pack levels: by name, or the level a direct start replaces.
+    auto packs = [](const char* n) { return std::strcmp(n, "OotF 03 - Wartok Canyons") == 0; };
+    assert(packLevel("OotF 03 - Wartok Canyons", packs, nullptr, nullptr));
+    assert(!packLevel("Level 1A - Surdana", packs, nullptr, nullptr));
+    assert(packLevel("Level 1A - Surdana", packs, "OotF 03 - Wartok Canyons", nullptr));
+    assert(packLevel("level 0 - intro", packs, "OotF 03 - Wartok Canyons", "Level 0 - Intro"));
+    assert(!packLevel("Level 1A - Surdana", packs, "OotF 03 - Wartok Canyons", "Level 0 - Intro"));
+    assert(!packLevel("Level 1A - Surdana", packs, "Level 4A - Ravenshold", nullptr));
+    assert(!packLevel("", packs, nullptr, nullptr));
     std::puts("texture_budget_policy: ok");
     return 0;
 }

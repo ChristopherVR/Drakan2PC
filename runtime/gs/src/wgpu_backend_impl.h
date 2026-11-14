@@ -411,6 +411,13 @@ struct WgpuBackend::Impl {
     std::unordered_map<UpKey, std::shared_ptr<UpEntry>, UpKeyHash> upCache;
     std::unordered_map<uint64_t, std::shared_ptr<PalettePlane>> palettePlanes;
     std::unordered_set<UpKey, UpKeyHash> upInflight;
+    // hd_texture_keep_s (0 = the old 240 frame age) and hd_texture_mips (gsr.h Config)
+    uint32_t hdKeepSeconds = 60;
+    bool hdMips = true;
+    // keys of HD copies dropped from upCache (counts rebuilds, Stats::texUpRebuilt); renderer frame and its time at
+    // each sweep, to turn hd_texture_keep_s into a frame age
+    std::unordered_set<UpKey, UpKeyHash> upDropped;
+    std::vector<std::pair<uint64_t, std::chrono::steady_clock::time_point>> sweepTimes;
     uint32_t upGen = 0;
     std::mutex doneMu;
     std::vector<UpDone> done;
@@ -464,6 +471,8 @@ struct WgpuBackend::Impl {
                                     uint32_t count, bool updatable, const char* label);
     void pumpUp(std::chrono::microseconds budget = std::chrono::microseconds(0)); // 0: drain everything
     void adoptUp(TexEntry& e);
+    uint32_t upChainMxl(uint32_t W, uint32_t H, uint32_t mxl, uint32_t N) const;
+    uint32_t upDrawMxl(uint32_t mxl, const UpEntry& up) const;
     static void resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, uint32_t rh, uint32_t tw, uint32_t th,
                                  std::vector<uint32_t>& out);
     static void applyGameAlpha(std::vector<uint32_t>& hi, uint32_t tw, uint32_t th, const std::vector<uint32_t>& base,

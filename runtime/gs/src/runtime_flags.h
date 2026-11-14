@@ -109,6 +109,8 @@ struct RuntimeFlags {
     std::optional<bool> texReplace;    // GSR_TEXREPLACE: atoi != 0
     std::optional<std::string> texDir; // GSR_TEXDIR: string
     std::optional<int> texBudget;      // GSR_TEXBUDGET: atoi MiB (<= 0 means auto, min 64 otherwise)
+    std::optional<int> texKeep;        // GSR_TEXKEEP: atoi seconds (0 = the old 240 frame age)
+    std::optional<bool> hdMips;        // GSR_HDMIPS: atoi != 0
     std::optional<bool> texUpSync;     // GSR_TEXUP_SYNC: atoi != 0
     std::optional<bool> paletteHd;     // GSR_PALETTE_HD: atoi != 0 (default on)
     // GSR_PALETTE_HD_DUMP: folder for the first recoloured palette steps (debug)

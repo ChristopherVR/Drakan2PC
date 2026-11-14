@@ -65,6 +65,14 @@ void GSR_IMPL::initTexQuality() {
         texBudget = (uint64_t)std::max(64, *f.texBudget) << 20;
         texBudgetAuto = *f.texBudget <= 0;
     }
+    hdKeepSeconds = cfg.hdTextureKeepSeconds;
+    hdMips = cfg.hdTextureMips;
+    if (f.texKeep)
+        hdKeepSeconds = (uint32_t)std::max(0, *f.texKeep);
+    if (f.hdMips)
+        hdMips = *f.hdMips;
+    if (hdKeepSeconds)
+        hdKeepSeconds = std::clamp(hdKeepSeconds, 4u, 600u);
     if (f.texUpSync)
         upSync = *f.texUpSync;
     if (f.paletteHd)
@@ -249,6 +257,21 @@ void GSR_IMPL::pumpUp(std::chrono::microseconds budget) {
         if (st.texUpPending)
             st.texUpPending--;
     }
+}
+
+// Last level of an HD / upscaled copy (factor N) of a W x H texture with `mxl` game levels. hd_texture_mips: the copy
+// gets log2(N) more levels, so a draw can go down to the game's last level in the copy's own texels (gs_shaders.h
+// sampleTexture); a texture without game levels stays without.
+uint32_t GSR_IMPL::upChainMxl(uint32_t W, uint32_t H, uint32_t mxl, uint32_t N) const {
+    uint32_t shift = 0;
+    while (hdMips && mxl && (2u << shift) <= N)
+        ++shift;
+    return upscaledMipLevelMax(W, H, mxl + shift);
+}
+
+// The LOD clamp of a draw that binds the copy `up` of a texture with `mxl` game levels.
+uint32_t GSR_IMPL::upDrawMxl(uint32_t mxl, const UpEntry& up) const {
+    return hdMips && up.factor > 1 && mxl ? up.mxl : std::min(mxl, up.mxl);
 }
 
 // does the texture entry have a ready upscaled version? (adopt it)
@@ -462,6 +485,8 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
         return;
     upInflight.insert(key);
     st.texUpPending++;
+    if (upDropped.erase(key))
+        st.texUpRebuilt++;
     const std::string rpath = !preview.path.empty() ? preview.path : (replace ? rit->second : std::string());
     if (upLog && e.menuArtwork)
         std::fprintf(stderr, "[texup] menu artwork: %s\n", rpath.c_str());
@@ -545,7 +570,7 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
             d.h = H * N;
             d.levels.push_back(std::move(b0));
             uint32_t lw = d.w, lh = d.h;
-            for (uint32_t l = 1; l <= upscaledMipLevelMax(W, H, mxl); ++l) {
+            for (uint32_t l = 1; l <= upChainMxl(W, H, mxl, N); ++l) {
                 std::vector<uint32_t> nx;
                 texup::downsample2x(d.levels.back().data(), lw, lh, nx);
                 lw = std::max(1u, lw / 2);
@@ -683,7 +708,7 @@ bool GSR_IMPL::setupPaletteHd(TexEntry& e, const std::vector<uint8_t>& indices, 
         texup::writePngRGBA(name + "_hd.png", d.levels.back().data(), d.w, d.h);
     }
     uint32_t lw = d.w, lh = d.h;
-    for (uint32_t l = 1; l <= upscaledMipLevelMax(W, H, mxl); ++l) {
+    for (uint32_t l = 1; l <= upChainMxl(W, H, mxl, plane->factor); ++l) {
         std::vector<uint32_t> next;
         texup::downsample2x(d.levels.back().data(), lw, lh, next);
         lw = std::max(1u, lw / 2);
@@ -884,10 +909,12 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
                 out.factor = e.up->factor;
                 out.materialSrv = e.up->material.get();
                 out.materialClass = e.up->materialClass;
-                out.mxl = std::min(mxl, e.up->mxl);
+                out.mxl = upDrawMxl(mxl, *e.up);
             } else {
                 out.srv = e.tex.get();
                 out.mxl = mxl;
+                if (e.upWanted)
+                    st.texUpNativeDraws++;
             }
             out.fontAtlas = e.fontAtlas;
             out.menuArtwork = e.menuArtwork;
@@ -1189,8 +1216,9 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
         out.factor = e.up->factor;
         out.materialSrv = e.up->material.get();
         out.materialClass = e.up->materialClass;
-        out.mxl = std::min(out.mxl, e.up->mxl);
-    }
+        out.mxl = upDrawMxl(out.mxl, *e.up);
+    } else if (e.upWanted)
+        st.texUpNativeDraws++;
     texBytes += bytes;
     texCache[key] = std::move(e);
     st.textureDecodes++;

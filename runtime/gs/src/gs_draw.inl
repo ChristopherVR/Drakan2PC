@@ -847,6 +847,8 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     if (kk & 0x800)
         kk -= 0x1000;
     k.d[0] = (haveTex && !tb.isRT ? tb.mxl : 0) | (lcm << 4) | (mmag << 5) | (mmin << 6) | (L << 9);
+    if (hdMips && haveTex && !tb.isRT && tb.factor > 1 && mxl > 0 && mmin >= 2)
+        k.d[0] |= 1u << 13; // hd_texture_mips: the level is chosen on the copy's own texels (gs_shaders.h)
     k.d[2] = (uint32_t)(s.dimx & 0xFFFFFFFFull);
     k.d[3] = (uint32_t)(s.dimx >> 32);
     k.e[0] = (float)kk / 16.0f;
@@ -858,7 +860,6 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         if ((s.texa >> 15) & 1)
             k.d[0] |= 1u << 12;
     }
-    (void)mxl;
     k.f[0] = (haveTex && !tb.isRT) ? (float)tb.factor : 1.0f;
     k.f[1] = mipBias;
     k.f[2] = (float)aniso;

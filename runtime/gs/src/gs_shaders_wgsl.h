@@ -207,19 +207,21 @@ fn sampleTexture(uv: vec2f, q: f32, flags: u32, duvdx: vec2f, duvdy: vec2f) -> v
     var lin = select(mmin == 1u || mmin >= 4u, mmag == 1u, mag);
     if (cb.e.y > 0.5) { lin = cb.e.y > 1.5; }
     if ((flags & F_TEXRT) != 0u) { return sampleRT(uv, lin); }
+    // hd_texture_mips: the level of an N times larger copy on its own texels (gs_shaders.h)
+    let hdShift = select(0.0, cb.f.w, ((cb.d.x >> 13u) & 1u) != 0u);
 
     if (cb.f.z > 1.5 && mxl > 0u && lcm == 0u && !fst && mmin >= 2u) {
         let lx = length(duvdx);
         let ly = length(duvdy);
         let major = max(lx, ly);
         let minor = max(min(lx, ly), 1e-6);
-        if (major > 1.0) {
+        if (major * exp2(hdShift) > 1.0) {
             let ratio = clamp(major / minor, 1.0, cb.f.z);
             let taps = max(1.0, ceil(ratio - 0.02));
-            let lodA = log2(major / taps) + cb.g.x;
+            let lodA = log2(major / taps) + cb.g.x + hdShift;
             let axis = select(duvdy, duvdx, lx >= ly);
             let magA = lodA < 0.0;
-            var linA = select(mmin == 1u || mmin >= 4u, mmag == 1u, magA);
+            var linA = select(mmin == 1u || mmin >= 4u, mmag == 1u, lodA - hdShift < 0.0);
             if (cb.e.y > 0.5) { linA = cb.e.y > 1.5; }
             var acc = vec4f(0.0);
             let n = i32(taps);
@@ -230,7 +232,7 @@ fn sampleTexture(uv: vec2f, q: f32, flags: u32, duvdx: vec2f, duvdy: vec2f) -> v
             return acc / taps;
         }
     }
-    return sampleMip(uv, lodB, mag, mxl, mmag, mmin, lin);
+    return sampleMip(uv, lodB + hdShift, lodB + hdShift < 0.0, mxl, mmag, mmin, lin);
 }
 
 // ---------------------------------------------------------------- pixel pipeline

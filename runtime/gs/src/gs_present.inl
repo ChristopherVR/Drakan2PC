@@ -336,9 +336,35 @@ void GSR_IMPL::endFrame() {
         } else
             ++it;
     }
+    if (upLog && frame % 1200 == 0)
+        std::fprintf(stderr,
+                     "[texup] frame %llu: cache %.0f MB (%zu HD copies), dropped for age %llu / budget %llu, rebuilt "
+                     "%llu, native draws while pending %llu, replaced %llu, upscaled %llu\n",
+                     (unsigned long long)frame, (texBytes + upBytes) / 1048576.0, upCache.size(),
+                     (unsigned long long)st.texUpAgeEvicted, (unsigned long long)st.texUpBudgetEvicted,
+                     (unsigned long long)st.texUpRebuilt, (unsigned long long)st.texUpNativeDraws,
+                     (unsigned long long)st.texReplaced, (unsigned long long)st.texUpscaled);
+    // HD / upscaled copies: kept hd_texture_keep_s seconds after their last draw (0 = 240 frames, the old rule). The
+    // copies are found again by content hash, so one kept longer is shown at once when the game uploads the texture
+    // again (after turning back, a cut scene, a menu) instead of the native texture until a worker rebuilt it.
+    uint64_t upMaxAge = 240;
+    if (hdKeepSeconds) {
+        const auto now = std::chrono::steady_clock::now();
+        sweepTimes.emplace_back(frame, now);
+        const auto horizon = now - std::chrono::seconds(hdKeepSeconds);
+        size_t drop = 0;
+        while (drop + 1 < sweepTimes.size() && sweepTimes[drop + 1].second <= horizon)
+            ++drop;
+        sweepTimes.erase(sweepTimes.begin(), sweepTimes.begin() + (std::ptrdiff_t)drop);
+        // the oldest sample still at or before the horizon; until the game has run that long, nothing is old enough
+        upMaxAge = sweepTimes.front().second <= horizon ? std::max<uint64_t>(240, frame - sweepTimes.front().first)
+                                                         : UINT64_MAX;
+    }
     for (auto it = upCache.begin(); it != upCache.end();) {
-        if (frame - it->second->lastFrame > 240) {
+        if (frame - it->second->lastFrame > upMaxAge) {
             upBytes -= std::min(upBytes, it->second->bytes);
+            st.texUpAgeEvicted++;
+            upDropped.insert(it->first);
             it = upCache.erase(it);
         } else
             ++it;
@@ -367,6 +393,8 @@ void GSR_IMPL::endFrame() {
         for (auto it = upCache.begin(); it != upCache.end();)
             if (it->second->lastFrame <= cut) {
                 upBytes -= std::min(upBytes, it->second->bytes);
+                st.texUpBudgetEvicted++;
+                upDropped.insert(it->first);
                 it = upCache.erase(it);
             } else
                 ++it;

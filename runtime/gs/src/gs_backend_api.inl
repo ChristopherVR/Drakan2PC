@@ -61,6 +61,14 @@ GSR_BACKEND::~GSR_BACKEND() {
                          m_impl->texPeakBytes / 1048576.0, m_impl->texBudget / 1048576.0,
                          (unsigned long long)m_impl->st.texVolatile, (unsigned long long)m_impl->st.texPalettePlanes,
                          (unsigned long long)m_impl->st.texPaletteHd);
+        if (m_impl->upLog)
+            std::fprintf(stderr,
+                         "[texup] exit: HD copies dropped for age=%llu for the budget=%llu, rebuilt after a "
+                         "drop=%llu, texture draws shown native while the HD copy was made=%llu (keep %u s, hd "
+                         "mips %d)\n",
+                         (unsigned long long)m_impl->st.texUpAgeEvicted,
+                         (unsigned long long)m_impl->st.texUpBudgetEvicted, (unsigned long long)m_impl->st.texUpRebuilt,
+                         (unsigned long long)m_impl->st.texUpNativeDraws, m_impl->hdKeepSeconds, (int)m_impl->hdMips);
         backend_hook::releaseBeforeWorkers(*m_impl);
         m_impl->pool.reset(); // join the workers before the members they touch go away
     }

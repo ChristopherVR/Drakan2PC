@@ -2153,6 +2153,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                     .write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
             }
         }
+        drakan_texture_budget::setPackLevels(extra);
         drakan_netplay::setExtraLevels(std::move(extra));
     }
 #endif

@@ -107,6 +107,13 @@ struct Config {
     uint32_t textureBudgetMB =
         0; // texture cache budget (0 = auto: 40 % of the dedicated VRAM, 1.5 - 8 GB; a number is in MB) (all decoded +
            // upscaled textures); least recently used entries are evicted above it. Env GSR_TEXBUDGET
+    uint32_t hdTextureKeepSeconds =
+        60;                    // hd_texture_keep_s: an HD / upscaled texture not drawn for this long leaves
+                               // the cache (4 .. 600 s); 0 = the old rule, 240 renderer frames. Env GSR_TEXKEEP
+    bool hdTextureMips = true; // hd_texture_mips: mip-mapped world draws of an HD / upscaled texture (factor N) pick
+                               // their level on the copy's own texels (GS LOD + log2 N, clamped to the game's last
+                               // level + log2 N), so a distant 8x texture is no longer sampled 8 texels per pixel;
+                               // false = the game's level of the N times larger copy, as before. Env GSR_HDMIPS
     float hudScaleX = 1.0f; // hud_aspect_correct: x scale about the screen centre applied to UI sprites (1 = off, e.g.
                             // (4/3)/(16/9) = 0.75 in 16:9 widescreen). See Renderer::setHudScaleX
     bool smoothMenuHighlight = false; // smooth_menu_highlight: 2x2 box filter on the palette-animated fire texture of
@@ -162,6 +169,9 @@ struct Stats {
     // texture upscaling / replacement
     uint64_t texUpscaled = 0, texUpscaleUs = 0, texUpscaleBytes = 0, texReplaced = 0, texDumped = 0, texUpPending = 0,
              texCacheBytes = 0;
+    // HD / upscaled texture cache: copies dropped for age or for the budget, jobs that rebuilt a copy dropped
+    // before, and texture resolves drawn with the native texture while the HD copy was still being made
+    uint64_t texUpAgeEvicted = 0, texUpBudgetEvicted = 0, texUpRebuilt = 0, texUpNativeDraws = 0;
     // live settings (Renderer::set*): batches applied at a frame boundary, and internal-resolution changes among them
     uint64_t liveApplied = 0, liveScaleChanges = 0;
     uint64_t hudSprites = 0, hlSmoothed = 0,
