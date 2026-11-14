@@ -9,8 +9,10 @@
 // (lights that reach less than 10 % are dropped). Big objects next to a light keep a real point light (kind Point).
 //
 // The option keeps the engine's own set exactly as it is and adds the lights the limit cut off: into a free slot when
-// the set has one (as the engine would have), otherwise folded into the slot whose direction is closest (directions
-// weighted by brightness, colours added). So the VU1 light block keeps its four slots and nothing else changes.
+// the set has one (as the engine would have), otherwise folded: a point light into the point light slot nearest to it
+// (positions weighted by what each brings to the object, that colour added, the larger reach), a directional one into
+// the directional slot whose direction is closest (directions weighted by brightness, colours added). So the VU1 light
+// block keeps its four slots and nothing else changes.
 #pragma once
 
 #include <algorithm>
@@ -72,10 +74,13 @@ enum class Kind { Skip, Reject, Directional, Point };
 
 struct Evaluated {
     Kind kind = Kind::Skip;
-    Vec3 vector;           // Directional: unit direction from the object to the light; Point: the light's position
-    Vec3 direction;        // unit direction from the object to the light (both kinds)
-    Vec3 colour;           // Directional: attenuated at the centre; Point: the light's own colour
-    float attenuation = 0; // 1 - d^2 / r^2 at the centre (clamped at 0)
+    Vec3 vector;    // Directional: unit direction from the object to the light; Point: the light's position
+    Vec3 direction; // unit direction from the object to the light (both kinds)
+    Vec3 colour;    // Directional: attenuated at the centre; Point: the light's own colour
+    // 1 - d^2 / r^2 (clamped at 0): at the centre for a directional light; for a point light at the point of the
+    // object's sphere nearest to the light (a big object next to a light is lit on that side even when its centre is
+    // out of reach), which is what a folded point light brings
+    float attenuation = 0;
     float radiusSquared = 0, inverseRadiusSquared = 0;
 };
 
@@ -117,6 +122,8 @@ inline Evaluated evaluate(const Light& light, const Transform& transform, const 
     }
     if (point) {
         out.kind = Kind::Point;
+        const float gap = std::max(0.0f, distance - object.radius);
+        out.attenuation = std::max(0.0f, 1.0f - gap * gap * out.inverseRadiusSquared);
         out.vector = position;
         out.colour = light.colour;
         return out;
@@ -181,12 +188,19 @@ inline void finishSlot(const Set& set, Slot& slot) {
     slot.specular = 1;
 }
 
-// Adds one light the limit cut off. Returns 1 when it took a free slot, 2 when it was folded into a slot, 0 when it
-// had nothing to add.
-inline int add(Set& set, const Evaluated& light) {
+enum Added : int {
+    kNothing = 0,           // not accepted, or black
+    kFreeSlot = 1,          // took a free slot, as the engine would have
+    kFoldedDirectional = 2, // folded into the directional slot whose direction is closest
+    kFoldedPoint = 3,       // folded into the point light slot whose position is closest
+    kAmbient = 4,           // no slot to fold into: half of it as ambient light
+};
+
+// Adds one light the limit cut off.
+inline Added add(Set& set, const Evaluated& light) {
     if (!accepted(light.kind))
-        return 0;
-    if (set.count >= 1 && set.count < kSlots) { // a free slot: what the engine would have done
+        return kNothing;
+    if (set.count >= 1 && set.count < kSlots) {
         Slot& slot = set.slots[set.count++];
         slot = Slot{};
         slot.type = light.kind == Kind::Point ? 1u : 0u;
@@ -197,16 +211,47 @@ inline int add(Set& set, const Evaluated& light) {
         if (slot.type)
             set.hasPoint = 1;
         finishSlot(set, slot);
-        return 1;
+        return kFreeSlot;
     }
-    // folded: as a directional light at the centre (a point light gets the same attenuation a directional one has)
+    const int slots = std::min(set.count, kSlots);
+    if (light.kind == Kind::Point) {
+        // a point light joins the nearest point light slot with what it brings to the object (its colour times its
+        // attenuation at the nearest point): the position moves towards it by that weight, so a far, weak light barely
+        // moves the near one the engine chose
+        const Vec3 brings = light.colour * light.attenuation;
+        const float weight = brightness(brings);
+        int best = -1;
+        float bestDistance = 0;
+        for (int i = 1; i < slots; ++i) {
+            const Slot& s = set.slots[i];
+            if (s.type != 1)
+                continue;
+            const Vec3 d = s.vector - light.vector;
+            const float distance = dot(d, d);
+            if (best < 0 || distance < bestDistance)
+                bestDistance = distance, best = i;
+        }
+        if (best >= 0 && weight > 0) {
+            Slot& slot = set.slots[best];
+            const float own = brightness(slot.colour);
+            slot.vector = (slot.vector * own + light.vector * weight) * (1.0f / (own + weight));
+            slot.colour = clampColour(slot.colour + brings);
+            if (light.radiusSquared > slot.radiusSquared) {
+                slot.radiusSquared = light.radiusSquared;
+                slot.inverseRadiusSquared = light.inverseRadiusSquared;
+            }
+            finishSlot(set, slot);
+            return kFoldedPoint;
+        }
+    }
+    // folded as a directional light at the centre (a point light brings its attenuation at the nearest point)
     const Vec3 colour = light.kind == Kind::Point ? light.colour * light.attenuation : light.colour;
     const float weight = brightness(colour);
     if (!(weight > 0))
-        return 0;
+        return kNothing;
     int best = -1;
     float bestDot = -2.0f;
-    for (int i = 1; i < std::min(set.count, kSlots); ++i) { // the point light slots, never the sun
+    for (int i = 1; i < slots; ++i) { // the point light slots, never the sun
         const Slot& s = set.slots[i];
         if (s.type != 0)
             continue;
@@ -214,9 +259,9 @@ inline int add(Set& set, const Evaluated& light) {
         if (d > bestDot)
             bestDot = d, best = i;
     }
-    if (best < 0) { // no directional point light slot: half of it as ambient light
+    if (best < 0) {
         set.ambient = clampColour(set.ambient + colour * 0.5f);
-        return 2;
+        return kAmbient;
     }
     Slot& slot = set.slots[best];
     const float own = brightness(slot.colour);
@@ -226,7 +271,7 @@ inline int add(Set& set, const Evaluated& light) {
         slot.vector = sum * (1.0f / length);
     slot.colour = clampColour(slot.colour + colour);
     finishSlot(set, slot);
-    return 2;
+    return kFoldedDirectional;
 }
 
 } // namespace world::model_lights

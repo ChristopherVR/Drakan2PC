@@ -38,10 +38,17 @@ struct Cached { // the lights the last full search of an object cut off (list in
 std::unordered_map<uint32_t, Cached> g_cached; // key: the object's cached index bytes
 
 struct Stats {
-    uint64_t calls = 0, full = 0, candidates = 0, accepted = 0, wouldAccept = 0, cut = 0, callsCut = 0, slotted = 0,
-             folded = 0, mismatch = 0, suspended = 0;
+    uint64_t calls = 0, full = 0, candidates = 0, accepted = 0, wouldAccept = 0, cut = 0, callsCut = 0, mismatch = 0,
+             suspended = 0;
+    uint64_t added[5]{}; // by ml::Added
     uint32_t maxCandidates = 0, maxWould = 0;
     uint64_t histogram[ml::kMax + 1]{}; // lights it would accept (sun included), per call
+    uint64_t cutDirectional = 0, cutPoint = 0, cutDark = 0, callsCutDirectionalOnly = 0;
+    // the call that would have accepted the most lights since the last report (where to look)
+    uint32_t topWould = 0, topAccepted = 0;
+    ml::Vec3 topCentre, topOrigin;
+    float topRadius = 0;
+    bool topTransform = false, topDirectionalOnly = false;
 };
 Stats g_stats;
 std::chrono::steady_clock::time_point g_nextReport;
@@ -138,17 +145,27 @@ void report() {
             n += std::snprintf(histogram + n, sizeof(histogram) - n, " %d:%llu", i,
                                static_cast<unsigned long long>(s.histogram[i]));
     histogram[n] = 0;
-    std::fprintf(
-        stderr,
-        "[model-lights] calls %llu (full search %llu): candidates %.2f (max %u), accepted %.2f, without the "
-        "limit %.2f (max %u); %llu calls cut %llu lights; added %llu in free slots, %llu folded; mismatch %llu, "
-        "suspended %llu; lights per call:%s\n",
-        static_cast<unsigned long long>(s.calls), static_cast<unsigned long long>(s.full),
-        double(s.candidates) / double(s.calls), s.maxCandidates, double(s.accepted) / double(s.calls),
-        double(s.wouldAccept) / double(s.calls), s.maxWould, static_cast<unsigned long long>(s.callsCut),
-        static_cast<unsigned long long>(s.cut), static_cast<unsigned long long>(s.slotted),
-        static_cast<unsigned long long>(s.folded), static_cast<unsigned long long>(s.mismatch),
-        static_cast<unsigned long long>(s.suspended), histogram);
+    std::fprintf(stderr,
+                 "[model-lights] calls %llu (full search %llu): candidates %.2f (max %u), accepted %.2f, without the "
+                 "limit %.2f (max %u); %llu calls cut %llu lights; added: %llu none, %llu free slot, %llu folded "
+                 "directional, %llu folded point, %llu ambient; mismatch %llu, "
+                 "suspended %llu; lights per call:%s\n",
+                 static_cast<unsigned long long>(s.calls), static_cast<unsigned long long>(s.full),
+                 double(s.candidates) / double(s.calls), s.maxCandidates, double(s.accepted) / double(s.calls),
+                 double(s.wouldAccept) / double(s.calls), s.maxWould, static_cast<unsigned long long>(s.callsCut),
+                 static_cast<unsigned long long>(s.cut), static_cast<unsigned long long>(s.added[0]),
+                 static_cast<unsigned long long>(s.added[1]), static_cast<unsigned long long>(s.added[2]),
+                 static_cast<unsigned long long>(s.added[3]), static_cast<unsigned long long>(s.added[4]),
+                 static_cast<unsigned long long>(s.mismatch), static_cast<unsigned long long>(s.suspended), histogram);
+    std::fprintf(stderr,
+                 "[model-lights] cut lights: %llu directional, %llu point (%llu dark at the object); calls of "
+                 "directional-only objects cut %llu; most lit: %u lights (%u kept), sphere %.0f %.0f %.0f r %.0f, "
+                 "transform %d at %.0f %.0f %.0f, directional only %d\n",
+                 static_cast<unsigned long long>(s.cutDirectional), static_cast<unsigned long long>(s.cutPoint),
+                 static_cast<unsigned long long>(s.cutDark), static_cast<unsigned long long>(s.callsCutDirectionalOnly),
+                 s.topWould, s.topAccepted, s.topCentre.x, s.topCentre.y, s.topCentre.z, s.topRadius,
+                 int(s.topTransform), s.topOrigin.x, s.topOrigin.y, s.topOrigin.z, int(s.topDirectionalOnly));
+    g_stats.topWould = 0;
 }
 
 void builder(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
@@ -258,6 +275,26 @@ void builder(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     if (extraCount) {
         ++s.callsCut;
         s.cut += uint64_t(extraCount);
+        if (directionalOnly)
+            ++s.callsCutDirectionalOnly;
+        for (int i = 0; i < extraCount; ++i) {
+            if (extras[i].kind == ml::Kind::Point) {
+                ++s.cutPoint;
+                if (!(extras[i].attenuation > 0))
+                    ++s.cutDark;
+            } else {
+                ++s.cutDirectional;
+            }
+        }
+    }
+    if (would - before > s.topWould) {
+        s.topWould = would - before;
+        s.topAccepted = accepted;
+        s.topCentre = object.centre;
+        s.topRadius = object.radius;
+        s.topTransform = transform.present;
+        s.topOrigin = transform.origin;
+        s.topDirectionalOnly = directionalOnly;
     }
 
     const int allowed = g_setting - ml::kOriginal;
@@ -267,13 +304,10 @@ void builder(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         const int firstChanged = lights.count;
         int changedFrom = firstChanged;
         for (int i = 0; i < std::min(extraCount, allowed); ++i) {
-            const int how = ml::add(lights, extras[i]);
-            if (how == 1)
-                ++s.slotted;
-            else if (how == 2) {
-                ++s.folded;
+            const ml::Added how = ml::add(lights, extras[i]);
+            ++s.added[how];
+            if (how != ml::kNothing && how != ml::kFreeSlot)
                 changedFrom = 1;
-            }
         }
         writeSet(ram, set, lights, std::min(changedFrom, firstChanged));
     }

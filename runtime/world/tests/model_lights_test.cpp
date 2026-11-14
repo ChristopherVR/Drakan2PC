@@ -70,6 +70,9 @@ int main() {
     ml::Object hall{{0, 0, 0}, 2000.0f, false};
     ml::Evaluated p = ml::evaluate({{1, 1, 1}, 1500.0f, {500.0f, 0, 0}}, {}, hall);
     CHECK(p.kind == ml::Kind::Point && near(p.vector.x, 500.0f) && near(p.colour.x, 1.0f));
+    CHECK(near(p.attenuation, 1.0f)); // the light is inside the hall's sphere
+    ml::Evaluated outside = ml::evaluate({{1, 1, 1}, 1500.0f, {3000.0f, 0, 0}}, {}, hall); // centre out of reach
+    CHECK(outside.kind == ml::Kind::Point && near(outside.attenuation, 1.0f - 1.0e6f / 2.25e6f));
     ml::Object crate{{0, 0, 0}, 300.0f, false};
     CHECK(ml::evaluate({{1, 1, 1}, 400.0f, {350.0f, 0, 0}}, {}, crate).kind == ml::Kind::Point); // r^2 > R^2 / 4
     CHECK(ml::evaluate({{1, 1, 1}, 1000.0f, {350.0f, 0, 0}}, {}, crate).kind == ml::Kind::Directional);
@@ -118,7 +121,7 @@ int main() {
     ml::Evaluated pt = p;
     pt.direction = {1, 0, 0};
     pt.attenuation = 0.25f;
-    CHECK(ml::add(withPoint, pt) == 2 && near(withPoint.slots[1].colour.x, 0.65f));
+    CHECK(ml::add(withPoint, pt) == ml::kFoldedDirectional && near(withPoint.slots[1].colour.x, 0.65f));
     // nothing to add: black, or not accepted
     ml::Set same = fourSlots();
     CHECK(ml::add(same, directional({1, 0, 0}, {0, 0, 0})) == 0 && near(same.slots[1].colour.x, 0.4f));
@@ -129,7 +132,32 @@ int main() {
     ml::Set onlyPoints = fourSlots();
     for (int i = 1; i < 4; ++i)
         onlyPoints.slots[i].type = 1;
-    CHECK(ml::add(onlyPoints, directional({1, 0, 0}, {0.4f, 0.4f, 0.4f})) == 2 && near(onlyPoints.ambient.x, 0.2f));
+    CHECK(ml::add(onlyPoints, directional({1, 0, 0}, {0.4f, 0.4f, 0.4f})) == ml::kAmbient &&
+          near(onlyPoints.ambient.x, 0.2f));
+    // a point light joins the nearest point light slot: brightness-weighted position, added colour, larger reach
+    ml::Set rooms = fourSlots();
+    rooms.slots[2].type = rooms.slots[3].type = 1;
+    rooms.slots[2].vector = {1000, 0, 0};
+    rooms.slots[3].vector = {-1000, 0, 0};
+    rooms.slots[2].radiusSquared = 100.0f;
+    ml::Evaluated torch2 = p;
+    torch2.vector = {1400, 0, 0};
+    torch2.colour = {0.4f, 0.2f, 0.1f};
+    torch2.radiusSquared = 400.0f;
+    torch2.inverseRadiusSquared = 1.0f / 400.0f;
+    CHECK(ml::add(rooms, torch2) == ml::kFoldedPoint);
+    CHECK(near(rooms.slots[2].vector.x, 1200.0f) && near(rooms.slots[2].colour.x, 0.8f) &&
+          near(rooms.slots[2].radiusSquared, 400.0f) && near(rooms.slots[3].vector.x, -1000.0f));
+    // a weak contribution (attenuation 0.25) moves the slot a quarter as far and adds a quarter of the colour
+    ml::Set rooms2 = fourSlots();
+    rooms2.slots[2].type = 1;
+    rooms2.slots[2].vector = {1000, 0, 0};
+    torch2.attenuation = 0.25f;
+    CHECK(ml::add(rooms2, torch2) == ml::kFoldedPoint);
+    CHECK(near(rooms2.slots[2].vector.x, 1000.0f + 400.0f * (0.175f / 0.875f)) && near(rooms2.slots[2].colour.x, 0.5f));
+    // a point light with no point light slot to join is folded as a directional one
+    ml::Set noPointSlots = fourSlots();
+    CHECK(ml::add(noPointSlots, pt) == ml::kFoldedDirectional);
 
     // specular: the half vector follows the folded direction
     ml::Set shiny = fourSlots();
