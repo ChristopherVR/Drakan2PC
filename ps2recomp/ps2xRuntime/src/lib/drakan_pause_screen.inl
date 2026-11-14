@@ -804,6 +804,7 @@ void pauseTick(uint8_t* ram, RecompGuest& g) {
     gameui::Snapshot& back = sh.model.back();
     const gameui::ReadStatus rs = gameui::readSnapshot(mem, g_pause.reader, back);
     back.spellsEnabled = !campaignSpellsOff(); // no mana bar in a campaign without spells
+    back.goldShown = !campaignGoldHidden();    // no gold amount in a campaign without a gold counter
     if (arenaWorldMode())
         back.quests.clear();
     if (g_pause.frames <= 1)

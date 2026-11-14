@@ -483,9 +483,12 @@ void hookViewGold(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 }
 // 42b308(tab record, transform) draws one section tab icon; 42fd18 calls it for record screen+0x19c + i * 0x24 of each
 // section i. A campaign without spells does not draw the Spells tab (the stars), the one section it cannot enter.
+uint32_t g_goldBagRecord = 0; // the Equipment gold bag's record (section + 0x34), set while the bag is to be hidden
 void hookViewTabs(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x42b308u && invViewDrawingAny())
         return invViewSkip(c);
+    if (c->pc == 0x42b308u && g_goldBagRecord && getRegU32(c, 4) == g_goldBagRecord && campaignGoldHidden())
+        return invViewSkip(c); // the spinning gold bag of a campaign without a gold counter (hookGoldTextBox)
     if (c->pc == 0x42b308u && campaignSpellsOff()) {
         RecompGuest g(ram, c, rt);
         const uint32_t record = getRegU32(c, 4);
@@ -842,6 +845,29 @@ void hookViewEquipmentGold(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     g_origViewEquipmentGold(ram, c, rt);
 }
 
+// A campaign without a gold counter (campaign_gold_counter = false) on the five-section inventory: the calls of 4330b0
+// (ra inside it) are handled one by one. The text box 42ae00 still runs, with the formatted amount emptied (skipping
+// the whole of 4330b0 also lost the last, indented details line of the Equipment page); the bag's record is placed
+// as usual (4316c8: 42b0a8, then 42b308) and only its draw 42b308 is skipped (hookViewTabs). A shop (three sections,
+// 447a70 also calls 4330b0) keeps its gold, the player pays with it there.
+constexpr uint32_t kEquipmentGoldFn = 0x4330b0u, kEquipmentGoldEnd = 0x4331e8u;
+bool equipmentGoldHidden(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t ra = getRegU32(c, 31);
+    if (ra <= kEquipmentGoldFn || ra >= kEquipmentGoldEnd || !campaignGoldHidden() || !g_invTabScreen)
+        return false;
+    RecompGuest g(ram, c, rt);
+    return g.read32(g_invTabScreen + 0x1b0) == 5u;
+}
+PS2Runtime::RecompiledFunction g_origGoldTextBox = nullptr;
+void hookGoldTextBox(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x42ae00u && equipmentGoldHidden(ram, c, rt)) {
+        RecompGuest g(ram, c, rt);
+        g.write8(getRegU32(c, 5), 0);              // the amount's text buffer (a stack copy formatted for this call)
+        g_goldBagRecord = getRegU32(c, 4) + 0x34u; // 4330b0 then draws the bag record section+0x34 (4316c8)
+    }
+    g_origGoldTextBox(ram, c, rt);
+}
+
 // 436b78(section, frame, 0): the large spinning preview of the selected item, from the grid draw 437170.
 void hookViewItemPreview(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t ra = getRegU32(c, 31);
@@ -904,6 +930,11 @@ void installInventoryViewHooks(PS2Runtime& rt) {
         *h.original = rt.lookupFunction(h.address);
         rt.replaceFunction(h.address, h.hook);
     }
+    // Optional: a campaign without a gold counter empties the Equipment gold amount (a missing hook leaves it shown).
+    if ((g_origGoldTextBox = rt.lookupFunction(0x42ae00u)))
+        rt.replaceFunction(0x42ae00u, &hookGoldTextBox);
+    else
+        ilog("[inv-view] 42ae00 missing: a campaign without a gold counter shows the Equipment gold amount\n");
     // Optional for the modern screen (a missing one leaves that native draw visible under it).
     const Hook modern[] = {{0x433850u, &g_origViewDetails, &hookViewDetails},
                            {0x435b00u, &g_origViewCellDecor, &hookViewCellDecor}};

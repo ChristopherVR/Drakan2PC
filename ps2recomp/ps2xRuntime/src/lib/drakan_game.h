@@ -30,6 +30,7 @@ struct Campaign {
     std::vector<std::string> levels;
     bool spells = true;   // manifest `campaign_spells`: false = the campaign has no spells (Order of the Flame)
     bool treasure = true; // manifest `campaign_treasure`: false = nothing drops gold or trinkets (Order of the Flame)
+    bool goldCounter = true; // manifest `campaign_gold_counter`: false = no gold amount shown (Order of the Flame)
 };
 
 // One entry of the title's game card. The card lists the campaigns first (Order of the Flame leads) and the disc game
@@ -67,6 +68,10 @@ bool spellsEnabled();
 // (drakan_campaign_treasure.inl); the items the level itself gives them still drop. The disc game always has them.
 // Lock-free and follows select() like spellsEnabled().
 bool treasureEnabled();
+// False while the current game is a campaign whose pack says `campaign_gold_counter = false`: the inventory (both
+// screens), the modern Character page and the PC pause menu show no gold amount; a shop keeps its gold. The disc game
+// always shows it. Lock-free and follows select() like spellsEnabled().
+bool goldCounterShown();
 // True when the title menu has a choice to offer (a campaign pack is installed and [general] game is "ask").
 bool offerChoice();
 // The [general] game value configure() read ("ask" by default); `fromEnv` = DRAKAN_GAME set it.

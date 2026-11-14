@@ -23,6 +23,7 @@
 
 #include "hle/RsrcIop.h"
 #include "hle/ModPack.h"
+#include "hle/CampaignSoundSwaps.h"
 #include "gameui/UiSkin.h"
 #include "gameui/GlyphText.h"
 #include "gameui/MenuText.h"
@@ -1483,6 +1484,41 @@ void soundDebugInstall(PS2Runtime& rt) {
     std::fprintf(stderr, "[drakan] DRAKAN_SND_DBG: sound manager hooks installed\n");
 }
 
+// Campaign sound swaps (a pack's sounds/swaps.ini, hle::CampaignSoundSwaps): while that campaign is the current game,
+// PlaySound plays the listed id in place of a Drakan 2 one, or nothing (returns 0, as for a sound out of range). Rynn's
+// and Arokh's records and the Drakan 2 creature clips are shared with Drakan 2, so they are never changed; the id is
+// swapped at the call. PvP arenas keep the disc's sounds.
+std::shared_ptr<hle::CampaignSoundSwaps> g_soundSwaps;
+PS2Runtime::RecompiledFunction g_swapPlayOrig = nullptr;
+uint32_t g_swapPlayAt = 0;
+std::atomic<int> g_swapLog{0};
+
+inline bool swapArenaWorld() {
+#if defined(PS2X_HAVE_GSR)
+    return drakan_arena::active();
+#else
+    return false;
+#endif
+}
+
+void campaignSoundSwapHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == g_swapPlayAt && g_soundSwaps && g_soundSwaps->campaignActive() && !swapArenaWorld()) {
+        const uint32_t id = getRegU32(ctx, 5), to = g_soundSwaps->map(id);
+        if (to != id) {
+            if (g_swapLog.fetch_add(1) < 400)
+                std::fprintf(stderr, "[sound] campaign swap %x -> %x (ra=%x)
+", id, to, getRegU32(ctx, 31));
+            if (to == 0) {
+                    SET_GPR_U32(ctx, 2, 0);
+                    ctx->pc = getRegU32(ctx, 31);
+                    return;
+            }
+            SET_GPR_U32(ctx, 5, to);
+        }
+    }
+    g_swapPlayOrig(rdram, ctx, rt);
+}
+
 void applyTraceEnv(PS2Runtime& rt) {
     const char* e = std::getenv("DRAKAN_TRACE_FN");
     if (!e)
@@ -1955,7 +1991,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                     if (std::find(mine.begin(), mine.end(), n) != mine.end())
                         order.push_back(n);
                 campaigns.push_back({m.campaign, m.campaignName, m.campaignDescription, m.id, start, saves, order,
-                                     m.campaignSpells, m.campaignTreasure});
+                                     m.campaignSpells, m.campaignTreasure, m.campaignGoldCounter});
             }
         }
         hle::FileService* gameFiles = &host->iop.file;
@@ -1998,6 +2034,27 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                                     uint8_t* data,
                                                     size_t n) { credits->patchRead(fs, node, offset, data, n); });
             std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
+        }
+        if (g_mods && !g_mods->soundSwapFiles().empty()) {
+            // Campaign sound swaps (sounds/swaps.ini): Drakan 2 sounds this campaign plays differently, only while it
+            // is the current game.
+            auto swaps = std::make_shared<hle::CampaignSoundSwaps>();
+            for (const auto& [modId, text] : g_mods->soundSwapFiles()) {
+                size_t bad = 0;
+                const size_t n = swaps->add(modId, text, &bad);
+                std::fprintf(stderr, "[game] pack '%s': %zu campaign sound swap(s)%s
+                                     ", modId.c_str(), n,
+                                         bad
+                                         ? " (some lines not understood)"
+                                         : "");
+            }
+            g_swapPlayAt = drakan_region::guestAddress(0x1b7f30u);
+            if (swaps->size() && g_swapPlayAt && runtime.hasFunction(g_swapPlayAt)) {
+                swaps->setActive([] { return drakan_game::currentModId(); });
+                g_soundSwaps = swaps;
+                g_swapPlayOrig = runtime.lookupFunction(g_swapPlayAt);
+                runtime.replaceFunction(g_swapPlayAt, &campaignSoundSwapHook);
+            }
         }
         if (g_mods) {
             // A campaign's own title menu music (manifest `campaign_title_music`): requests for the disc's title track

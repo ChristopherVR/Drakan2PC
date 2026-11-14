@@ -402,6 +402,13 @@ inline bool campaignSpellsOff() {
     return !drakan_game::spellsEnabled() && !multiplayerSessionActive();
 }
 
+// The current game is a campaign that shows no gold amount (manifest `campaign_gold_counter = false`,
+// drakan_game::goldCounterShown): no gold in either inventory screen, on the modern Character page or in the PC pause
+// menu. A PvP arena keeps the disc's screens like the drops (drakan_campaign_treasure.inl); co-op follows the campaign.
+inline bool campaignGoldHidden() {
+    return !drakan_game::goldCounterShown() && !arenaWorldMode();
+}
+
 #include "drakan_map_mouse_hooks.inl"
 #include "drakan_inventory_content_hooks.inl"
 #include "drakan_inventory_views.inl"
