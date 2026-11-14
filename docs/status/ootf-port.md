@@ -704,6 +704,19 @@ main `e25661c3`; needs a regenerated pack and a new game. The optional `build/re
 (two scene sounds, chosen without hearing) goes last in `--subtitles` if the owner wants it.
 See [sound and subtitles](../journal/2026-11-14/ootf-sound-subtitles.md).
 
+**November 14 class-default sounds (round 7):** converted classes kept their Drakan 2 template's sounds (torches asked
+for sound 0; goblins had no voice; weapons played the template's equip and pickup sounds). The sounds stage now converts
+the sounds a PC class names in its own fields and writes them field by field into the clone (1,080 fields of 470 classes;
+a PC field without a sound clears the template's); a torch's crackle, named through its sound effect class, plays as the
+PS2 flame's looping sound with the loop flag. Name-mapped Drakan 2 classes (Rynn, Arokh, mapped creatures and potions)
+and enemies with Drakan 2 models keep their own sounds (Drakan 2's records are shared). `--class-sounds 0` turns it off.
+Played (logs, not heard): Ruined Village torches now play their PC crackle and hold it looped, Atimar equips with the PC
+sound, Islands goblins call their PC lines and their darts hit with the PC impact. Not shown in play: a death or hit
+voice, a door's start or bang, the map chime, a pickup sound. Also: Wartok Canyons' warrior scene (a detector's
+class-default scene, 7 clips) is now converted (not played); the Islands start has no music because the PC level starts
+without (Initial Music ID 0). Pack +3.2 %. Formats `d86fb8a`; needs a regenerated pack and a new game. See
+[class sounds](../journal/2026-11-14/ootf-class-sounds.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.

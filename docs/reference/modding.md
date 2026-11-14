@@ -898,3 +898,12 @@ same on its disc: its creature voices carry the speech flag with an empty text.
 The file is engine-neutral (keyed by the PC sound bank and id, times relative to the clip) and can be corrected by hand; the
 pack carries the lines it used as `story/subtitles.json` beside the engine's copy in the descriptors. It is game text made
 from game audio: keep it under `build/` or `local/`, never in the repository.
+
+**Class-default sounds.** The Order of the Flame converter also converts the sounds a PC class names in its own sound
+fields (death, hit and alert voices, door, weapon, rope, ambient and map-chime sounds) and writes them into the converted
+class by field name; a PC field without a sound clears the Drakan 2 template's, template fields the PC class lacks keep
+theirs. A PC "Sound Effect Object" (a torch's crackle) fills the PS2 "Looping Sound", and a clip only a looping field plays
+gets the loop flag. Name-mapped Drakan 2 classes (Rynn, Arokh, same-named creatures and items) are Drakan 2's own records
+and keep their sounds, as do enemies shown with a Drakan 2 model. `ootf-convert.ts --class-sounds 0` (pipeline
+`classSounds: false`) keeps every clone's template sounds; `DRAKAN_DBG_CLASSSOUNDS=1` logs each field
+(`ootfclasssounds.ts`, `journal/2026-11-14/ootf-class-sounds.md`).
