@@ -652,6 +652,20 @@ Seen in passing: the magic flame ring round Alwarren's barrier crystal neither s
 those flames have no visible flag in the PC data; not established for the PC). Formats `0afdb74`, `7266f98`; needs
 a regenerated pack and a new game. See [object behaviour audit](../journal/2026-11-14/ootf-object-behaviour-audit.md).
 
+**November 14 Drakan 2 fire for flames, Drakan 2 explosion for barrels (round 7):** the owner's "use Drakan 2's
+flames" and "exploding barrels don't show any explosion". Flames: the 487 converted flames were clones of RESOURES "Wall
+Torch", whose fire generator lives 0.3 s; the class 20 object starts light and fire together and never restarts a fire
+whose handle is set, so only the light stayed (traced). The converted flame class now names the fire of Drakan 2's own
+"OTF Wall Torch", shows the disc's invisible particle carrier instead of the OotF card, and each flame moves to the foot of
+its card; the 17 flames placed at 0.2 take the candle fire. Barrels: the converted OotF explosion drew only the staves; its
+free smoke slot now runs the Drakan 2 barrel explosion (flash, fireball, staves) beside it, so the OotF blast damage stays
+(an orc at the barrels dies before and after). Both are rows of the Drakan 2 model table (categories Flames and Effects),
+on by default; all rows off gives a byte-identical pack (formats `673f5a4`). Seen with the owner's ini in the Ruined
+Village, Alwarren and Rift Crystal (placed views), a trigger-lit torch lit by walking into its detector, a barrel struck by
+Rynn and barrels set off by a pushed boulder. Cost at a Rift Crystal torch with 50 fires live: frame 6.9 to 8.2 ms (+17 to
++19 %, 4 quiet pairs), one GS probe read-back per frame as in Surdana. Not seen: the 0.2 lamps (Islands, on Arokh), Mines
+and Canyons torches; sounds not listened to. Needs a regenerated pack. See [flames and barrels](../journal/2026-11-14/ootf-flames.md).
+
 **November 14 item requirements:** the Chain Mail of Ruined Village could not be worn ("Exp. Level Needed 3",
 "That can't be used right now." on the modern screen, greyed on the native one; Rynn is level 1). The PC game has no
 requirement on any item, but converted armour kept the Drakan 2 template's Skill Level, which the engine checks against

@@ -45,7 +45,13 @@ export function modelChoiceToOptions(c: Ps2ModelChoice): Ps2ModelSwapOptions {
     };
 }
 
-const CATEGORY_NAMES: Record<Ps2ModelCategory, string> = { enemies: 'Enemies', weapons: 'Weapons', props: 'Props' };
+const CATEGORY_NAMES: Record<Ps2ModelCategory, string> = {
+    enemies: 'Enemies',
+    weapons: 'Weapons',
+    props: 'Props',
+    flames: 'Flames',
+    effects: 'Effects',
+};
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
 /** A stored choice, tolerating anything malformed (falls back to the default for that part). */
@@ -74,7 +80,7 @@ export function customModelPair(
     ps2: string,
     label?: string,
 ): Ps2ModelSubstitution | string {
-    if (!(category in CATEGORY_NAMES) || category === 'props') return 'Choose Enemies or Weapons.';
+    if (category !== 'enemies' && category !== 'weapons') return 'Choose Enemies or Weapons.';
     if (!modelKey(ootf)) return 'Order of the Flame class: write the class name, for example Long Sword.';
     if (!modelKey(ps2)) return 'Drakan 2 class: write the class name, for example Steel Longsword.';
     return {
