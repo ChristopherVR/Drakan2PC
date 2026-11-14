@@ -804,6 +804,12 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   an importer box), and while Order of the Flame is the current game the gold generator gives nothing out; the OotF death
   items (potions) still drop, Drakan 2 keeps its treasure. Needs a rebuilt exe and a pack with the key. See
   [no drops](../journal/2026-11-14/ootf-no-drops.md).
+* Living foliage moves leaves, not whole trees (2026-11-14): `[video] foliage_wind` is `off | grass | all | classic`
+  (1 in an older ini = all). In `all` trunks and branches stay still and only the vertices of cut-out leaf materials
+  move, with the level's wind, a per-tree phase and more motion higher up; static props that look like trees get it too,
+  so the palms of the converted Ruined Village move (they were still before). Grass bends as before; `classic` is the old
+  whole-tree lean. Visual only, no measured frame cost. Needs a rebuilt exe; the pack is unchanged. See
+  [foliage wind](../journal/2026-11-14/foliage-wind.md).
 
 ## Known gaps
 

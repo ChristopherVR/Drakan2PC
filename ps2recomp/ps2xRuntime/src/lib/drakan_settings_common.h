@@ -139,7 +139,7 @@ protected:
         if (n.polyNearClip != p.polyNearClip)
             drakan_polyclip::configure(n.polyNearClip);
         if (n.foliageWind != p.foliageWind || n.foliageWindStrength != p.foliageWindStrength)
-            drakan_foliage::configure(n.foliageWind, n.foliageWindStrength);
+            drakan_foliage::configure(drakan_foliage::modeFromText(n.foliageWind.c_str()), n.foliageWindStrength);
         if (n.lodDistance != p.lodDistance || n.drawDistance != p.drawDistance)
             drakan_model_detail::configure(n.lodDistance, n.drawDistance);
         if (n.vertexProcessing != p.vertexProcessing)

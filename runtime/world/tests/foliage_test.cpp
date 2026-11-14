@@ -125,6 +125,94 @@ void testShearKeepsLength() {
     CHECK(add[0] == 0.3f * len && add[2] == 0.2f * len && add[1] < 0);
 }
 
+void testLeafClassification() {
+    CHECK(!leafMaterial(0.0f) && !leafMaterial(0.05f) && leafMaterial(0.5f));
+    // A tree: solid trunk from the base, a cut-out crown with most faces.
+    const MaterialStats tree[] = {{0.0f, 212, 0, 5052}, {0.6f, 504, 188, 4946}};
+    CHECK(looksLikeTree(tree, 2, 0, 5052));
+    // A palm: trunk texture and fronds from a third of the height up.
+    const MaterialStats palm[] = {{0.0f, 198, -279, 8825}, {0.77f, 60, 2749, 7776}};
+    CHECK(looksLikeTree(palm, 2, -279, 8825));
+    // A house with a few cut-out windows, a small cut-out prop, a solid hut, all cut out (no trunk).
+    const MaterialStats house[] = {{0.0f, 900, 0, 4000}, {0.5f, 20, 1500, 2500}};
+    CHECK(!looksLikeTree(house, 2, 0, 4000));
+    const MaterialStats prop[] = {{0.0f, 20, 0, 118}, {0.5f, 12, 32, 118}};
+    CHECK(!looksLikeTree(prop, 2, 0, 118));
+    const MaterialStats hut[] = {{0.0f, 359, 0, 3174}, {0.0f, 582, 256, 2458}};
+    CHECK(!looksLikeTree(hut, 2, 0, 3174));
+    const MaterialStats cut[] = {{0.5f, 295, 0, 8402}};
+    CHECK(!looksLikeTree(cut, 1, 0, 8402));
+}
+
+void testLeafWeights() {
+    // Anchors and the base do not move; the weight grows with height and with the distance from the trunk.
+    CHECK(leafWeight(4000, 500, 0, 5000, 2000, true) == 0.0f);
+    CHECK(leafWeight(0, 500, 0, 5000, 2000, false) == 0.0f);
+    float prev = -1;
+    for (float y = 0; y <= 5000; y += 250) {
+        const float w = leafWeight(y, 1000, 0, 5000, 2000, false);
+        CHECK(w >= prev && w <= 1.0f);
+        prev = w;
+    }
+    CHECK(leafWeight(4000, 2000, 0, 5000, 2000, false) > leafWeight(4000, 0, 0, 5000, 2000, false));
+}
+
+void testLeafMotion() {
+    const float identity[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    const Lean dir{1.0f, 0.0f};
+    const float height = 5000.0f;
+    const LeafVertex top = leafVertex(800, 4800, 300, leafWeight(4800, 900, 0, 5000, 2000, false), height);
+    const LeafVertex anchor = leafVertex(100, 3000, 50, 0.0f, height);
+    double meanAlong = 0;
+    float maxOffset = 0;
+    int differ = 0;
+    for (int i = 0; i < 2000; ++i) {
+        const double t = 0.05 * i;
+        const LeafFrame f = leafFrame(dir, 300000.f, 200000.f, 1234, t, 1.0f, height, identity);
+        float o[3], a[3];
+        leafOffset(f, top, o);
+        leafOffset(f, anchor, a);
+        CHECK(a[0] == 0 && a[1] == 0 && a[2] == 0);
+        CHECK(std::isfinite(o[0]) && std::isfinite(o[1]) && std::isfinite(o[2]));
+        meanAlong += o[0];
+        maxOffset = std::max(maxOffset, std::sqrt(o[0] * o[0] + o[1] * o[1] + o[2] * o[2]));
+        // Two trees side by side do not move in step.
+        const LeafFrame g = leafFrame(dir, 300400.f, 200000.f, 98765, t, 1.0f, height, identity);
+        float p[3];
+        leafOffset(g, top, p);
+        differ += std::fabs(p[0] - o[0]) > 1.0f;
+    }
+    meanAlong /= 2000;
+    // On average the crown leans downwind; at most a few percent of the height, never a jump.
+    CHECK(meanAlong > 0.005 * height);
+    CHECK(maxOffset > 0.01f * height && maxOffset < 0.08f * height);
+    CHECK(differ > 1500);
+    // Strength scales the motion, and the model's own scale is undone (a tree drawn twice as large moves the same
+    // world distance: half the model units).
+    const float scaled[9] = {2, 0, 0, 0, 2, 0, 0, 0, 2};
+    float inv[9];
+    CHECK(invert3(scaled, inv) && std::fabs(inv[0] - 0.5f) < 1e-6f);
+    const LeafFrame f1 = leafFrame(dir, 1, 1, 7, 3.0, 1.0f, height, identity);
+    const LeafFrame f2 = leafFrame(dir, 1, 1, 7, 3.0, 1.0f, height, inv);
+    CHECK(std::fabs(f2.sway[0] - 0.5f * f1.sway[0]) < 1e-3f);
+    const LeafFrame f3 = leafFrame(dir, 1, 1, 7, 3.0, 2.0f, height, identity);
+    CHECK(std::fabs(f3.sway[0] - 2.0f * f1.sway[0]) < 1e-3f);
+    // A rotated tree (yaw 90 degrees) gets the same world wind in its own axes.
+    const float yaw[9] = {0, 0, 1, 0, 1, 0, -1, 0, 0};
+    float yawInv[9];
+    CHECK(invert3(yaw, yawInv));
+    const LeafFrame fr = leafFrame(dir, 1, 1, 7, 3.0, 1.0f, height, yawInv);
+    float world[3];
+    for (int r = 0; r < 3; ++r)
+        world[r] = yaw[r * 3] * fr.sway[0] + yaw[r * 3 + 1] * fr.sway[1] + yaw[r * 3 + 2] * fr.sway[2];
+    CHECK(std::fabs(world[0] - f1.sway[0]) < 1e-2f && std::fabs(world[2]) < 1e-2f);
+    // Level wind steers the direction; none falls back to the global wind.
+    const Lean steered = steerWind(0.0f, -3.0f, 10.0);
+    CHECK(std::fabs(steered.x) < 1e-6f && std::fabs(steered.z + 1.0f) < 1e-6f);
+    const Lean global = steerWind(0.0f, 0.0f, 10.0), expect = windDirection(10.0);
+    CHECK(global.x == expect.x && global.z == expect.z);
+}
+
 // Cost of the per-object model: a busy forest frame draws a few thousand trees and plants.
 void benchmark() {
     const int n = 200000;
@@ -150,6 +238,9 @@ int main() {
     testNeighboursMoveTogether();
     testPush();
     testShearKeepsLength();
+    testLeafClassification();
+    testLeafWeights();
+    testLeafMotion();
     if (g_failed) {
         std::fprintf(stderr, "%d checks failed\n", g_failed);
         return 1;

@@ -305,6 +305,7 @@ The canonical Markdown remains in this repository:
 - [Level logic: graph editor, templates, validation, in-game proof (2026-10-31)](journal/2026-10-31/level-logic.md)
 - [Level object placement: how it was found (2026-10-31)](journal/2026-10-31/level-placement.md)
 - [Living foliage (experimental): wind for grass and trees](journal/2026-10-31/living-foliage.md)
+- [Living foliage: wind on the leaves, trunks still](journal/2026-11-14/foliage-wind.md)
 - [First LVL / ODB dumps (lvl_dump.py, odb_dump.py)](journal/2026-10-31/lvl-odb-dump.md)
 - [Mod support in the runtime (2026-10-31)](journal/2026-10-31/mod-support.md)
 - [Modern water: per-frame CPU spikes on Direct3D 11 and WebGPU (31 October 2026)](journal/2026-10-31/modern-water-cpu.md)

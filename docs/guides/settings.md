@@ -42,7 +42,7 @@ Use F11 or Alt+Enter for borderless fullscreen on Windows. Increase render scale
 | Vertex processing | Where the 3D shapes are worked out: on the processor (the original way) or on the graphics card; the picture is the same and it can be switched back at any time | `vertex_processing` = `cpu` (default), `gpu` or `auto` in the Performance section; live. Until a renderer has the graphics card path, every value uses the processor |
 | DLSS Super Resolution / DLAA | Reconstruction or anti-aliasing | Compatible NVIDIA RTX GPU and a DLSS-enabled Windows build |
 | Ray-traced water and shadows | Optional rendering effects | Compatible DirectX Raytracing hardware and a build with DXR support |
-| Living foliage (experimental) | Grass, flowers, ferns and trees sway in the wind; grass bends away from you | PAL disc; `foliage_wind` in the Display page's Vegetation section, strength 0.25 to 2 |
+| Living foliage (experimental) | Grass, flowers and ferns bend in the wind and away from you; with Grass and leaves the leaves of trees flutter too while trunks and branches stay still; Whole trees is the first version | PAL disc; `foliage_wind` = `off`, `grass`, `all` or `classic` in the Display page's Vegetation section, strength 0.25 to 2 |
 | Character detail distance, object draw distance | Characters keep their detailed model further away; people, plants and small objects are drawn further out before they fade | PAL disc; `lod_distance` (1 to 8) and `draw_distance` (1 to 4) in the Display page's Models section, 1 = original |
 | HD movies | Replace selected FMVs with locally upscaled video | Local movie pack and `hd_movies` enabled |
 

@@ -442,15 +442,17 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
 
     pg.sections.push_back({"Vegetation", {}});
     b.sec = &pg.sections.back();
-    b.toggle("video.foliage_wind", "Living foliage (experimental)",
-             caps.foliageWind ? "Grass, flowers, ferns and trees sway in a wind that rolls across the level in gusts, "
-                                "and grass bends away from you (or Arokh) as you pass. Only changes how they are "
-                                "drawn; nothing is saved."
+    b.choice("video.foliage_wind", "Living foliage (experimental)",
+             caps.foliageWind ? "A wind that rolls across the level in gusts. Grass: grass, flowers and ferns bend "
+                                "with it and away from you (or Arokh) as you pass. Grass and leaves: the leaves of "
+                                "trees flutter too while trunks and branches stay still. Whole trees: the first "
+                                "version, whole trees lean. Only changes how they are drawn; nothing is saved."
                               : "Needs the PAL executable layout; not available for this disc.",
-             false, caps.foliageWind || v.foliageWind);
+             {{"off", "Off"}, {"grass", "Grass"}, {"all", "Grass and leaves"}, {"classic", "Whole trees"}}, false,
+             caps.foliageWind || v.foliageWind != "off");
     b.slider("video.foliage_wind_strength", "Wind strength",
-             "How far foliage leans and how hard the gusts blow (1 = default).", v.foliageWindStrength, 0.25f, 2.0f,
-             "%.2f", 0.05f, caps.foliageWind && v.foliageWind)
+             "How far foliage moves and how hard the gusts blow (1 = default).", v.foliageWindStrength, 0.25f, 2.0f,
+             "%.2f", 0.05f, caps.foliageWind && v.foliageWind != "off")
         .needs = "Needs living foliage.";
 
     // The DLSS setting drives NVIDIA DLSS only on a renderer that has it (caps.dlssNvidia: Direct3D 11). On the shared

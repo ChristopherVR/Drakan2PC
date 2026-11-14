@@ -68,7 +68,9 @@ struct VideoSettings {
     bool rayShadows = false;
     bool rayGlobalIllumination = false;
     bool polyNearClip = true; // poly_near_clip: clip effect polygons at the camera (fixes streaks and flashes)
-    bool foliageWind = false; // foliage_wind: grass and trees sway in the wind, grass bends away from the player
+    // foliage_wind: off | grass (grass, flowers and ferns bend) | all (also the leaves of trees; trunks stay still) |
+    // classic (the first version: whole trees lean). Old ini values 1 / on read as all.
+    std::string foliageWind = "off";
     float foliageWindStrength = 1.0f; // foliage_wind_strength: 0.25 .. 2
     // lod_distance: characters keep their detailed model this many times further out, 1 (original) .. 8
     float lodDistance = 4.0f;

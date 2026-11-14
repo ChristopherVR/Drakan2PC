@@ -522,9 +522,21 @@ const std::vector<Field>& fields() {
         {"video", "poly_near_clip", false, GETB(video.polyNearClip), SETB(video.polyNearClip),
          "1 = clip effect polygons (ribbons, beams) at the camera instead of drawing them whole; fixes streaks and "
          "flashes when the camera is inside an effect"},
-        {"video", "foliage_wind", false, GETB(video.foliageWind), SETB(video.foliageWind),
-         "experimental: grass, flowers and trees sway in a travelling wind with gusts and grass bends away from the "
-         "player (render only, nothing is saved)"},
+        {"video", "foliage_wind", false, GETS(video.foliageWind),
+         [](Settings& s, const std::string& v) {
+             const std::string u = lower(trim(v));
+             if (u == "off" || u == "0" || u == "false" || u == "no")
+                 s.video.foliageWind = "off";
+             else if (u == "grass")
+                 s.video.foliageWind = "grass";
+             else if (u == "all" || u == "1" || u == "on" || u == "true" || u == "yes" || u == "leaves")
+                 s.video.foliageWind = "all";
+             else if (u == "classic")
+                 s.video.foliageWind = "classic";
+         },
+         "experimental wind in the vegetation, render only: off | grass (grass, flowers and ferns bend in the wind and "
+         "away from the player) | all (also the leaves of trees, trunks stay still) | classic (whole trees lean, the "
+         "first version)"},
         {"video", "foliage_wind_strength", false, GETF(video.foliageWindStrength, "%.2f"),
          SETF(video.foliageWindStrength), "how far foliage leans and how hard gusts blow, 0.25 .. 2 (1 = default)"},
         {"video", "lod_distance", false, GETF(video.lodDistance, "%.2f"), SETF(video.lodDistance),

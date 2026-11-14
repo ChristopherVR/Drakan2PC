@@ -857,11 +857,22 @@ int main(int argc, char** argv) {
         // Living foliage: off by default, round-trips through the ini, strength is read as a float.
         SettingsStore st;
         st.loadFromText("", "");
-        CHECK(!st.loaded().video.foliageWind && st.loaded().video.foliageWindStrength == 1.0f);
+        CHECK(st.loaded().video.foliageWind == "off" && st.loaded().video.foliageWindStrength == 1.0f);
+        // An ini written before the choice existed (1 = on) means grass and leaves.
         st.loadFromText("[video]\nfoliage_wind=1\nfoliage_wind_strength=1.5\n", "");
-        CHECK(st.loaded().video.foliageWind && st.loaded().video.foliageWindStrength == 1.5f);
+        CHECK(st.loaded().video.foliageWind == "all" && st.loaded().video.foliageWindStrength == 1.5f);
+        for (const char* m : {"off", "grass", "all", "classic"}) {
+            SettingsStore one;
+            one.loadFromText(std::string("[video]\nfoliage_wind=") + m + "\n", "");
+            CHECK(one.loaded().video.foliageWind == m);
+        }
+        {
+            SettingsStore zero;
+            zero.loadFromText("[video]\nfoliage_wind=0\n", "");
+            CHECK(zero.loaded().video.foliageWind == "off");
+        }
         auto n = st.loaded();
-        n.video.foliageWind = false;
+        n.video.foliageWind = "grass";
         n.video.foliageWindStrength = 0.5f;
         auto keys = changedKeys(st.loaded(), n);
         CHECK(std::find(keys.begin(), keys.end(), "video.foliage_wind") != keys.end());
@@ -870,7 +881,7 @@ int main(int argc, char** argv) {
         st.render(n, a, b);
         SettingsStore next;
         next.loadFromText(a, b);
-        CHECK(!next.loaded().video.foliageWind && next.loaded().video.foliageWindStrength == 0.5f);
+        CHECK(next.loaded().video.foliageWind == "grass" && next.loaded().video.foliageWindStrength == 0.5f);
     }
     {
         // Terrain detail and cliff textures are off by default; the strength is a float.
