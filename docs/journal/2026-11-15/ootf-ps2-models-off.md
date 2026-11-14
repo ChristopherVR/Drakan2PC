@@ -48,7 +48,7 @@ Rows (Drakan 2 model table, category Props):
 | --- | --- | --- |
 | Skeleton Hanging, Skeleton04 (Skeleton04) | MOUNTAON "Skeleton 10 - Hanging no cable" hung from the OotF chain, as tall as the OotF skeleton | on |
 | Hanging Guy (HangingBody2) | WORLDCON "Deadguy 03" on the OotF gallows rope | on |
-| Hanging torso (HangingTorso2) | WORLDCON "Deadguy 02" on the OotF rope | on |
+| Hanging torso (HangingTorso2) | WORLDCON "Deadguy 02" on the OotF rope | off (its head thrown back, it reads as falling off the post: `evidence/wc_torso_zoom.png`, runs `wc_b4` / `wc_a4`) |
 | Cage Body(L) (Cage02wPerson) | WORLDCON "Deadguy 03" in the OotF cage, legs out of the bottom as before | on |
 | Spiked Body (Body on Spike02) | WORLDCON "Deadguy 03" folded 125 degrees over the OotF spike | on |
 | Spiked Torso (Torso on Spike01) | WORLDCON "Deadguy 01" on the OotF spike | off (not seen in the game) |
@@ -82,7 +82,9 @@ the same poses for both packs.
   `evidence/wc_bodies_zoom.png` (brightened crops: the hanged man and the hanging skeleton from the chain, the caged
   man and the hanging torso, the spike pit) and `evidence/wc_spikes_zoom.png` (the dead man folded over his spike, row
   3). The Drakan 2 skeleton hangs from the OotF chain at the OotF height; the dead men hang from the OotF ropes, stand in
-  the cage with their legs out of the bottom and lie over the spike with the spike through the body.
+  the cage with their legs out of the bottom and lie over the spike with the spike through the body. The hanging torso
+  (`evidence/wc_torso_zoom.png`, a closer look in runs `wc_b4` / `wc_a4`) throws its head back and seems to fall away from
+  the post; it is more detailed but not clearly better, so its row is off.
 * **Palms** (Islands, runs `is_b` / `is_a`): `evidence/is_palms.png` and `evidence/is_palms_zoom.png`: fuller, more
   drooping crowns on the tall and short palms, trunks as before.
 * Offline previews of every row (software renders of what the pack draws): `prev/`.

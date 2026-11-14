@@ -89,7 +89,7 @@ Drakan 2 style, on by default, colliding exactly as the OotF models (polygon and
 pieces get separate boards on the OotF walkway, rope stringers and round ropes with the Drakan 2 bridge pictures (Rynn
 walked the Ruined Village span both ways with W in both packs); the hanging skeleton is the Drakan 2 one hung from the
 OotF chain; hanged, caged and spiked bodies are Drakan 2 dead men (WORLDCON "Deadguy") on the OotF rope, in the OotF
-cage or folded over the OotF spike (the torso on a spike stays off, not seen); tall and short palms get a rounded trunk
+cage or folded over the OotF spike (the torso on a spike and the hanging torso stay off: not seen, and not clearly better); tall and short palms get a rounded trunk
 and a doubled crown. Prop rows can be switched per PC model (`class|PC model`). Needs a regenerated pack. See
 [bridges, skeletons, bodies, palms](../journal/2026-11-15/ootf-ps2-models-off.md).
 
