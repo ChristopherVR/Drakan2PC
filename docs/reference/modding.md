@@ -903,7 +903,8 @@ from game audio: keep it under `build/` or `local/`, never in the repository.
 fields (death, hit and alert voices, door, weapon, rope, ambient and map-chime sounds) and writes them into the converted
 class by field name; a PC field without a sound clears the Drakan 2 template's, template fields the PC class lacks keep
 theirs. A PC "Sound Effect Object" (a torch's crackle) fills the PS2 "Looping Sound", and a clip only a looping field plays
-gets the loop flag. Name-mapped Drakan 2 classes (Rynn, Arokh, same-named creatures and items) are Drakan 2's own records
+gets the loop flag. "Picked Up Sound" keeps the template's: with a converted clip there the engine plays no pickup sound at
+all. Name-mapped Drakan 2 classes (Rynn, Arokh, same-named creatures and items) are Drakan 2's own records
 and keep their sounds, as do enemies shown with a Drakan 2 model. `ootf-convert.ts --class-sounds 0` (pipeline
 `classSounds: false`) keeps every clone's template sounds; `DRAKAN_DBG_CLASSSOUNDS=1` logs each field
 (`ootfclasssounds.ts`, `journal/2026-11-14/ootf-class-sounds.md`).
