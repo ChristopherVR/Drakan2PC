@@ -725,6 +725,12 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   Controls screen use our own wording without spells; switching Drakan 2 -> Order of the Flame -> Drakan 2 on the title
   card in one session switches all of it. Needs a rebuilt exe only. See
   [no spells 2](../journal/2026-11-14/ootf-no-spells-2.md).
+* No gold or trinket drops in the OotF campaign (2026-11-14): the drops were Drakan 2's level gold (the cloned Surdana Level
+  Properties deals 2000 gold over the orcs, slaves, barrels and crates by their Drakan 2 class weights), not OotF data. The
+  manifest now says `campaign_treasure = false` (converter default; editor Project Settings > Campaign > Gameplay > Drops and
+  an importer box), and while Order of the Flame is the current game the gold generator gives nothing out; the OotF death
+  items (potions) still drop, Drakan 2 keeps its treasure. Needs a rebuilt exe and a pack with the key. See
+  [no drops](../journal/2026-11-14/ootf-no-drops.md).
 
 ## Known gaps
 

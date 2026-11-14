@@ -506,6 +506,8 @@ campaign_title_music = 4                             # optional: PS2MUSIC.SDB so
                                                      #   this campaign is chosen (the pack adds it, see below)
 campaign_spells = false                              # optional: the campaign has no spells (default true; see
                                                      #   "Campaigns without spells")
+campaign_treasure = false                            # optional: nothing drops gold or trinkets (default true; see
+                                                     #   "Campaigns without gold and trinket drops")
 ```
 
 Plus, optionally, **`previews/campaign-<id>.png`** in the pack: the cover picture of the game card (PNG, at most 8 MiB, 16:9;
@@ -646,6 +648,33 @@ touched. Multiplayer keeps spells (arena characters get every spell). While it i
 
 Code: `drakan_campaign_spells.inl`, `drakan_inventory_views.inl`, `drakan_inventory_views_policy.h`; journals
 `docs/journal/2026-11-14/ootf-no-spells.md` and `ootf-no-spells-2.md`.
+
+### Campaigns without gold and trinket drops
+
+`campaign_treasure = false` (same spelling rules as `campaign_spells`) says nothing in the campaign drops gold or
+trinkets. Order of the Flame has no shops, so its campaign is such a game. The editor's OotF converter and
+`ootf-convert.ts --campaign 1` write it (the importer's "Gold and trinket drops" box and `--treasure 1` keep the drops);
+a custom campaign sets it in Project Settings > Campaign > Gameplay > **Drops** (`ProjectCampaign.treasure`,
+`campaignMeta` writes `campaignTreasure: false`).
+
+Where the drops come from: a level's Level Properties object has a "Level Gold Distribution" group (`Total amount of
+gold to distribute`, allocation sizes, `Types of Treasure Available`: a list of treasure classes `0x1006d`, the Scepter,
+Bracelet, Chalice, Crown, Crystal, Diamond, Emerald, Goblet, Necklace, Ring, Ruby and SackoGold of `RESOURES.ODB`). At
+level load the gold is shared out among the objects whose class has a `Gold Generation Weight` (NPC classes field 170,
+breakables and chests field 0) into the gold generator's table (`0x4fbee0`). When such an object dies, breaks or opens,
+`2eeb98(generator, actor, slots)` takes its share, splits it into up to `Number of Gold Slots` pieces and makes a treasure
+object for each. Every converted OotF level clones the template's Level Properties (Surdana: 2000 gold and those 12
+classes), and the OotF orcs (weight 20), slaves (50), barrels and crates (50) inherit the Drakan 2 class weights, which
+is why the converted campaign dropped Drakan 2 treasure. The converted levels place no treasure object and no chest.
+
+The runtime reads the key per campaign (`hle::mods::Manifest::campaignTreasure` -> `drakan_game::Campaign::treasure`,
+`drakan_game::treasureEnabled()`, switched in `select()` with the spells; log `[game] gold and trinket drops off (ootf)`).
+While it is off, outside PvP arenas, the hook on 2eeb98 (`drakan_campaign_treasure.inl`) asks for zero slots: the disc's
+own path for a class without gold slots, so the share leaves the table and nothing is made (log `[treasure] actor ...:
+no gold or trinkets`). The rest of a death is untouched: the creature's `Death Items Discarded` (the potions the OotF
+data gives orcs) are made and thrown before 2eeb98, a chest still spews what the level put in it, and Rynn's own gold is
+dropped at her death as before (0 in such a campaign). Nothing is written to a save. Co-op follows the campaign on both
+sides. PAL addresses (`drakan_region::guestAddress`); journal `docs/journal/2026-11-14/ootf-no-drops.md`.
 
 ### Campaign credits
 
