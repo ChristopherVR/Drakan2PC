@@ -48,8 +48,9 @@ behaviour; `classic` is the old whole-tree lean, one setting away.
   the faces (`looksLikeTree`; a house with cut-out windows, fences, small props and the all-cut-out bare palm `806cb`
   fail it). This is what moves the palms in Surdana and in the Ruined Village.
 * CPU, not a vertex shader: the GS sees screen-space vertices only, and the GPU vertex path (D3D11 only, default `cpu`,
-  being changed by the gpu-finish agent) would need the same per-object data. Displacing the model-space positions
-  before VU1 makes the `cpu` and `gpu` vertex modes draw the same picture.
+  being changed by the gpu-finish agent) would need the same per-object data. The model-space positions are moved
+  before VU1, so the `gpu` vertex mode gets the moved leaves too: one Surdana run with `vertex_processing = gpu`
+  (`runs/gpu-vp_motion.png`) shows the crowns moving and the trunks still, like `cpu`.
 
 Files: `ps2recomp/ps2xRuntime/src/lib/drakan_foliage.{h,cpp}`, `drakan_config.cpp`, `drakan_settings_common.h`,
 `runtime/world/include/world/Foliage.h` (leaf rules and wind, `world_foliage_test`), `runtime/settings` (Types, Store,
@@ -57,7 +58,8 @@ Schema, `settings_test`), `scripts/harness/setting_shots.py`. No renderer backen
 
 ## Evidence (owner's ini: 3840 x 2160, DLSS quality, HD textures; New Game on an empty card)
 
-Before = the dist exe of 35e00f99 with `foliage_wind = 1`; after = this build, same ini (reads as `all`). Same recipe:
+Before = the dist exe of 35e00f99 with `foliage_wind = 1`; after = the first build of this change (a private worktree
+on 35e00f99), same ini (reads as `all`); the follow-up checks below ran the main-tree build. Same recipe:
 standing still after the start, frames a0..a7 every 6 input samples, then two camera turns (b, c). Placed, not played
 to (play_run starts each level directly); nobody walks, the camera only turns. In `build/review/foliage-wind/runs/`:
 
@@ -67,14 +69,27 @@ to (play_run starts each level directly); nobody walks, the camera only turns. I
 | Surdana, turned to the tower (one tree, grass) | `surdanac_sheet.png` | `surdanac_motion.png` | after: the crown moves, trunk dark |
 | OotF Ruined Village (palms) | `ootf_sheet.png` | `ootf_motion.png` | before: palms still (not in the table); after: fronds move, trunks dark |
 
-Drakan 2 guard scenes: Ravenshold (mounted, `ab-ravenshold-*`) and Shadowmire (`ab-shadowmire-*`) ran to their scripted
-quit with no foliage in view; pictures look as before.
+No Drakan 2 forest and no Ravenshold trees were shown: the three tree scenes are two Surdana views and the Ruined
+Village. Ravenshold (mounted, `ab-ravenshold-*`) and Shadowmire (`ab-shadowmire-*`) ran to their scripted quit with no
+foliage in view.
 
-DLSS: the object motion tracker's counts with `DRAKAN_OBJECT_MOTION_DIAG` in the Surdana start over 480 frames: parts
-eligible for model motion 50,511 (off) and 51,072 (all), rejected 23,713 and 23,229; the per-object copies keep a stable
-address per tree, so foliage parts stay eligible. The DLSS frames of moving leaves above show no smearing.
+Which models get leaves (`DRAKAN_FOLIAGE_LOG` names every model the first time, main-tree build): the start of every
+Drakan 2 level on the disc (1B, 1C, 1D, 1E, 2, 3A, 3B, 4A, 4B, 5, 6 Valley, 8; four camera turns each, `runs/scan-*`)
+gives the table's trees plus, from the tree look, only the palm `803c2` / `b03c2` and three Stratos models
+`f0500..f0502`; placed next to those in Stratos (`runs/stratos2.png`) they are trees with leafy crowns. No building,
+fence, ship or banner was taken.
+
+DLSS: the object motion hooks were installed after the foliage hooks, so on the part draws they ran first and recorded
+the shared position arrays while the chain referenced the per-tree copies. The foliage install now comes after them
+(`drakan_overrides.cpp`): its hooks swap first and the tracker records the copies. With `DRAKAN_OBJECT_MOTION_LOG`, 57 of
+the 169 position arrays the tracker saw in the Surdana start lie in the leaf buffer. Eligible parts with
+`DRAKAN_OBJECT_MOTION_DIAG` over 480 frames, main-tree build: 48,003 (off) and 49,396 (all), rejected 28,566 and 27,472
+(first build: 50,511 / 51,072). A full-resolution crop of leaf edges against the sky in two DLSS frames
+(`runs/diag2_leafedges.png`) shows crisp edges and no trails. Per-pixel motion vectors were not read back.
 
 ## Frame time (scene_ab_bench turn lock, owner's ini, quiet machine: 0 other games, replays or compilers in every run)
+
+Measured with the first build (worktree on 35e00f99); the follow-up changes the install order, the retry and logging only.
 
 `--cycle video.foliage_wind=off,grass,all,classic`, 3 runs per scene, the mode order rotated per run (12 windows each):
 
@@ -88,6 +103,9 @@ All differences are inside the range between repeats (the first window of a run 
 its mode): no cost was measured. `DRAKAN_FOLIAGE_LOG` puts the leaf draws (render call included) at 0.05 to 0.1 ms per
 frame in Surdana and about 0.25 ms in the Ruined Village.
 
+A texture that is not loaded yet when a model is first drawn no longer marks the model as leafless for good: such a
+model is classified again every 2 s.
+
 ## Tests
 
 `world_foliage_test` (new: leaf classification on tree, palm, house, prop, hut and all-cut-out models; weights; anchors
@@ -100,6 +118,7 @@ never move; motion downwind, bounded, per-object phase; scale and rotation of th
 * Wartok Canyons: the direct start went back to the title (the known terrain memory crash of converted levels in view of
   much terrain, `status/ootf-port.md` known gaps), so its trees were not seen. Packs converted after `ecdf69d7` /
   `ee6b270b` draw OotF pines and fan palms with Drakan 2 models: not seen with this build (the shipped pack predates them).
+* The Stratos trees' leaf motion in a frame sequence (placed there, the camera was still settling).
 * A real walk through a forest, and long sessions (the leaf block starts over when full; not reached here).
 * Per-pixel motion vector correctness of leaves under DLSS beyond "eligible parts unchanged and no visible smear".
 * The CPU clipping draw path `0x18bb90` (objects cut by the near plane) keeps its leaves still.

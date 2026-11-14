@@ -1713,7 +1713,6 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_polyclip::install(runtime);     // near-plane clip for projected polygons (ribbons crossing the camera)
     drakan_view_layer::install(runtime);   // the view keeps to the player's layer behind interior walls (issue #6, PAL)
     drakan_melee_trace::install(runtime);  // DRAKAN_MELEE_TRACE: log the player's swings and contacts (diagnosis, PAL)
-    drakan_foliage::install(runtime);      // living foliage: wind sway for grass and trees, off by default (PAL)
     drakan_model_detail::install(runtime); // LOD and draw distance factors for models (PAL)
     drakan_terrain_distance::install(runtime); // ground texture distance factor of the terrain (PAL)
     drakan_view_distance::install(runtime);    // view distance and distance fog factor (PAL)
@@ -1741,6 +1740,9 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     if constexpr (supports(Feature::SceneHooks))
         drakan_dlss::installSceneHooks(runtime);
 #endif
+    // Living foliage: wind in grass and the leaves of trees, off by default (PAL). After the object motion hooks, so
+    // its part draw hooks run outside theirs and the tracker sees the per-tree leaf copies the chain references.
+    drakan_foliage::install(runtime);
     // Extended game heap above the retail RAM (PAL). After every other wrapper of the guest free (object motion).
     drakan_extended_heap::install(runtime);
 

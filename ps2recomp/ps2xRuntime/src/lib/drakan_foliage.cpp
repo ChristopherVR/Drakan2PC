@@ -145,24 +145,25 @@ uint32_t findResource(const uint8_t* ram, uint32_t manager, uint32_t vt, uint32_
     return 0;
 }
 
-// Share of fully transparent texels of a texture record (32 x 32 samples; 8-bit palettes, 16 and 32-bit texels).
+// Share of fully transparent texels of a texture record (32 x 32 samples; 8-bit palettes, 16 and 32-bit texels);
+// -1 when its texels are not readable (yet).
 float cutShare(const uint8_t* ram, uint32_t p) {
     const uint32_t width = u32(ram, p + 0x24), height = u32(ram, p + 0x28), stride = u32(ram, p + 0x34),
                    bits = u32(ram, p + 0x38), source = u32(ram, p + 0x50) & kRamMask,
                    palette = u32(ram, p + 0x3c) & kRamMask;
     if (!width || !height || width > 2048 || height > 2048 || stride > 8192 || !inRam(source, stride * height))
-        return 0;
+        return -1;
     if (bits != 8 && bits != 16 && bits != 32)
-        return 0;
+        return -1;
     uint32_t format = 0, colors = 0, pal = 0;
     if (bits == 8) {
         if (!inRam(palette, 16))
-            return 0;
+            return -1;
         format = u32(ram, palette);
         colors = u32(ram, palette + 4);
         pal = u32(ram, palette + 8) & kRamMask;
         if (!colors || colors > 256 || (format != 1 && format != 2) || !inRam(pal, colors * (format == 1 ? 4 : 2)))
-            return 0;
+            return -1;
     }
     unsigned low = 0, n = 0;
     for (unsigned y = 0; y < 32; ++y)
@@ -210,6 +211,8 @@ inline uint64_t positionKey(const uint8_t* ram, uint32_t a) {
 struct ModelInfo {
     uint32_t id = 0, nv = 0, nf = 0, pos = 0;
     bool leafy = false;
+    bool incomplete = false; // a texture was not loaded yet: classify again later
+    double retry = 0;
     float yMin = 0, yMax = 0, axisX = 0, axisZ = 0, rMax = 0;
     std::vector<uint8_t> leafMat;
     std::unordered_set<uint64_t> anchors; // positions a solid face uses
@@ -223,13 +226,14 @@ std::unordered_map<uint64_t, float> g_textureCut;      // (texture id, record) -
 float textureCut(const uint8_t* ram, uint32_t textureId) {
     const uint32_t rec = findResource(ram, kTextureManager, kTextureVt, 0, textureId);
     if (!rec)
-        return 0;
+        return -1;
     const uint64_t key = uint64_t(textureId) << 32 | rec;
     const auto it = g_textureCut.find(key);
     if (it != g_textureCut.end())
         return it->second;
     const float share = cutShare(ram, rec);
-    g_textureCut[key] = share;
+    if (share >= 0)
+        g_textureCut[key] = share;
     return share;
 }
 
@@ -248,6 +252,10 @@ void buildModel(const uint8_t* ram, uint32_t m, bool known, ModelInfo& mi) {
     std::vector<wf::MaterialStats> mats(nm);
     for (uint32_t i = 0; i < nm; ++i) {
         mats[i].cutShare = textureCut(ram, u32(ram, lib + i * 4));
+        if (mats[i].cutShare < 0) {
+            mi.incomplete = true;
+            mats[i].cutShare = 0;
+        }
         mats[i].yMin = 1e30f;
         mats[i].yMax = -1e30f;
     }
@@ -288,6 +296,9 @@ void buildModel(const uint8_t* ram, uint32_t m, bool known, ModelInfo& mi) {
     mi.leafy = anyLeaf && (known || wf::looksLikeTree(mats.data(), mats.size(), mi.yMin, mi.yMax));
     if (!mi.leafy)
         return;
+    if (g_log)
+        std::fprintf(stderr, "[foliage] leaves for model %x (%s): %u materials, height %.0f, %u faces\n", mi.id,
+                     known ? "vegetation table" : "looks like a tree", nm, mi.yMax - mi.yMin, mi.nf);
     // Trunk axis: the mean of the solid vertices in the lowest third; the crown's reach from it.
     double sx = 0, sz = 0;
     uint32_t n = 0;
@@ -343,8 +354,13 @@ const ModelInfo* modelOf(const uint8_t* ram, uint32_t handle, bool known, double
     }
     ModelInfo& mi = g_models[m];
     if (mi.id != id || mi.nv != u32(ram, m + 0x1c) || mi.nf != u32(ram, m + 0x20) ||
-        mi.pos != (u32(ram, m + 0x24) & kRamMask))
+        mi.pos != (u32(ram, m + 0x24) & kRamMask) || (mi.incomplete && now >= mi.retry)) {
         buildModel(ram, m, known, mi);
+        mi.retry = now + 2.0;
+        if (g_log && mi.leafy)
+            std::fprintf(stderr, "[foliage] model %x first drawn by the object at %.0f %.0f %.0f\n", id,
+                         f32(ram, handle + 0x14), f32(ram, handle + 0x18), f32(ram, handle + 0x1c));
+    }
     return mi.leafy ? &mi : nullptr;
 }
 
