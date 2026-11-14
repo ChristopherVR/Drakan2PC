@@ -17,13 +17,14 @@ describe('Drakan 2 characters and weapons in the import dialog', () => {
     });
 
     it('ticks pairs by their default and the player choice', () => {
-        const scav = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.ootf === 'Scavenger')!;
+        // a pair that is off by default (the Scavenger pair is on by default since formats a06ddb0)
+        const hang = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.ootf === 'Skeleton Hanging')!;
         const sword = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.ootf === 'Long Sword')!;
         const c = defaultModelChoice();
-        expect(pairOn(c, scav)).toBe(false);
+        expect(pairOn(c, hang)).toBe(false);
         expect(pairOn(c, sword)).toBe(true);
-        const mine = { ...c, on: ['Scavenger'], off: ['long sword'], categoriesOff: ['weapons' as const] };
-        expect(pairOn(mine, scav)).toBe(true);
+        const mine = { ...c, on: ['Skeleton Hanging'], off: ['long sword'], categoriesOff: ['weapons' as const] };
+        expect(pairOn(mine, hang)).toBe(true);
         expect(pairOn(mine, sword)).toBe(false);
         const p = planPs2Models(modelChoiceToOptions({ ...mine, enemyAnimations: 'ootf' }));
         expect(p.enemy('Scavenger')).toBe('ootf');
