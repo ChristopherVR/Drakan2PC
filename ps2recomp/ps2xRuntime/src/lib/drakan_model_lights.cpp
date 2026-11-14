@@ -244,8 +244,12 @@ void builder(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
                 g_cached.clear();
         }
         ++g_stats.full;
-        if (simulated != after)
+        if (simulated != after) { // the replay disagrees with the engine: its cut list may hold a light the set has
             ++g_stats.mismatch;
+            extraCount = 0;
+            if (cache)
+                g_cached.erase(cache);
+        }
     } else if (cache) {
         candidateCount = u32(ram, kCandidates + 8);
         const auto it = g_cached.find(cache);
