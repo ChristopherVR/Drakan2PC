@@ -57,6 +57,74 @@ void D3D11Backend::Impl::validateObjectMotion(RT& rt, const nr::guides::Frame& g
                  (unsigned long long)independent, largest);
 }
 
+// [video] velocity_skip, GSR_VELOCITY_SKIP_VERIFY=<n>: every n-th world, the object-motion target the guides read
+// (the skip) against the shadow target that received every velocity pass (as without it), over the region the
+// guides read. Same for the guides means: the same pixels valid (z > 0.5), and a valid pixel's motion and depth equal
+// to the bit. One line per comparison and a total at the exit.
+void D3D11Backend::Impl::verifyVelocitySkip(RT& rt, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h) {
+    if (!velocitySkipVerify || !rt.motionShadowTex || rt.motionEpoch != motionEpoch ||
+        motionEpoch % velocitySkipVerify != 0)
+        return;
+    if (rt.motionShadowBlind) {
+        std::fprintf(stderr, "[velocity-skip] verify epoch=%llu not compared (vertex-program passes)\n",
+                     (unsigned long long)motionEpoch);
+        return;
+    }
+    D3D11_TEXTURE2D_DESC desc{};
+    rt.motionTex->GetDesc(&desc);
+    w = std::min(w, desc.Width > x0 ? desc.Width - x0 : 0u);
+    h = std::min(h, desc.Height > y0 ? desc.Height - y0 : 0u);
+    if (!w || !h)
+        return;
+    desc.Width = w;
+    desc.Height = h;
+    desc.Usage = D3D11_USAGE_STAGING;
+    desc.BindFlags = desc.MiscFlags = 0;
+    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    ComPtr<ID3D11Texture2D> real, shadow;
+    if (FAILED(dev->CreateTexture2D(&desc, nullptr, &real)) || FAILED(dev->CreateTexture2D(&desc, nullptr, &shadow)))
+        return;
+    const D3D11_BOX box{x0, y0, 0, x0 + w, y0 + h, 1};
+    ctx->CopySubresourceRegion(real.Get(), 0, 0, 0, 0, rt.motionTex.Get(), 0, &box);
+    ctx->CopySubresourceRegion(shadow.Get(), 0, 0, 0, 0, rt.motionShadowTex.Get(), 0, &box);
+    D3D11_MAPPED_SUBRESOURCE a{}, b{};
+    if (FAILED(this->map(real.Get(), D3D11_MAP_READ, a, "velocity skip verify")))
+        return;
+    if (FAILED(this->map(shadow.Get(), D3D11_MAP_READ, b, "velocity skip verify"))) {
+        ctx->Unmap(real.Get(), 0);
+        return;
+    }
+    uint64_t valid = 0, differ = 0;
+    for (uint32_t y = 0; y < h; ++y) {
+        const auto* ra =
+            reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(a.pData) + size_t(y) * a.RowPitch);
+        const auto* rb =
+            reinterpret_cast<const uint32_t*>(static_cast<const uint8_t*>(b.pData) + size_t(y) * b.RowPitch);
+        for (uint32_t x = 0; x < w; ++x) {
+            const uint32_t* p = ra + x * 4;
+            const uint32_t* q = rb + x * 4;
+            float za, zb;
+            std::memcpy(&za, p + 2, 4);
+            std::memcpy(&zb, q + 2, 4);
+            const bool va = za > 0.5f, vb = zb > 0.5f;
+            valid += vb;
+            differ += va != vb || (va && (p[0] != q[0] || p[1] != q[1] || p[3] != q[3]));
+        }
+    }
+    ctx->Unmap(real.Get(), 0);
+    ctx->Unmap(shadow.Get(), 0);
+    ++velocityVerifyWorlds;
+    velocityVerifyPixels += uint64_t(w) * h;
+    velocityVerifyValid += valid;
+    velocityVerifyDiffer += differ;
+    std::fprintf(
+        stderr,
+        "[velocity-skip] verify epoch=%llu region %ux%u at %u,%u: valid %llu, differ %llu; passes so far drawn "
+        "%llu, left out %llu\n",
+        (unsigned long long)motionEpoch, w, h, x0, y0, (unsigned long long)valid, (unsigned long long)differ,
+        (unsigned long long)velocityPassesDrawn, (unsigned long long)velocityPassesLeftOut);
+}
+
 // Opt-in, single-frame pipeline evidence. Never read back during normal play.
 void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* texture) {
     const char* directory = cstr(runtimeFlags().temporalDumpDir);

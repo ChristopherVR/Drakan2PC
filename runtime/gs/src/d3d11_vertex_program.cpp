@@ -304,8 +304,8 @@ bool D3D11Backend::Impl::prepareProgramMotion(RT& rt, const GsDrawState& s, cons
         programFailed("the previous-frame vertex stream could not be written");
         g.previousConstants.clear();
         g.previousPasses.clear();
-        const float clear[4]{};
-        ctx->ClearRenderTargetView(rt.motionRtv.Get(), clear);
+        foreignContext();
+        clearMotionTarget(rt);
         return false;
     }
     const float raster[4] = {sx, sy, 0, 0};
@@ -317,6 +317,10 @@ bool D3D11Backend::Impl::prepareProgramMotion(RT& rt, const GsDrawState& s, cons
     std::memcpy(ms.pData, raster, sizeof(raster));
     ctx->Unmap(g.cbMotion.Get(), 0);
     ++g.velocityBatches;
+    // [video] velocity_skip: a batch of records may write valid entries anywhere; its pass is drawn into the real
+    // target only, so a verify comparison of this world would not compare like with like.
+    rt.motionCoverage.markAll();
+    rt.motionShadowBlind = true;
     return true;
 }
 

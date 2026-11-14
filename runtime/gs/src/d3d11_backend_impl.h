@@ -39,6 +39,7 @@
 #include "upscale_render_size.h"
 #include "d3d11_gpu_passes.h"
 #include "draw_state_cache.h"
+#include "motion_coverage.h"
 #include "upscale_controls.h"
 #include "cpu_profile.h"
 #include "rt_upload.h"
@@ -212,6 +213,12 @@ struct RT {
     ComPtr<ID3D11RenderTargetView> motionRtv;
     ComPtr<ID3D11ShaderResourceView> motionSrv;
     uint64_t motionEpoch = 0;
+    // [video] velocity_skip (motion_coverage.h): where this world's motion entries may be valid. The shadow target
+    // (GSR_VELOCITY_SKIP_VERIFY only) receives every velocity pass, as without the skip, for the comparison.
+    motion_coverage::Grid motionCoverage;
+    ComPtr<ID3D11Texture2D> motionShadowTex;
+    ComPtr<ID3D11RenderTargetView> motionShadowRtv;
+    bool motionShadowBlind = false; // a pass this world drew only into the real target (vertex programs)
     uint32_t pageH() const { return cls == 0 ? 32u : 64u; }
     uint32_t base() const { return fbp * 32u; }
     GpuView view() const { return srv.Get(); }
@@ -370,6 +377,15 @@ struct D3D11Backend::Impl {
     bool pendingTemporalEnd = false;
     std::shared_ptr<const SceneModels> nativeModels;
     uint64_t motionMatchedBatches = 0, motionMatchedVertices = 0, motionRejectedBatches = 0;
+    // [video] velocity_skip (motion_coverage.h; d3d11_world.cpp, d3d11_draw.cpp). velocityLeftOut: the velocity pass of
+    // the draw being drawn goes to the shadow target only (verify mode; without it the pass is not drawn at all).
+    bool velocitySkip = false;
+    uint32_t velocitySkipVerify = 0;
+    bool velocityLeftOut = false;
+    uint64_t velocityPassesDrawn = 0, velocityPassesLeftOut = 0;
+    uint64_t velocityVerifyWorlds = 0, velocityVerifyPixels = 0, velocityVerifyValid = 0, velocityVerifyDiffer = 0;
+    void clearMotionTarget(RT& rt); // the target, its shadow and its coverage, as at a world's start
+    void verifyVelocitySkip(RT& rt, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h);
     uint64_t motionPackets = 0, motionEligiblePackets = 0, motionScopedBatches = 0;
     uint32_t motionValidationSamples = 0;
     std::vector<motion::Vertex> motionVertices;

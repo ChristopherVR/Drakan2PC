@@ -210,6 +210,14 @@ void D3D11Backend::Impl::logDrawState(bool force) {
                  (unsigned long long)n.skipped, (unsigned long long)n.forgets, (unsigned long long)n.holds,
                  (unsigned long long)n.releases, (unsigned long long)drawStateChecked,
                  (unsigned long long)drawStateWrong);
+    if (velocitySkip)
+        std::fprintf(stderr,
+                     "[velocity-skip] frame %llu: velocity passes drawn %llu, left out %llu; verified worlds %llu, "
+                     "pixels %llu, valid %llu, differ %llu\n",
+                     (unsigned long long)frame, (unsigned long long)velocityPassesDrawn,
+                     (unsigned long long)velocityPassesLeftOut, (unsigned long long)velocityVerifyWorlds,
+                     (unsigned long long)velocityVerifyPixels, (unsigned long long)velocityVerifyValid,
+                     (unsigned long long)velocityVerifyDiffer);
 }
 
 void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW,
@@ -328,8 +336,11 @@ void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi:
     // Without the cache the targets are unbound first, as always; with it the new target replaces the old one.
     if (!drawState.enabled())
         c->OMSetRenderTargets(0, nullptr, nullptr);
-    if (drawState.set(Slot::Targets, draw_state::pair(word(rt.motionRtv.Get()), word(db.dsv.Get()))))
-        c->OMSetRenderTargets(1, rt.motionRtv.GetAddressOf(), db.dsv.Get());
+    // [video] velocity_skip with GSR_VELOCITY_SKIP_VERIFY: a pass left out goes to the shadow target only, every
+    // other pass to both (the second draw below).
+    ID3D11RenderTargetView* const motionTarget = velocityLeftOut ? rt.motionShadowRtv.Get() : rt.motionRtv.Get();
+    if (drawState.set(Slot::Targets, draw_state::pair(word(motionTarget), word(db.dsv.Get()))))
+        c->OMSetRenderTargets(1, &motionTarget, db.dsv.Get());
     if (drawState.set(Slot::Blend, word(blendOff.Get())))
         c->OMSetBlendState(blendOff.Get(), nullptr, 0xffffffffu);
     ID3D11DepthStencilState* const ds = getDepthState(toD3D(depthCompare), false);
@@ -350,6 +361,15 @@ void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi:
         c->Draw(count, 0);
     } else
         drawJoinedSegments(); // the motion vertex stream is indexed like the colour one
+    if (rt.motionShadowRtv && !velocityLeftOut) {
+        ID3D11RenderTargetView* const shadow = rt.motionShadowRtv.Get();
+        if (drawState.set(Slot::Targets, draw_state::pair(word(shadow), word(db.dsv.Get()))))
+            c->OMSetRenderTargets(1, &shadow, db.dsv.Get());
+        if (joinDraws.empty())
+            c->Draw(count, 0);
+        else
+            drawJoinedSegments();
+    }
     if (!restore)
         return;
     if (!drawState.enabled())

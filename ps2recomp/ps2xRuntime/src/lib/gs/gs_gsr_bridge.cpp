@@ -870,6 +870,7 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         cfg.terrainCliffs = drakan_cfg::getBool("video", "terrain_cliffs", nullptr, false);
         cfg.drawStateCache = drakan_cfg::getBool("video", "draw_state_cache", nullptr, true);
         cfg.terrainBatching = drakan_cfg::getBool("video", "terrain_batching", nullptr, false);
+        cfg.velocitySkip = drakan_cfg::getBool("video", "velocity_skip", nullptr, false);
         cfg.terrainDetailStrength =
             (float)std::clamp(drakan_cfg::getFloat("video", "terrain_detail_strength", nullptr, 1.0), 0.0, 2.0);
         {

@@ -144,6 +144,10 @@ RuntimeFlags parse() {
         f.drawStateCache = v[0] == '1';
     if (const char* v = env("GSR_TERRAIN_BATCHING"))
         f.terrainBatching = v[0] == '1';
+    if (const char* v = env("GSR_VELOCITY_SKIP"))
+        f.velocitySkip = v[0] == '1';
+    if (const char* v = env("GSR_VELOCITY_SKIP_VERIFY"))
+        f.velocitySkipVerify = (uint32_t)std::max(0, std::atoi(v));
     if (const char* v = env("GSR_TERRAIN_STRENGTH"))
         f.terrainStrength = (float)std::atof(v);
     if (const char* v = env("GSR_TERRAIN_DEBUG"))

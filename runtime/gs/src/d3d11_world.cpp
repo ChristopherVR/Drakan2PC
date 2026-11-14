@@ -304,13 +304,32 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
         rt.motionTex = std::move(texture);
         rt.motionRtv = std::move(rtv);
         rt.motionSrv = std::move(srv);
+        rt.motionShadowTex.Reset();
+        rt.motionShadowRtv.Reset();
+    }
+    if (velocitySkipVerify && !rt.motionShadowRtv) { // GSR_VELOCITY_SKIP_VERIFY: every pass, as without the skip
+        auto texture = makeTex(rt.w * scale, rt.h * scale, D3D11_BIND_RENDER_TARGET, DXGI_FORMAT_R32G32B32A32_FLOAT);
+        ComPtr<ID3D11RenderTargetView> rtv;
+        if (texture && SUCCEEDED(dev->CreateRenderTargetView(texture.Get(), nullptr, &rtv))) {
+            rt.motionShadowTex = std::move(texture);
+            rt.motionShadowRtv = std::move(rtv);
+            rt.motionEpoch = 0; // both cleared below
+        }
     }
     if (rt.motionEpoch != motionEpoch) {
-        const float clear[4]{};
-        ctx.raw()->ClearRenderTargetView(rt.motionRtv.Get(), clear);
+        clearMotionTarget(rt);
         rt.motionEpoch = motionEpoch;
     }
     return true;
+}
+
+void D3D11Backend::Impl::clearMotionTarget(RT& rt) {
+    const float clear[4]{};
+    ctx.raw()->ClearRenderTargetView(rt.motionRtv.Get(), clear);
+    if (rt.motionShadowRtv)
+        ctx.raw()->ClearRenderTargetView(rt.motionShadowRtv.Get(), clear);
+    rt.motionCoverage.reset(rt.w * scale, rt.h * scale);
+    rt.motionShadowBlind = false;
 }
 
 // A joined draw (gs_draw.inl, drawSegments) is tracked as one batch: the same as its segments only while nothing is
@@ -329,8 +348,7 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
     if (!ensureMotionTarget(rt))
         return false;
     auto invalidateMotion = [&]() {
-        const float clear[4]{};
-        ctx.raw()->ClearRenderTargetView(rt.motionRtv.Get(), clear);
+        clearMotionTarget(rt);
         return false;
     };
     // One history entry per run of vertices under one scope: the whole batch, or the segments between the scope
@@ -379,6 +397,35 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         pendingMotionNotes = nullptr; // consumed
     } else
         trackSegment(0, count, motionPrevious);
+    // [video] velocity_skip (motion_coverage.h): a draw without a previous position anywhere writes only invalid
+    // entries; where none of this world's entries can be valid under it yet, its pass changes nothing the guides read.
+    // The box is of the vertices as handed over; the draw code moves vertices afterwards only for HUD and menu
+    // artwork outside the engine's world (not taken here) and by at most two GS pixels for a menu highlight or an
+    // inventory font shadow (inside the margin).
+    velocityLeftOut = false;
+    if (velocitySkip) {
+        bool mayBeValid = false;
+        for (const auto& p : motionPrevious)
+            if (p.valid != 0) {
+                mayBeValid = true;
+                break;
+            }
+        const int32_t margin = (int32_t)std::ceil(2.0f * std::max(sx, sy)) + 2;
+        const motion_coverage::Rect box = motion_coverage::bounds(
+            vertices, count, sx, sy, margin, rt.motionCoverage.width(), rt.motionCoverage.height());
+        if (!engineWorldOpen) {
+            if (mayBeValid) // outside the engine's world positions may still move: no box is trusted
+                rt.motionCoverage.markAll();
+        } else if (mayBeValid)
+            rt.motionCoverage.mark(box);
+        else if (!rt.motionCoverage.touches(box)) {
+            ++velocityPassesLeftOut;
+            if (!rt.motionShadowRtv)
+                return false;
+            velocityLeftOut = true; // verify: drawn into the shadow target only
+        }
+        velocityPassesDrawn += !velocityLeftOut;
+    }
     const uint32_t bytes = count * sizeof(motion::Previous);
     // Ring buffer like the draw vertex buffer: a DISCARD per draw blocked Map once the GPU ran a frame behind.
     if (!motionVb || bytes > motionVbCapacity / 4) {
@@ -490,8 +537,10 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         CpuProfile::Scope stage(cpuProfile, CpuProfile::GuidePrepare);
         success = neuralGuides->prepare(guide) && neuralGuides->frameConstants(rt.neuralCamera.worldToView, constants);
     }
-    if (success)
+    if (success) {
         validateObjectMotion(rt, guide, constants);
+        verifyVelocitySkip(rt, guide.depthX, guide.depthY, guide.guide.width, guide.guide.height);
+    }
     auto textures = neuralGuides->textures();
     if (success) {
         dumpTemporalStage("world-color", rt.tex.Get());

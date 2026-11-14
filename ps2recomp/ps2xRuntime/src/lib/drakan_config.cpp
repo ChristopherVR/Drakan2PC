@@ -213,6 +213,10 @@ const Entry kEntries[] = {
      "1 = ground passes that differ only in their texture are drawn together with one set of drawing state (less "
      "work per frame on ground made of many small pieces); 0 = every pass drawn on its own, as before. Same picture "
      "either way; needs a restart (env GSR_TERRAIN_BATCHING)"},
+    {"video", "velocity_skip", "0",
+     "1 = with DLSS on, ground and scenery that cannot move leave out their motion vector pass where nothing that "
+     "moves was drawn under them yet (less work per frame); 0 = every draw writes its motion vectors, as before. DLSS "
+     "reads the same motion either way; needs a restart (env GSR_VELOCITY_SKIP)"},
     {"video", "terrain_detail_strength", "1.00",
      "strength of the terrain detail, 0.25 .. 2 (env GSR_TERRAIN_STRENGTH)"},
     {"video", "terrain_distance", "1.0",

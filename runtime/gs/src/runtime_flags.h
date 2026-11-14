@@ -96,10 +96,12 @@ struct RuntimeFlags {
     std::optional<bool> terrainDetail, terrainCliffs; // GSR_TERRAIN_DETAIL / GSR_TERRAIN_CLIFFS: first character '1'
     std::optional<bool> drawStateCache;               // GSR_DRAW_STATE_CACHE: first character '1'
     std::optional<bool> terrainBatching;              // GSR_TERRAIN_BATCHING: first character '1'
-    std::optional<float> terrainStrength;             // GSR_TERRAIN_STRENGTH: atof
-    uint32_t terrainDebug = 0;                        // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
-    bool terrainAudit = false;                        // GSR_TERRAIN_AUDIT: log what the classification matched
-    bool terrainGpuTiming = false;                    // GSR_TERRAIN_GPU_TIMING: GPU time of the terrain layer draws
+    std::optional<bool> velocitySkip;                 // GSR_VELOCITY_SKIP: first character '1' (motion_coverage.h)
+    uint32_t velocitySkipVerify = 0; // GSR_VELOCITY_SKIP_VERIFY=<n>: compare with every velocity pass every n worlds
+    std::optional<float> terrainStrength; // GSR_TERRAIN_STRENGTH: atof
+    uint32_t terrainDebug = 0;            // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
+    bool terrainAudit = false;            // GSR_TERRAIN_AUDIT: log what the classification matched
+    bool terrainGpuTiming = false;        // GSR_TERRAIN_GPU_TIMING: GPU time of the terrain layer draws
     struct MipBias {
         bool automatic = false; // value was "auto" (case-insensitive)
         float value = 0.0f;     // atof otherwise
