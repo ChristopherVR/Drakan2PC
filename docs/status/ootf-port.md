@@ -75,6 +75,15 @@ generator, but the engine starts only their light, so the OotF fire quads stay (
 Alwarren, played there with walking, swings and F5 / F8. Needs a regenerated pack and a new game. See
 [Drakan 2 models](../journal/2026-11-14/ootf-d2-models.md).
 
+**November 15 PS2-style remakes (round 8):** props with no Drakan 2 model get new drawings built at convert time from
+their OotF mesh, each a row of the Drakan 2 model table and off by default: talon torches and Succubus pillars (Loop
+subdivision, rounder and smoothly shaded, OotF textures), the Succubus ruin corridor pieces (the same with their joining
+borders fixed; pieces that are also morph frames are left, a remade frame tore the morph), the Multiplayer light beams
+(two soft 32-sided shafts), and Alwarren's three barrier crystal flame rings shown burning but harmless (on the PC
+nothing puts them out). Collision records stay the OotF ones. Seen in Volcanic, Succubus Lair, Relic and Alwarren; stood
+32 s in a burning ring with god mode off at full health. Turn rows on in the editor or with `--ps2-model-map`; needs a
+regenerated pack. See [PS2-style props](../journal/2026-11-15/ootf-ps2-style-props.md).
+
 **November 14 harpies (round 7):** the succubi and the Queen (the flying women of the Islands, Islands Night and Succubus
 Lair) keep their converted PC model: Drakan 2 has no harpy (its fliers are dragons, crows and gryphons). Posed offline
 against the PC data, the converted mesh, skinning and all clips match the PC picture exactly; only the graded alpha of the
