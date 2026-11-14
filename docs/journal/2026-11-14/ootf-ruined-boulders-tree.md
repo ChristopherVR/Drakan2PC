@@ -166,6 +166,6 @@ The owner asked for the PC behaviour: the orc the tree lands on, and a trunk wal
 `0afdb74`: the Mover sinks 469 units while it falls (Type 4), so the trunk's top near its foot is a step over the ledge,
 and the roots at its foot collide only with their low polygons. With the PC chain unchanged (detector, the orc walking to the
 far end of the gap, the Timer that gibs him 1.65 s after the push) one strike fells the tree, the orc dies under it and Rynn
-crosses with W alone (run `tr4`; 4 of 6 walks in `sw1`, the others stopped at a branch on the trunk's north side). No
-running jump is needed any more. Details and
+crosses with W alone. With the fallen trunk colliding as a trunk only (formats `d7b3d02`) 10 of 10 W-only walks crossed
+and 4 of 4 walked back (run `sw3`). No running jump is needed any more. Details and
 the campaign-wide audit of PC object behaviours: [object behaviour audit](ootf-object-behaviour-audit.md).

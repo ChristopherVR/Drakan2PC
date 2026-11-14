@@ -6,7 +6,7 @@ Owner follow-up to [boulders and tree](ootf-ruined-boulders-tree.md):
 2. Audit the whole campaign for other PC object behaviours that the PS2 engine lacks or the conversion drops, fix the ones
    with a clear PS2 mechanism and list the rest.
 
-Fixed in the converter (formats `0afdb74`, `7266f98`); the runtime is unchanged. Scratch, runs and evidence are under
+Fixed in the converter (formats `0afdb74`, `7266f98`, `d7b3d02`); the runtime is unchanged. Scratch, runs and evidence are under
 `build/review/rv-physics/` (`audit/`, `runs/tr*`, `runs/br1`, `evidence/`). Nothing from either game is quoted here.
 
 ## 1. The tree as the PC level chains it
@@ -50,14 +50,25 @@ level and differs only in the Alwarren level and the prop models of `6141d3c`; N
 
 Contact sheet `evidence/tree_pc_chain.jpg` (`runs/tr4`).
 
-How reliable the W-only walk is, on a pack of the committed formats (`packs/final3`, `runs/sw1`): one strike, the orc
-killed again, then six walks from 1,300 units east of the foot, starting 200 north to 300 south of the trunk's line, W with
-the mouse steering along the trunk: 4 crossed, 2 did not. Both failures got onto the trunk and stopped on its north half
-over the gap (318857, 197733 and 319392, 198474): a branch of the PC model lies there on the trunk's north side (its
-collision box rises about 470 units over the trunk between 319060 and 320670). `tr3` and `tr4` (same Ruined Village data)
-crossed on their first try, `tr2` (the same pack as `tr3`) stuck on the trunk near its foot in all three tries, on its north
-half as well. So: no jump is needed, but a player who keeps to the north edge of the trunk meets a branch. The branches'
-collision was left as the PC model has it.
+How reliable the W-only walk was with only the sink and the roots change (`packs/final3`, `runs/sw1`): 4 of 6 walks
+crossed. The others stopped on the trunk's north half against a branch of the PC model lying on the trunk (its collision
+rose about 470 units over the trunk between 319060 and 320670), and in `tr2` / `sw2` at the seam where the butt end meets
+the trunk staves (321540).
+
+So the fallen trunk now collides as a trunk (formats `d7b3d02`, `trunkCollisionBounds` in `ootfassets.ts`): the trunk
+staves (polygons running at least a quarter of the height and slender across) and every polygon no higher than their top
+at its height, plus nothing below the staves' foot. The branches and leaf cards over the walk surface and the butt end are
+still drawn but no longer collide (for this tree: 66 of 96 polygons collide). The standing tree shares the model, so its
+branches no longer collide either; the strike lands on the trunk (Rynn now walks up to it).
+
+The PC "Hit Ground Sound" of the tree is converted now (the sound stage asks for it) and set as the Mover's stop sound; the
+runs had sound off, so it was not heard.
+
+Played on a pack of `d7b3d02` (`packs/p9`, `runs/sw3`): New Game, detector, one strike, the orc dies under the trunk; then
+ten walks with W only and mouse steering along the trunk, from 1,300 units east of the foot at 200 north to 300 south of
+its line, from 900 and 700 east, and from beside the foot on the north (500 east, 800 north) and south side (500 east, 700
+south): **10 of 10 crossed**; four of them then walked back over the trunk to the near ledge: **4 of 4**. Contact sheet
+`evidence/tree_walk_sweep.jpg`.
 
 Before the roots change (`tr1`) Rynn stopped at the roots.
 
@@ -125,7 +136,7 @@ of the converted level has the same id; not a conversion fault.
 ## 6. Not verified
 
 * What the PC push-over modes (1, 4, 5, 7) mean, and how many blows the PC needs: inferred, the PC game was not run.
-* The tree's "Hit Ground Sound" is not played (not converted).
+* The tree's "Hit Ground Sound" is converted and set, but not heard (sound off in the runs).
 * The Wartok Canyons bridge, the Alwarren brick and the Islands goblin pillar in play (see 5).
 * A campaign save after Heron's Crystal on the new pack: none; the runs start from New Game with placements.
 * Owner's full-screen settings, sound (off in the runs), the German tree; Drakan 2 is not reached (converter only).

@@ -651,14 +651,15 @@ pack (New Game and placements). Needs a regenerated pack and a new game. See [bo
 
 **November 14 PC object behaviour audit and the tree as on the PC (round 7):** the felled tree now sinks into place while
 it falls and the roots at its foot collide only low, so after one strike the orc on the far side dies under it (the PC's own
-timer chain) and Rynn walks onto and over it with W alone (4 of 6 walks from different starting lines, played from New
-Game after placements; the 2 others stopped at a branch on the trunk's north side). A converter-driven audit of every
+timer chain) and Rynn walks onto and over it with W alone: the fallen trunk collides as a trunk only, without the PC
+model's branches and butt end (10 of 10 walks from different starting lines and both sides of its foot, 4 of 4 walks back;
+played from New Game after placements). The tree's PC hit-ground sound is converted. A converter-driven audit of every
 scalar field of every PC object in the 23 levels found: six push-over objects (now a blow fells or breaks them and sends
 their PC message: the Wartok Canyons pillar falls as a bridge with its brace, Alwarren's bricks and the Islands goblin
 pillar break; a push-over linked to nothing stays a prop), 77 name-mapped barrels and crates with the disc's 5 health instead of the PC 10 or 20 (now PC), and the
 boulders fixed earlier; creature stats, break-away floor pauses, flame light fields and the rest are listed with reasons.
 Seen in passing: the magic flame ring round Alwarren's barrier crystal neither shows nor burns in the pack (most of
-those flames have no visible flag in the PC data; not established for the PC). Formats `0afdb74`, `7266f98`; needs
+those flames have no visible flag in the PC data; not established for the PC). Formats `0afdb74`, `7266f98`, `d7b3d02`; needs
 a regenerated pack and a new game. See [object behaviour audit](../journal/2026-11-14/ootf-object-behaviour-audit.md).
 
 **November 14 Drakan 2 fire for flames, Drakan 2 explosion for barrels (round 7):** the owner's "use Drakan 2's
