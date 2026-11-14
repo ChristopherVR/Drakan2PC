@@ -4,7 +4,9 @@ Owner request: for Order of the Flame props that still have no Drakan 2 model, "
 ones", offered in the converter as an option like the Drakan 2 model table rows. Props of this brief: Alwarren's magic
 flame ring, the talon torches, the Succubus pillars and ruins, the light beams. Converter only (submodule
 `editor/packages/formats`: new `ootfpropremake.ts`, rows in `ootfps2model.ts`, one dispatch in `ootfassets.ts`, one stage
-and a morph guard in `ootfpipeline.ts`). Scratch, packs, runs and frames are under `build/review/ps2-models-new/` (not
+and a morph guard in `ootfpipeline.ts`). Formats `e48eef6` (first committed as `357a92f`, which was lost with the local formats repository at 07:13 and
+recreated from the scratch copy onto the recreated voices commit `484f8e0`; the recreation also keeps turning corners only
+on open borders, so a crease inside a talon horn no longer kinks it). Scratch, packs, runs and frames are under `build/review/ps2-models-new/` (not
 tracked); nothing from either game is quoted here.
 
 ## 1. What the props are
@@ -14,7 +16,7 @@ From the PC data (`tools/pcmdl.ts`, `tools/where.ts`) and an offline textured re
 
 | Prop | Classes (PC model) | Placed | Shape |
 | --- | --- | --- | --- |
-| Talon torch | Talon Torch 01 / 02, FangTorch01, FangTorch2 (FangTorch01 / 02), Talon Torch Death Mage (FangTorch03), Talon Torch w/o light, islandfang, Landscape Spike2 (IslandFang01, island fang02) | 70 + 2 + 22 + 9 in Volcanic, 4 + 2 + 18 + 8 in Succubus Lair | a curved horn of few facets on a flat slab, a bowl hanging on chains; no flame object stands near any of them in the PC data, so no fire was added |
+| Talon torch | Talon Torch 01 / 02, FangTorch01, FangTorch2 (FangTorch01 / 02), Talon Torch Death Mage (FangTorch03), Talon Torch w/o light, islandfang, Landscape Spike2 (IslandFang01, island fang02) | 70 + 2 + 22 + 9 in Volcanic, 4 + 2 + 18 + 8 in Succubus Lair | a curved horn of few facets on a flat slab, a bowl hanging on chains; no flame, emitter or dynamic light (engine classes 20, 43, 133) stands within 2,500 units of any of the 105 placed in the PC data (`tools/near.ts` over every anchor), so no fire was added |
 | Succubus pillar | Succubus Pillar (SuckPillar01) | 42, Volcanic (not in Succubus Lair) | octagonal column with carved bands |
 | Succubus ruins | Evil Ruin Straight / Entrance / End / Left Turn / Right Turn / Arch / Ceiling / Right Open, Entrance 01, Left Turn 01, Arch 01, Arch to Rooms, Straight w lite 01 / 02 ... (EvilRuin*) | about 300 in Succubus Lair, Volcanic, Islands, Islands Night and three Multiplayer levels | tiling corridor modules (walls, gothic vaults, carved arches) |
 | Light beam | Light Beam | 32 in six Multiplayer levels | an open tube of 16 translucent cards over each pick-up pad |
@@ -86,9 +88,10 @@ standing in it.
   `evidence/ring2_standing_in_fire.png`): the health orb stays full and red in both packs. At 1,000 hp/s she would be dead
   in a fraction of a second.
 * Ring 1 (crystal 250), 32 s (runs `rw3_off1`, `rw3_on4`, `evidence/ring1_walk_orbs.png`): the orb stays full in both; in
-  the run with the fire it turned purple and blue for a few seconds while the lizard creatures of that room fought her
-  (they lay dead in the other run); the same happened before the damage effect parameter was set (`rw2_on3`). The colour
-  was not seen at ring 2, where no creature is, so it is put down to the creatures; not proven.
+  the runs with the fire it turned purple and blue for a few seconds while the lizard creatures of that room fought her.
+  Standing still outside the ring, 2,600 units away, for 32 s (runs `rs_off1`, `rs_on4`, `runs/rs_orbs.png`), the
+  creatures come and the orb flashes blue in both packs, with the fire and without: the colour comes from the creatures,
+  not from the ring.
 
 Collision: identical by construction (records above); no walk into a talon, pillar or ruin wall was played.
 
@@ -108,7 +111,8 @@ not quiet-machine numbers.
 | GPU world ms | 9.03 (5.88 to 13.00) | 8.32 (5.59 to 8.99) |
 
 The frame stays at the 60 fps of the owner's vsync in both; the denser models cost the vertex and GS workers about 2 to
-3 ms per world frame at this pose (about 15 times the triangles per remade model), with headroom left. Not measured: the
+3 ms per world frame at this pose (about 15 times the triangles per remade model, roughly 50 % more worker time). Whether
+the frame time changes is not established: vsync caps it and the runs were not on a quiet machine. Not measured: the
 beams and the rings. From the overlay of the placed views (one frame each, not a measurement): Relic beam views unchanged;
 standing in an Alwarren ring 223 fps without the fire against 115 fps with it (4.5 against 8.7 ms), the fire of 17
 emitters filling a 4K screen; the ring row stays off by default.
@@ -130,6 +134,5 @@ emitters filling a 4K screen; the ring row stays off by default.
 * Walking into the remade talons, pillars and ruins (collision records are byte-identical, not played).
 * Islands, Islands Night, Volcanic's ruin corridors and the Multiplayer ruins were not looked at, nor the beams of the
   other five Multiplayer levels; Talon Torch 02, FangTorch2 and Landscape Spike2 not seen in game.
-* The orb colour change at ring 1 (creatures assumed).
 * The pulsing and fountain flame groups (left as they are).
 * Drakan 2 is untouched (converter only); no Drakan 2 scene was played.
