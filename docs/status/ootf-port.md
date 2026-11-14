@@ -52,6 +52,16 @@ quick-loads to the exact spot and its exit loads Grimstone Mines; Alwarren's exi
 as flat pale blue or lilac planes in all four levels are left to the water work. Needs a regenerated pack. See
 [play check B](../journal/2026-11-14/ootf-check-b.md).
 
+**November 14 engine limits survey (round 6):** the PS2 budgets other than memory, textures and draw distance were
+measured and ranked. Lifted: `[video] shadow_distance` (1 = original, up to 4): character shadows end at the level's 30
+units, so a villager across the Surdana square stood without one; at 3 he has it (Drakan 2 and the Ruined Village opening
+play with it on). `[general] model_cache_mb` / `animation_cache_mb` (0 = the level's 5.4 / 2 MiB): arriving in the Surdana
+square dropped and reloaded 1.44 MiB of models in 22 trims, none at 12 MiB; opt-in until model blocks leave the guest heap.
+Not limits on PC: sound voices (peak 17 of 48 in the Ruined Village opening), ground marks, particles per emitter, card
+space. Briefs written for more than three point lights per object, terrain chunks with more than 10 textures, the AI run
+limit (a game rule) and a model block pool. Needs the rebuilt exe; packs need no rebuild. See
+[engine limits survey](../journal/2026-11-14/engine-limits-survey.md).
+
 **November 14 terrain heap (round 5):** the hangs and `[memset] bad size ... ra=0x157d7c` crashes in the Islands and
 Wartok Canyons were the game's heap running out while the engine built the terrain draw pages of the layers in view
 (converted terrain has up to 10 times the disc's chunks in one view). The runtime now maps 64 MB of guest RAM, keeps the
