@@ -150,3 +150,27 @@ candidates for `--class-sounds-clear 1` or a per-field rule:
 * Drone (template "Blade Dragon (Crow)"): I See You, Hit Ground, Wing Flap.
 * Tick (template "Spider"): Being burnt (a spider sound; likely fine).
 The doors, gates and movers seen keep Drakan 2 door and mechanism sounds of the same kind.
+
+## 7. Another creature's voices: a clear list (formats `1a00d13`)
+
+Coordinator, on the owner's "unless it causes issues": a gryphon's death scream on a succubus, a crow on the Drone and a
+Wartok on the Crimson Knight are such issues. `DEFAULT_TEMPLATE_VOICE_CLEARS` (`ootfclasssounds.ts`, one row per OotF class:
+`{ ootf, template, fields?, why }`) empties the template's voice fields (`CREATURE_VOICE_FIELDS`: I See You, I Hear You, Got
+Hit, Damage Reaction, Death Sounds, Death Sound list, Hit Ground, Wing Flap, Ambient, Taunts, Victory, Flee, Crouch, Chopped
+limb, Being burnt, phasing; footsteps stay) unless the PC class has its own sound there, which plays as before.
+`--class-sound-clears <json>` (pipeline `templateVoiceClears`) replaces the list; `[]` turns it off.
+
+Rows, from a scan of every creature clone's "template keeps" fields (`DRAKAN_DBG_CLASSSOUNDS`):
+* Succubus (Gryphon): Death Sound list, Hit Ground now empty.
+* Queen (Armor Gryphon): I See You, I Hear You, Death Sound list, Hit Ground now empty.
+* Drone (Blade Dragon (Crow)): I See You, Hit Ground, Wing Flap now empty.
+* Crimson Knight (Invisible Wartock): I Hear You, Being burnt, phasing sound now empty.
+* Ebon Knight (Savage Leader - Maulgak): the voice fields and Maulgak's "Sound"; footsteps kept.
+Kept on purpose: Tick (Spider: its burning sound is a spider's), Ice Dragon (Ice Dragon 1: a dragon), Navy Hueges (Purple Orc:
+an orc). No other creature clone keeps a template voice.
+
+Log check (pack `packs/voice1`, run `runs/iss-voice`: Islands direct start on Arokh, placed by the five succubi, fire breath
+at them, 2 minutes; logs only): the succubi play only their PC sounds, `Suc_moan1/4/5/6` (24 plays, PC Ambient Sounds) and
+their attack `SuccLaunch_1`, `SuccLoop_1`, `SuccImpact_1`; no Drakan 2 clip at their positions. None was killed, so the
+emptied death list was not exercised in play (the record shows it empty). A Succubus Lair try (`runs/sl-keep`) placed Rynn
+below the flying succubi and they never called.

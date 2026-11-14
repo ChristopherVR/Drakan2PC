@@ -715,7 +715,9 @@ sound, Islands goblins call their PC lines and their darts hit with the PC impac
 voice, a door's start or bang, the map chime. A converted clip in "Picked Up Sound" made the pickup silent (the engine's
 pickup path refuses it; A/B on one record), so that field keeps Drakan 2's sound. Also: Wartok Canyons' warrior scene (a detector's
 class-default scene, 7 clips) is now converted (not played); the Islands start has no music because the PC level starts
-without (Initial Music ID 0). Pack +3.1 %. Formats `d86fb8a`, `5dbdec2`, `669d5f0`; needs a regenerated pack and a new game. See
+without (Initial Music ID 0). Pack +3.1 %. Creatures cloned from another Drakan 2 creature (succubi, Queen, Drone, Crimson and Ebon Knights) have the
+template's voices emptied where the PC has none (a list, `--class-sound-clears`). Formats `d86fb8a`, `5dbdec2`, `669d5f0`,
+`1a00d13`; needs a regenerated pack and a new game. See
 [class sounds](../journal/2026-11-14/ootf-class-sounds.md).
 
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
