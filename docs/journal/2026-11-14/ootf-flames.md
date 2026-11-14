@@ -138,6 +138,23 @@ With all eight rows off (`--ps2-model-map tools/all_off.json`, formats `2da5ea5`
 byte-identical to one converted from the untouched formats `0afdb74` (`packs/fl_off` against `packs/up0`, every file).
 Packs `fl0` to `fl4` were built from the change on top of `19d9187`; `fl5` (rows on) from the rebased change.
 
+## 6. Alwarren's magic flame ring (asked during the round; not changed)
+
+The ring round the barrier crystal is 18 of Alwarren's 93 "Alwarren Magic Flame" objects (engine class 43, a particle
+emitter, `Initial State` 1, damage 1,000 hp/s). It is not the generator fault above. Every one is placed with PC flags
+0x100 (no visible bit), and the converter copies the flags. In the pack the 17 emitters near the ring exist but draw
+nothing (`runs/ring_fl5`). A test pack with only `FLAG_VISIBLE` added to those 93 objects (`tools/visflag.ts`,
+`packs/ringvis`, `runs/ring_vis/al_ring_b.png`) burns: flames on every skull of the ring and a tall plume above it. So
+the PS2 emitter runs only with the visible bit, where the PC one evidently ignores it: on the PC the ring must burn from
+the start, because its only sender turns it off. The chain is fountain piece 1989 (class 17) to timer 1987 (0.1 s) to
+timer 1993 (12 s, "Trigger Message" 0) to the 18 ring flames. The other 75 are switched by 38 timers (toggles that
+repeat, so they pulse).
+
+Not landed: with the ring burning at 1,000 hp/s, a broken off chain (fountain piece message, the two timers, the
+emitter's reaction to the message) would block the way to the crystal, and none of it was played (a direct start has no
+weapon to break the fountain piece). The fix to try is the visible bit on converted class 43 objects whose PC class
+starts on, followed by a played check of the fountain, the ring going out 12 s later, and one of the pulsing groups.
+
 ## 5. Not verified
 
 * Scaled flames: the 7 flames at 0.6 to 0.75 and the arena relic sconces at 7 to 8 burn at the normal torch size; the
