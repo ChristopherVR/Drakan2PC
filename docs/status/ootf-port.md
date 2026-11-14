@@ -62,6 +62,14 @@ space. Briefs written for more than three point lights per object, terrain chunk
 limit (a game rule) and a model block pool. Needs the rebuilt exe; packs need no rebuild. See
 [engine limits survey](../journal/2026-11-14/engine-limits-survey.md).
 
+**November 14 AI run limit and shadow default (round 6, owner's decision):** the level's "AI Run Max" (4) let only four
+creatures think at once, and a creature keeps its slot after Rynn leaves it (a Surdana villager and a cave Wartok held two
+of the four while she fought at the orc mine). `[general] ai_run_max` (default 8, 0 = the level's own, never lower) raises
+it at each level load: 5 to 7 slots in use in the Surdana orc mine and spider cave, the Ruined Village Scavengers and
+the Wartok Canyons start; the same two or three enemies on Rynn, the OotF opening scenes play unchanged, no stall or
+crash, EE cost within the noise of three bench pairs. `[video] shadow_distance` now defaults to 3 (1 = original). Exe
+only. See [AI run limit](../journal/2026-11-14/ootf-ai-run-limit.md).
+
 **November 14 guest memory (round 6):** the game heap is no longer held to the PS2's 32 MB. Guest RAM is reserved up to
 256 MB (the most the recompiled address decode allows below the I/O registers) and host pages are committed only as
 far as the game uses them; when the retail heap is full, the game's own allocator continues at 0x2000000, up to 224 MB
