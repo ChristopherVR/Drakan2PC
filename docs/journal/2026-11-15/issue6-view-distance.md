@@ -22,7 +22,10 @@ size). The corners come from the renderer's frame width / height / focal (`*(0x5
 44.8, -76.27), not from the projection scale at `+0x48 / +0x4c`. The widescreen and field-of-view code changes only the
 projection scale, and it corrects the CPU frustum `0x199ff0`, which every object and layer test uses
 (`docs/reference/widescreen.md` section 3). This one rectangle still described the 4:3 view at 80 degrees. Anything
-outside it was never drawn: ground, cliffs and the buildings modelled as terrain layers at the left and right edges.
+outside it was never drawn at the left and right edges: ground and cliffs, and the placed objects of those cells too.
+At the raised spot below (heading 45 degrees, 90 degrees), `DRAKAN_MODEL_DETAIL_LOG` counts 316 objects reaching the
+distance test with the fix off and 403 with it on (50 and 106 not hidden by distance), so objects such as castle walls
+are gated by the rectangle as well, not only the ground.
 
 How much shows depends on the heading. Looking along a world axis, the rectangle reaches 63 + 2 cells to each side, so
 at 16:9 and 90 degrees nothing within the view distance is lost (the edge ray needs 100,000 units of depth to leave it).
@@ -55,8 +58,8 @@ world frames (`DRAKAN_WS_LOG=1`).
 
 **Not reached:** the tester's exact place. The game starts at 269484 203204 255696 in the far west of Level 1A, and the
 broken bridge he crossed was not found (placements at several suspension-bridge and candidate spots landed in snow or in
-the void). The raised spot above shows the same castle with its spire. So it is not proven that the wall piece in his
-clip is drawn by this path and not by an object test. The terrain hole at 90 degrees is.
+the void). The raised spot above shows the same castle with its spire. The object counts above show that objects in the cut
+cells were skipped too, which fits his wall piece. His exact view was not compared.
 
 **Cost.** Interleaved A/B, `scene_ab_bench.py` with the turn lock, 3 pairs per scene, the field of view switched live
 inside each run:
@@ -103,7 +106,8 @@ Characters past their LOD distance use their simple LOD. With the factor 2 the t
 LOD selection still works at the extended distance. Static props have no LOD on the disc, so every prop the factor adds
 is drawn at its only detail level.
 
-**Where the time goes** (`bench/dd-spot`, DLSS quality vs off as variants, draw distance 1 / 1.5 / 2 switched live,
+**Where the time goes** (these two benchmarks ran at the ini's field of view, 99, with `wide_view_cells` on; only
+the log counts above were taken at 90. `bench/dd-spot`, DLSS quality vs off as variants, draw distance 1 / 1.5 / 2 switched live,
 3 runs each, all 6 runs started on a quiet machine, one of them had another game during it):
 
 | draw_distance | frame ms DLSS off (DLSS on) | VU1 Mpairs | VU1 worker ms | GS worker ms, DLSS off (on) | EE ms |
@@ -114,7 +118,7 @@ is drawn at its only detail level.
 
 So 1.5 costs about 14 % and 2 about 43 % frame time here. The frame time follows the VU1 worker, the thread that runs
 the PS2 vector unit's vertex program on the processor. That thread costs about 100 to 150 vector instruction pairs per
-added vertex, the same as the rest of the scene. The GS worker (the renderer thread) grows almost as fast, more with
+added vertex (the rest of the scene was not counted per vertex). The GS worker (the renderer thread) grows almost as fast, more with
 DLSS: its per-draw motion-vector work (`drawObjectMotion`) went from 1.85 to 2.65 ms per frame. The EE (game logic)
 grows least.
 
@@ -129,7 +133,11 @@ almost one-to-one in frame time. The v0.1.17 release also wrote a DLSS motion pa
 came after it, `970d213e`), so with DLSS on, each added draw cost the renderer thread more there than it does now. That
 was not measured on the release exe.
 
-**Not done (options):** a cheaper path for the added far props (for example without per-vertex lighting where the fog
+**Not done (options):** at 1.5, about two thirds of the added vertices (3,968 of 5,900) belong to props whose own
+distance is already 75,000 to 100,000 units (the 304-vertex prop at 100,000, the 40-vertex prop at 75,000, a 144-vertex
+prop at 100,000). A taper of the factor for large own distances in `world::model_detail::drawDistance` (for example
+no more than the view distance's fog start), behind a setting, would keep the grass, flowers and people the slider is
+meant for and leave out most of that cost. It was not built or measured. Another option: a cheaper path for the added far props (for example without per-vertex lighting where the fog
 is already strong) changes the look and needs pictures. Lowering the renderer thread's per-draw cost (motion history and
 vertex upload per draw) is the GPU / DLSS agents' area. Neither was built in this round. Nothing in item 1 changed
 behaviour; only the log grew.
@@ -147,6 +155,10 @@ behaviour; only the log grew.
 ## Not verified
 
 * The tester's exact spot and that his castle-wall pop is this path.
+* `wide_view_cells` on a converted Order of the Flame level (its terrain has no far detail level, so the cost may be
+  higher there) and at 16:9 with the default 80 degrees (it applies there too): not measured. Whether it stays on by
+  default is the coordinator's call. FOV 120 with `view_distance 3` at the raised spot ran clean (two headings, pictures
+  in `runs/vd3`).
 * Vulkan / WebGPU: the fix is renderer independent (guest side), but no run used them.
 * OotF levels with `wide_view_cells` (same guest path, not run).
 * Item 1 on the v0.1.17 exe itself, and on the tester's CPU.
