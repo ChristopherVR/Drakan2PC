@@ -45,7 +45,10 @@ scenes.
 * No runtime change, so Drakan 2 is untouched. Reference: `reference/modding.md` "Subtitles of a pack's voice clips",
   `reference/subtitles.md` section 10.
 
-Commits: formats `071d205`, main `e25661c3` (code); this note and the reference docs in a separate docs commit.
+Commits: formats `071d205`, main `e25661c3` (code); this note and the reference docs in a separate docs commit. Tests:
+formats and editor-core vitest 94 files and 1026 tests passed; `python scripts/run_tests.py` 562 tests OK (2 skipped). The
+only caller of `SubtitleTable` is `ootf-convert.ts`. Whether the four waypoints' "Sound to Play" survives conversion was
+not checked object by object. Descriptor 564 is in the pack, so either the Volcanic scene or the waypoints need it.
 
 ### Evidence
 
@@ -68,8 +71,9 @@ mode.
 | `combat` | after2 | Opening skipped, placed by Wartok 2531, walk and attack (Rynn unarmed: the inventory keys did not equip a weapon) | A Wartok attacked. Its swings and hits played (`0x301be`, `0x301c7`, `0x3018c`..). No subtitle in 100 s. |
 | `lvl-islands` | after2 | Direct start (`DRAKAN_START_LEVEL`), the succubi greeting scene | The 5 dialogue lines were subtitled, in the scene. |
 
-What was heard: nothing. I cannot listen. Everything here comes from logs, frames and the audio dumps (kept in each run
-folder).
+What was heard: nothing. I cannot listen. Everything here comes from logs, frames and the audio dumps. The audio dumps
+and logs are kept in each run folder; the run frames were deleted for disk space, and only the three in `evidence/`
+remain.
 
 ## 2. Sound survey
 
@@ -98,8 +102,10 @@ sequences with the descriptors of the shipped pack (`build/review/ootf-sound/cov
 3. Footsteps play from Drakan 2's SYSTEM set (`0x20275`..`0x20278`, the material footsteps) when Rynn walks. Expected
    from the engine; not judged by ear.
 4. 442 of the 451 sequence clips are in the pack. The other 9 were not traced.
-5. No clipped or looping clip, wrong rate or voice-limit drop was found in the logs. `DRAKAN_SND_LOG` voice-count runs
-   were not made. The status note's peak of 17 of 48 voices stands.
+5. Clipping, wrong rate, looping and voice-limit drops were **not examined**: the `[play]` / `[setgain]` logs cannot show
+   them and no `DRAKAN_SND_LOG` voice run was made. In Grimstone Mines 328 of 347 gain updates were non-zero (the rest
+   are sounds out of range). Music: the level start played music id `0xe0008` in Ruined Village and `0xe0009` in
+   Grimstone Mines; in the Islands direct start no music request was logged in 100 s (not followed up).
 
 ### Not fixed, and why
 
@@ -117,5 +123,6 @@ sequences with the descriptors of the shipped pack (`build/review/ootf-sound/cov
 * Weapon combat with Rynn armed; a dragon flight; Volcanic scene 9.1 (the other place the mumble plays); every other
   scene's lines (only the opening, 1.2a and the succubi greeting were watched).
 * Listening: no sound was judged by ear.
-* `kinds.json` lists two clips chosen by eye and name. Other low-confidence lines in `review.txt` may also be sounds
-  rather than words.
+* `kinds.json` lists two clips chosen without hearing them, by the frame, the clip name and the low confidence (-0.62,
+  -0.64). The villager could be saying a short pleading line, so the file is offered for the owner to decide, not as part
+  of the fix. Other low-confidence lines in `review.txt` may also be sounds rather than words.
