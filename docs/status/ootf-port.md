@@ -720,6 +720,15 @@ template's voices emptied where the PC has none (a list, `--class-sound-clears`)
 `1a00d13`; needs a regenerated pack and a new game. See
 [class sounds](../journal/2026-11-14/ootf-class-sounds.md).
 
+**November 14 "Wartok Canyons does not load" (round 7):** a wrong level name in the test runs, not a converter
+regression. Wartok Canyons is "OotF 03 - Wartok Canyons" (02 is the Ruined Village Book); the failing runs asked
+`DRAKAN_START_LEVEL` for "OotF 02 - Wartok Canyons", which loads nothing. The runtime now stops at start-up with
+`[drakan] start level '...' is not a level ... (did you mean '...'?)` and exit code 3 instead of an empty world (main
+882959aa). With the right name the dist exe and pack and the current main exe with a main pack (formats e5f395c) load
+Wartok Canyons by direct start, from the Ruined Village crystal scene's exit (placed on the lair ledge, real input for
+the rest), walk, F5, F8; all 23 levels of the pack load by direct start. See
+[Wartok load](../journal/2026-11-14/ootf-wartok-load.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.
