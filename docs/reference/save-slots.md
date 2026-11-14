@@ -31,7 +31,8 @@ nothing to load. With `[general] quicksave_in_load = 1` (default, env `DRAKAN_QU
 Game shows one more page after the manual ones while a quicksave is on the card: the modern screen titles it
 "Quicksave" and shows its one slot, the native grid shows it as page `n+1` with "33 - <level>" (34..36 empty). Save
 Game never shows it (the slot cells go back to the manual page as soon as Load Game is gone, not while its question
-box is up), and Continue considers the quicksave too. Folder pages vs pager pages and the step order are in
+box is up), and Continue considers the quicksave too. Load Game opens on the quicksave page when the quicksave is
+the newest save on the card. With one page in all, PgUp / PgDn / L1 / R1 keep their native meaning. Folder pages vs pager pages and the step order are in
 `ps2xRuntime/src/lib/drakan_save_pages_policy.h` (tests `save_pages_policy_tests.cpp`, gameui `testQuickPage`).
 Notes: `docs/journal/2026-11-15/issue6-save-cam.md`.
 Validation notes: `docs/journal/2026-10-25/quick-save-load.md`.

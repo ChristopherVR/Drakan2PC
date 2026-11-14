@@ -326,6 +326,39 @@ bool quickListed(IGuest& g, uint32_t screen) {
            g.read32(screen + 0x18) == static_cast<uint32_t>(kScreenLoad) && quickSaveOnCard();
 }
 
+// The quicksave is newer than every manual save on the card (or the only save): Load Game then opens on its page.
+bool quickSaveNewest() {
+    namespace fs = std::filesystem;
+    const auto& io = PS2Runtime::getIoPaths();
+    const fs::path root = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
+    const std::string id = drakan_region::build().saveId;
+    const auto newest = [&](int slot, fs::file_time_type& out) {
+        bool found = false;
+        std::error_code ec;
+        for (fs::directory_iterator it(root / (id + "Slot" + std::to_string(slot)), ec), end; !ec && it != end;
+             it.increment(ec)) {
+            if (it->path().extension() != ".rsg")
+                continue;
+            std::error_code tec;
+            const auto t = fs::last_write_time(it->path(), tec);
+            if (!tec && (!found || t > out)) {
+                out = t;
+                found = true;
+            }
+        }
+        return found;
+    };
+    fs::file_time_type quick{};
+    if (!newest(policy::kQuickSlot, quick))
+        return false;
+    for (int n = 1; n <= g_pages * 4; ++n) {
+        fs::file_time_type t{};
+        if (newest(n, t) && t >= quick)
+            return false;
+    }
+    return true;
+}
+
 void showFolderPage(IGuest& g, uint32_t screen, int p, uint32_t sound) {
     if (p == policy::kQuickFolderPage && g_page.load() != policy::kQuickFolderPage)
         g_listReturnPage = g_page.load();
@@ -384,7 +417,9 @@ void hookSlotKey(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 g_pager.visible = false;
             }
         }
-        if (key == static_cast<uint32_t>(kKeyNext) || key == static_cast<uint32_t>(kKeyPrev)) {
+        // With one page (save_pages = 1, no quicksave listed) the keys keep their native meaning.
+        if ((key == static_cast<uint32_t>(kKeyNext) || key == static_cast<uint32_t>(kKeyPrev)) &&
+            policy::logicalCount(g_pages, quickListed(g, scr)) > 1) {
             changePage(g, scr, key == static_cast<uint32_t>(kKeyNext) ? 1 : -1, 0x2a);
             leave(c, 0);
             return;
@@ -884,6 +919,17 @@ void tick(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     if (!slots) {
         g_slotClosing = false;
         g_thumbnailSeen.fill(0);
+    }
+    // A Load screen opens on the quicksave's page when the quicksave is the newest save (a quick save, a quit and a
+    // look into Load Game must not show an empty first page).
+    static uint32_t s_openedLoad = 0;
+    if (id == kScreenLoad && scr != s_openedLoad) {
+        s_openedLoad = scr;
+        if (!g_quickPage && g_page.load() != policy::kQuickFolderPage && namesUsable(g) && quickListed(g, scr) &&
+            quickSaveNewest())
+            showFolderPage(g, scr, policy::kQuickFolderPage, 0);
+    } else if (id != kScreenLoad && id != 1 && id != 2 && id != 3 && id != 0x1b) {
+        s_openedLoad = 0;
     }
     // The quicksave page belongs to Load Game only: once Load Game is gone (not just covered by its question box),
     // the cells name the manual page again, so a later Save Game can never write into the quicksave's folder.

@@ -31,6 +31,13 @@ Fix (`[general] quicksave_in_load = 1`, default on, env `DRAKAN_QUICKSAVE_IN_LOA
 - Modern screen: `SaveSlotsState::quickPage` / `quickSlot`, the page is titled "Quicksave" and shows its one slot; the
   load question names it ("Progress since your last save is lost. Quicksave: Surdana."; new string, 5 languages).
 - Title Continue considers slot 33 (newest of manual and quick).
+- Load Game opens on the quicksave page when the quicksave is the newest save on the card (otherwise on the page it
+  showed last), so quick save, quit, Load Game shows the save at once. With one page in all (`save_pages = 1` and no
+  quicksave) PgUp / PgDn / L1 / R1 keep their native meaning on the slot screens.
+  Checked in the game: `runs/v1_open/o1_load_opens.png` (quicksave-only card: Load Game opens on "Page 5 of 5,
+  Quicksave"), `runs/v3_manual/m3_load_opens.png` (quicksave, then a newer manual save: opens on page 1, slot 1),
+  `runs/v2_sheet.png` (`save_pages = 1`, native, no quicksave: Load Game, PgUp, Esc, PgDn identical with the
+  v0.1.17-era dist exe on the left and this build on the right).
 
 After (own build of main + this change, `runs/qs2`, `qs3`, `qs4`):
 
@@ -82,6 +89,18 @@ After (own build), same recipe:
 The 30 and 60 fps distributions are unchanged (the larger values there are the multi-frame ease at the start and end of
 a turn). Another game instance (another agent) was running during these runs; frame hitches show up as `dt` spikes and
 are left out of the table.
+
+Other findings:
+
+- `runs/fix140` f=3545 to 3552: the camera distance falls from 1280 to 490 over eight frames while she walks uphill
+  (W+A) with no change of bearing (`res` about 0). The pattern is the native camera's collision pull-in towards a
+  blocked target, not the carry; a traced rerun (`runs/fix140t`, two seam crossings, max `res` 0.070, max `crel` 78) did
+  not meet that slope again, so this attribution is not traced.
+- The tester's vsync state is not known (the game's default is vsync on). With vsync on at 144 Hz and a 140 fps driver
+  cap, `tick_snap` (`snapTickToRefresh`) gives the world a double step once every 35 ticks (about four times a second;
+  computed with 1/140 s ticks against a 1/144 s refresh), matching the frame the display shows for two refreshes. Mouse
+  turning is counted in real time and not affected. That is an even judder, not a sideways camera jump, and is not
+  changed here; a cap at or above the refresh rate, or vsync without the driver cap, avoids it.
 
 ## Also done, not a fix
 
