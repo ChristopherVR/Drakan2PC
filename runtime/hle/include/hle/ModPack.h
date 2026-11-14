@@ -232,6 +232,10 @@ public:
     // game serves it in place of the credits text entries (DRAKAN2.RRC 0x401 ids 8807 / 8808) only while that pack's
     // campaign is the current game (CampaignCreditsOverride).
     const std::vector<std::pair<std::string, std::string>>& creditsFiles() const { return creditsFiles_; }
+    // Campaign sound swaps: the text of every loaded pack's `sounds/swaps.ini` (<= 64 KiB), `first` = the pack id. The
+    // game plays the listed ids in place of Drakan 2 ones only while that pack's campaign is the current game
+    // (CampaignSoundSwaps, docs/reference/modding.md "Campaign sound swaps").
+    const std::vector<std::pair<std::string, std::string>>& soundSwapFiles() const { return soundSwapFiles_; }
     // Imported bow automatic-aiming sidecars, in enabled pack load order.
     const std::vector<std::pair<std::string, std::string>>& bowAimFiles() const { return bowAimFiles_; }
 
@@ -265,6 +269,7 @@ private:
     std::vector<std::pair<std::string, std::vector<u8>>> previewFiles_;
     std::vector<std::pair<std::string, std::string>> uiFiles_;
     std::vector<std::pair<std::string, std::string>> creditsFiles_;
+    std::vector<std::pair<std::string, std::string>> soundSwapFiles_;
     std::vector<std::pair<std::string, std::string>> bowAimFiles_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;

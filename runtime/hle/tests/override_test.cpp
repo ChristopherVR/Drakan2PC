@@ -2,6 +2,7 @@
 // temp dir).
 #include <algorithm>
 #include "hle/RsrcIop.h"
+#include "hle/CampaignSoundSwaps.h"
 #include <cstdio>
 #include <array>
 #include <cstring>
@@ -286,8 +287,35 @@ int main() {
         active = "";
         CHECK(!cc.wants(first));
     }
+    {
+        // Campaign sound swaps: only while that campaign is the current game; in turn; "none" plays nothing.
+        CampaignSoundSwaps sw;
+        std::string current = "d2";
+        sw.setActive([&] { return current; });
+        size_t wrong = 9;
+        CHECK(sw.add("ootf-levels",
+                     "# Rynn\n0x202d6 0x202d7 = 0x3041a 0x3041b\n0x503ee = none # grunt\n\nbroken line\n0x1 = zz\n",
+                     &wrong) == 3);
+        CHECK(wrong == 2);
+        CHECK(sw.size() == 1);
+        CHECK(!sw.campaignActive());
+        CHECK(sw.map(0x202d6) == 0x202d6); // Drakan 2 keeps its sounds
+        CHECK(sw.map(0x503ee) == 0x503ee);
+        current = "ootf-levels";
+        CHECK(sw.campaignActive());
+        CHECK(sw.map(0x202d6) == 0x3041a);
+        CHECK(sw.map(0x202d7) == 0x3041b);
+        CHECK(sw.map(0x202d6) == 0x3041a);
+        CHECK(sw.map(0x503ee) == 0);
+        CHECK(sw.map(0x20008) == 0x20008); // not listed
+        current = "d2";
+        CHECK(sw.map(0x202d7) == 0x202d7);
+        CampaignSoundSwaps empty;
+        CHECK(empty.add("x", "# nothing\n") == 0 && empty.size() == 0);
+        CHECK(empty.map(0x202d6) == 0x202d6);
+    }
     // ---- campaign title music: the disc's title track is served from the campaign's track while it is the current
-    // game; the choice is latched at the descriptor so one play never mixes the two tracks
+    // current; the choice is latched at the descriptor so one play never mixes the two tracks
     {
         std::string active;
         CampaignMusicRedirect mr;

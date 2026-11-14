@@ -12,6 +12,7 @@ add_library(drakan_hle STATIC
     src/ArenaLevel.cpp
     src/ResourceService.cpp
     src/ResourceOverride.cpp
+    src/CampaignSoundSwaps.cpp
     src/ModPack.cpp
     src/SaveRecord.cpp
     src/SoundService.cpp)

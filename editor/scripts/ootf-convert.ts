@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -240,6 +240,10 @@ const res = await convertOotfLevels(
         classSoundsClear: opt['class-sounds-clear'] === '1',
         // --class-sound-clears <json>: the list of OotF creatures whose other-creature template voices are emptied ([] = none)
         ...(opt['class-sound-clears'] ? { templateVoiceClears: JSON.parse(readFileSync(opt['class-sound-clears'], 'utf8')) } : {}),
+        // --pc-voices 1: Rynn and Arokh speak with their Order of the Flame voices in the campaign (sounds/swaps.ini)
+        pcVoices: opt['pc-voices'] === '1',
+        // --wartok-idle off: the Drakan 2 Wartok models' standing and walking grunts play nothing in the campaign
+        ...(opt['wartok-idle'] === 'off' ? { wartokIdle: 'off' as const } : {}),
         sequences: !only || only.has('sequences'),
         ps2Textures,
         ps2Models,

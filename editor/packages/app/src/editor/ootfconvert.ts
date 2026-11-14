@@ -43,6 +43,10 @@ export interface ConvertRequest {
     levelMaps?: Record<string, LevelMapOverride>;
     /** true: creatures, barrels and chests drop Drakan 2's gold and trinkets in the campaign (default false: OotF has no shops). */
     treasure?: boolean;
+    /** true: Rynn and Arokh speak with their Order of the Flame voices in the campaign (default false: Drakan 2 voices). */
+    pcVoices?: boolean;
+    /** `off`: the Drakan 2 Wartoks' standing and walking grunts are silent in the campaign (default `drakan2`). */
+    wartokIdle?: 'drakan2' | 'off';
 }
 
 export interface LevelSummary {
@@ -104,6 +108,8 @@ export async function runConversion(
             ps2Textures: req.ps2Textures,
             ps2Models: req.ps2Models,
             levelMaps: req.levelMaps,
+            pcVoices: req.pcVoices === true,
+            wartokIdle: req.wartokIdle ?? 'drakan2',
             name: (pc) => `${req.prefix}${pcLevelName(pc.header)}`.slice(0, 60),
             log: progress,
         },

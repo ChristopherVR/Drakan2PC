@@ -1680,6 +1680,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     previewFiles_.clear();
     uiFiles_.clear();
     creditsFiles_.clear();
+    soundSwapFiles_.clear();
     bowAimFiles_.clear();
     texts_ = std::make_shared<XdbTextOverride>();
     textCount_ = 0;
@@ -1749,6 +1750,12 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 std::vector<u8> text;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, text))
                     creditsFiles_.emplace_back(mid, std::string(text.begin(), text.end()));
+                continue;
+            }
+            if (lowPath == lower(c.prefix) + "sounds/swaps.ini") {
+                std::vector<u8> text;
+                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
+                    soundSwapFiles_.emplace_back(mid, std::string(text.begin(), text.end()));
                 continue;
             }
             const std::string prevRoot = lower(c.prefix) + "previews/";

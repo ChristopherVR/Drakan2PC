@@ -691,6 +691,44 @@ file was first read still counts) rewrites the two entries' bytes in place (`Cam
 with spaces to the entry's size, a longer one is cut at a line end, the second entry becomes one blank line). Verified in game: the
 end card scrolls over the Wartok farm and the game returns to the title (`credits: read at ... patched entry 8807` in the log).
 
+### Campaign sound swaps
+
+Rynn and Arokh are Drakan 2's own records in a converted campaign (name-mapped), and a Drakan 2 creature model voices
+itself through its clips' sound lists (ADB `0x0505`). A pack cannot change those records or clips without changing
+Drakan 2 too (packs are installed for the whole session). Instead a campaign pack may ship `sounds/swaps.ini`
+(up to 64 KiB):
+
+```
+# comment
+0x202d6 0x202d7 = 0x30270 0x30271   whenever the game plays 0x202d6 or 0x202d7, play 0x30270, then 0x30271, in turn
+0x503ee 0x503ef = none              play nothing there
+```
+
+Ids are the game's play ids (`database index << 16 | sound id`, the database index of the level's dependency table: the
+same in every level converted from one template). While that pack's campaign is the current game the runtime swaps the
+id at PlaySound (`0x1b7f30`, `hle::CampaignSoundSwaps`, `campaignSoundSwapHook` in `drakan_overrides.cpp`); `none` returns
+0, as for a sound out of range. Drakan 2 in the same session, and PvP arenas, keep every disc sound. The log names the
+table at start-up (`[game] pack '<id>': N campaign sound swap(s)`) and the first 400 swaps
+(`[sound] campaign swap <from> -> <to> (ra=...)`). Nothing is stored in a save.
+
+The OotF converter writes it from two importer choices (CLI `--pc-voices 1`, `--wartok-idle off`; pipeline `pcVoices`,
+`wartokIdle`; formats `ootfsoundswaps.ts`), both off by default:
+
+* **Rynn and Arokh: Order of the Flame voices.** The PC Rynn and Dragon classes' sound fields are matched by name to the
+  Drakan 2 records' (`matchClassSounds`); the PC clips join the pack and each Drakan 2 list plays the PC list instead.
+  Loops and body sounds (wing flaps, sheathe, push, slide, landing) stay Drakan 2's. A field Drakan 2 leaves empty (Arokh's
+  Meet At Cave Entrance and Take Off, Rynn's No Arrows, Fall Into Water, Get-the-point) or does not have (Rynn's Dragon
+  Call) cannot be swapped: nothing plays there in either game. Scenes naming Rynn or Arokh are untouched (their records
+  are not changed), and scene clips are the converted PC ones anyway.
+* **Wartok idle grunts: silent.** The standing, ready and walking clips (`idle*`, `ready*`, `walk*`) of the Drakan 2 models
+  the converted Wartoks use (Wartock, Tock and Orc records) play `Grull_NEWidle_*` / `Wartok_Idle_*` from their sound lists,
+  about twice a second; with the choice these play nothing. The Order of the Flame Wartoks have no idle sound (no class
+  field and no clip sound lists on the PC), so there is no PC sound to play there instead.
+
+Risk: a swap is by id, so any other use of a listed Drakan 2 id in the campaign is swapped too (nothing in the converted
+campaign but Rynn, Arokh and the Wartok clips names those ids). On the animation-event path (`0x10d100`), a clip event that
+repeats the sound still playing restarts it, since the playing instance carries the swapped id.
+
 ### Intro movie (pre-rendered opening)
 
 The PC install has no intro movie: "Psygnosis Presents", the owl and the title scenes are the engine-rendered level

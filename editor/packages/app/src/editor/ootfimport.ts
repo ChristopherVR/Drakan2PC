@@ -319,6 +319,20 @@ function openDialog(host: OotfHost): void {
     // Order of the Flame has no shops: by default its campaign drops none of Drakan 2's gold and trinkets and shows no
     // gold amount (manifest `campaign_treasure = false`, `campaign_gold_counter = false`); the box keeps both.
     const treasureBox = h('input', { type: 'checkbox', id: 'od-treasure' });
+    // Voices: Rynn, Arokh and the Wartoks keep their Drakan 2 voices by default. The choices change only this campaign
+    // (the pack's sounds/swaps.ini); Drakan 2 keeps its own voices with the pack installed.
+    const voicesSel = h(
+        'select',
+        { id: 'od-voices' },
+        h('option', { value: 'drakan2' }, 'Drakan 2 voices'),
+        h('option', { value: 'ootf' }, 'Order of the Flame voices'),
+    );
+    const wartokSel = h(
+        'select',
+        { id: 'od-wartok-idle' },
+        h('option', { value: 'drakan2' }, 'Drakan 2 grunts'),
+        h('option', { value: 'off' }, 'Silent, as in Order of the Flame'),
+    );
     const list = h('div', { class: 'od-list' });
     const ps2Tex = ps2TexturePanel();
     const ps2Model = ps2ModelPanel();
@@ -383,6 +397,28 @@ function openDialog(host: OotfHost): void {
                 'span',
                 { class: 'od-dim' },
                 'off: creatures, barrels and chests drop only what the Order of the Flame levels give them (it has no shops), and the screens show no gold',
+            ),
+        ),
+        h(
+            'div',
+            { class: 'od-row' },
+            h('span', {}, 'Rynn and Arokh'),
+            voicesSel,
+            h(
+                'span',
+                { class: 'od-dim' },
+                'their remarks, calls, grunts and hit cries in this campaign; Drakan 2 keeps its own voices',
+            ),
+        ),
+        h(
+            'div',
+            { class: 'od-row' },
+            h('span', {}, 'Wartok idle grunts'),
+            wartokSel,
+            h(
+                'span',
+                { class: 'od-dim' },
+                'the grunts Wartoks make while standing and walking in this campaign; Drakan 2 keeps them',
             ),
         ),
         ps2Tex.el,
@@ -487,6 +523,8 @@ function openDialog(host: OotfHost): void {
                 ps2Models: ps2Model.options(),
                 levelMaps: maps.overrides(),
                 treasure: treasureBox.checked,
+                pcVoices: voicesSel.value === 'ootf',
+                wartokIdle: wartokSel.value === 'off' ? 'off' : 'drakan2',
             },
             // the pristine disc: reading through the overlay would feed an earlier conversion's classes into this one
             (path) => host.call('readDiscFile', path),
