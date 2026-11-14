@@ -119,8 +119,9 @@ ends, not the world: Ravenshold lists layers to 72 cells for its 45 cell view di
 holes over islands the list does not name (3,517 of 5,465 holes). `[video] far_scenery` (default 1, live, needs
 `heap_extend`) lets the terrain draw walk the closure of the lists within the scaled view distance, for the draw only.
 At 2 the Ravenshold sea runs into the fog and the Islands sea is unbroken with the far islands in it. Cost: Drakan 2
-within noise to +1.7 ms; the converted Islands 7 ms at 1, 28 at 1.5, 37 at 2 (its far floor layers), and the 8 MB pack
-texture cache overflows at 2 (a near island and Arokh not drawn; fine at 16 MB). So `view_distance` stays 1. Exe only.
+within noise to +1.7 ms; the converted Islands 7 ms at 1, 28 at 1.5, 37 at 2 (its far floor layers), and at 2 the 8 MB pack
+texture cache overflowed (a near island and Arokh not drawn), so `auto` now gives packs 16 MB while far scenery is on.
+`view_distance` stays 1 for the frame time. Exe only.
 See [view horizon](../journal/2026-11-14/ootf-view-horizon.md).
 
 **November 14 point lights per model (round 6):** the engine lights a model with the sun and the three nearest point

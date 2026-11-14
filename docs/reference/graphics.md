@@ -484,7 +484,8 @@ original entries first. The list lives in one block from the game's heap (malloc
 polled) and is swapped into the view layer for the draw's layer loop only; the cell lookup `0x14b6b8` (actor and view
 refiling) is given the original count for its call. Cost: Drakan 2 within noise to +1.7 ms at 2 (Ravenshold,
 Surdana); converted Islands 7 ms at 1, 28 at 1.5, 37 at 2 (the far floor layers: no terrain detail level, full PC
-grid), and the 8 MB pack texture cache overflows at 2. Pictures and numbers:
+grid); at 2 the 8 MB pack texture cache overflowed, so `game_texture_cache_kb = auto` gives packs 16 MB while far
+scenery widens the draw. Pictures and numbers:
 [view horizon](../journal/2026-11-14/ootf-view-horizon.md).
 
 world camera (`SceneGuideCamera`) is published separately, and with DLSS or a ray effect on the lighting snapshot

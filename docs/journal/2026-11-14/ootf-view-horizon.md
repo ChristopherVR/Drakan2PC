@@ -43,8 +43,11 @@ leaves 26 of the 3,517 Islands holes uncovered (all at reach 225).
   or at the next draw.
 * The cell lookup `0x14b6b8` (actor and view layer refiling, which searches the same list) always sees the level's own
   list: the hook puts the original count back for the call (the wider list starts with the original entries).
-* Object activity and the sound distance keep the PS2 numbers as before (view distance hook); the per-frame activity
-  loop `0x15cba0` has one caller, the world update's loop over the view layer's list, which never sees the swap.
+* Object activity and the sound distance keep the PS2 numbers as before (view distance hook). The activity method
+  `0x15cba0` has one direct caller (`0x14d1e0`), a loop over a layer list that also builds draw blocks and reports
+  progress; it was not established whether that runs per frame or at level load, and it would see the wider list only
+  if a draw were suspended inside its layer loop and that loop ran on another thread meanwhile (not observed, not
+  logged).
 * `far_scenery = 0`, or `view_distance = 1`, is the behaviour before this change.
 
 ## What the player sees
@@ -63,7 +66,11 @@ ini per run, and harness placements to the view spots (placed, not played): Rave
 * **Texture memory at 2 in the Islands:** with the owner's `game_texture_cache_kb = auto` (8 MB in packs) the game's
   texture cache overflows (`[texbudget] ... 100 texture loads did not fit`): a near island and Arokh were not drawn in
   the first view (`ev/is2onb.jpg`, the same view twice). With 16384 KiB the view is complete (`ev/is2t16.jpg`). 1.5 at
-  auto drew everything in this view (`islands_compare.jpg` row 2). Handed to the texture memory work.
+  auto drew everything in this view (`islands_compare.jpg` row 2), but its runs also logged loads that did not fit
+  (as did Islands Night at 1.5 and 2; no Drakan 2 run did). Fixed: with `game_texture_cache_kb = auto` a pack level
+  gets 16384 KiB instead of 8192 while far scenery widens the draw (`budgetFor(..., wide)`, tested in
+  `texture_budget_policy`); the same view at 2 with the owner's auto is complete and logs no misses
+  (`ev/is2auto.jpg`). Numbers and native keep their meaning.
 * Islands Night: the start has no Arokh, and the placement at the Islands spot put Rynn into the sea, so the runs
   (`runs/in*`) show the underwater view and say nothing. Offline (`tools/gaps.ts`, the level in the current pack): from
   the layer under that spot the list closure at reach 152 covers all 3,263 sea holes over unlisted islands (the
@@ -99,7 +106,7 @@ the work of Ravenshold's mountains.
   seen; off is one setting away.
 * `view_distance` stays 1. In Drakan 2 it now looks right and costs little (Ravenshold within noise, Surdana +1.7 ms at
   2), but in the converted Order of the Flame Islands 1.5 is four times the frame time of 1 (28 against 7 ms) and 2
-  five times, and the 8 MB pack texture cache is not enough at 2. A Drakan 2 player can set 2; making 2 the default
+  five times (the pack texture cache now goes to 16 MB with far scenery, see above). A Drakan 2 player can set 2; making 2 the default
   for disc levels only (like `game_texture_cache_kb = auto`) is the obvious next step once a guard fight has been
   played at 2. The help text of the slider now says the cost, not that levels show their edge.
 
