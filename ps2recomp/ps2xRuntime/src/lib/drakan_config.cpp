@@ -248,7 +248,8 @@ const Entry kEntries[] = {
      "texture cache budget in MB, 0 = auto (40 % of the dedicated VRAM) (env GSR_TEXBUDGET)"},
     {"video", "game_texture_cache_kb", "auto",
      "the game's own texture memory: auto = 8192 KiB in Order of the Flame and in any level from a mod pack (their "
-     "levels hold more textures; less and a level can wait for its textures), the original 5530 KiB in the disc "
+     "levels hold more textures; less and a level can wait for its textures; 16384 KiB there while far_scenery widens "
+     "a view_distance above 1), the original 5530 KiB in the disc "
      "levels | native = always the original size | 1024 .. 16384 = that many KiB everywhere (PAL only; env "
      "DRAKAN_TEX_CACHE_KB)"},
     {"video", "hd_texture_keep_s", "60",

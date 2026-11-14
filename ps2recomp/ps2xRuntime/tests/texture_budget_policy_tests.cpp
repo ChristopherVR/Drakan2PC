@@ -13,6 +13,11 @@ int main() {
     assert(kCampaignBudget > kNativeBudget);
     // An empty or malformed variable is ignored.
     assert(budgetFor(true, "") == kCampaignBudget);
+    // far scenery: auto gives a raised level the largest budget; disc levels, native and numbers are unchanged
+    assert(budgetFor(true, nullptr, true) == kMaxBudgetKb * 1024u &&
+           budgetFor(true, "auto", true) == kMaxBudgetKb * 1024u);
+    assert(budgetFor(false, nullptr, true) == 0 && budgetFor(true, "native", true) == 0);
+    assert(budgetFor(true, "6144", true) == 6144u * 1024u);
     assert(budgetFor(true, "8m") == kCampaignBudget);
     assert(budgetFor(false, "-5") == 0);
     // "0" turns it off everywhere; a number applies to every game, clamped.

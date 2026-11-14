@@ -1,8 +1,8 @@
 // View distance ([video] view_distance): rules of the option, pure functions.
 //
-// The engine keeps one view distance per world, in cells of 2048 units (75 in every level seen, Drakan 2 and converted
-// Order of the Flame alike), together with the distance fog that ends there. The world's fog setter (PAL 0x142f70,
-// a0 = world, f12 = far in cells, f13 = fog range in cells) writes:
+// The engine keeps one view distance per world, in cells of 2048 units (each level sets its own: 75 in Surdana and the
+// converted Order of the Flame levels, 45 in Ravenshold), together with the distance fog that ends there. The world's
+// fog setter (PAL 0x142f70, a0 = world, f12 = far in cells, f13 = fog range in cells) writes:
 //
 //   +0x388 far (cells)          read by the terrain grid (radius in cells), the object draw cap, the frustum,
 //                               particles and the per-layer object activity loop

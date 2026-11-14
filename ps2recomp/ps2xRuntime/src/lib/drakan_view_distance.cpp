@@ -357,6 +357,11 @@ bool scenery() {
     return g_sceneryOn.load(std::memory_order_relaxed);
 }
 
+bool sceneryWidens() {
+    return g_sceneryAllowed && g_sceneryOn.load(std::memory_order_relaxed) &&
+           g_factor.load(std::memory_order_relaxed) > rules::kOff;
+}
+
 void configure(float factor) {
     g_factor.store(rules::clampFactor(factor), std::memory_order_relaxed);
 }

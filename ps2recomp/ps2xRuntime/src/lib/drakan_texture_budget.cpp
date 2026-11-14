@@ -5,6 +5,7 @@
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "drakan_texture_budget_policy.h"
+#include "drakan_view_distance.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 
@@ -54,7 +55,8 @@ void overBudget(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         const uint32_t request = GPR_U32(ctx, 6);
         uint32_t inForce = budget;
         ++g_calls;
-        if (const uint32_t raised = raisedBudget(budget, budgetFor(raise, g_setting.c_str()))) {
+        if (const uint32_t raised =
+                raisedBudget(budget, budgetFor(raise, g_setting.c_str(), drakan_view_distance::sceneryWidens()))) {
             std::memcpy(ram + kManager + 4, &raised, 4);
             inForce = raised;
             if (budget != g_lastLogged) { // once per engine budget value (boot, then the level's)
@@ -85,7 +87,8 @@ void beforeLevelLoad(const drakan_lifecycle::Event& e) {
         e.level.c_str(), [](const char* n) { return isPackLevel(n); }, std::getenv("DRAKAN_START_LEVEL"),
         std::getenv("DRAKAN_START_LEVEL_FROM"));
     g_packLevel.store(pack);
-    const uint32_t target = budgetFor(pack || drakan_game::current() != drakan_game::Game::Drakan, g_setting.c_str());
+    const uint32_t target = budgetFor(pack || drakan_game::current() != drakan_game::Game::Drakan, g_setting.c_str(),
+                                      drakan_view_distance::sceneryWidens());
     std::fprintf(stderr, "[texbudget] level '%s'%s: texture cache budget %s\n", e.level.c_str(),
                  pack ? " (from a pack)" : "", target ? (std::to_string(target / 1024) + " KiB").c_str() : "native");
 }

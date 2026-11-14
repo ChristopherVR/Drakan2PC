@@ -31,7 +31,10 @@ inline bool equalsNoCase(const char* a, const char* b) {
 // comes from a pack. `setting`: [video] game_texture_cache_kb or DRAKAN_TEX_CACHE_KB (null = unset). "auto" or empty =
 // kCampaignBudget when `raised`, else native; "native" or "0" keeps the native budget everywhere; a number of KiB
 // (clamped to kMinBudgetKb..kMaxBudgetKb) applies to every game and level; anything else counts as "auto".
-inline uint32_t budgetFor(bool raised, const char* setting) {
+// `wide`: far scenery widens the terrain draw ([video] far_scenery with view_distance above 1): converted levels then
+// keep the textures of 150 cells of islands resident, which overflowed 8 MiB in the Islands (a near island and Arokh
+// went undrawn), so "auto" gives a raised level the largest budget. The extended heap that far scenery needs has room.
+inline uint32_t budgetFor(bool raised, const char* setting, bool wide = false) {
     if (setting && *setting && !equalsNoCase(setting, "auto")) {
         if (equalsNoCase(setting, "native"))
             return 0;
@@ -47,7 +50,7 @@ inline uint32_t budgetFor(bool raised, const char* setting) {
             return clamped * 1024u;
         }
     }
-    return raised ? kCampaignBudget : 0;
+    return raised ? (wide ? kMaxBudgetKb * 1024u : kCampaignBudget) : 0;
 }
 
 // The value to write over the manager's budget word, or 0 to leave it. Only ever raises a positive budget.
