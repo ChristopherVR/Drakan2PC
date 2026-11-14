@@ -52,6 +52,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_engine_limits_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_engine_limits_test COMMAND world_engine_limits_test)
 
+    # Point lights per model (header only): the builder's accept rule, free slots, folding into four slots.
+    add_executable(world_model_lights_test tests/model_lights_test.cpp)
+    target_link_libraries(world_model_lights_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_model_lights_test COMMAND world_model_lights_test)
+
     # Terrain draw page pool (header only): best-fit allocator over the extra guest RAM, routing rule, churn.
     add_executable(world_terrain_page_pool_test tests/terrain_page_pool_test.cpp)
     target_link_libraries(world_terrain_page_pool_test PRIVATE drakan_world drakan::options)

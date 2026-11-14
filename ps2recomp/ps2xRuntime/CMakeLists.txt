@@ -407,6 +407,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_view_distance.cpp
     src/lib/drakan_terrain_pages.cpp
     src/lib/drakan_engine_limits.cpp
+    src/lib/drakan_model_lights.cpp
     src/lib/drakan_region.cpp
     src/lib/drakan_game.cpp
     src/lib/gs/ps2_gif_arbiter.cpp

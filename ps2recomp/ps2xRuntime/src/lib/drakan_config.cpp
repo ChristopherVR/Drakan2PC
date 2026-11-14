@@ -168,6 +168,10 @@ const Entry kEntries[] = {
     {"video", "shadow_distance", "1.0",
      "the shadows under people and creatures fade out this many times further from the camera, 1 (original) .. 4; "
      "applied at the next level load (PAL only; env DRAKAN_SHADOW_DISTANCE)"},
+    {"video", "model_lights", "4",
+     "how many lights shine on one person, creature or object: 4 (original: the sun and the three nearest torches or "
+     "spells) .. 16; above 4 the further lights are blended into those four instead of being left out (PAL only; env "
+     "DRAKAN_MODEL_LIGHTS)"},
     {"video", "poly_near_clip", "1",
      "1 = clip the engine's projected polygons (ribbons, beams) against the camera near plane instead of drawing them "
      "whole; fixes starburst fans when the camera is inside an effect, 0 = original behaviour (PAL only; env "
