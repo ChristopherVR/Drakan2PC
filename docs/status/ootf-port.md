@@ -184,6 +184,19 @@ played canyon tour (walk, fight attempt, F5/F8, mine exit, F5/F8 in the mines) l
 not measured yet (the machine was never quiet), so the default stays off. See
 [terrain batching](../journal/2026-11-14/ootf-terrain-join.md).
 
+**November 15 DLSS velocity skip (round 7):** with DLSS on, every world draw was followed by a velocity pass into the
+object-motion target, also the ground and scenery that cannot move; their passes write only entries the upscaler's
+guides ignore, but each cost an upload, two target switches and a draw call in the driver. `[video] velocity_skip`
+(default 1, env `GSR_VELOCITY_SKIP`, `0` = the old path) leaves those passes out where no valid motion lies under the
+draw (a tile map per world; 58 to 88 % of the passes). DLSS reads the same motion (shadow-target comparison in the game:
+0 differing pixels over start poses and played runs in Surdana, Ravenshold and the Ruined Village; a wrong-on-purpose
+mode does show differences). DLSS quality at 4K, same-run toggle on a quiet machine: Wartok Canyons 17.7 to 13.9 ms,
+Islands 10.2 to 7.2, Ruined Village 10.7 to 7.3, Grimstone Mines 9.0 to 7.1, Surdana 6.6 to 6.5, Ravenshold 4.9 to 4.5;
+DLSS quality is then faster than DLSS off in the converted levels. Terrain batching on top of it pays only in the Ruined
+Village (-19 % with DLSS) and costs Surdana 4 % with DLSS off, so it stays 0. The GPU vertex path stays `cpu` (no gain
+with DLSS, proof inputs mostly deleted). Needs the rebuilt exe. See
+[DLSS speed, part 2](../journal/2026-11-14/gpu-dlss-finish.md).
+
 **November 14, CPU side (round 4):** the Ruined Village is not capped at 60 fps: with DLSS quality the frame is the GS
 worker's submission plus a `Present` that blocks about 5 ms for the GPU, while the GS worker waits for that present;
 switching only the DLSS mode moves the rate (performance 65, quality 60, DLAA 38, off 85) and the `Present` wait with it.
