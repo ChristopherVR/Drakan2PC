@@ -20,10 +20,11 @@
 namespace drakan_texture_budget {
 namespace {
 // Texture resource manager (static object, vtable 0x51d138): +4 budget, +8 bytes in use. The engine sets the budget
-// itself (7 MiB at boot, 0x566666 in a level). 0x1bf3e0 is its vtable +0x54 entry, reached only when
-// budget < used + request + 200: it may then only recycle an evictable texture buffer of exactly the requested size,
-// among the 64 (96 for requests over 32 KiB) least recently used ones. When none fits, the texture is not loaded and
-// whatever waits for it (a cut scene's start, see the header) waits until a buffer happens to free up.
+// itself (7 MiB at boot, 0x566666 in a level). 0x1bf3e0 is its vtable +0x54 entry. When budget < used + request + 200
+// it may only recycle an evictable texture buffer of exactly the requested size, among the 64 (96 for requests over
+// 32 KiB) least recently used ones. When none fits, the texture is not loaded and whatever waits for it (a cut scene's
+// start, see the header) waits until a buffer happens to free up. It is also called when the request fits (seen with
+// 0 bytes in use at boot), so the counters below test the condition themselves.
 constexpr uint32_t kManager = 0x4db280, kOverBudget = 0x1bf3e0;
 PS2Runtime::RecompiledFunction g_original = nullptr;
 std::string g_setting;
@@ -31,9 +32,9 @@ uint32_t g_lastLogged = 0;
 std::mutex g_levelsMutex;
 std::set<std::string> g_packLevels;
 std::atomic<bool> g_packLevel{false};
-// Over-budget calls since the last level load: each one is a texture the cache could only take by recycling a buffer
-// of the same size (or not at all), i.e. a texture that leaves memory and is read and uploaded again later.
-uint64_t g_overBudgetCalls = 0, g_overBudgetRaised = 0;
+// Since the last level load: calls of 0x1bf3e0, and the calls whose request did not fit the budget in force (after any
+// raise): each of those is a texture the cache could only take by recycling a buffer of the same size, or not at all.
+uint64_t g_calls = 0, g_full = 0;
 std::string g_level;
 
 bool isPackLevel(const std::string& name) {
@@ -50,26 +51,35 @@ void overBudget(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         uint32_t budget = 0, used = 0;
         std::memcpy(&budget, ram + kManager + 4, 4);
         std::memcpy(&used, ram + kManager + 8, 4);
-        ++g_overBudgetCalls;
+        const uint32_t request = GPR_U32(ctx, 6);
+        uint32_t inForce = budget;
+        ++g_calls;
         if (const uint32_t raised = raisedBudget(budget, budgetFor(raise, g_setting.c_str()))) {
             std::memcpy(ram + kManager + 4, &raised, 4);
-            ++g_overBudgetRaised;
+            inForce = raised;
             if (budget != g_lastLogged) { // once per engine budget value (boot, then the level's)
                 g_lastLogged = budget;
                 std::fprintf(stderr, "[texbudget] texture cache budget %u -> %u bytes (in use %u, request %u)\n",
-                             budget, raised, used, GPR_U32(ctx, 6));
+                             budget, raised, used, request);
             }
             // With the raised budget the request may fit now: the native call then returns without recycling.
+        }
+        if (uint64_t(inForce) < uint64_t(used) + request + 200) {
+            ++g_full;
+            if (g_full == 1 || g_full == 10 || g_full == 100 || g_full % 1000 == 0)
+                std::fprintf(stderr,
+                             "[texbudget] level '%s': %llu texture loads did not fit so far (budget %u, in use %u)\n",
+                             g_level.c_str(), (unsigned long long)g_full, inForce, used);
         }
     }
     g_original(ram, ctx, rt);
 }
 
 void beforeLevelLoad(const drakan_lifecycle::Event& e) {
-    if (!g_level.empty() || g_overBudgetCalls)
-        std::fprintf(stderr, "[texbudget] level '%s': %llu over-budget texture loads (%llu after a raise)\n",
-                     g_level.c_str(), (unsigned long long)g_overBudgetCalls, (unsigned long long)g_overBudgetRaised);
-    g_overBudgetCalls = g_overBudgetRaised = 0;
+    if (!g_level.empty() || g_calls)
+        std::fprintf(stderr, "[texbudget] level '%s': %llu texture loads did not fit the budget (%llu calls)\n",
+                     g_level.c_str(), (unsigned long long)g_full, (unsigned long long)g_calls);
+    g_calls = g_full = 0;
     g_level = e.level;
     const bool pack = packLevel(
         e.level.c_str(), [](const char* n) { return isPackLevel(n); }, std::getenv("DRAKAN_START_LEVEL"),
@@ -96,5 +106,9 @@ void install(PS2Runtime& rt) {
     g_original = rt.lookupFunction(kOverBudget);
     rt.replaceFunction(kOverBudget, overBudget);
     drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, beforeLevelLoad);
+    std::atexit([] {
+        std::fprintf(stderr, "[texbudget] exit, level '%s': %llu texture loads did not fit the budget (%llu calls)\n",
+                     g_level.c_str(), (unsigned long long)g_full, (unsigned long long)g_calls);
+    });
 }
 } // namespace drakan_texture_budget

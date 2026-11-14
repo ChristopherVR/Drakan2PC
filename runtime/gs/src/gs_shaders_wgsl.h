@@ -215,7 +215,7 @@ fn sampleTexture(uv: vec2f, q: f32, flags: u32, duvdx: vec2f, duvdy: vec2f) -> v
         let ly = length(duvdy);
         let major = max(lx, ly);
         let minor = max(min(lx, ly), 1e-6);
-        if (major * exp2(hdShift) > 1.0) {
+        if (major > 1.0) {
             let ratio = clamp(major / minor, 1.0, cb.f.z);
             let taps = max(1.0, ceil(ratio - 0.02));
             let lodA = log2(major / taps) + cb.g.x + hdShift;

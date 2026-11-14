@@ -163,7 +163,8 @@ float4 sampleTexture(float2 uv, float q, uint flags, float2 duvdx, float2 duvdy)
     // hd_texture_mips (cb_d.x bit 13, set for mip-mapped draws of an N times larger HD / upscaled copy): the mip level
     // is chosen on the copy's own texels, log2(N) = cb_f.w above the GS level, up to the copy's last level (mxl); the
     // filter (MMAG / MMIN) still follows the game's level. Without it level l of the copy has N times the texels the
-    // game's level l has, so a distant 8x copy was sampled about 8 texels per pixel (shimmer).
+    // game's level l has, so a distant 8x copy was sampled about 8 texels per pixel (shimmer). The anisotropic taps
+    // still start where the game's texture is minified, so the shift adds no taps.
     float hdShift = ((cb_d.x >> 13) & 1u) != 0u ? cb_f.w : 0.0;
 
     // anisotropic filtering: replaces the (isotropic) GS LOD by the screen-space footprint of the pixel in minified, mip-mapped, Q-driven draws
@@ -171,7 +172,7 @@ float4 sampleTexture(float2 uv, float q, uint flags, float2 duvdx, float2 duvdy)
     {
         float lx = length(duvdx), ly = length(duvdy);
         float major = max(lx, ly), minor = max(min(lx, ly), 1e-6);
-        if (major * exp2(hdShift) > 1.0)
+        if (major > 1.0)
         {
             float ratio = clamp(major / minor, 1.0, cb_f.z);
             float taps = max(1.0, ceil(ratio - 0.02));
