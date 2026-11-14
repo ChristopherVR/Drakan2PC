@@ -62,6 +62,12 @@ const Entry kEntries[] = {
     {"general", "save_pages", "4",
      "Load Game / Save Game: number of pages of four slots (1 = the original four slots, 4 = 16 slots); Next / Back "
      "buttons, PgUp / PgDn and L1 / R1 switch pages; page 1 = the original save folders (env DRAKAN_SAVE_PAGES)"},
+    {"general", "model_cache_mb", "0",
+     "memory the game keeps for loaded models before it drops the least recently used ones and reads them from the "
+     "disc again: 0 = the level's own budget (5.4 MB on the disc), 1 .. 64 MB (PAL only; env DRAKAN_MODEL_CACHE_MB)"},
+    {"general", "animation_cache_mb", "0",
+     "the same for loaded animations: 0 = the level's own budget (2 MB on the disc), 1 .. 64 MB (PAL only; env "
+     "DRAKAN_ANIMATION_CACHE_MB)"},
     {"general", "game", "ask",
      "which game the title menu starts: ask (the title menu offers Drakan and, when an Order of the Flame campaign "
      "pack "
@@ -159,6 +165,9 @@ const Entry kEntries[] = {
     {"video", "draw_distance", "1.0",
      "people, creatures, plants and small objects are drawn this many times further out before they fade, 1 "
      "(original) .. 4; the level's view distance still limits it (PAL only; env DRAKAN_DRAW_DISTANCE)"},
+    {"video", "shadow_distance", "1.0",
+     "the shadows under people and creatures fade out this many times further from the camera, 1 (original) .. 4; "
+     "applied at the next level load (PAL only; env DRAKAN_SHADOW_DISTANCE)"},
     {"video", "poly_near_clip", "1",
      "1 = clip the engine's projected polygons (ribbons, beams) against the camera near plane instead of drawing them "
      "whole; fixes starburst fans when the camera is inside an effect, 0 = original behaviour (PAL only; env "

@@ -69,6 +69,7 @@
 #include "drakan_terrain_distance.h"
 #include "drakan_view_distance.h"
 #include "drakan_terrain_pages.h"
+#include "drakan_engine_limits.h"
 #include "drakan_polyclip.h"
 #include "drakan_view_layer_hook.h"
 #include "drakan_melee_trace.h"
@@ -1712,6 +1713,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_model_detail::install(runtime); // LOD and draw distance factors for models (PAL)
     drakan_terrain_distance::install(runtime); // ground texture distance factor of the terrain (PAL)
     drakan_view_distance::install(runtime);    // view distance and distance fog factor (PAL)
+    drakan_engine_limits::install(runtime);    // shadow distance, model / animation cache budgets (PAL)
     // Arokh's flight look-ahead: objects he starts inside do not stop him (PAL; DRAKAN_DRAGON_RAY_TRACE).
     drakan_dragon_flight::install(runtime);
     if constexpr (supports(Feature::SoundDebug))
