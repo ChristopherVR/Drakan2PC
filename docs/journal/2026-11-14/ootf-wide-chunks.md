@@ -12,7 +12,8 @@ packs, runs and pictures: `build/review/limits-chunks/` (private). Nothing from 
   (`FUN_00165840` copies `ntex` of them unchecked), and the terrain mesh drawer `FUN_00158148` keeps one draw flag per
   texture group in a 10-word array on its stack (`memset(sp, 0, 0x28)`, group 0 is the base pass). A chunk with 10
   textures makes the drawer read an 11th flag past the array (stale stack): it draws a group with no triangles, which
-  goes out as the VIF `UNPACK NUM=0` of the 7 November "VU1 reserved lower" bug. That is the missing piece of
+  goes out as the VIF `UNPACK NUM=0` of the 7 November "VU1 reserved lower" bug (read from the code; no 10-texture
+  run was made to show it). That is probably the missing piece of
   [vu1-reserved-lower.md](../2026-11-07/vu1-reserved-lower.md) ("the page builder fills 7 of 10 groups"). The page
   builder (`FUN_00154d98`), its group vector, the per-page slot array and the strip builder are all sized from the
   chunk's texture count at run time; nothing else in the draw path has a per-chunk texture limit.
@@ -82,7 +83,10 @@ and every 10 s the log lists each guest pc with the record fields it read or wro
 | `runs/smoke3` | disc | Surdana start (Drakan 2) | 154060, 154d98, 159998, 15c948, 15cba0, 165840, 165940 |
 | `played/wide-watch`, `wide-watch2`, `wide-watch3` (the last on the committed code) | wide | Wartok Canyons tour: walks, a fight, F5 / walk / F8, the walk into the mine exit, the save screens, Grimstone Mines loads, F5 / F8 there | 154060, 154d98, 159998, 15c948, 15cba0, 165840, 165940 |
 
-Every one is a variant (or the descriptor reader). The only stub caller was the stream inflate copying into a
+| `played/d2-wide` | wide forced on (`DRAKAN_TERRAIN_WIDE_CHUNKS=1`) | Drakan 2: Surdana start, placed in the town, walk, look round, F5 / walk / F8, then a level change by the exit trigger (`DRAKAN_LEVELCHANGE=0@5400`) into the next level's caves, F5 / walk / F8 there (`evidence/d2_surdana_wide_played.jpg`) | 154060, 154d98, 159998, 15c948, 15cba0, 165840, 165940 |
+
+Every one is a variant (or the descriptor reader). The Drakan 2 run is the disc layout's data through the wide copies,
+including the layer destructor on the level change. The only stub caller was the stream inflate copying into a
 record. The first watch build hung at the level load because the libc stubs resolve guest pointers themselves; they
 now get the plain address.
 
@@ -156,8 +160,8 @@ pack converted with the disc limit (as installed today), `wide` = the same conve
 
 * Levels other than Wartok Canyons, the Islands and the Ruined Village were not run with a wide pack (counted offline
   only); Grimstone Mines was entered at the end of the tours.
-* A played Drakan 2 session with the wide layout: only placed starts (Surdana town, Surdana start) and the Wartok
-  tours; no Drakan 2 level change with the setting on.
+* Drakan 2 with the wide layout was played only in Surdana and the level after it (one scripted session, the level
+  change by the test trigger, not by walking to the exit); no fight.
 * The Ruined Village slowdown (GPU fill near the fade distance) was explained from the columns, not traced per draw.
 * Frame times without DLSS, and on a machine with other games running.
 * The `ps2x-tests` suite with the new recompiler test.

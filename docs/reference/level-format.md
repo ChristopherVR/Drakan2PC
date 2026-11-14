@@ -271,13 +271,15 @@ else: 00 00 00 00, then (w+1)*(h+1) x { i8 nx, ny, nz, 0x7f }  // entry v+1 = ve
   safe either [game]**: the draw pages built from a 10-texture chunk fill only 7 texture groups (68-byte records, page `+84`),
   the mesh drawer `FUN_00158148` still walks all of them and `FUN_001ed0b8` sends an empty one as VIF `UNPACK NUM=0` (= 256),
   which parses the rest of the packet out of step, changes STMOD and leaves VU1 drawing garbage for the rest of the session
-  ("VU1 reserved lower", 2 fps; [journal](../journal/2026-11-07/vu1-reserved-lower.md)). So the limit is 8. There is no
+  ("VU1 reserved lower", 2 fps; [journal](../journal/2026-11-07/vu1-reserved-lower.md)). So the disc engine's limit is 9
+  (the drawer flags below); the converter keeps to 8, the most the discs use. There is no
   per-layer limit: chunk rectangles are free-form in the file, so `buildPs2TerrainBlob` splits a chunk whose texture list
   (with the neighbour window, cells x0-1..x1 / z0-1..z1, so a 1x2 chunk sees 12 cells) exceeds 8, down to single cells; a
   single cell that still sees more keeps its own texture and the neighbours' most used ones. Ruined Village (42 textures in a
   layer, 37 in a chunk) loads and draws with all of them (docs/journal/2026-11-01/ootf-texture-limit.md).
   **Wide chunks [game, 2026-11-14]**: the 10-group limit is the mesh drawer's 10-word flag array on its stack (group 0 is
-  the base pass, so 9 textures; a 10th makes it read a stale flag and draw an empty group). The exe carries a second copy
+  the base pass, so 9 textures; a 10th makes it read a stale flag and draw an empty group **[inf]**, read from the code,
+  not shown by a 10-texture run). The exe carries a second copy
   of the twelve functions that use the record (`[[variants]] wide_terrain_chunks` in `configs/drakan.toml`): record
   0xa4 bytes with `ref[32]` at +0x14 and the descriptor at +0x94, drawer flags 64. `[general] terrain_wide_chunks`
   switches them in at start-up; a pack whose `mod.toml` says `terrain_chunk_textures = 32` (converter
