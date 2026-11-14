@@ -10,6 +10,7 @@
 #include "drakan_foliage.h"
 #include "drakan_model_detail.h"
 #include "drakan_terrain_distance.h"
+#include "drakan_view_distance.h"
 #include "drakan_vertex_path.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_subtitles.h"
@@ -41,6 +42,7 @@ public:
                 std::string("In use now: ") +
                 (std::string(drakan_vertex_path::activePath()) == "cpu" ? "the processor." : "the graphics card.");
         c.terrainDistance = drakan_terrain_distance::available();
+        c.viewDistance = drakan_view_distance::available();
         c.polyNearClip = drakan_polyclip::available();
         using drakan_region::Feature;
         using drakan_region::supports;
@@ -144,6 +146,8 @@ protected:
             drakan_vertex_path::configure(n.vertexProcessing);
         if (n.terrainDistance != p.terrainDistance)
             drakan_terrain_distance::configure(n.terrainDistance);
+        if (n.viewDistance != p.viewDistance)
+            drakan_view_distance::configure(n.viewDistance);
     }
 
 private:

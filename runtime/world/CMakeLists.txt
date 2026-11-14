@@ -42,6 +42,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_terrain_distance_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_terrain_distance_test COMMAND world_terrain_distance_test)
 
+    # View distance option (header only): factor clamp, the fog setter's fields at a factor.
+    add_executable(world_view_distance_test tests/view_distance_test.cpp)
+    target_link_libraries(world_view_distance_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_view_distance_test COMMAND world_view_distance_test)
+
     # Terrain draw page pool (header only): best-fit allocator over the extra guest RAM, routing rule, churn.
     add_executable(world_terrain_page_pool_test tests/terrain_page_pool_test.cpp)
     target_link_libraries(world_terrain_page_pool_test PRIVATE drakan_world drakan::options)

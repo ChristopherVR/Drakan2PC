@@ -185,6 +185,10 @@ const Entry kEntries[] = {
     {"video", "terrain_distance", "1.0",
      "the ground keeps its textures this many times further out before the level's coarse far colour map takes over, "
      "1 (original) .. 4; about twice the terrain drawing work at 2 (PAL only; env DRAKAN_TERRAIN_DISTANCE)"},
+    {"video", "view_distance", "1.0",
+     "the world is drawn and its distance fog starts and ends this many times further out, 1 (original) .. 3; "
+     "creatures, sounds and events keep their original distances; some levels then show where their world ends "
+     "(PAL only; env DRAKAN_VIEW_DISTANCE)"},
     {"video", "terrain_cliffs", "0",
      "1 = steep mountain faces take their ground texture from the side instead of from above, so it is not stretched "
      "into streaks; patches of grass and rock on such faces then sit elsewhere than in the original picture "

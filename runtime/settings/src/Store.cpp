@@ -417,6 +417,9 @@ const std::vector<Field>& fields() {
         {"video", "terrain_distance", false, GETF(video.terrainDistance, "%.2f"), SETF(video.terrainDistance),
          "the ground keeps its textures this many times further out, 1 (original) .. 4; about twice the terrain "
          "drawing work at 2"},
+        {"video", "view_distance", false, GETF(video.viewDistance, "%.2f"), SETF(video.viewDistance),
+         "the world is drawn and its distance fog ends this many times further out, 1 (original) .. 3; creatures, "
+         "sounds and events keep their original distances"},
         {"video", "terrain_detail", false, GETB(video.terrainDetail), SETB(video.terrainDetail),
          "1 = fine detail and large-scale variation on the ground and mountains, 0 = the terrain as before"},
         {"video", "terrain_detail_strength", false, GETF(video.terrainDetailStrength, "%.2f"),
@@ -837,6 +840,7 @@ std::string settingLabel(const std::string& key) {
         {"video.mip_bias", "Mip bias"},
         {"video.hd_textures", "HD texture replacement"},
         {"video.terrain_distance", "Ground texture distance"},
+        {"video.view_distance", "View distance"},
         {"video.terrain_detail", "Terrain detail"},
         {"video.terrain_detail_strength", "Terrain detail strength"},
         {"video.terrain_cliffs", "Cliff textures"},

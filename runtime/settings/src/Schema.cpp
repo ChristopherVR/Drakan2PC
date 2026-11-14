@@ -351,6 +351,14 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                    "twice the terrain drawing work."
                  : "Needs the PAL executable layout; not available for this disc.",
              v.terrainDistance, 1.0f, 4.0f, "x%.2f", 0.25f, caps.terrainDistance);
+    b.slider("video.view_distance", "View distance",
+             caps.viewDistance
+                 ? "How far the world is drawn before the distance haze hides it: 1 = the original PlayStation 2 "
+                   "distance, 2 = twice as far, with the haze moved out with it. Far islands and mountains appear, "
+                   "but some levels then show where their world ends. Creatures, sounds and events keep their "
+                   "original distances. Costly: more ground and objects are drawn."
+                 : "Needs the PAL executable layout; not available for this disc.",
+             v.viewDistance, 1.0f, 3.0f, "x%.2f", 0.25f, caps.viewDistance);
     b.toggle("video.terrain_detail", "Terrain detail",
              caps.terrainDetail
                  ? "Adds fine surface detail and large-scale variation to the ground and mountains, fixed in the "

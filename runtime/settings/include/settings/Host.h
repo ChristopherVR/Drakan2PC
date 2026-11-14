@@ -52,6 +52,7 @@ struct HostCaps {
     bool polyNearClip = false;    // polygon near-plane clip hook installed (PAL addresses): poly_near_clip
     bool foliageWind = false;     // living foliage hook installed (PAL addresses): foliage_wind / foliage_wind_strength
     bool terrainDistance = false; // ground texture distance hook installed (PAL addresses): terrain_distance
+    bool viewDistance = false;    // view distance hooks installed (PAL addresses): view_distance
     bool modelDetail = false;     // model detail hooks installed (PAL addresses): lod_distance / draw_distance
     bool rendererChoice = false;  // the build has both GS renderers (Windows: WebGPU and Direct3D 11): video.renderer
     // vertex_processing: the renderer and graphics card can do the vertex work (gpu / auto do something)
