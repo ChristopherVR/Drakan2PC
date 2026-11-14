@@ -158,6 +158,19 @@ Horizontal FOV for the 4:3 frame: `tan(hfov/2) = 1/(-(+0x48) * ...)`; patch fact
   compares a radius, not an angle. No separate frustum-angle culling on the EE was found in the 22 decompiled chunks (`build/research/alldec/`). Residual risk: sector/portal visibility lists
   built on load from the *camera's default FOV objects* (`cam+0x5c/+0x60` = hfov/vfov, vslots `+0x6c/+0x74` of `obj+0x124`, used at `FUN_00206aa0` 12333 and `FUN_002ed34c` 14195 for
   initialisation only). If pop-in appears at the far left/right edge, widen those two getters' results by the same factor (`hfov' = 2*atan(tan(hfov/2)/k)`), see 7.
+* **Terrain view cells (2026-11-15, GitHub issue #6).** One EE cull did ignore the wider view: `0x1535b8` (a leaf, called
+  once per frame by the terrain draw `0x152330`) bounds the terrain draw to the axis-aligned cell rectangle around the
+  camera and the four far corners of the view (at `max(+0x388, +0x390)` cells), plus 2 cells. It builds the corners from
+  the renderer's frame width / height / focal (`+0xec` / `+0xf0` / `+0xf4`), not from `+0x48 / +0x4c`, so they stayed
+  those of the 4:3 view at 80 degrees. Each layer's draw clips its cells to that rectangle (`0x15dff0`, clamped to the
+  layer's own size), so far ground, cliffs and buildings at the left and right edges of a 16:9 picture or a field of view
+  above 80 were not drawn. Along a world axis little is lost; about 45 degrees off the axes one edge of the rectangle runs
+  through the camera, so at 16:9 and 90 degrees scenery beyond about 30,000 units at the outer edge popped in and out as
+  the camera turned. At 16:9 the 4:3 corners plus the margin cover the slider up to about 70, as the tester found. `[video] wide_view_cells` (default 1, env
+  `DRAKAN_WIDE_VIEW_CELLS`; 0 = original) replaces the frame size for that one call by the size the real projection shows
+  (`detail::viewCellFrame`: `|focal / sx|`, `|focal / sy|`, times 1.1, never smaller than the original) and puts it back
+  afterwards. A narrower view keeps the original rectangle. Cost and pictures:
+  [issue6-view-distance](../journal/2026-11-15/issue6-view-distance.md).
 * Unprojection (screen -> ray, `FUN_0021eb00`, one caller at `0x4416a0` region) uses `+0x108` for both axes and would need `x_ray / k`; not used in normal play.
 
 ## 4. Render resolution: anamorphic vs true wide buffer

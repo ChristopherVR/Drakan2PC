@@ -201,6 +201,10 @@ const Entry kEntries[] = {
      "1 = a camera that swings behind the wall of a cellar or cave keeps showing the room Rynn is in instead of "
      "the outdoor world above it (which also froze her), 0 = original behaviour (PAL only; env "
      "DRAKAN_VIEW_LAYER_FIX)"},
+    {"video", "wide_view_cells", "1",
+     "1 = with a wide picture or a field of view above 80 the ground, buildings and scenery at the far left and right "
+     "edges of the view are drawn (the world was cut to the 4:3 view at 80 degrees there), 0 = original behaviour "
+     "(PAL only; env DRAKAN_WIDE_VIEW_CELLS)"},
     {"video", "hd_textures", "1",
      "1 = use replacement textures from texture_dir (also accepted: texture_replace) (env GSR_TEXREPLACE)"},
     {"video", "terrain_detail", "0",

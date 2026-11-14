@@ -205,7 +205,37 @@ static void configurableFovChecks() {
     }
 }
 
+static void viewCellChecks() {
+    using namespace drakan_ws::detail;
+    // Renderer frame of the 4:3 view at 80 degrees: width 64, height 64 / (4/3) scaled like the game's, focal -76.27
+    // at +0xf4 (the frustum input negates it).
+    constexpr float focal = -76.27223205566406f;
+    const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-3f; };
+    const float sxNative = projectionX(-focal, 64, nativeAspect), syNative = focal / 48.0f;
+    float w = 64, h = 48;
+    check(viewCellFrame(focal, sxNative, syNative, 1.0f, w, h) && near(w, 64) && near(h, 48),
+          "view cells: native projection gives back the frame size");
+    const float fov90 = fieldOfViewScale(90);
+    const float sxWide = projectionX(-focal, 64, 16.0f / 9.0f) * fov90, syWide = syNative * fov90;
+    w = 64, h = 48;
+    check(viewCellFrame(focal, sxWide, syWide, 1.0f, w, h) && near(w / -focal, 1 / -sxWide) && w > 64 * 1.33f,
+          "view cells: 16:9 at 90 degrees widens the corners to the projection");
+    check(near(std::atan(w / -focal) * 2 * 57.29578f, 106.26f), "view cells: 16:9 at 90 degrees is 106 degrees wide");
+    const float wideW = w;
+    w = 64, h = 48;
+    check(viewCellFrame(focal, sxWide, syWide, 1.1f, w, h) && near(w, wideW * 1.1f), "view cells: margin applied");
+    w = 64, h = 48;
+    const float fov60 = fieldOfViewScale(60);
+    check(viewCellFrame(focal, sxNative * fov60, syNative * fov60, 1.0f, w, h) && w == 64 && h == 48,
+          "view cells: a narrower view keeps the original rect");
+    w = 64, h = 48;
+    check(!viewCellFrame(focal, 0.0f, syNative, 1.0f, w, h) && w == 64 && h == 48, "view cells: unusable scale");
+    check(!viewCellFrame(std::numeric_limits<float>::quiet_NaN(), sxNative, syNative, 1.0f, w, h) && w == 64,
+          "view cells: unusable focal");
+}
+
 int main() {
+    viewCellChecks();
     configurableFovChecks();
     menuChecks();
     projectionChecks();

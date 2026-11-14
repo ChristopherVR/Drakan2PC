@@ -64,6 +64,23 @@ inline bool correctFrustumWidth(const ProjectionScope& scope, int thread, uint32
     return true;
 }
 
+// Frame size for the terrain view cell rect (0x1535b8, which takes the corners of the view from the renderer's frame
+// width / height / focal at +0xec / +0xf0 / +0xf4): the size the projection scales sx / sy (+0x48 / +0x4c) really
+// show at that focal length, times `margin`. Never smaller than the frame size given in, so a narrower view keeps the
+// original rect. False (and the sizes untouched) when an input is not usable.
+inline bool viewCellFrame(float focal, float sx, float sy, float margin, float& width, float& height) {
+    if (!std::isfinite(focal) || focal == 0 || !std::isfinite(sx) || !std::isfinite(sy) || std::fabs(sx) < 1e-6f ||
+        std::fabs(sy) < 1e-6f || !(margin >= 1.0f) || !std::isfinite(width) || !std::isfinite(height) || width <= 0 ||
+        height <= 0)
+        return false;
+    const float w = std::fabs(focal / sx) * margin, h = std::fabs(focal / sy) * margin;
+    if (!std::isfinite(w) || !std::isfinite(h))
+        return false;
+    width = w > width ? w : width;
+    height = h > height ? h : height;
+    return true;
+}
+
 // A mod pack's `level_aspect` entry, "Level title = 4:3" (also "16:9", or a number such as 1.333): the level title
 // and the aspect its world is shown at. False when the entry has no '=', no title or no usable aspect (1.0 .. 4.0).
 // A trailing word "fill" ("Level = 4:3 fill") asks for the picture to fill a wider window instead of a pillar box

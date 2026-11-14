@@ -43,6 +43,8 @@ constexpr uint32_t kCropViewport = 0x132f60u;    // later screen-manager crop, a
 constexpr uint32_t kRenderWorld = 0x139010u;
 constexpr uint32_t kEndWorld = 0x147690u; // only RA 0x139344 ends the world before native HUD/GUI callbacks
 constexpr uint32_t kBuildFrustum = 0x199ff0u;
+constexpr uint32_t kViewCells = 0x1535b8u;           // terrain draw cell rect from the far corners of the view
+constexpr float kEdgeCullMargin = 1.1f;              // view cell rect: 10 % wider and taller than the projection
 constexpr uint32_t kRenderObjPtr = 0x5565c8u;        // *(u32*)0x5565c8 = render / viewport object
 constexpr uint32_t kScreenManagerActive = 0x4fb60cu; // active GUI screen object, its id at +0x18
 constexpr float k43 = 4.0f / 3.0f;
@@ -51,6 +53,8 @@ PS2Runtime::RecompiledFunction g_origCameraUpdateMat = nullptr;
 PS2Runtime::RecompiledFunction g_origSetViewport = nullptr;
 PS2Runtime::RecompiledFunction g_origCropViewport = nullptr;
 PS2Runtime::RecompiledFunction g_origRenderWorld = nullptr, g_origEndWorld = nullptr, g_origBuildFrustum = nullptr;
+PS2Runtime::RecompiledFunction g_origViewCells = nullptr;
+std::atomic<bool> g_edgeCullFix{true};     // [video] wide_view_cells
 detail::ProjectionScope g_projectionScope; // EE executor only; survives guest yields
 uint8_t* g_rdram = nullptr;
 const std::atomic<uint64_t>* g_vsync = nullptr;
@@ -269,6 +273,44 @@ void hookBuildFrustum(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origBuildFrustum(rdram, c, rt);
 }
 
+// 0x1535b8 (a1 = int[4] cell rect out; reads the renderer *(0x5565c8) itself; a leaf, called once per frame from
+// the terrain draw 0x152330) bounds the terrain draw to the cells under the four far corners of the view, built from
+// the renderer's frame width / height / focal (+0xec / +0xf0 / +0xf4) and not from the projection scale. With a wider
+// aspect or field of view the corners stayed those of the 4:3 view at 80 degrees, so far ground and buildings at the
+// screen edges were cut off (GitHub issue #6). For the call the frame size is replaced by the one of the real
+// projection (the same rule as the frustum above), widened by kEdgeCullMargin, and put back afterwards.
+void hookViewCells(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t obj = renderObject();
+    float saved[2] = {};
+    bool patched = false;
+    if (c->pc == kViewCells && obj && g_edgeCullFix.load(std::memory_order_relaxed)) {
+        const int thread = rt->eeScheduler().currentThreadId();
+        if (g_projectionScope.world(thread) &&
+            (g_projectionScope.aspect != detail::nativeAspect || g_projectionScope.fovScale != 1.0f)) {
+            float focal, sx, sy;
+            std::memcpy(saved, rdram + obj + 0xec, 8);
+            std::memcpy(&focal, rdram + obj + 0xf4, 4);
+            std::memcpy(&sx, rdram + obj + 0x48, 4);
+            std::memcpy(&sy, rdram + obj + 0x4c, 4);
+            float width = saved[0], height = saved[1];
+            if (detail::viewCellFrame(focal, sx, sy, kEdgeCullMargin, width, height)) {
+                std::memcpy(rdram + obj + 0xec, &width, 4);
+                std::memcpy(rdram + obj + 0xf0, &height, 4);
+                patched = true;
+                static int logged = 0;
+                if (g_wsLog.load() > 0 && logged < 4) {
+                    ++logged;
+                    std::fprintf(stderr, "[ws] view cells: frame %.3f x %.3f focal %.3f -> %.3f x %.3f\n", saved[0],
+                                 saved[1], focal, width, height);
+                }
+            }
+        }
+    }
+    g_origViewCells(rdram, c, rt);
+    if (patched)
+        std::memcpy(rdram + obj + 0xec, saved, 8);
+}
+
 void hookCameraUpdateMat(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == kCameraUpdateMat) {
         const int thread = rt->eeScheduler().currentThreadId();
@@ -380,6 +422,7 @@ void configure() {
                            : std::min(1.5f, std::max(0.5f, x));
     }
     g_smoothHL = drakan_cfg::getBool("video", "smooth_menu_highlight", "DRAKAN_SMOOTH_HIGHLIGHT", true);
+    g_edgeCullFix.store(drakan_cfg::getBool("video", "wide_view_cells", "DRAKAN_WIDE_VIEW_CELLS", true));
 }
 
 void install(PS2Runtime& rt, uint8_t* rdram, const std::atomic<uint64_t>* vsyncTick) {
@@ -397,6 +440,10 @@ void install(PS2Runtime& rt, uint8_t* rdram, const std::atomic<uint64_t>* vsyncT
         rt.replaceFunction(kEndWorld, &hookEndWorld);
         g_origBuildFrustum = rt.lookupFunction(kBuildFrustum);
         rt.replaceFunction(kBuildFrustum, &hookBuildFrustum);
+        if (rt.hasFunction(kViewCells)) {
+            g_origViewCells = rt.lookupFunction(kViewCells);
+            rt.replaceFunction(kViewCells, &hookViewCells);
+        }
     } else
         std::fprintf(stderr, "[ws] projection functions not found: widescreen unavailable\n");
     if (rt.hasFunction(kCropViewport)) {
