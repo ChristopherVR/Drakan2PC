@@ -40,7 +40,7 @@ other mods and the current dist pack are unchanged.
 
 A first version skipped the whole of `4330b0`. That hid the gold but the item details lost their last, indented line
 ("Equips to right hand"), and skipping the whole `4316c8` did the same; running the text box with an empty string and
-skipping only the bag's `42b308` draw keeps the details intact (`runs/ootf-after-native`, `-native2`, `-native3`).
+skipping only the bag's `42b308` draw keeps the details intact (`runs/ootf-after-native3`; the frames of the two earlier tries were not kept).
 
 Reference: `docs/reference/modding.md`, "Campaigns without a gold counter". Decompiled functions used: in
 `build/review/gold-counter/ghidra/` (not tracked).
