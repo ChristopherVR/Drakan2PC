@@ -454,8 +454,8 @@ by VU1), ST and Q, one texture, the blend / test state. No normal, tangent, worl
 **View distance and distance fog** (`[video] view_distance`, 1 to 3, default 1, PAL; `drakan_view_distance.cpp`,
 rules `runtime/world/include/world/ViewDistance.h`). The "level view distance" above is one world field, written with
 the distance fog by the world's fog setter `0x142f70` (a0 = world `0x4de5e0`, f12 = far in cells, f13 = fog range in
-cells; called with 16 / 6 at world creation and 75 / 48.75 at every level load seen, Drakan 2 and converted Order of
-the Flame alike). It writes `+0x388` far (cells), `+0x38c` (far x 2048)^2 and the fog record `+0x394..+0x3b0`
+cells; called with 16 / 6 at world creation and at level load with the level's own numbers: 75 / 48.75 in Surdana and
+the converted Order of the Flame levels, 45 / 31.95 in Ravenshold). It writes `+0x388` far (cells), `+0x38c` (far x 2048)^2 and the fog record `+0x394..+0x3b0`
 (F, S^2, F^2, 1 / (F^2 - S^2), F, R, 1 / R, S with F = far x 2048, R = range x 2048, S = F - R: the fog starts at 53760
 units and is full at 153600). Readers:
 
@@ -471,9 +471,21 @@ units and is full at 153600). Readers:
 
 The underwater fog (`0x142fe0`, `+0x390` 47.75 cells, record `+0x3b8`) is not touched. The grid radius is bounded by a
 static table of 64-byte rows at `0x556e90` (2 x radius + 1 rows) with about 470 rows of room before the next variable,
-hence the cap of 3. What it shows and costs: [view distance](../journal/2026-11-14/ootf-view-distance.md). Drakan 2 levels
-end in flat sea planes and cut-off ground just past the original fog (Ravenshold shows the edge from 1.25 on), so the
-default stays 1.
+hence the cap of 3. What it shows and costs: [view distance](../journal/2026-11-14/ootf-view-distance.md). The default stays 1
+(costs below).
+
+**Far scenery** (`[video] far_scenery`, default 1, live, needs `heap_extend`; same file, rules `widenedList`). The terrain
+draw `0x152330` draws the layers of the view layer's `visible` list (view layer `0x4dad58 +0x8c`, layer `+0x70` u16
+list, `+0x78` count), and the lists were made for the original distance (Ravenshold: listed layers reach 72 cells for a
+45 cell view distance). So a larger view distance showed where the list ends: the sea as a flat plane with a straight
+edge, and in the converted Islands sea holes over islands the list does not name. With a factor above 1 the draw walks
+the closure of the lists from the view layer over layers whose box lies within the scaled view distance + 2 cells,
+original entries first. The list lives in one block from the game's heap (malloc under the heap semaphore `*(0x515260)`,
+polled) and is swapped into the view layer for the draw's layer loop only; the cell lookup `0x14b6b8` (actor and view
+refiling) is given the original count for its call. Cost: Drakan 2 within noise to +1.7 ms at 2 (Ravenshold,
+Surdana); converted Islands 7 ms at 1, 28 at 1.5, 37 at 2 (the far floor layers: no terrain detail level, full PC
+grid), and the 8 MB pack texture cache overflows at 2. Pictures and numbers:
+[view horizon](../journal/2026-11-14/ootf-view-horizon.md).
 
 world camera (`SceneGuideCamera`) is published separately, and with DLSS or a ray effect on the lighting snapshot
 (`SceneLighting`: the sun vector, colour and ambient of the terrain layer under the eye, read from the layer record at

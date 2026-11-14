@@ -114,6 +114,15 @@ islands out of the fog but shows gaps where the PC sea ends; in Drakan 2 (Ravens
 from 1.25 on, so the default stays 1. Linking the sea from further (`DRAKAN_WATER_VISIBLE_CELLS`) did not close the gaps.
 Exe only; no pack change. See [view distance](../journal/2026-11-14/ootf-view-distance.md).
 
+**November 14 far scenery (round 6):** the edge a larger view distance showed is where each place's `visible` list
+ends, not the world: Ravenshold lists layers to 72 cells for its 45 cell view distance, and the Islands sea gaps are
+holes over islands the list does not name (3,517 of 5,465 holes). `[video] far_scenery` (default 1, live, needs
+`heap_extend`) lets the terrain draw walk the closure of the lists within the scaled view distance, for the draw only.
+At 2 the Ravenshold sea runs into the fog and the Islands sea is unbroken with the far islands in it. Cost: Drakan 2
+within noise to +1.7 ms; the converted Islands 7 ms at 1, 28 at 1.5, 37 at 2 (its far floor layers), and the 8 MB pack
+texture cache overflows at 2 (a near island and Arokh not drawn; fine at 16 MB). So `view_distance` stays 1. Exe only.
+See [view horizon](../journal/2026-11-14/ootf-view-horizon.md).
+
 **November 14 point lights per model (round 6):** the engine lights a model with the sun and the three nearest point
 lights (four VU1 slots). Counted in play: in the Catacombs 1C corridor about one light set in ten cuts one or two
 lights, nearly all real point lights of large room pieces (walls, the gate frame); characters keep every light that
