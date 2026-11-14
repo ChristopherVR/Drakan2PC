@@ -79,6 +79,14 @@ with it (`model_cache_mb` / `animation_cache_mb` = auto). Islands crash spot 13 
 foot clean; Surdana clean; a test mode that moves most of the heap above 32 MB played the Islands and Surdana clean.
 Needs the rebuilt exe. See [guest memory](../journal/2026-11-14/ootf-guest-memory.md).
 
+**November 14 texture limits (round 6):** a converted level loaded outside the campaign (a direct start, the editor's
+Play, a multiplayer map) ran with the disc's 5.4 MiB game texture memory: Wartok Canyons then missed it more than 14,000
+times in 45 s, and its first shot showed a stray texture on the river, streaked sky and water and no Arokh. `[video] game_texture_cache_kb
+= auto` now gives every pack level the campaign's 8 MiB (0 misses; `native` is the old size); disc levels fit and keep
+theirs. HD copies stay 60 s after their last draw instead of 240 frames (`hd_texture_keep_s`), and mip-mapped HD copies
+pick their level on their own texels (`hd_texture_mips`), which calms distant texture shimmer in Surdana. Exe only. See
+[texture limits](../journal/2026-11-14/texture-limits.md).
+
 **November 14 terrain heap (round 5):** the hangs and `[memset] bad size ... ra=0x157d7c` crashes in the Islands and
 Wartok Canyons were the game's heap running out while the engine built the terrain draw pages of the layers in view
 (converted terrain has up to 10 times the disc's chunks in one view). The runtime now maps 64 MB of guest RAM, keeps the

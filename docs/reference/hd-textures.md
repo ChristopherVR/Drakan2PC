@@ -106,6 +106,13 @@ Options: `--iso`, `--work` (default build\hdpack), `--out`, `--exe`, `--scale` (
 * **Defaults**: `texture_upscale = auto` (internal scale 1: off, 2-3: 4x, >= 4: 8x; HUD / font / UI sprites always the largest factor via xBRZ; every factor capped so one texture with mips uses <= 1/24 of the budget and 4096 px),
   `anisotropic = 16`, `mip_bias = auto`, `texture_budget_mb = 0` in `gsr::Config` = auto (40 % of dedicated VRAM, 1.5 - 8 GB; the shipped drakan.ini sets 6144 explicitly), `hd_textures = 1`.
 * Pack textures are decoded on the worker pool (PNG inflate + mip chain from the HD base, alpha weighted box filter), the native texture is drawn until the job lands, results are cached by content hash and evicted by LRU / age: no hitches.
+* **Keep and mips (2026-11-14):** an HD / upscaled copy stays `hd_texture_keep_s` seconds (default 60, 4 to 600; `0` = the old
+  240 renderer frames) after its last draw, then the budget LRU applies. Turning away from a view for 10 s and back no longer
+  rebuilds its copies (Surdana: 62 rebuilds and 4562 native draws at the old age, 0 rebuilds at 60 s). `hd_texture_mips`
+  (default 1) chooses the level of a mip-mapped draw on the copy's own texels (GS LOD + log2 N, up to the game's last level
+  + log2 N, for which the copy gets the extra levels), so a distant 8x copy is no longer sampled about 8 texels per pixel;
+  `0` = the game's level of the N times larger copy, as before. `GSR_TEXUP_LOG=1` prints the drops, rebuilds and native
+  draws every 1200 frames. Measurements: [journal](../journal/2026-11-14/texture-limits.md).
   A 4x pack texture decodes in ~26 ms on a worker (256 -> 1024 px), 55 pack textures + 25 live-upscaled ones were requested in the first 40 s of Level 0.
 * **GUI pages first** (2026-10-24): every image of the GUI page on screen (`sceneCamera.guiScreen >= 0` and no world phase open: inventory,
   menus, help boxes, not the world behind them), pack image or live upscale, is built on the render thread before the draw, so the page is HD
