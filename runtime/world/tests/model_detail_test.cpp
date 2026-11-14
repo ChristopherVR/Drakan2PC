@@ -115,6 +115,49 @@ void testDrawDistance() {
     CHECK(drawDistance(140000.0f, kMaxDrawFactor) < kUnlimitedDrawDistance);
 }
 
+void testTaperedDrawDistance() {
+    const float cap = kDefaultTaperCap;
+    // Off (cap 0 or not a number) and factor 1 are the untapered rule, bit for bit.
+    for (const float v : {0.0f, 8000.0f, 35000.0f, 75000.0f, 100000.0f, 140000.0f}) {
+        CHECK(sameBits(taperedDrawDistance(v, 2.0f, 0.0f), drawDistance(v, 2.0f)));
+        CHECK(sameBits(taperedDrawDistance(v, 2.0f, -1.0f), drawDistance(v, 2.0f)));
+        CHECK(sameBits(taperedDrawDistance(v, 2.0f, std::numeric_limits<float>::quiet_NaN()), drawDistance(v, 2.0f)));
+        CHECK(sameBits(taperedDrawDistance(v, 1.0f, cap), v));
+    }
+    // Own distances on the Drakan 2 disc (Surdana meadow, docs/journal/2026-11-15): flowers and small props at 8,000
+    // to 30,000 and the villagers at 25,000 and 35,000 keep the full factor at 1.5 and 2.
+    CHECK(taperedDrawDistance(8000.0f, 2.0f, cap) == 16000.0f);
+    CHECK(taperedDrawDistance(25000.0f, 1.5f, cap) == 37500.0f);
+    CHECK(taperedDrawDistance(30000.0f, 2.0f, cap) == 60000.0f);
+    CHECK(taperedDrawDistance(35000.0f, 1.5f, cap) == 52500.0f);
+    CHECK(taperedDrawDistance(35000.0f, 2.0f, cap) == 70000.0f);
+    // Mid-size props stop at the cap; large props (75,000, 100,000, 140,000) keep their own distance.
+    CHECK(taperedDrawDistance(50000.0f, 2.0f, cap) == cap);
+    CHECK(taperedDrawDistance(35000.0f, 4.0f, cap) == cap);
+    CHECK(taperedDrawDistance(75000.0f, 1.5f, cap) == 75000.0f);
+    CHECK(taperedDrawDistance(100000.0f, 2.0f, cap) == 100000.0f);
+    CHECK(taperedDrawDistance(140000.0f, kMaxDrawFactor, cap) == 140000.0f);
+    // "No limit", zero, negative and NaN stay as they are.
+    float unlimited;
+    const uint32_t bits = 0x5f0ac723u;
+    std::memcpy(&unlimited, &bits, 4);
+    CHECK(sameBits(taperedDrawDistance(unlimited, 2.0f, cap), unlimited));
+    CHECK(taperedDrawDistance(0.0f, 2.0f, cap) == 0.0f && taperedDrawDistance(-5.0f, 2.0f, cap) == -5.0f);
+    CHECK(std::isnan(taperedDrawDistance(std::numeric_limits<float>::quiet_NaN(), 2.0f, cap)));
+    // Never below the own distance, never above the untapered one, and growing with distance and factor.
+    float previous = 0.0f;
+    for (float d = 500.0f; d < 400000.0f; d += 500.0f) {
+        for (const float f : {1.25f, 1.5f, 2.0f, 3.0f, 4.0f}) {
+            const float t = taperedDrawDistance(d, f, cap);
+            CHECK(t >= d && t <= drawDistance(d, f));
+            CHECK(taperedDrawDistance(d, f + 0.25f, cap) >= t);
+        }
+        const float t = taperedDrawDistance(d, 2.0f, cap);
+        CHECK(t >= previous);
+        previous = t;
+    }
+}
+
 } // namespace
 
 int main() {
@@ -123,6 +166,7 @@ int main() {
     testBelowLod();
     testLookChangingLod();
     testDrawDistance();
+    testTaperedDrawDistance();
     if (g_failed)
         std::fprintf(stderr, "world_model_detail_test: %d check(s) failed\n", g_failed);
     else

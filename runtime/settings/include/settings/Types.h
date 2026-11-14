@@ -76,6 +76,8 @@ struct VideoSettings {
     float lodDistance = 4.0f;
     // draw_distance: objects with an own draw distance are drawn this many times further out, 1 (original) .. 4
     float drawDistance = 1.0f;
+    // draw_distance_taper: the factor stops at 70,000 units and large props keep their own distance
+    bool drawDistanceTaper = true;
     // vertex_processing: cpu (the original path) | gpu | auto; both give the same picture
     std::string vertexProcessing = "cpu";
     // terrain_distance: the ground keeps its textures this many times further out, 1 (original) .. 4

@@ -142,6 +142,8 @@ protected:
             drakan_foliage::configure(drakan_foliage::modeFromText(n.foliageWind.c_str()), n.foliageWindStrength);
         if (n.lodDistance != p.lodDistance || n.drawDistance != p.drawDistance)
             drakan_model_detail::configure(n.lodDistance, n.drawDistance);
+        if (n.drawDistanceTaper != p.drawDistanceTaper)
+            drakan_model_detail::configureTaper(n.drawDistanceTaper);
         if (n.vertexProcessing != p.vertexProcessing)
             drakan_vertex_path::configure(n.vertexProcessing);
         if (n.terrainDistance != p.terrainDistance)

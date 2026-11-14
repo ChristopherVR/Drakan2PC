@@ -545,6 +545,9 @@ const std::vector<Field>& fields() {
         {"video", "draw_distance", false, GETF(video.drawDistance, "%.2f"), SETF(video.drawDistance),
          "people, creatures, plants and small objects are drawn this many times further out, 1 (original) .. 4; the "
          "level's view distance still limits it"},
+        {"video", "draw_distance_taper", false, GETB(video.drawDistanceTaper), SETB(video.drawDistanceTaper),
+         "1 = draw_distance extends objects to at most 70000 units and large props keep their own distance (most of "
+         "its cost), 0 = every object is drawn draw_distance times further out"},
         {"video", "dlss_neural", false, GETB(video.dlssNeural), SETB(video.dlssNeural),
          "DLSS 5 neural rendering: 0 off, 1 on; independent of Super Resolution; requires a supported NVIDIA GPU and "
          "matching signed runtime bundle"},
@@ -874,6 +877,7 @@ std::string settingLabel(const std::string& key) {
         {"video.lod_distance", "Character detail distance"},
         {"video.vertex_processing", "Vertex processing"},
         {"video.draw_distance", "Object draw distance"},
+        {"video.draw_distance_taper", "Keep large objects at their distance"},
         {"video.dlss", "DLSS"},
         {"video.dlss_preset", "DLSS model"},
         {"video.dlss_sharpness", "DLSS sharpness"},

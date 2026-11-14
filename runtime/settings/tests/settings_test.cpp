@@ -948,6 +948,17 @@ int main(int argc, char** argv) {
         SettingsStore next;
         next.loadFromText(a, b);
         CHECK(next.loaded().video.lodDistance == 8.0f && next.loaded().video.drawDistance == 1.5f);
+        // The draw distance taper: on by default, round-trips through the ini.
+        CHECK(st.loaded().video.drawDistanceTaper);
+        n.video.drawDistanceTaper = false;
+        keys = changedKeys(st.loaded(), n);
+        CHECK(std::find(keys.begin(), keys.end(), "video.draw_distance_taper") != keys.end());
+        st.render(n, a, b);
+        SettingsStore tapered;
+        tapered.loadFromText(a, b);
+        CHECK(!tapered.loaded().video.drawDistanceTaper);
+        tapered.loadFromText("[video]\ndraw_distance_taper=1\n", "");
+        CHECK(tapered.loaded().video.drawDistanceTaper);
     }
     {
         // Polygon near-plane clip: on by default, round-trips through the ini.

@@ -439,6 +439,15 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                                 "limits it. Costly: 1.5 is about 40 percent more geometry in a meadow."
                               : "Needs the PAL executable layout; not available for this disc.",
              v.drawDistance, 1.0f, 4.0f, "x%.2f", 0.25f, caps.modelDetail);
+    b.toggle("video.draw_distance_taper", "Keep large objects at their distance",
+             caps.modelDetail
+                 ? "With an object draw distance above 1, people, plants and small objects are still "
+                   "drawn further out, but large buildings, rocks and trees that the game already draws "
+                   "far away keep their original distance. They were most of the cost of the option. Above 2, "
+                   "people stop at the same distance."
+                 : "Needs the PAL executable layout; not available for this disc.",
+             false, caps.modelDetail && v.drawDistance > 1.0f)
+        .needs = "Needs an object draw distance above 1.";
 
     pg.sections.push_back({"Vegetation", {}});
     b.sec = &pg.sections.back();

@@ -186,6 +186,11 @@ const Entry kEntries[] = {
     {"video", "draw_distance", "1.0",
      "people, creatures, plants and small objects are drawn this many times further out before they fade, 1 "
      "(original) .. 4; the level's view distance still limits it (PAL only; env DRAKAN_DRAW_DISTANCE)"},
+    {"video", "draw_distance_taper", "1",
+     "1 = draw_distance extends objects to at most 70000 units and large props whose own distance is already that "
+     "far keep it (most of the cost of draw_distance); above 2 people stop at 70000 too; 0 = every object is drawn "
+     "draw_distance times further out "
+     "(PAL only; env DRAKAN_DRAW_DISTANCE_TAPER)"},
     {"video", "shadow_distance", "3",
      "the shadows under people and creatures fade out this many times further from the camera, 1 (original) .. 4; "
      "applied at the next level load (PAL only; env DRAKAN_SHADOW_DISTANCE)"},

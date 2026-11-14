@@ -84,4 +84,22 @@ inline float drawDistance(float distance, float factor) {
     return distance * factor;
 }
 
+// Draw distance taper ([video] draw_distance_taper). The factor is meant for what a player sees pop in: grass,
+// flowers, small props and people, whose own distances are 4,000 to 37,000 units on the disc. Large props carry their
+// own distances of 75,000 units and more and were most of the cost of the factor (docs/journal/2026-11-15). With the
+// taper, the factor extends an object at most to `cap`, and an object whose own distance is already at or beyond the
+// cap keeps it: the result is max(distance, min(distance * factor, cap)). It is never below the original distance,
+// never above the untapered one, and grows with both the distance and the factor. A cap of 0 (or anything that is
+// not a positive finite number) is the untapered rule. On by default: at 1.5 it removed 65 % of the vector unit work
+// the factor adds in the Surdana meadow and kept every object under 40,000 units (docs/journal/2026-11-15).
+inline constexpr float kDefaultTaperCap = 70000.0f;
+inline constexpr bool kDefaultTaper = true;
+
+inline float taperedDrawDistance(float distance, float factor, float cap) {
+    const float scaled = drawDistance(distance, factor);
+    if (!(cap > 0.0f) || !std::isfinite(cap) || !(scaled > cap))
+        return scaled;
+    return distance > cap ? distance : cap;
+}
+
 } // namespace world::model_detail

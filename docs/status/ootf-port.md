@@ -874,6 +874,11 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   grid, near zero along an axis. The object draw distance cost (item 1) was measured, not changed: it is CPU vertex and
   draw work in proportion to the added props (72 at 1.5 in the Surdana meadow, +14 % frame time). Needs a rebuilt exe,
   no pack change. See [issue 6 view distance](../journal/2026-11-15/issue6-view-distance.md).
+* Issue 6 item 1 (both games): `[video] draw_distance_taper` (default 1, Display > Models) keeps large props that the
+  game already draws 75,000 units or more away at their own distance while the object draw distance still extends grass,
+  flowers, small props and people (up to 70,000). Surdana meadow at 1.5: frame time -13.5 %, the added vector-unit work
+  -65 %; at 2 only -18 % of the added work (people and grass stay). No change in the Ruined Village. Needs a rebuilt exe,
+  no pack change. See [issue 6 draw distance taper](../journal/2026-11-15/issue6-draw-distance-taper.md).
 
 ## Known gaps
 

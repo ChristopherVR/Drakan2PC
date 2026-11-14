@@ -38,6 +38,8 @@ constexpr uint32_t kDrawDistanceMode = 0x30000000u; // object +4: 0 = no own dra
 std::atomic<bool> g_installed{false};
 std::atomic<float> g_lodFactor{rules::kOff};
 std::atomic<float> g_drawFactor{rules::kOff};
+std::atomic<float> g_taperCap{0.0f};          // 0 = no taper
+float g_taperOnCap = rules::kDefaultTaperCap; // the cap when the taper is on (env DRAKAN_DRAW_DISTANCE_TAPER_CAP)
 PS2Runtime::RecompiledFunction g_origLod = nullptr;
 PS2Runtime::RecompiledFunction g_origFarModel = nullptr;
 PS2Runtime::RecompiledFunction g_origDistance = nullptr;
@@ -217,11 +219,37 @@ void logReport() {
         extraVertices += vertices;
         extraPolygons += polygons;
     }
+    // The same objects by their own draw distance (upper bounds of the buckets; the last one holds "no limit").
+    constexpr float kBuckets[] = {10000, 20000, 30000, 40000, 50000, 75000, 100000, 150000, 1e30f};
+    constexpr size_t kBucketCount = sizeof(kBuckets) / sizeof(kBuckets[0]);
+    uint32_t bucketObjects[kBucketCount] = {}, bucketVertices[kBucketCount] = {};
+    for (const auto& [object, e] : g_logState.extra) {
+        if (auto it = g_logState.tested.find(object); it == g_logState.tested.end() || it->second)
+            continue;
+        size_t b = 0;
+        while (b + 1 < kBucketCount && !(e.stored < kBuckets[b]))
+            ++b;
+        const auto model = models.find(e.resource);
+        ++bucketObjects[b];
+        bucketVertices[b] += model == models.end() ? 0 : u32(g_ram, model->second + 0x1c);
+    }
     std::vector<std::pair<uint32_t, Group>> top(groups.begin(), groups.end());
     std::sort(top.begin(), top.end(),
               [](const auto& a, const auto& b) { return a.second.vertices > b.second.vertices; });
     std::fprintf(stderr, "[model-detail] added by the draw distance: %zu models, vertices %u, polygons %u\n",
                  groups.size(), extraVertices, extraPolygons);
+    if (!groups.empty()) {
+        std::fprintf(stderr, "[model-detail]   by own distance (objects/vertices):");
+        for (size_t b = 0; b < kBucketCount; ++b)
+            if (bucketObjects[b]) {
+                if (b + 1 < kBucketCount)
+                    std::fprintf(stderr, " <%.0fk %u/%u", kBuckets[b] / 1000.0f, bucketObjects[b], bucketVertices[b]);
+                else
+                    std::fprintf(stderr, " >=%.0fk %u/%u", kBuckets[b - 1] / 1000.0f, bucketObjects[b],
+                                 bucketVertices[b]);
+            }
+        std::fprintf(stderr, "\n");
+    }
     for (size_t i = 0; i < top.size() && i < 10; ++i)
         std::fprintf(stderr,
                      "[model-detail]   model %08x: objects %u, vertices %u, polygons %u, own distance %.0f, "
@@ -229,15 +257,16 @@ void logReport() {
                      top[i].first, top[i].second.objects, top[i].second.vertices, top[i].second.polygons,
                      top[i].second.stored, top[i].second.nearest);
     g_logState.extra.clear();
-    std::fprintf(stderr,
-                 "[model-detail] lod x%.2f draw x%.2f | characters %zu: LOD0 %u LOD1 %u LOD2+ %u, polygons %u "
-                 "(all on LOD0: %u), vertices %u, look rule on %u | distance test: objects %zu, hidden %u, own "
-                 "distance scaled %llu | selector calls %llu, render calls %llu\n",
-                 g_lodFactor.load(), g_drawFactor.load(), g_logState.actors.size(), slots[0], slots[1], slots[2],
-                 polygons, full, vertices, limited, g_logState.tested.size(), hidden,
-                 static_cast<unsigned long long>(g_logState.scaledObjects),
-                 static_cast<unsigned long long>(g_logState.selectorCalls),
-                 static_cast<unsigned long long>(g_logState.renderCalls));
+    std::fprintf(
+        stderr,
+        "[model-detail] lod x%.2f draw x%.2f taper %.0f | characters %zu: LOD0 %u LOD1 %u LOD2+ %u, polygons %u "
+        "(all on LOD0: %u), vertices %u, look rule on %u | distance test: objects %zu, hidden %u, own "
+        "distance scaled %llu | selector calls %llu, render calls %llu\n",
+        g_lodFactor.load(), g_drawFactor.load(), g_taperCap.load(), g_logState.actors.size(), slots[0], slots[1],
+        slots[2], polygons, full, vertices, limited, g_logState.tested.size(), hidden,
+        static_cast<unsigned long long>(g_logState.scaledObjects),
+        static_cast<unsigned long long>(g_logState.selectorCalls),
+        static_cast<unsigned long long>(g_logState.renderCalls));
     g_logState.actors.clear();
     g_logState.tested.clear();
     g_logState.selectorCalls = g_logState.renderCalls = g_logState.scaledObjects = 0;
@@ -304,7 +333,7 @@ bool enterDrawScope(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t func
         !(u32(ram, object + 4) & kDrawDistanceMode))
         return false;
     const float stored = f32(ram, object + kDrawDistance);
-    const float scaled = rules::drawDistance(stored, factor);
+    const float scaled = rules::taperedDrawDistance(stored, factor, g_taperCap.load(std::memory_order_relaxed));
     if (std::memcmp(&stored, &scaled, 4) == 0)
         return false;
     std::lock_guard<std::mutex> lock(g_scopeMutex);
@@ -396,6 +425,14 @@ void configure(float lod, float draw) {
     g_drawFactor.store(rules::clampDrawFactor(draw), std::memory_order_relaxed);
 }
 
+void configureTaper(bool on) {
+    g_taperCap.store(on ? g_taperOnCap : 0.0f, std::memory_order_relaxed);
+}
+
+bool taper() {
+    return g_taperCap.load(std::memory_order_relaxed) > 0.0f;
+}
+
 float lodFactor() {
     return g_lodFactor.load(std::memory_order_relaxed);
 }
@@ -420,6 +457,13 @@ void install(PS2Runtime& rt) {
                   drakan_cfg::getFloat("video", "lod_distance", "DRAKAN_LOD_DISTANCE", rules::kDefaultLodFactor)),
               static_cast<float>(
                   drakan_cfg::getFloat("video", "draw_distance", "DRAKAN_DRAW_DISTANCE", rules::kDefaultDrawFactor)));
+    if (const char* cap = std::getenv("DRAKAN_DRAW_DISTANCE_TAPER_CAP")) {
+        const float value = std::strtof(cap, nullptr);
+        if (std::isfinite(value) && value > 0.0f)
+            g_taperOnCap = value;
+    }
+    configureTaper(
+        drakan_cfg::getBool("video", "draw_distance_taper", "DRAKAN_DRAW_DISTANCE_TAPER", rules::kDefaultTaper));
     g_log = std::getenv("DRAKAN_MODEL_DETAIL_LOG") != nullptr;
     g_ram = rt.memory().getRDRAM();
     g_origLod = rt.lookupFunction(kLodSelect);
@@ -431,8 +475,8 @@ void install(PS2Runtime& rt) {
     rt.replaceFunction(kDistanceTest, &hookDistanceTest);
     rt.replaceFunction(kRenderObject, &hookRenderObject);
     g_installed = true;
-    std::fprintf(stderr, "[model-detail] installed (LOD distance x%.2f, draw distance x%.2f)\n", g_lodFactor.load(),
-                 g_drawFactor.load());
+    std::fprintf(stderr, "[model-detail] installed (LOD distance x%.2f, draw distance x%.2f, taper cap %.0f)\n",
+                 g_lodFactor.load(), g_drawFactor.load(), g_taperCap.load());
 }
 
 } // namespace drakan_model_detail
