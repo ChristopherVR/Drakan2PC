@@ -169,3 +169,24 @@ far end of the gap, the Timer that gibs him 1.65 s after the push) one strike fe
 crosses with W alone. With the fallen trunk colliding as a trunk only (formats `d7b3d02`) 10 of 10 W-only walks crossed
 and 4 of 4 walked back (run `sw3`). No running jump is needed any more. Details and
 the campaign-wide audit of PC object behaviours: [object behaviour audit](ootf-object-behaviour-audit.md).
+
+## 7. What kills Rynn near the orc camp (same day)
+
+Several runs (this note's, the drops and the flames agents') showed Rynn dying near the camp with no clear cause. Rynn's
+health was read every 30 ms (stats `0x4fbac8`, current `+0xc`, maximum `+0x10`, the obfuscated words of
+`drakan_playtest.cpp` `keepAlive`) around placements and a walk, on a pack of formats `d7b3d02` (runs `de1`, `de3`) and on
+one with every effect class carrying its PC model (`OOTF_FX_PCMODEL=1`, `de2`). Maximum health at the start: 100.
+
+| Moment | Health | Cause |
+| --- | --- | --- |
+| placement 500 units over the flat ledge at the cave exit, held, released (`de3`) | 100, no change | |
+| the same spot placed 1,500 units up (`de3`) | 100 to -84 in one step on landing, dead | fall damage of the placement |
+| placements 500 to 700 units over the slope behind boulder 366 (`de1`, `de2`) | 100 to 40, and 100 to -246 in one step when the hold ends | the same: the harness's place command holds her in the air for about 4 s, she then lands as from a fall |
+| a normal walk with W from the cave exit past the boulders and down the slope into the camp (`de3`, all six waypoints) | 100 until the steep drop into the camp, then 56 | the slope (about 2,100 units down in one slide) |
+| a barrel struck at melee reach (flames agent's frames) | | each "Barrel (explode)" sends "Barrel Explosion Damage": 75 within 0.25 lu (512 units), the PC class's own values. The three barrels stand together and set each other off: 225, more than her 100. God mode refills health once per input sample and cannot outlast it |
+
+No converted kill box, detector, flame or death trigger damaged her in these runs. The camp's Kill Box (2604, 1000 hp/s,
+started by detector 2603) did not fire in any of them (her health never fell in steps of a burn). So the deaths after
+placements are the harness's fall from the place hold, not a converted object; a player walking in normally is not
+hurt until the drop into the camp (44), and dies to the barrels only when standing next to them as they go up, as the PC
+values mean. Why the death prompt comes up while she still stands (no death clip) was not established.
