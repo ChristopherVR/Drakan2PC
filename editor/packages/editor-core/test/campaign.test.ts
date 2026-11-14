@@ -176,6 +176,31 @@ describe('project campaign settings', () => {
             'campaign_treasure',
         );
     });
+    it('hides the gold counter in the manifest, apart from the drops', () => {
+        const p = campaignProject();
+        const toml = (q: ModProject): string =>
+            buildManifestToml({ id: 'm', target: { profile: 'pal' }, levels: ['One Copy'], ...campaignMeta(q) });
+        expect(campaignMeta(p).campaignGoldCounter).toBeUndefined(); // shown: no key
+        expect(toml(p)).not.toContain('campaign_gold_counter');
+        p.campaign!.goldCounter = false;
+        const back = parseProject(serializeProject(p));
+        expect(back.campaign!.goldCounter).toBe(false);
+        expect(back.campaign!.treasure).toBeUndefined();
+        expect(campaignMeta(back)).toMatchObject({ campaign: 'the-test-valley', campaignGoldCounter: false });
+        expect(campaignMeta(back).campaignTreasure).toBeUndefined();
+        expect(toml(back)).toContain('campaign_gold_counter = false');
+        expect(toml(back)).not.toContain('campaign_treasure');
+        expect(toml(back).indexOf('campaign_gold_counter')).toBeLessThan(toml(back).indexOf('[target]'));
+        // Drops off alone leaves the counter shown.
+        back.campaign!.goldCounter = true;
+        back.campaign!.treasure = false;
+        const drops = campaignMeta(parseProject(serializeProject(back)));
+        expect(drops.campaignGoldCounter).toBeUndefined();
+        expect(drops.campaignTreasure).toBe(false);
+        expect(buildManifestToml({ id: 'm', target: { profile: 'pal' }, campaignGoldCounter: false })).not.toContain(
+            'campaign_gold_counter',
+        );
+    });
     it('forgets a removed start level', () => {
         expect(removeLevel(campaignProject(), 'One Copy').campaign!.start).toBeNull();
     });

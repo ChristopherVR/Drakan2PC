@@ -316,8 +316,8 @@ function openDialog(host: OotfHost): void {
     const prefix = h('input', { type: 'text', value: 'OotF - ', spellcheck: 'false' });
     // Optional picture for the campaign's "Choose your game" card and menu background (stays on this computer).
     const coverPicker = h('input', { type: 'file', accept: 'image/png' });
-    // Order of the Flame has no shops: by default its campaign drops none of Drakan 2's gold and trinkets (manifest
-    // `campaign_treasure = false`); the box keeps them.
+    // Order of the Flame has no shops: by default its campaign drops none of Drakan 2's gold and trinkets and shows no
+    // gold amount (manifest `campaign_treasure = false`, `campaign_gold_counter = false`); the box keeps both.
     const treasureBox = h('input', { type: 'checkbox', id: 'od-treasure' });
     const list = h('div', { class: 'od-list' });
     const ps2Tex = ps2TexturePanel();
@@ -382,7 +382,7 @@ function openDialog(host: OotfHost): void {
             h(
                 'span',
                 { class: 'od-dim' },
-                'off: creatures, barrels and chests drop only what the Order of the Flame levels give them (it has no shops)',
+                'off: creatures, barrels and chests drop only what the Order of the Flame levels give them (it has no shops), and the screens show no gold',
             ),
         ),
         ps2Tex.el,

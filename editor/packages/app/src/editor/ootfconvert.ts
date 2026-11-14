@@ -143,6 +143,8 @@ export async function runConversion(
         ...(start ? { campaignSpells: false } : {}),
         // nor gold and trinkets (no shops): defeated creatures, barrels and chests drop only what the OotF data gives them
         ...(start && !req.treasure ? { campaignTreasure: false } : {}),
+        // so the screens leave out the gold amount too (the box that keeps the drops keeps it)
+        ...(start && !req.treasure ? { campaignGoldCounter: false } : {}),
         // the rendered OotF title theme plays on the title menu while the campaign is chosen
         ...(start && result.music?.title ? { campaignTitleMusic: result.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for

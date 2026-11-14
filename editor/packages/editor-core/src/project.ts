@@ -75,6 +75,8 @@ export interface ProjectCampaign {
     spells?: boolean;
     /** false: nothing drops gold or trinkets in this campaign (manifest `campaign_treasure = false`). Left out = it does. */
     treasure?: boolean;
+    /** false: the screens show no gold amount in this campaign (manifest `campaign_gold_counter = false`). Left out = they do. */
+    goldCounter?: boolean;
 }
 
 /** A position on the Campaign map, in map units (pixels at 100% zoom). */
@@ -965,6 +967,7 @@ function parseCampaign(v: unknown): ProjectCampaign | undefined {
         cover,
         ...(o['spells'] === false ? { spells: false } : {}),
         ...(o['treasure'] === false ? { treasure: false } : {}),
+        ...(o['goldCounter'] === false ? { goldCounter: false } : {}),
     };
 }
 
@@ -980,6 +983,7 @@ export function campaignMeta(p: ModProject): Partial<ModMeta> {
         ...(c.saves && c.saves !== c.id ? { campaignSaves: c.saves } : {}),
         ...(c.spells === false ? { campaignSpells: false } : {}),
         ...(c.treasure === false ? { campaignTreasure: false } : {}),
+        ...(c.goldCounter === false ? { campaignGoldCounter: false } : {}),
     };
 }
 

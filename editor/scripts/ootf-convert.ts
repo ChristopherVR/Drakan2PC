@@ -293,6 +293,8 @@ const pack = await buildOotfPack(
         // nor gold and trinkets (no shops): defeated creatures, barrels and chests drop only what the OotF data gives them;
         // --treasure 1 keeps Drakan 2's drops
         ...(opt['campaign'] !== undefined && opt['treasure'] !== '1' ? { campaignTreasure: false } : {}),
+        // so the inventory, the Character page and the pause menu leave out the gold amount too (--treasure 1 keeps it)
+        ...(opt['campaign'] !== undefined && opt['treasure'] !== '1' ? { campaignGoldCounter: false } : {}),
         // the rendered OotF title theme ("gui", PC Background Music ID 4) plays on the title menu while the campaign is chosen
         ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for (the Ruined Village Book: 4:3)

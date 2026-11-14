@@ -73,6 +73,13 @@ export interface ModMeta {
      */
     campaignTreasure?: boolean;
     /**
+     * `campaign_gold_counter = false`: the campaign has no use for gold (Drakan: Order of the Flame). While it is the
+     * game being played the inventory, the Character page and the PC pause menu show no gold amount; a shop keeps it.
+     * Separate from `campaignTreasure`: a campaign without drops may still pay gold for quests. Left out (or true) = the
+     * gold is shown as on the disc.
+     */
+    campaignGoldCounter?: boolean;
+    /**
      * Levels whose cut scenes are framed for one picture shape: level title -> aspect (`4:3`, `16:9` or a number).
      * While such a level is loaded the game renders and shows its world at that aspect instead of the window's
      * (manifest `level_aspect`; the OotF converter marks the "Ruined Village Book", whose paintings fill a 4:3 screen).
@@ -204,6 +211,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
     if (m.campaign && m.campaignSpells === false) l.push('campaign_spells = false');
     if (m.campaign && m.campaignTreasure === false) l.push('campaign_treasure = false');
+    if (m.campaign && m.campaignGoldCounter === false) l.push('campaign_gold_counter = false');
     const aspects = Object.entries(m.levelAspect ?? {});
     if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
     if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);

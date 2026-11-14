@@ -198,6 +198,26 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
         );
     }
 
+    // The inventory, the Character page and the pause menu show Rynn's gold (manifest `campaign_gold_counter`); Order
+    // of the Flame has no gold, so its campaign hides the amount. Shops always show it.
+    function goldSwitch(c: ProjectCampaign): HTMLElement {
+        const on = c.goldCounter !== false;
+        return h(
+            'div',
+            { class: 'cpg-switch-row' },
+            h('button', {
+                type: 'button',
+                class: `ui-switch${on ? ' on' : ''}`,
+                id: 'cpg-gold',
+                role: 'switch',
+                'aria-checked': on ? 'true' : 'false',
+                'aria-label': "Show Rynn's gold",
+                onclick: () => update({ goldCounter: !on }),
+            }),
+            h('span', { class: 'cpg-switch-text' }, on ? "Show Rynn's gold" : 'No gold amount on the screens'),
+        );
+    }
+
     const field = (
         label: string,
         id: string,
@@ -464,6 +484,14 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
                     c.treasure === false
                         ? 'Creatures, barrels, crates and chests leave only the items the level gives them, as in Order of the Flame.'
                         : 'Defeated creatures, broken barrels and opened chests scatter gold and trinkets, as in Drakan.',
+                ),
+                field(
+                    'Gold',
+                    'cpg-gold',
+                    goldSwitch(c),
+                    c.goldCounter === false
+                        ? 'The inventory, the Character page and the pause menu leave out the gold amount, as in Order of the Flame. Shops still show it.'
+                        : 'The inventory, the Character page and the pause menu show how much gold Rynn carries, as in Drakan.',
                 ),
             ),
             h('div', { class: 'pjx-sub' }, 'Cover picture'),
