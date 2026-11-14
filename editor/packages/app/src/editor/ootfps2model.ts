@@ -6,6 +6,7 @@
 import {
     DEFAULT_PS2_MODEL_SUBSTITUTIONS,
     modelKey,
+    ps2ModelRowName,
     type EnemyAnimations,
     type Ps2ModelCategory,
     type Ps2ModelSubstitution,
@@ -94,9 +95,11 @@ export function customModelPair(
 
 /** Is the pair in use under this choice (for the ticks). */
 export function pairOn(c: Ps2ModelChoice, r: Ps2ModelSubstitution): boolean {
-    const k = modelKey(r.ootf);
-    if (r.defaultOff) return c.on.some((x) => modelKey(x) === k);
-    return !c.off.some((x) => modelKey(x) === k);
+    // a pair is named by its class, or by class and PC model where one class name has several (a pine and a palm)
+    const keys = [modelKey(r.ootf), modelKey(ps2ModelRowName(r))];
+    const named = (list: string[]) => list.some((x) => keys.includes(modelKey(x)));
+    if (r.defaultOff) return named(c.on);
+    return !named(c.off);
 }
 
 /** The result line after a conversion. */
@@ -137,8 +140,8 @@ export function ps2ModelPanel(): { el: HTMLElement; options(): Ps2ModelSwapOptio
         box.addEventListener('change', () => {
             if (custom) {
                 if (!box.checked) choice.extra = choice.extra.filter((x) => modelKey(x.ootf) !== modelKey(r.ootf));
-            } else if (r.defaultOff) toggle('on', r.ootf, box.checked);
-            else toggle('off', r.ootf, !box.checked);
+            } else if (r.defaultOff) toggle('on', ps2ModelRowName(r), box.checked);
+            else toggle('off', ps2ModelRowName(r), !box.checked);
             save();
             if (custom && !box.checked) render();
         });

@@ -18,17 +18,28 @@ describe('Drakan 2 characters and weapons in the import dialog', () => {
 
     it('ticks pairs by their default and the player choice', () => {
         // a pair that is off by default (the Scavenger pair is on by default since formats a06ddb0)
-        const hang = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.ootf === 'Skeleton Hanging')!;
+        const hang = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.ootf === 'Spiked Torso')!;
         const sword = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.ootf === 'Long Sword')!;
         const c = defaultModelChoice();
         expect(pairOn(c, hang)).toBe(false);
         expect(pairOn(c, sword)).toBe(true);
-        const mine = { ...c, on: ['Skeleton Hanging'], off: ['long sword'], categoriesOff: ['weapons' as const] };
+        const mine = { ...c, on: ['Spiked Torso'], off: ['long sword'], categoriesOff: ['weapons' as const] };
         expect(pairOn(mine, hang)).toBe(true);
         expect(pairOn(mine, sword)).toBe(false);
         const p = planPs2Models(modelChoiceToOptions({ ...mine, enemyAnimations: 'ootf' }));
         expect(p.enemy('Scavenger')).toBe('ootf');
         expect(p.weapon('Mace')).toBeNull(); // weapons group off
+    });
+
+    it('ticks the palm and the pine of one class name apart', () => {
+        const palm = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.pcModel === 'PalmTree_Tall01(H)')!;
+        const pine = DEFAULT_PS2_MODEL_SUBSTITUTIONS.find((r) => r.pcModel === 'Large Pine(H)')!;
+        const c = { ...defaultModelChoice(), off: ['Large Tree|PalmTree_Tall01(H)'] };
+        expect(pairOn(c, palm)).toBe(false);
+        expect(pairOn(c, pine)).toBe(true);
+        const p = planPs2Models(modelChoiceToOptions(c));
+        expect(p.prop('Large Tree', 'PalmTree_Tall01(H)')).toBeNull();
+        expect(p.prop('Large Tree', 'Large Pine(H)')?.ps2).toBe('Pine Tree 01');
     });
 
     it('reads a stored choice and explains a bad pair', () => {

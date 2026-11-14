@@ -84,6 +84,15 @@ nothing puts them out). Collision records stay the OotF ones. Seen in Volcanic, 
 32 s in a burning ring with god mode off at full health. Turn rows on in the editor or with `--ps2-model-map`; needs a
 regenerated pack. See [PS2-style props](../journal/2026-11-15/ootf-ps2-style-props.md).
 
+**November 15 bridges, hanging skeletons, bodies and palms (round 8):** the props left off in round 7 now draw in
+Drakan 2 style, on by default, colliding exactly as the OotF models (polygon and bounds records unchanged): rope bridge
+pieces get separate boards on the OotF walkway, rope stringers and round ropes with the Drakan 2 bridge pictures (Rynn
+walked the Ruined Village span both ways with W in both packs); the hanging skeleton is the Drakan 2 one hung from the
+OotF chain; hanged, caged and spiked bodies are Drakan 2 dead men (WORLDCON "Deadguy") on the OotF rope, in the OotF
+cage or folded over the OotF spike (the torso on a spike stays off, not seen); tall and short palms get a rounded trunk
+and a doubled crown. Prop rows can be switched per PC model (`class|PC model`). Needs a regenerated pack. See
+[bridges, skeletons, bodies, palms](../journal/2026-11-15/ootf-ps2-models-off.md).
+
 **November 14 harpies (round 7):** the succubi and the Queen (the flying women of the Islands, Islands Night and Succubus
 Lair) keep their converted PC model: Drakan 2 has no harpy (its fliers are dragons, crows and gryphons). Posed offline
 against the PC data, the converted mesh, skinning and all clips match the PC picture exactly; only the graded alpha of the
