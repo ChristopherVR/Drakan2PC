@@ -20,7 +20,7 @@ namespace {
 
 constexpr uint32_t kFanDraw = 0x146880u; // (a0 unused, a1 = vertex array (32 bytes each), a2 = count) -> GIF emitter
 constexpr uint32_t kRamMask = 0x1fffffffu;
-constexpr uint32_t kRamSize = 32u * 1024u * 1024u;
+constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 constexpr int kMaxFan = 8;
 
 std::atomic<bool> g_installed{false};

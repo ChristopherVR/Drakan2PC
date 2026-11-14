@@ -1,4 +1,5 @@
 #include "gameui/Dialog.h"
+#include "gameui/Addresses.h"
 
 #include <algorithm>
 #include <set>
@@ -6,7 +7,7 @@
 namespace gameui {
 namespace {
 bool span(uint32_t p, uint32_t n) {
-    return p >= 0x100000u && p <= 0x2000000u - n;
+    return p >= addr::kRamPtrMin && p <= addr::kRamPtrEnd - n;
 }
 } // namespace
 

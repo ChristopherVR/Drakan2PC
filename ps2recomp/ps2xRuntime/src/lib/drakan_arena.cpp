@@ -39,6 +39,8 @@
 #include <vector>
 
 namespace drakan_arena {
+static_assert(detail::kGuestRamEnd >= PS2_RAM_SIZE, "placementPointer must cover the mapped guest RAM");
+
 namespace {
 
 using drakan::net::ArenaDef;
@@ -97,11 +99,11 @@ class RdramMemory final : public world::IGuestMemory {
 public:
     explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
     uint8_t read8(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         return a < PS2_RAM_SIZE ? ram_[a] : 0;
     }
     uint32_t read32(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         if (a + 4 > PS2_RAM_SIZE)
             return 0;
         uint32_t v;
@@ -114,7 +116,7 @@ private:
 };
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint32_t v = 0;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 4);
@@ -127,7 +129,7 @@ float rdf(const uint8_t* ram, uint32_t a) {
     return f;
 }
 bool ramPtr(uint32_t p) {
-    return p >= 0x100000u && p < 0x2000000u;
+    return p >= 0x100000u && p < PS2_RAM_SIZE;
 }
 
 // ---------------------------------------------------------------------------------------------------- catalog
@@ -358,7 +360,7 @@ void itemStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     g_item.savedSp = getRegU32(c, 29);
     g_item.savedRa = getRegU32(c, 31);
     const uint32_t sp = g_item.savedSp - kItemFrame, xf = sp + 0x10;
-    std::memcpy(rdram + (xf & 0x1ffffffu), g_item.xform, sizeof g_item.xform);
+    std::memcpy(rdram + (xf & PS2_RAM_MASK), g_item.xform, sizeof g_item.xform);
     SET_GPR_U32(c, 29, sp);
     SET_GPR_U32(c, 4, rd32(rdram, g_globals.contextPtr));
     SET_GPR_U32(c, 5, 0u);

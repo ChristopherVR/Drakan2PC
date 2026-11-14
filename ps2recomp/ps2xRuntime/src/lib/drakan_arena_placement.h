@@ -6,8 +6,12 @@
 
 namespace drakan_arena::detail {
 
+// Largest mapped guest RAM (PS2_RAM_SIZE can be at most 256 MB; drakan_arena.cpp asserts it fits). The guest
+// adapters wrap at the mapped size, so a bound above a smaller mapping is still memory safe.
+inline constexpr uint32_t kGuestRamEnd = 0x10000000u;
+
 inline bool placementPointer(uint32_t address, uint32_t bytes) {
-    return address >= 0x100000u && bytes <= 0x2000000u && address <= 0x2000000u - bytes;
+    return address >= 0x100000u && bytes <= kGuestRamEnd && address <= kGuestRamEnd - bytes;
 }
 
 // The native velocity query reads handle+0x50 (skeleton), previous position +0x174,

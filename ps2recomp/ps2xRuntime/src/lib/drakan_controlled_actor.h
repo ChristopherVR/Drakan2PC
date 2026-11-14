@@ -1,12 +1,14 @@
 // SCES_500.06: native 0x3d2798 identifies dragon control from the current
 // context actor's resource class, not from the last optional camera-look call.
 #pragma once
+#include "runtime/ps2_memory.h"
+
 #include <cstdint>
 
 namespace drakan_controlled_actor {
 inline bool ram(uint32_t address, uint32_t bytes) {
     const uint32_t p = address & 0x1fffffffu;
-    return p >= 0x100000u && p < 0x2000000u && bytes <= 0x2000000u - p;
+    return p >= 0x100000u && p < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - p;
 }
 struct State {
     bool dragon = false;

@@ -6,9 +6,9 @@
 
 namespace world {
 
-// Plausible heap / data pointer, the same window gameui uses.
+// Plausible heap / data pointer, the same window gameui uses (up to the largest mapped guest RAM, 256 MB).
 inline constexpr uint32_t kRamPtrMin = 0x100000;
-inline constexpr uint32_t kRamPtrEnd = 0x2000000;
+inline constexpr uint32_t kRamPtrEnd = 0x10000000;
 inline bool isRamPointer(uint32_t p) {
     return p >= kRamPtrMin && p < kRamPtrEnd;
 }

@@ -6,7 +6,7 @@ namespace {
 namespace q = quickslot;
 
 bool ram(uint32_t p) {
-    return p >= 0x100000u && p < 0x2000000u;
+    return p >= 0x100000u && p < kGuestRamEnd;
 }
 void say(std::string* log, const char* fmt, int a = 0, int b = 0, unsigned c = 0) {
     if (!log)

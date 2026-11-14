@@ -11,7 +11,9 @@ namespace {
 // keep the clamp.
 uint32_t sanitizeMemTransferSize(uint32_t size, const char* op, const R5900Context* ctx = nullptr,
                                  bool writes = false) {
-    constexpr uint32_t kMaxTransfer = PS2_RAM_SIZE;
+    // No single guest copy or fill of the game is larger than its retail RAM; a bigger size is a corrupt length
+    // (logged and dropped) even though the mapped guest RAM is larger.
+    constexpr uint32_t kMaxTransfer = PS2_RETAIL_RAM_SIZE;
     if (size <= kMaxTransfer) {
         return size;
     }
@@ -121,10 +123,11 @@ void memcpy(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void memset(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
-    uint32_t destAddr = getRegU32(ctx, 4);                                  // $a0
-    int value = (int)(getRegU32(ctx, 5) & 0xFF);                            // $a1 (char value)
-    uint32_t size = getRegU32(ctx, 6);                                      // $a2
-    if (size > PS2_RAM_SIZE && std::getenv("DRAKAN_STACK_ON_BAD_MEMSET")) { // debug: guest call chain of a bad size
+    uint32_t destAddr = getRegU32(ctx, 4);       // $a0
+    int value = (int)(getRegU32(ctx, 5) & 0xFF); // $a1 (char value)
+    uint32_t size = getRegU32(ctx, 6);           // $a2
+    if (size > PS2_RETAIL_RAM_SIZE &&
+        std::getenv("DRAKAN_STACK_ON_BAD_MEMSET")) { // debug: guest call chain of a bad size
         const uint32_t sp = getRegU32(ctx, 29);
         std::cerr << "[memset] stack code words:" << std::hex;
         for (uint32_t o = 0; o < 0x600; o += 4) {

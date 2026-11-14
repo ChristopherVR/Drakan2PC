@@ -22,7 +22,7 @@ PS2Runtime::RecompiledFunction g_origSetter = nullptr;
 std::atomic<bool> g_pending{false};
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint32_t v = 0;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 4);

@@ -1,13 +1,15 @@
 // Optional SCES_500.06 combat input audit. No guest writes or forced actions.
 // DRAKAN_COMBAT_AUDIT=N: log input edges, plus an idle sample every N frames.
 #pragma once
+#include "runtime/ps2_memory.h"
+
 #include <cstdlib>
 #include <cstdint>
 
 namespace drakan_combat_audit {
 inline bool ram(uint32_t address, uint32_t bytes) {
     const uint32_t physical = address & 0x1fffffffu;
-    return physical >= 0x100000u && physical < 0x2000000u && bytes <= 0x2000000u - physical;
+    return physical >= 0x100000u && physical < PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - physical;
 }
 
 template <class Guest, class Module, class Log>

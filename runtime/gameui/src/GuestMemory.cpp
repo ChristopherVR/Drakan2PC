@@ -61,12 +61,12 @@ std::string IGuestMemory::readString(uint32_t addr, size_t maxBytes) const {
 }
 
 uint8_t FlatGuestMemory::read8(uint32_t addr) const {
-    const size_t a = addr & 0x1ffffffu;
+    const size_t a = addr & kAddressMask;
     return a < size_ ? bytes_[a] : 0;
 }
 
 uint32_t FlatGuestMemory::read32(uint32_t addr) const {
-    const size_t a = addr & 0x1ffffffu;
+    const size_t a = addr & kAddressMask;
     if (a + 4 > size_)
         return IGuestMemory::read32(addr);
     return uint32_t(bytes_[a]) | (uint32_t(bytes_[a + 1]) << 8) | (uint32_t(bytes_[a + 2]) << 16) |

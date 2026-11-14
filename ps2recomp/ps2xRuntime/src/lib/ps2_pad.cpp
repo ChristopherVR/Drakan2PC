@@ -71,7 +71,7 @@ uint32_t hostPadContext() {
     uint32_t screen = 0;
     // the game's current GUI screen object (PAL 0x4fb60c, drakan_region.cpp for other regions)
     std::memcpy(&screen, g_hostPadMemory + drakan_region::guestAddress(0x4fb60cu), 4);
-    return screen >= 0x100000u && screen < 32u * 1024u * 1024u - 0x100u ? screen : 0;
+    return screen >= 0x100000u && screen < PS2_RAM_SIZE - 0x100u ? screen : 0;
 }
 } // namespace
 
@@ -99,12 +99,12 @@ void ps2BeginHostPadFrame(const uint8_t* memory, bool directMouse, bool captureM
         const uint8_t* memory;
         uint32_t read32(uint32_t address) {
             uint32_t value;
-            std::memcpy(&value, memory + (address & 0x1ffffffu), 4);
+            std::memcpy(&value, memory + (address & PS2_RAM_MASK), 4);
             return value;
         }
         uint16_t read16(uint32_t address) {
             uint16_t value;
-            std::memcpy(&value, memory + (address & 0x1ffffffu), 2);
+            std::memcpy(&value, memory + (address & PS2_RAM_MASK), 2);
             return value;
         }
     } guest{memory};

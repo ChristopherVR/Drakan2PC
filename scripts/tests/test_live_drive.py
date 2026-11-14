@@ -21,7 +21,7 @@ class SyntheticWorld:
     """Game context, class records, a registry with Rynn and two NPCs of one class, as the engine lays them out."""
 
     def __init__(self):
-        self.ram = bytearray(LD.RAM_SIZE)
+        self.ram = bytearray(LD.RETAIL_RAM_SIZE)
         self.ctx, self.res, self.recs, self.table = 0x700000, 0x710000, 0x720000, 0x730000
         self.put(LD.GAME_CTX, self.ctx)
         self.put(self.ctx + 0x7C, self.table)
@@ -95,7 +95,7 @@ class EngineReaderTests(unittest.TestCase):
         self.assertEqual(LD.actor_words(self.mem, self.w.rynn, (0x90,)), ["1234"])
 
     def test_no_context(self):
-        mem = LD.BytesMemory(bytearray(LD.RAM_SIZE))
+        mem = LD.BytesMemory(bytearray(LD.RETAIL_RAM_SIZE))
         self.assertIsNone(LD.controlled(mem))
         self.assertEqual(LD.find_actors(mem, 1), [])
 

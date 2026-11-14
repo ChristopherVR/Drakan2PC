@@ -1,5 +1,7 @@
 // Private SCES_500.06 observer. No guest calls, writes, timing or input changes.
 #pragma once
+#include "runtime/ps2_memory.h"
+
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -10,7 +12,7 @@ struct Ram {
     const uint8_t* bytes;
     bool valid(uint32_t a, uint32_t n = 4) const {
         a &= 0x1fffffffu;
-        return a >= 0x100000u && a < 0x2000000u && n <= 0x2000000u - a;
+        return a >= 0x100000u && a < PS2_RAM_SIZE && n <= PS2_RAM_SIZE - a;
     }
     template <class T>
     T read(uint32_t a) const {

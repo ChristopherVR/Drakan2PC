@@ -57,10 +57,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_model_lights_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_model_lights_test COMMAND world_model_lights_test)
 
-    # Terrain draw page pool (header only): best-fit allocator over the extra guest RAM, routing rule, churn.
-    add_executable(world_terrain_page_pool_test tests/terrain_page_pool_test.cpp)
-    target_link_libraries(world_terrain_page_pool_test PRIVATE drakan_world drakan::options)
-    add_test(NAME world_terrain_page_pool_test COMMAND world_terrain_page_pool_test)
+    # Extended guest heap (header only): best-fit allocator over the guest RAM above 32 MB, committed-top growth and
+    # give-back, routing rules (terrain builder, overflow eligibility), churn.
+    add_executable(world_extended_heap_test tests/extended_heap_test.cpp)
+    target_link_libraries(world_extended_heap_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_extended_heap_test COMMAND world_extended_heap_test)
 
     # Near-plane clip of the engine's projected polygons (header only): bit-identical front polygons, clipped straddlers.
     add_executable(world_polyclip_test tests/polyclip_test.cpp)

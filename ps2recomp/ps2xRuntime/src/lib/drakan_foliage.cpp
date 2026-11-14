@@ -21,7 +21,7 @@ constexpr uint32_t kRenderObject = 0x189b38u; // per-object render method, a0 = 
 constexpr uint32_t kContextPtr = 0x5565d4u;   // word holding the engine object
 constexpr uint32_t kHandleVtable = 0x51b8b0u;
 constexpr uint32_t kRamMask = 0x1fffffffu;
-constexpr uint32_t kRamSize = 32u * 1024u * 1024u;
+constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 
 struct IdKind {
     uint32_t id;

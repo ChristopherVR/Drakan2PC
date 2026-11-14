@@ -51,6 +51,9 @@ int main() {
     CHECK(rc::budgetBytes(1) == 1024u * 1024u && rc::budgetBytes(12) == 12u * 1024u * 1024u);
     CHECK(rc::budgetBytes(1000) == static_cast<uint32_t>(rc::kMaxMb) * 1024u * 1024u);
     // only raises a positive budget
+    CHECK(rc::optionMb("auto", true, rc::kAutoModelMb) == 16 && rc::optionMb("auto", false, rc::kAutoModelMb) == 0);
+    CHECK(rc::optionMb("", true, rc::kAutoAnimationMb) == 8 && rc::optionMb(nullptr, true, 8) == 8);
+    CHECK(rc::optionMb("0", true, 16) == 0 && rc::optionMb("12", false, 16) == 12 && rc::optionMb("x", true, 16) == 0);
     CHECK(rc::raisedBudget(0x566666u, 12u << 20) == 12u << 20);
     CHECK(rc::raisedBudget(0x566666u, 0) == 0 && rc::raisedBudget(0x566666u, 0x400000u) == 0);
     CHECK(rc::raisedBudget(0, 12u << 20) == 0 && rc::raisedBudget(12u << 20, 12u << 20) == 0);

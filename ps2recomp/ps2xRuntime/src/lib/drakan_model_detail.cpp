@@ -29,7 +29,7 @@ constexpr uint32_t kRenderObject = 0x189b38u;   // a0 = object
 constexpr uint32_t kObjectVtable = 0x51b8b0u;
 constexpr uint32_t kSkinnedModelVtable = 0x519a00u;
 constexpr uint32_t kRamMask = 0x1fffffffu;
-constexpr uint32_t kRamSize = 32u * 1024u * 1024u;
+constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 constexpr uint32_t kDrawDistance = 0xf8u;           // object: f32 draw distance
 constexpr uint32_t kDrawDistanceMode = 0x30000000u; // object +4: 0 = no own draw distance
 

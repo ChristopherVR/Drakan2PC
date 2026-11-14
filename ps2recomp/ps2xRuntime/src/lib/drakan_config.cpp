@@ -47,6 +47,17 @@ const Entry kEntries[] = {
     {"general", "cpu_affinity", "auto",
      "which logical processors the game may use: auto (let Windows choose) | cores:<n> (the first n) | a hex mask "
      "such as 0xFFF (the first 12); needs a restart (env DRAKAN_CPU_AFFINITY)"},
+    {"general", "heap_extend", "1",
+     "1 = when the game's memory (the 32 MB of the PlayStation 2) is full, it continues in more memory of the PC, up "
+     "to "
+     "extended_heap_mb; large levels (converted Order of the Flame levels) no longer run out. Unused memory costs "
+     "nothing. 0 = the original 32 MB; needs a restart (env DRAKAN_HEAP_EXTEND)"},
+    {"general", "extended_heap_mb", "224",
+     "megabytes of PC memory the game may use beyond the original 32 MB, 0 .. 224 (224 = the most); 0 = none, as the "
+     "PlayStation 2; needs a restart (env DRAKAN_EXTENDED_HEAP_MB)"},
+    {"general", "terrain_page_pool", "1",
+     "only with heap_extend = 0: 1 = the ground's drawing data goes to the extra memory so large levels do not run "
+     "the game's memory out; 0 = all in the original 32 MB; needs a restart (env DRAKAN_TERRAIN_PAGE_POOL)"},
     {"general", "pause_when_unfocused", "0",
      "1 = pause the game and its audio while the window is not in the foreground (or minimised); 0 = keep running at "
      "normal speed (env DRAKAN_PAUSE_UNFOCUSED)"},
@@ -62,12 +73,13 @@ const Entry kEntries[] = {
     {"general", "save_pages", "4",
      "Load Game / Save Game: number of pages of four slots (1 = the original four slots, 4 = 16 slots); Next / Back "
      "buttons, PgUp / PgDn and L1 / R1 switch pages; page 1 = the original save folders (env DRAKAN_SAVE_PAGES)"},
-    {"general", "model_cache_mb", "0",
+    {"general", "model_cache_mb", "auto",
      "memory the game keeps for loaded models before it drops the least recently used ones and reads them from the "
-     "disc again: 0 = the level's own budget (5.4 MB on the disc), 1 .. 64 MB (PAL only; env DRAKAN_MODEL_CACHE_MB)"},
-    {"general", "animation_cache_mb", "0",
-     "the same for loaded animations: 0 = the level's own budget (2 MB on the disc), 1 .. 64 MB (PAL only; env "
-     "DRAKAN_ANIMATION_CACHE_MB)"},
+     "disc again: auto = 16 MB when heap_extend is on, else the level's own budget; 0 = the level's own budget (5.4 MB "
+     "on the disc); 1 .. 64 MB (PAL only; env DRAKAN_MODEL_CACHE_MB)"},
+    {"general", "animation_cache_mb", "auto",
+     "the same for loaded animations: auto = 8 MB when heap_extend is on, else the level's own budget; 0 = the level's "
+     "own budget (2 MB on the disc); 1 .. 64 MB (PAL only; env DRAKAN_ANIMATION_CACHE_MB)"},
     {"general", "ai_run_max", "8",
      "how many creatures may fight and move on their own at once; farther ones wait until one is free: 0 = the "
      "level's own number (4 on the disc), up to 64; never fewer than the level's own (PAL only; env "

@@ -78,11 +78,11 @@ class RdramMemory final : public world::IGuestMemory {
 public:
     explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
     uint8_t read8(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         return a < PS2_RAM_SIZE ? ram_[a] : 0;
     }
     uint32_t read32(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         if (a + 4 > PS2_RAM_SIZE)
             return 0;
         uint32_t v;
@@ -464,21 +464,21 @@ struct Stats {
 } g_st;
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint32_t v = 0;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 4);
     return v;
 }
 uint16_t rd16(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint16_t v = 0;
     if (a + 2 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 2);
     return v;
 }
 void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(ram + a, &v, 4);
 }
@@ -494,7 +494,7 @@ float rdF(const uint8_t* ram, uint32_t a) {
     return f;
 }
 bool ramPtr(uint32_t p) {
-    return world::isRamPointer(p);
+    return world::isRamPointer(p) && p < PS2_RAM_SIZE;
 }
 
 uint32_t engineCtx(const uint8_t* rdram) {

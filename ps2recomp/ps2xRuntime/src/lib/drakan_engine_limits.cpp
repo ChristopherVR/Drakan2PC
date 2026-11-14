@@ -1,5 +1,6 @@
 // PS2-era engine budgets the PC lifts (PAL). See drakan_engine_limits.h.
 #include "drakan_engine_limits.h"
+#include "drakan_extended_heap.h"
 
 #include "drakan_config.h"
 #include "drakan_region.h"
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 namespace drakan_engine_limits {
 namespace {
@@ -172,9 +174,13 @@ void install(PS2Runtime& rt) {
     g_log = std::getenv("DRAKAN_ENGINE_LIMITS_LOG") != nullptr;
     g_shadowFactor = sd::clampFactor(
         static_cast<float>(drakan_cfg::getFloat("video", "shadow_distance", "DRAKAN_SHADOW_DISTANCE", sd::kDefault)));
-    g_modelBudget = rc::budgetBytes(drakan_cfg::getInt("general", "model_cache_mb", "DRAKAN_MODEL_CACHE_MB", 0));
-    g_animationBudget =
-        rc::budgetBytes(drakan_cfg::getInt("general", "animation_cache_mb", "DRAKAN_ANIMATION_CACHE_MB", 0));
+    // "auto": raised budgets when the game heap may grow past the retail RAM (their bytes come from there)
+    const bool extends = drakan_extended_heap::heapWillExtend();
+    const std::string model = drakan_cfg::getString("general", "model_cache_mb", "DRAKAN_MODEL_CACHE_MB", "auto");
+    const std::string animation =
+        drakan_cfg::getString("general", "animation_cache_mb", "DRAKAN_ANIMATION_CACHE_MB", "auto");
+    g_modelBudget = rc::budgetBytes(rc::optionMb(model.c_str(), extends, rc::kAutoModelMb));
+    g_animationBudget = rc::budgetBytes(rc::optionMb(animation.c_str(), extends, rc::kAutoAnimationMb));
     g_aiOption = drakan_cfg::getInt("general", "ai_run_max", "DRAKAN_AI_RUN_MAX", ai::kDefault);
     if (g_aiOption > 0 && rt.hasFunction(kAiLoad) && rt.hasFunction(kAiLimiter)) {
         g_aiLoadOriginal = rt.lookupFunction(kAiLoad);

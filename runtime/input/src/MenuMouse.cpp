@@ -8,7 +8,7 @@
 namespace drakan_input {
 
 namespace {
-constexpr uint32_t kRamEnd = 0x02000000u;
+constexpr uint32_t kRamEnd = kGuestRamEnd;
 inline bool validPtr(uint32_t p) {
     return p >= 0x00100000u && p + 0x100u < kRamEnd && (p & 3u) == 0;
 }

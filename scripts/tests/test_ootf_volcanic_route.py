@@ -19,7 +19,7 @@ class SyntheticRynn:
     """Game context, class records and Rynn with carry cells, laid out as the engine does."""
 
     def __init__(self, items):
-        self.ram = bytearray(LD.RAM_SIZE)
+        self.ram = bytearray(LD.RETAIL_RAM_SIZE)
         ctx, res, recs, table = 0x700000, 0x710000, 0x720000, 0x730000
         self.put(LD.GAME_CTX, ctx)
         self.put(ctx + 0x7C, table)
@@ -55,7 +55,7 @@ class CarryCellTests(unittest.TestCase):
         self.assertEqual(VR.carried(mem), [0x346C3, VR.RUNEBLADE_RES])
 
     def test_no_context(self):
-        self.assertEqual(VR.carried(LD.BytesMemory(bytearray(LD.RAM_SIZE))), [])
+        self.assertEqual(VR.carried(LD.BytesMemory(bytearray(LD.RETAIL_RAM_SIZE))), [])
 
 
 class BladeStepTests(unittest.TestCase):

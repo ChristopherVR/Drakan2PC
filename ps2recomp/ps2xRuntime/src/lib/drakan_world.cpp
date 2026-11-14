@@ -30,11 +30,11 @@ class RdramMemory final : public world::IGuestMemory {
 public:
     explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
     uint8_t read8(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         return a < PS2_RAM_SIZE ? ram_[a] : 0;
     }
     uint32_t read32(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         if (a + 4 > PS2_RAM_SIZE)
             return 0;
         uint32_t v;
@@ -216,7 +216,7 @@ void sample(const uint8_t* rdram, bool overlayOpen) {
         static uint64_t n = 0;
         auto u32 = [rdram](uint32_t a) {
             uint32_t w = 0;
-            if (a < 0x2000000u - 4u)
+            if (a < PS2_RAM_SIZE - 4u)
                 std::memcpy(&w, rdram + a, 4);
             return w;
         };

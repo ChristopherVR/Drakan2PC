@@ -16,11 +16,11 @@ class RdramMemory final : public gameui::IGuestMemory {
 public:
     explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
     uint8_t read8(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         return a < PS2_RAM_SIZE ? ram_[a] : 0;
     }
     uint32_t read32(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         if (a + 4 > PS2_RAM_SIZE)
             return 0;
         uint32_t v;
@@ -96,7 +96,7 @@ void tabLog(const char* fmt, ...) {
 std::string readLevelName(const uint8_t* ram) {
     uint32_t ctx = 0;
     std::memcpy(&ctx, ram + 0x5565d4u, 4);
-    ctx &= 0x1ffffffu;
+    ctx &= PS2_RAM_MASK;
     if (ctx < 0x100000u || ctx >= PS2_RAM_SIZE - 0x200u)
         return {};
     std::string path;

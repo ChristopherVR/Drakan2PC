@@ -1027,7 +1027,7 @@ void testSightShotBasis() {
     g.write32(0x78301c, 0x192e50);
     CHECK(!m.beforeBowSightLaunch(g, BOW)); // unsupported field reader is never interpreted
     g.write32(0x78301c, 0x192e48);
-    g.write32(0x782004, 0x1fffffc);
+    g.write32(0x782004, drakan_input::kGuestRamEnd - 4u);
     CHECK(!m.beforeBowSightLaunch(g, BOW)); // complete field storage must lie inside guest RAM
     g.write32(0x782004, 0x784000);
     g.write32(0x781000, 0x3379d);

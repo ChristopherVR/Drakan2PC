@@ -4,7 +4,7 @@
 
 namespace drakan_input::native_feedback {
 inline bool span(uint32_t p, uint32_t n) {
-    return !(p & 3) && p >= 0x100000 && p <= 0x2000000 - n;
+    return !(p & 3) && p >= 0x100000 && p <= kGuestRamEnd - n;
 }
 // SCES_500.06: 435f94 calls 2c8ff8(x,y,w,h,t0=packedColours[4]).
 // 4372d0..e4 sets flag 2 only for controller+20's selected item.

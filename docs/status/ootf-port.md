@@ -62,6 +62,15 @@ space. Briefs written for more than three point lights per object, terrain chunk
 limit (a game rule) and a model block pool. Needs the rebuilt exe; packs need no rebuild. See
 [engine limits survey](../journal/2026-11-14/engine-limits-survey.md).
 
+**November 14 guest memory (round 6):** the game heap is no longer held to the PS2's 32 MB. Guest RAM is reserved up to
+256 MB (the most the recompiled address decode allows below the I/O registers) and host pages are committed only as
+far as the game uses them; when the retail heap is full, the game's own allocator continues at 0x2000000, up to 224 MB
+more (`[general] heap_extend`, on; `extended_heap_mb`, 224; 0 = retail). Every allocation of the game can use it, not
+only the terrain pages; host code that assumed 32 MB was audited. The model and animation caches default to 16 / 8 MiB
+with it (`model_cache_mb` / `animation_cache_mb` = auto). Islands crash spot 13 minutes and Wartok Canyons 15 minutes on
+foot clean; Surdana clean; a test mode that moves most of the heap above 32 MB played the Islands and Surdana clean.
+Needs the rebuilt exe. See [guest memory](../journal/2026-11-14/ootf-guest-memory.md).
+
 **November 14 terrain heap (round 5):** the hangs and `[memset] bad size ... ra=0x157d7c` crashes in the Islands and
 Wartok Canyons were the game's heap running out while the engine built the terrain draw pages of the layers in view
 (converted terrain has up to 10 times the disc's chunks in one view). The runtime now maps 64 MB of guest RAM, keeps the

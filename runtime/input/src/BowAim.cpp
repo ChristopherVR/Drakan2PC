@@ -254,7 +254,7 @@ bool InputModule::beforeBowSightLaunch(IGuest& g, uint32_t bow) {
     if (!arrow || !registry || !object)
         return false;
     const uint32_t index = g.read16(arrow + 0x10), records = g.read32(registry + 8);
-    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= kGuestRamEnd - bytes; };
     if (index == 0xffff || index > g.read32(registry + 0x10) || !valid(records, (index + 1u) * 0x24u) ||
         g.read32(records + index * 0x24 + 8) != 0x1005fu)
         return false;
@@ -334,7 +334,7 @@ uint32_t InputModule::bowAttackMask(IGuest& g, uint32_t player, uint32_t caller,
 // The torso channel of the archer clip: the native attack start reads it as player property 0x52 (reader at
 // actor+0x54).
 uint32_t InputModule::bowTorsoChannel(IGuest& g, uint32_t player) {
-    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= kGuestRamEnd - bytes; };
     const auto actor = player ? g.read32(player + 0x80) : 0;
     const auto reader = valid(actor, 0x58) ? g.read32(actor + 0x54) : 0;
     const auto vt = valid(reader, 12) ? g.read32(reader + 8) : 0;
@@ -502,7 +502,7 @@ uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller
         (g.read32(player + 0xe90) != kBowMode && !(walking && g.read32(player + 0xe90) == kCrossbowMode)) ||
         !((g.read32(player + 0x94) & 0x10u) || walking) || !g.read32(0x4fb730) || g.read32(0x4fbafc))
         return channel;
-    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= kGuestRamEnd - bytes; };
     const auto actor = g.read32(player + 0x80);
     const auto reader = valid(actor, 0x58) ? g.read32(actor + 0x54) : 0;
     const auto vt = valid(reader, 12) ? g.read32(reader + 8) : 0;
@@ -859,7 +859,7 @@ uint16_t InputModule::bowAutoTarget(IGuest& g, uint32_t bow, uint32_t scratch) {
     // Imported classes retain these extra properties in a host sidecar; native/unmapped bows keep the baseline.
     float cone = 25.0f, range = 16000.0f;
     const auto actor = g.read32(bow + 0xc), registry = g.read32(ctx + 0x320);
-    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= 0x2000000u - bytes; };
+    const auto valid = [](uint32_t p, uint32_t bytes) { return p >= 0x100000u && p <= kGuestRamEnd - bytes; };
     uint32_t resource = 0;
     if (valid(actor, 0x14) && valid(registry, 0x14)) {
         const uint32_t index = g.read16(actor + 0x10), records = g.read32(registry + 8);

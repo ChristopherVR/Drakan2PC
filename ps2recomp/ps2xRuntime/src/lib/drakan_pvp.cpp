@@ -82,14 +82,14 @@ struct RespawnReq {
 } g_resp;
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint32_t v = 0;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 4);
     return v;
 }
 uint16_t rd16(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint16_t v = 0;
     if (a + 2 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 2);
@@ -102,7 +102,7 @@ float rdf(const uint8_t* ram, uint32_t a) {
     return f;
 }
 bool ramPtr(uint32_t p) {
-    return p >= 0x100000u && p < 0x2000000u;
+    return p >= 0x100000u && p < PS2_RAM_SIZE;
 }
 
 uint32_t rotr8(uint32_t x) {
@@ -123,7 +123,7 @@ int32_t playerHpMax(const uint8_t* rdram) {
 }
 void setPlayerHp(uint8_t* rdram, int32_t hp) {
     const uint32_t raw = rotl8(static_cast<uint32_t>(hp)) ^ rd32(rdram, guestAddress(kHpKey));
-    std::memcpy(rdram + ((guestAddress(kStatsBlock) + 0xc) & 0x1ffffffu), &raw, 4);
+    std::memcpy(rdram + ((guestAddress(kStatsBlock) + 0xc) & PS2_RAM_MASK), &raw, 4);
 }
 // The server counts health on a 100 point bar (MatchConfig.startHealth); Rynn's own maximum is whatever her level
 // gives.
@@ -448,7 +448,7 @@ struct BreathState {
 // The breath's targets: ghosts inside the cone. Returns the player ids hit (each once).
 std::vector<int> breathTargets(const uint8_t* rdram, uint32_t dragon) {
     float m[12];
-    std::memcpy(m, rdram + ((dragon + 0x14) & 0x1ffffffu), sizeof m);
+    std::memcpy(m, rdram + ((dragon + 0x14) & PS2_RAM_MASK), sizeof m);
     const float* fwd = m + 9; // row 2 of the 3x3 at +0x20: where the actor looks (testPlaceGhosts' "front")
     std::vector<int> out;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
@@ -505,7 +505,7 @@ void spawnFlame(uint8_t* rdram, uint32_t dragon) {
     if (res.empty() || g_flameCalls - g_flameTick < kFlameTicks)
         return;
     float m[12];
-    std::memcpy(m, rdram + ((dragon + 0x14) & 0x1ffffffu), sizeof m);
+    std::memcpy(m, rdram + ((dragon + 0x14) & PS2_RAM_MASK), sizeof m);
     const float* fwd = m + 9;
     const float* right = m + 3;
     static const bool once = std::getenv("DRAKAN_BREATH_SWEEP_ONCE") != nullptr; // experiment: one long-lived pass
@@ -628,7 +628,7 @@ void startDeath(uint8_t* rdram) {
     g_deadActor = actor;
     g_savedHandler.store(rd32(rdram, inner + 0x14));
     const uint32_t slot = g_deadHandlerSlot;
-    std::memcpy(rdram + ((inner + 0x14) & 0x1ffffffu), &slot, 4);
+    std::memcpy(rdram + ((inner + 0x14) & PS2_RAM_MASK), &slot, 4);
     g_deathTime = 0.0f;
     setPlayerHp(rdram, 1);
     g_pendingHp = -1;
@@ -639,7 +639,7 @@ void endDeath(uint8_t* rdram) {
     const uint32_t inner = ramPtr(actor) && actor == g_deadActor ? rd32(rdram, actor + 0xfc) : 0;
     if (ramPtr(inner) && g_savedHandler.load()) {
         const uint32_t h = g_savedHandler.load();
-        std::memcpy(rdram + ((inner + 0x14) & 0x1ffffffu), &h, 4);
+        std::memcpy(rdram + ((inner + 0x14) & PS2_RAM_MASK), &h, 4);
     }
     g_savedHandler.store(0);
     g_deadActor = 0;
@@ -656,7 +656,7 @@ struct DragonFall {
 
 void fallDragon(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t actor, float dt) {
     float m[12];
-    std::memcpy(m, rdram + ((actor + 0x14) & 0x1ffffffu), sizeof m);
+    std::memcpy(m, rdram + ((actor + 0x14) & PS2_RAM_MASK), sizeof m);
     if (!g_fall.active || g_fall.actor != actor || g_deathTime <= dt * 1.5f) { // first tick of this death
         g_fall = DragonFall();
         g_fall.active = true;
@@ -879,13 +879,13 @@ void testPlaceGhosts(uint8_t* rdram, uint32_t player, unsigned tick) {
     static float anchorPos[3];
     if (anchor) {
         if (!haveAnchor) {
-            std::memcpy(anchorPos, rdram + ((player + 0x14) & 0x1ffffffu), sizeof anchorPos);
+            std::memcpy(anchorPos, rdram + ((player + 0x14) & PS2_RAM_MASK), sizeof anchorPos);
             haveAnchor = true;
         }
-        std::memcpy(rdram + ((player + 0x14) & 0x1ffffffu), anchorPos, sizeof anchorPos);
+        std::memcpy(rdram + ((player + 0x14) & PS2_RAM_MASK), anchorPos, sizeof anchorPos);
     }
     float m[12];
-    std::memcpy(m, rdram + ((player + 0x14) & 0x1ffffffu), sizeof m);
+    std::memcpy(m, rdram + ((player + 0x14) & PS2_RAM_MASK), sizeof m);
     const float dist = static_cast<float>(std::atof(place));
     // DRAKAN_PVP_TEST_FRONT=1: the ghosts stay in front of the player (aimed shots: a bow or a spell every few
     // seconds).

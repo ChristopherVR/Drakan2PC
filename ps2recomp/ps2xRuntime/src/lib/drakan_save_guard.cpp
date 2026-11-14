@@ -155,7 +155,7 @@ void written(const fs::path& path) {
 std::string guestString(const uint8_t* rdram, uint32_t addr) {
     std::string s;
     for (uint32_t i = 0; i < 512; ++i) {
-        const char ch = static_cast<char>(rdram[(addr + i) & 0x01FFFFFFu]);
+        const char ch = static_cast<char>(rdram[(addr + i) & PS2_RAM_MASK]);
         if (!ch)
             break;
         s.push_back(ch);
@@ -181,15 +181,15 @@ void hookValidate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 
 uint32_t rd32(const uint8_t* rdram, uint32_t a) {
     uint32_t v;
-    std::memcpy(&v, rdram + (a & 0x01FFFFFCu), 4);
+    std::memcpy(&v, rdram + (a & PS2_RAM_MASK & ~3u), 4);
     return v;
 }
 void wr32(uint8_t* rdram, uint32_t a, uint32_t v) {
-    std::memcpy(rdram + (a & 0x01FFFFFCu), &v, 4);
+    std::memcpy(rdram + (a & PS2_RAM_MASK & ~3u), &v, 4);
 }
 bool okPtr(uint32_t a) {
     a &= 0x1fffffffu;
-    return a >= 0x100000u && a < 0x02000000u - 0x200u;
+    return a >= 0x100000u && a < PS2_RAM_SIZE - 0x200u;
 }
 
 // 43d028(screen, widget): Load screen confirm. A refused save never reaches the in-game question or the load: the

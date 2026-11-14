@@ -157,7 +157,7 @@ void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 
 uint32_t resourceOf(const uint8_t* ram, uint32_t object) { // actor+8, for the shadow trace
     uint32_t v = 0;
-    object &= 0x1ffffffu;
+    object &= PS2_RAM_MASK;
     if (object + 12 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + object + 8, 4);
     return v;
@@ -258,19 +258,19 @@ bool g_dragonClipHiForced = false;     // the env override is set: it wins over 
 std::atomic<uint32_t> g_levelSysHi{0}; // the level's SYSTEM database index << 16 (0x20000 Surdana, 0x40000 Ravenshold)
 
 uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     uint32_t v = 0;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(&v, ram + a, 4);
     return v;
 }
 void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
-    a &= 0x1ffffffu;
+    a &= PS2_RAM_MASK;
     if (a + 4 <= PS2_RAM_SIZE)
         std::memcpy(ram + a, &v, 4);
 }
 bool ramPtr(uint32_t p) {
-    return p >= 0x100000u && p < 0x2000000u;
+    return p >= 0x100000u && p < PS2_RAM_SIZE;
 }
 
 // The rider <-> dragon link (data+0x4d8 of the instance data of both ends, coop-characters.md section 3): the
@@ -296,7 +296,7 @@ void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     g_flight.savedSp = getRegU32(c, 29);
     g_flight.savedRa = getRegU32(c, 31);
     const uint32_t sp = g_flight.savedSp - kFrame, xf = sp + 0x10;
-    std::memcpy(rdram + (xf & 0x1ffffffu), g_flight.xform, sizeof g_flight.xform);
+    std::memcpy(rdram + (xf & PS2_RAM_MASK), g_flight.xform, sizeof g_flight.xform);
     if (g_flight.camModeAddr) {
         g_flight.oldMode = rd32(rdram, g_flight.camModeAddr);
         wr32(rdram, g_flight.camModeAddr, 7u);
@@ -327,7 +327,7 @@ void finishSpawn(uint8_t* rdram, R5900Context* c, uint32_t actor) {
     const uint32_t fn = ramPtr(vt) ? rd32(rdram, vt + 0x74) : 0;
     if (ramPtr(actor) && fn) {
         uint16_t adj = 0;
-        std::memcpy(&adj, rdram + ((vt + 0x70) & 0x1ffffffu), 2);
+        std::memcpy(&adj, rdram + ((vt + 0x70) & PS2_RAM_MASK), 2);
         SET_GPR_U32(c, 4, world + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(adj))));
         SET_GPR_U32(c, 5, actor);
         SET_GPR_U32(c, 6, 0xffffffffu);
@@ -390,15 +390,15 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
         }
         if (it != g_ghosts.end()) {
             uint16_t ref = 0, res = 0;
-            std::memcpy(&ref, rdram + ((actor + 0x12) & 0x1ffffffu), 2);
-            std::memcpy(&res, rdram + ((actor + 0x10) & 0x1ffffffu), 2);
+            std::memcpy(&ref, rdram + ((actor + 0x12) & PS2_RAM_MASK), 2);
+            std::memcpy(&res, rdram + ((actor + 0x10) & PS2_RAM_MASK), 2);
             it->info.handle = actor;
             it->loggedLod = ~0u;
             std::memcpy(it->target.pos, g_flight.xform, sizeof it->target.pos);
             std::memcpy(it->target.rot, g_flight.xform + 3, sizeof it->target.rot);
             it->hold = g_hold;
             float pos[3];
-            std::memcpy(pos, rdram + ((actor + 0x14) & 0x1ffffffu), sizeof pos);
+            std::memcpy(pos, rdram + ((actor + 0x14) & PS2_RAM_MASK), sizeof pos);
             std::fprintf(stderr, "[ghost] pos right after the factory: %g %g %g (asked %g %g %g)\n",
                          static_cast<double>(pos[0]), static_cast<double>(pos[1]), static_cast<double>(pos[2]),
                          static_cast<double>(g_flight.xform[0]), static_cast<double>(g_flight.xform[1]),
@@ -453,7 +453,7 @@ void weaponStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     g_wf.savedSp = getRegU32(c, 29);
     g_wf.savedRa = getRegU32(c, 31);
     const uint32_t sp = g_wf.savedSp - kFrame, xf = sp + 0x10;
-    std::memcpy(rdram + (xf & 0x1ffffffu), g_wf.xform, sizeof g_wf.xform);
+    std::memcpy(rdram + (xf & PS2_RAM_MASK), g_wf.xform, sizeof g_wf.xform);
     SET_GPR_U32(c, 29, sp);
     SET_GPR_U32(c, 4, rd32(rdram, guestAddress(kContextPtr)));
     SET_GPR_U32(c, 5, 0u);
@@ -487,15 +487,15 @@ void weaponStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
             // Owner: take a reference on the ghost's registry entry (the part of 0x168388 that cannot allocate).
             const uint32_t data = rd32(rdram, rd32(rdram, item + 0xfc) + 0x10);
             uint16_t ref = 0;
-            std::memcpy(&ref, rdram + ((g_wf.model + 0x12) & 0x1ffffffu), 2);
+            std::memcpy(&ref, rdram + ((g_wf.model + 0x12) & PS2_RAM_MASK), 2);
             const uint32_t table = rd32(rdram, ctx + 0x7c);
             if (ramPtr(data) && ref && ramPtr(table)) {
                 const uint32_t e = table + (ref - 1u) * 8u + 4u;
                 uint16_t n = 0;
-                std::memcpy(&n, rdram + (e & 0x1ffffffu), 2);
+                std::memcpy(&n, rdram + (e & PS2_RAM_MASK), 2);
                 ++n;
-                std::memcpy(rdram + (e & 0x1ffffffu), &n, 2);
-                std::memcpy(rdram + ((data + kWeaponOwner) & 0x1ffffffu), &ref, 2);
+                std::memcpy(rdram + (e & PS2_RAM_MASK), &n, 2);
+                std::memcpy(rdram + ((data + kWeaponOwner) & PS2_RAM_MASK), &ref, 2);
             }
             attach = ramPtr(data);
         } else if (!ramPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
@@ -651,13 +651,13 @@ void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                 const uint32_t pos = getRegU32(c, 6);
                 if (!who && !emitter && ramPtr(pos)) {
                     float p[3];
-                    std::memcpy(p, ram + (pos & 0x1ffffffu), sizeof p);
+                    std::memcpy(p, ram + (pos & PS2_RAM_MASK), sizeof p);
                     float best = 256.0f * 256.0f;
                     for (const VoiceOwner& o : owners) {
                         if (!ramPtr(o.actor))
                             continue;
                         float q[3];
-                        std::memcpy(q, ram + ((o.actor + 0x14u) & 0x1ffffffu), sizeof q);
+                        std::memcpy(q, ram + ((o.actor + 0x14u) & PS2_RAM_MASK), sizeof q);
                         const float dx = p[0] - q[0], dy = p[1] - q[1], dz = p[2] - q[2];
                         const float d = dx * dx + dy * dy + dz * dz;
                         if (d < best) {

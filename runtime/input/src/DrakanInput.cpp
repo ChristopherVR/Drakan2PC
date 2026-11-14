@@ -124,7 +124,7 @@ bool InputModule::controlledDragon(IGuest& g) const {
     const auto& l = camera_.layout;
     const auto valid = [](uint32_t address, uint64_t bytes) {
         const uint32_t p = address & 0x1fffffffu;
-        return p >= 0x100000u && p < 0x2000000u && bytes <= 0x2000000u - p;
+        return p >= 0x100000u && p < kGuestRamEnd && bytes <= kGuestRamEnd - p;
     };
     const uint32_t ctx = g.read32(camera_.context);
     if (!valid(ctx, std::max(l.contextActor, l.contextResources) + 4ull))
@@ -654,7 +654,7 @@ bool InputModule::readAimPitchState(IGuest& g, uint32_t player, AimPitchState& s
         const uint32_t base = g.read32(s.ctx + camera_.layout.contextTargets),
                        count = g.read32(s.ctx + camera_.layout.contextTargetCount);
         const uint32_t offset = (s.target - 1) * 8;
-        if (count > 10000 || s.target > count + 1 || base < 0x100000u || base > 0x02000000u - 8 - offset)
+        if (count > 10000 || s.target > count + 1 || base < 0x100000u || base > kGuestRamEnd - 8 - offset)
             return false;
         s.targetHandle = g.read32(base + offset);
         if (!s.targetHandle)
@@ -1064,7 +1064,7 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     const auto& layout = camera_.layout;
     const auto valid = [](uint32_t address, uint64_t bytes) {
         const uint32_t p = address & 0x1fffffffu;
-        return p >= 0x100000u && p < 0x2000000u && bytes <= 0x2000000u - p;
+        return p >= 0x100000u && p < kGuestRamEnd && bytes <= kGuestRamEnd - p;
     };
     uint32_t summon = 0;
     bool melee = false;

@@ -49,7 +49,10 @@ from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-RAM_SIZE = 0x2000000
+# Guest RAM the game may use: the retail 32 MB plus the extended heap above it (ps2_memory.h PS2_RAM_SIZE). RAM dumps
+# hold the retail part only (RETAIL_RAM_SIZE).
+RAM_SIZE = 0x10000000
+RETAIL_RAM_SIZE = 0x2000000
 GAME_CTX = 0x5565D4
 ENTITY_VTABLE = 0x51B8B0
 RYNN_CLASS = 0x10009
@@ -60,7 +63,7 @@ AROKH_CLASS = 0x1001C
 
 
 class GuestMemory:
-    """Little-endian guest RAM reads; addresses are guest addresses (masked to the 32 MiB RAM)."""
+    """Little-endian guest RAM reads; addresses are guest addresses (masked to the guest RAM)."""
 
     def read(self, addr: int, size: int) -> bytes:
         raise NotImplementedError
@@ -147,7 +150,12 @@ class ProcessMemory(GuestMemory):  # pragma: no cover - needs a running game
     def read(self, addr: int, size: int) -> bytes:
         if not self.base:
             self.base = self.status().rdram
-        return self._host(self.base + (addr & (RAM_SIZE - 1)), size)
+        try:
+            return self._host(self.base + (addr & (RAM_SIZE - 1)), size)
+        except OSError:  # extended RAM the game has not used yet: no host pages, reads as zero (as in the game)
+            if (addr & (RAM_SIZE - 1)) < RETAIL_RAM_SIZE:
+                raise
+            return bytes(size)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -959,7 +967,9 @@ def run(args) -> int:  # pragma: no cover
         ready = time.monotonic() + args.setup_timeout
         while link.alive() and time.monotonic() < ready:
             st = mem.status()
-            if (go is None and st.play_run >= 60) or (go is not None and go.exists() and go.stat().st_size >= RAM_SIZE):
+            if (go is None and st.play_run >= 60) or (
+                go is not None and go.exists() and go.stat().st_size >= RETAIL_RAM_SIZE
+            ):
                 break
             time.sleep(0.05)
         else:

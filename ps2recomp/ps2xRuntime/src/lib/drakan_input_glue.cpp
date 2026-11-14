@@ -227,7 +227,7 @@ int g_playRun = 0;
 // here changes the game.
 struct LiveStatus {
     char magic[16] = "DRAKAN_LIVE_V1";
-    uint64_t rdram = 0;   // host address of guest RAM (guest address & 0x1ffffff is the offset)
+    uint64_t rdram = 0;   // host address of guest RAM (guest address & PS2_RAM_MASK is the offset)
     uint64_t ramSize = 0; // PS2_RAM_SIZE
     int64_t frame = 0;    // input sample number (the live lines' clock)
     int64_t playRun = 0;  // consecutive gameplay samples (0 in a menu, cut scene or loading screen)
@@ -252,6 +252,8 @@ std::atomic<int> g_postsPending{0}; // RecompGuest::post() calls that have not r
 constexpr int kPauseScreenId = static_cast<int>(drakan_region::build().inputFlow.pauseScreen);
 
 // Guest access on top of rdram; call() runs a recompiled function to completion on a copy of the current context.
+static_assert(drakan_input::kGuestRamEnd == PS2_RAM_SIZE, "the input module's pointer bound must be the mapped RAM");
+
 class RecompGuest final : public IGuest {
 public:
     RecompGuest(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) : m_rdram(rdram), m_ctx(ctx), m_rt(rt) {}

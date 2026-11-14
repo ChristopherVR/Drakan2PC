@@ -51,6 +51,13 @@ add_test(NAME exit_guard_policy COMMAND exit_guard_policy_test)
 add_executable(null_call_recovery_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/null_call_recovery_policy_tests.cpp")
 drakan_enable_asserts(null_call_recovery_policy_test)
 add_test(NAME null_call_recovery_policy COMMAND null_call_recovery_policy_test)
+# Guest RAM reservation (reserve all of PS2_RAM_SIZE, commit on demand, stray-access commit on Windows).
+add_executable(guest_ram_reservation_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/guest_ram_reservation_tests.cpp"
+  "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib/ps2_guest_ram.cpp")
+drakan_enable_asserts(guest_ram_reservation_test)
+target_include_directories(guest_ram_reservation_test PRIVATE "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/include")
+target_compile_features(guest_ram_reservation_test PRIVATE cxx_std_20)
+add_test(NAME guest_ram_reservation COMMAND guest_ram_reservation_test)
 add_executable(polyclip_fan_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/polyclip_fan_policy_tests.cpp")
 drakan_enable_asserts(polyclip_fan_policy_test)
 target_include_directories(polyclip_fan_policy_test PRIVATE "${DRAKAN_ROOT}/runtime/world/include")

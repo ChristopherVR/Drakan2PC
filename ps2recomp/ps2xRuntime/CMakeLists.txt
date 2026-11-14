@@ -405,7 +405,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_vertex_path.cpp
     src/lib/drakan_terrain_distance.cpp
     src/lib/drakan_view_distance.cpp
-    src/lib/drakan_terrain_pages.cpp
+    src/lib/drakan_extended_heap.cpp
     src/lib/drakan_engine_limits.cpp
     src/lib/drakan_model_lights.cpp
     src/lib/drakan_region.cpp
@@ -420,6 +420,7 @@ add_library(ps2_runtime STATIC
     src/lib/gs/gs_cpu_async_backend.cpp
     src/lib/ps2_iop_host.cpp
     src/lib/ps2_memory.cpp
+    src/lib/ps2_guest_ram.cpp
     src/lib/ps2_ipu.cpp
     src/lib/ps2_pad.cpp
     src/lib/ps2_rom_device.cpp

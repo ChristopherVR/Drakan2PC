@@ -14,6 +14,7 @@
 #include <mutex>
 
 #include "gs/ps2_gif_arbiter.h"
+#include "runtime/ps2_guest_ram.h"
 #if defined(_MSC_VER)
 #include <intrin.h>
 #elif defined(USE_SSE2NEON)
@@ -26,10 +27,21 @@
 class GS;
 
 // The retail EE has 32 MB. The game sees only that much (stack, heap end and GetMemorySize keep the retail layout,
-// PS2_RETAIL_RAM_SIZE); the host maps 64 MB so the runtime can place data of its own above the retail RAM (the terrain
-// draw page pool, drakan_terrain_pages.h). Guest addresses wrap at PS2_RAM_SIZE.
+// PS2_RETAIL_RAM_SIZE). The host reserves guest RAM up to PS2_RAM_SIZE so the runtime can place data above the retail
+// RAM (the extended heap: terrain draw pages and the game heap's overflow, drakan_extended_heap.h); host pages above
+// the retail 32 MB are committed only while used (runtime/ps2_guest_ram.h). Guest addresses wrap at PS2_RAM_SIZE.
+//
+// Why 256 MB: the recompiled code's fast path decodes a guest address as (a & 0x1FFFFFFF) < PS2_RAM_SIZE (KSEG0/1 and
+// the uncached mirrors 0x20000000/0x30000000 fold onto it), and the physical map has the I/O registers at 0x10000000,
+// VU memory at 0x11000000, the GS at 0x12000000, IOP RAM at 0x1C000000 and the BIOS at 0x1FC00000. The mask has to be
+// a power of two, so 0x10000000 is the largest RAM that stays clear of all of them. WebAssembly keeps 64 MB (its
+// linear memory has no reserve-without-commit).
 constexpr uint32_t PS2_RETAIL_RAM_SIZE = 32u * 1024u * 1024u; // 32MB, what the game is told and laid out in
-constexpr uint32_t PS2_RAM_SIZE = 64u * 1024u * 1024u;        // 64MB mapped
+#if defined(__EMSCRIPTEN__)
+constexpr uint32_t PS2_RAM_SIZE = 64u * 1024u * 1024u;
+#else
+constexpr uint32_t PS2_RAM_SIZE = 256u * 1024u * 1024u; // reserved; committed as used above the retail RAM
+#endif
 constexpr uint32_t PS2_RAM_MASK = PS2_RAM_SIZE - 1u;
 constexpr uint32_t PS2_RAM_BASE = 0x00000000; // Physical base of RDRAM
 constexpr uint32_t PS2_SCRATCHPAD_BASE = 0x70000000;
@@ -75,6 +87,7 @@ inline constexpr uint32_t PS2_FIO_S_IFREG = 0x2000;
 
 static_assert((PS2_RAM_SIZE & (PS2_RAM_SIZE - 1u)) == 0u, "PS2_RAM_SIZE must be a power of two");
 static_assert(PS2_RAM_MASK == (PS2_RAM_SIZE - 1u), "PS2_RAM_MASK must match PS2_RAM_SIZE");
+static_assert(PS2_RAM_SIZE <= PS2_IO_BASE, "guest RAM must end below the I/O registers");
 
 inline std::atomic<uint8_t*>& ps2ScratchpadHostPtrStorage() {
     static std::atomic<uint8_t*> ptr{nullptr};
@@ -254,6 +267,8 @@ public:
 
     // Memory access methods
     uint8_t* getRDRAM() { return m_rdram; }
+    // Host pages behind guest RAM (commit / decommit above the retail RAM).
+    GuestRamReservation& guestRam() { return m_ram; }
     uint8_t* getScratchpad() { return m_scratchpad; }
     uint8_t* getIOPRAM() { return iop_ram; }
     uint64_t dmaStartCount() const { return m_dmaStartCount.load(std::memory_order_relaxed); }
@@ -354,6 +369,7 @@ public:
     const uint8_t* getGSVRAM() const { return m_gsVRAM; }
     bool hasSeenGifCopy() const { return m_seenGifCopy; }
     // Main RAM (32MB)
+    GuestRamReservation m_ram;
     uint8_t* m_rdram;
 
     // Scratchpad memory (16KB)

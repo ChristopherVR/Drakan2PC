@@ -22,7 +22,7 @@ constexpr uint32_t kChunkDraw = 0x158148u;   // a0 = layer, a1 = draw page: emit
 constexpr uint32_t kViewPointer = 0x5565c8u; // pointer to the view the terrain draw reads
 constexpr uint32_t kViewScale = 0x3cu;       // view: f32 the chunk distance is multiplied with (1.0 in play)
 constexpr uint32_t kRamMask = 0x1fffffffu;
-constexpr uint32_t kRamSize = 32u * 1024u * 1024u;
+constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 
 std::atomic<bool> g_installed{false};
 std::atomic<float> g_factor{rules::kOff};

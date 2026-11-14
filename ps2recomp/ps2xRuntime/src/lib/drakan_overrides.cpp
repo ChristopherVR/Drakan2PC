@@ -68,7 +68,7 @@
 #include "drakan_model_detail.h"
 #include "drakan_terrain_distance.h"
 #include "drakan_view_distance.h"
-#include "drakan_terrain_pages.h"
+#include "drakan_extended_heap.h"
 #include "drakan_engine_limits.h"
 #include "drakan_model_lights.h"
 #include "drakan_polyclip.h"
@@ -192,7 +192,7 @@ void hookMovieDecodeStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     static Clock::time_point deadline{};
     const auto& layout = drakan_region::build().movie;
     const auto movieFrame = drakan_movie::framePeriod(layout);
-    const uint32_t player = getRegU32(c, 4) & 0x1ffffffu;
+    const uint32_t player = getRegU32(c, 4) & PS2_RAM_MASK;
     uint32_t fpsIndex = ~0u, count = 0;
     if (player != 0u && uint64_t(player) + std::max(layout.fpsIndex, layout.frameCount) + 4 <= PS2_RAM_SIZE) {
         std::memcpy(&fpsIndex, rdram + player + layout.fpsIndex, 4);
@@ -1738,8 +1738,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     if constexpr (supports(Feature::SceneHooks))
         drakan_dlss::installSceneHooks(runtime);
 #endif
-    // Terrain draw pages above the retail RAM (PAL). After every other wrapper of the guest free (object motion).
-    drakan_terrain_pages::install(runtime);
+    // Extended game heap above the retail RAM (PAL). After every other wrapper of the guest free (object motion).
+    drakan_extended_heap::install(runtime);
 
     const std::string iso = resolveIsoPath();
     const auto selectedLanguage =

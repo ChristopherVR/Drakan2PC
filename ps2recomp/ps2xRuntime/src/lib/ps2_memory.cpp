@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <new>
 #include <thread>
 
 #include "runtime/ps2_render_queue.h"
@@ -383,7 +384,7 @@ PS2Memory::PS2Memory(IsolatedVU)
 
 PS2Memory::~PS2Memory() {
     if (m_rdram) {
-        delete[] m_rdram;
+        m_ram.release();
         m_rdram = nullptr;
     }
 
@@ -423,7 +424,7 @@ PS2Memory::~PS2Memory() {
 
 bool PS2Memory::initialize(size_t ramSize) {
     auto cleanup = [this]() {
-        delete[] m_rdram;
+        m_ram.release();
         delete[] m_scratchpad;
         delete[] iop_ram;
         delete[] m_gsVRAM;
@@ -462,8 +463,12 @@ bool PS2Memory::initialize(size_t ramSize) {
 
     try {
         // Allocate main RAM
-        m_rdram = new uint8_t[ramSize];
-        std::memset(m_rdram, 0, ramSize);
+        // Reserve all of guest RAM, commit the retail part (zeroed by the host); the rest is committed as used. One
+        // granule of slack past the end keeps a host copy of a few bytes from a masked pointer at the very top in
+        // bounds.
+        if (!m_ram.reserve(ramSize + GuestRamReservation::kGranularity, std::min<size_t>(ramSize, PS2_RETAIL_RAM_SIZE)))
+            throw std::bad_alloc();
+        m_rdram = m_ram.base();
         rdramWatchStart(m_rdram);
 
         // Allocate scratchpad

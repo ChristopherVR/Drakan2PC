@@ -18,9 +18,10 @@ inline constexpr uint32_t kRegionStride = 0x20;
 // The note says i < 14, but entry 13 holds unrelated text ("iStringTableSize") in every dump: 13 entries.
 inline constexpr uint32_t kRegionCount = 13;
 
-// Plausible heap / data pointer (the harness scripts' `0x100000 < p < 0x2000000`).
+// Plausible heap / data pointer. The end is the largest guest RAM the host maps (256 MB): game objects can live above
+// the retail 32 MB. Reads past the mapped size go through IGuestMemory, which bounds them.
 inline constexpr uint32_t kRamPtrMin = 0x100000;
-inline constexpr uint32_t kRamPtrEnd = 0x2000000;
+inline constexpr uint32_t kRamPtrEnd = 0x10000000;
 
 // ---- ctx = *(kContextPtr) ----
 namespace ctx {

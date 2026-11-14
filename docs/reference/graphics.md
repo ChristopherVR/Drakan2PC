@@ -500,19 +500,32 @@ divides `s` by the factor for the length of the call, which moves both the cut-o
 by that factor (rules and numbers: `runtime/world/include/world/TerrainDistance.h`). No level data, material or code
 changes. It costs terrain passes: about twice as many splat passes and vertices at factor 2 at the Surdana start.
 
-**Terrain draw page pool** (`[general] terrain_page_pool`, on by default, PAL): the engine builds a draw block per
-terrain layer in view (`FUN_00154060` .. `FUN_00157a08`: chunk records, group arrays and draw pages of 0x400 bytes or
-more that the VIF1 DMA reads) from the game's one heap, which ends at 0x1f00000 under the stack. Only layers not drawn
-this frame are evicted, so the blocks of one frame's visible layers must fit at once. Disc levels list at most 524
-chunks in one visible list; converted Order of the Flame levels up to 5,656, which ran the heap out (malloc 0, then
-`[memset] bad size ... ra=0x157d7c` and a jump to 0 or a hang). The runtime maps 64 MB of guest RAM (`PS2_RAM_SIZE`)
-while the game keeps the retail 32 MB layout (`PS2_RETAIL_RAM_SIZE`: stack, heap end, `GetMemorySize`, RAM dumps), and
-`drakan_terrain_pages.cpp` wraps the guest malloc `0x4ac628`, realloc `0x4acef0` and free `0x4acc40`: allocations whose
-return address lies in the builder take a block of the pool at 0x2000000..0x4000000, frees and reallocs of pool
-addresses go back to it, everything else runs the original allocator. The engine still builds, budgets and evicts the
-same pages, only their addresses differ, so the picture does not change. A full pool falls back to the game heap.
-Allocator and routing rule: `runtime/world/include/world/TerrainPagePool.h` (`world_terrain_page_pool_test`). Every
-host-side reader of game objects keeps its 32 MB bounds: nothing the game itself allocates outside the builder moves.
+**Extended game heap** (`[general] heap_extend`, `extended_heap_mb`, PAL; `drakan_extended_heap.cpp`): the game has one
+heap (newlib's dlmalloc: malloc `0x4ac628`, realloc `0x4acef0`, free `0x4acc40`) that grows by sbrk (`0x4bc7b8`) up to
+`EndOfHeap` (0x1f00000, under the main stack and the runtime's RPC pool): about 25 MB. The engine builds a draw block
+per terrain layer in view (`FUN_00154060` .. `FUN_00157a08`: chunk records, group arrays and draw pages of 0x400 bytes
+or more that the VIF1 DMA reads) from that heap and evicts only layers not drawn this frame, so the blocks of one
+frame's visible layers must fit at once. Disc levels list at most 524 chunks in one visible list; converted Order of
+the Flame levels up to 5,656, which ran the heap out (malloc 0, then `[memset] bad size ... ra=0x157d7c` and a jump to
+0 or a hang). The host reserves guest RAM up to `PS2_RAM_SIZE` = 256 MB (`ps2_memory.h`: the largest power of two below
+the I/O registers at 0x10000000, which is what the recompiled code's address decode `(a & 0x1FFFFFFF) < PS2_RAM_SIZE`
+allows) while the game keeps the retail 32 MB layout (`PS2_RETAIL_RAM_SIZE`: stack, heap end, `GetMemorySize`, RAM
+dumps). Only the retail 32 MB is committed at start (`runtime/ps2_guest_ram.h`: Windows reserve / commit, a stray access
+to an uncommitted page commits it; POSIX lazy mapping; WebAssembly keeps 64 MB in one allocation). With `heap_extend`
+the runtime answers the guest's sbrk: as before below the retail end, and a request past it continues the heap at
+0x2000000 up to 0x2000000 + `extended_heap_mb` (default and most 224). dlmalloc takes the jump as a foreign sbrk, fences
+its old top chunk and frees its rest, then serves every malloc, realloc, memalign and free of the game from both ranges
+with its own bookkeeping; its trim (sbrk with a negative size) gives host pages back. The start-up heap probe
+(`0x4ac1f0`, three 32 MB mallocs it expects to fail) keeps the retail answer. Rules: `world/ExtendedHeap.h`
+(`world_extended_heap_test`). Host-side readers of game objects bound pointers by `PS2_RAM_SIZE` (round 6 audit), the
+harness by `live_drive.RAM_SIZE`.
+
+**Terrain draw page pool** (`[general] terrain_page_pool`, used only with `heap_extend = 0`): allocations whose return
+address lies in the terrain builder take a block of a best-fit pool over the extended range instead (malloc, realloc
+and free wrapped; frees and reallocs of pool addresses go back to it, everything else runs the original allocator, a
+full pool falls back to the game heap). The pool commits host pages in 2 MB steps as it grows and gives whole steps
+back when its top runs free. The engine builds, budgets and evicts the same pages either way, only their addresses
+differ, so the picture does not change.
 
 **World position per pixel.** The vertex Q is 1 / clip w at full float precision and is linear in screen space, so a
 pixel's camera-relative world position follows from its pixel position, Q and the engine camera the host publishes

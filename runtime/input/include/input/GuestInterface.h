@@ -6,6 +6,14 @@
 
 namespace drakan_input {
 
+// End of the guest RAM the host maps (PS2_RAM_SIZE; the adapter static_asserts they match). Game objects can live
+// anywhere below it, also above the retail 32 MB. A pointer bound uses this, never 0x2000000.
+#if defined(__EMSCRIPTEN__)
+inline constexpr uint32_t kGuestRamEnd = 0x04000000u;
+#else
+inline constexpr uint32_t kGuestRamEnd = 0x10000000u;
+#endif
+
 // Arguments for a guest call. Two conventions are supported by the module (see Config::turnCallAbi):
 //  * integers go to $a0.. ($4..$11) in order,
 //  * floats go to $f12.. in order (EABI style, counted separately from the integers).
@@ -31,7 +39,7 @@ struct GuestCall {
 class IGuest {
 public:
     virtual ~IGuest() = default;
-    // Guest memory (EE virtual address, KSEG0-less 0x00000000-0x01ffffff). Little endian.
+    // Guest memory (EE virtual address, KSEG0-less 0 up to kGuestRamEnd). Little endian.
     virtual uint8_t read8(uint32_t addr) = 0;
     virtual uint32_t read32(uint32_t addr) = 0;
     virtual void write8(uint32_t addr, uint8_t v) = 0;

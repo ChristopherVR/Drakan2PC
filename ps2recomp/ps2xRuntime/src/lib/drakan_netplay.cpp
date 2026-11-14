@@ -70,11 +70,11 @@ class RdramMemory final : public world::IGuestMemory {
 public:
     explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
     uint8_t read8(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         return a < PS2_RAM_SIZE ? ram_[a] : 0;
     }
     uint32_t read32(uint32_t a) const override {
-        a &= 0x1ffffffu;
+        a &= PS2_RAM_MASK;
         if (a + 4 > PS2_RAM_SIZE)
             return 0;
         uint32_t v;
@@ -2141,7 +2141,7 @@ void probeDragonHp(const uint8_t* rdram, uint32_t handle, double t) {
                 if (std::sscanf(q, "%x:%f", &off, &val) == 2) {
                     uint32_t bits;
                     std::memcpy(&bits, &val, 4);
-                    const uint32_t at = (data + off) & 0x1ffffffu;
+                    const uint32_t at = (data + off) & PS2_RAM_MASK;
                     if (at + 4 <= PS2_RAM_SIZE)
                         std::memcpy(const_cast<uint8_t*>(rdram) + at, &bits, 4);
                     netLog("hp poke: data+%x = %.2f", off, static_cast<double>(val));

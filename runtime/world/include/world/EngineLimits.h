@@ -50,6 +50,20 @@ inline uint32_t budgetBytes(int mb) {
     return static_cast<uint32_t>(std::min(mb, kMaxMb)) * 1024u * 1024u;
 }
 
+// "auto" (the default): with the extended game heap (drakan_extended_heap.h) the caches get these budgets, whose extra
+// bytes the heap takes above the retail 32 MB when its retail part is full; without it the level's own (0).
+inline constexpr int kAutoModelMb = 16, kAutoAnimationMb = 8;
+
+// The MiB an option value asks for: "auto" or empty = the automatic budget above, a number = that (0 = the level's own).
+inline int optionMb(const char* value, bool heapExtends, int autoMb) {
+    if (!value || !*value || (value[0] == 'a' || value[0] == 'A'))
+        return heapExtends ? autoMb : 0;
+    int mb = 0;
+    for (const char* c = value; *c >= '0' && *c <= '9'; ++c)
+        mb = std::min(mb * 10 + (*c - '0'), 100000);
+    return mb;
+}
+
 // The value to write over a cache's budget word, or 0 to leave it. Only ever raises a positive budget.
 inline uint32_t raisedBudget(uint32_t current, uint32_t target) {
     return current > 0 && target > current ? target : 0;

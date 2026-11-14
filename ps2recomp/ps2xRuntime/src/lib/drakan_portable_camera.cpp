@@ -50,7 +50,7 @@ class CameraGuest final : public drakan_input::IGuest {
     uint8_t* memory_;
     R5900Context* context_;
     PS2Runtime* runtime_;
-    static constexpr uint32_t kMask = 0x1ffffffu;
+    static constexpr uint32_t kMask = PS2_RAM_MASK;
 
 public:
     CameraGuest(uint8_t* memory, R5900Context* context, PS2Runtime* runtime)
