@@ -629,6 +629,22 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign_treasure = yes\n[target]\nprofile = \"pal\"\n", false, m,
                             err));
         CHECK(m.campaignTreasure);
+        CHECK(m.campaignGoldCounter); // no campaign_gold_counter: the gold amount is shown as on the disc
+        // `campaign_gold_counter = false` hides the gold amount; it leaves the drops and the spells alone.
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign = \"c\"\ncampaign_gold_counter = false\n"
+                            "[target]\nprofile = \"pal\"\n",
+                            false, m, err));
+        CHECK(!m.campaignGoldCounter && m.campaignTreasure && m.campaignSpells);
+        CHECK(parseManifest("{\"format\": 1, \"id\": \"a\", \"campaign_gold_counter\": false, \"target\": "
+                            "{\"profile\": \"pal\"}}",
+                            true, m, err));
+        CHECK(!m.campaignGoldCounter);
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign_treasure = false\n[target]\nprofile = \"pal\"\n", false,
+                            m, err));
+        CHECK(m.campaignGoldCounter); // drops off alone keeps the counter
+        CHECK(parseManifest("format = 1\nid = \"a\"\ncampaign_gold_counter = on\n[target]\nprofile = \"pal\"\n", false,
+                            m, err));
+        CHECK(m.campaignGoldCounter);
     }
 
     // Imported-bow sidecars are bounded, enabled-pack-only, and preserve mod load order.

@@ -1069,7 +1069,9 @@ void InventoryScreen::drawHeader(const Snapshot& s, DrawList& d) const {
         d.image(lf_.map({last.right() + 16, last.y + 7, 40, 40}), {ImageKind::Prompt, uint32_t(Prompt::PageNext)});
     }
 
-    // Gold, top right.
+    // Gold, top right (not in a campaign without a gold counter).
+    if (!goldVisible(s))
+        return;
     const Rect gold{kDesignW - kMargin - 300, 36, 300, 48};
     d.imageOr(lf_.map({gold.right() - 44, gold.y, 48, 48}), {ImageKind::UiIcon, uint32_t(UiIconId::GoldBag)},
               {ImageKind::SkinOrb, 0}, 0xffffffffu, th.xp);
@@ -1504,9 +1506,13 @@ void InventoryScreen::drawCharacter(const Snapshot& s, DrawList& d) const {
     } else {
         y += 8;
     }
-    textD(d, {x, y, w, 36}, "Gold", FontRole::Body, th.textMuted);
-    textD(d, {x, y, w, 36}, fmtInt(s.stats.gold), FontRole::Numeric, th.heading, TextAlign::Right);
-    y += 64;
+    if (goldVisible(s)) { // a campaign without a gold counter has no Gold line
+        textD(d, {x, y, w, 36}, "Gold", FontRole::Body, th.textMuted);
+        textD(d, {x, y, w, 36}, fmtInt(s.stats.gold), FontRole::Numeric, th.heading, TextAlign::Right);
+        y += 64;
+    } else {
+        y += 8;
+    }
     textD(d, {x, y, w, 40}, "Skills", FontRole::Heading, th.heading);
     y += 52;
     for (const SkillEntry& sk : s.skills.entries) {

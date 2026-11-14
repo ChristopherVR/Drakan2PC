@@ -995,6 +995,40 @@ void testScreenCloseRefused() {
 
 } // namespace
 
+// A campaign without a gold counter (manifest `campaign_gold_counter = false`): no gold in the header or on the
+// Character page; the disc game and an open shop keep it.
+void testScreenGoldHiddenInCampaign() {
+    World w;
+    ReaderState st;
+    Snapshot s = w.read(st);
+    const Viewport vp{0, 0, 1920, 1080};
+    const std::string amount = std::to_string(s.stats.gold);
+    CHECK(s.goldShown && goldVisible(s) && s.stats.gold > 0);
+    InventoryScreen on;
+    on.open(s, Page::Inventory);
+    FrameOutput o = on.frame(s, {}, vp);
+    CHECK(hasText(o.draw, "Gold") && hasText(o.draw, amount)); // the disc game: header gold
+    on.open(s, Page::Character);
+    o = on.frame(s, {}, vp);
+    CHECK(on.page() == Page::Character && hasText(o.draw, "Gold") && hasText(o.draw, amount));
+
+    s.goldShown = false;
+    CHECK(!goldVisible(s));
+    InventoryScreen off;
+    for (Page p : {Page::Inventory, Page::Character, Page::Skills, Page::Journal}) {
+        off.open(s, p);
+        o = off.frame(s, {}, vp);
+        CHECK(off.page() == p && !hasText(o.draw, "Gold") && !hasText(o.draw, amount));
+    }
+    // The other Character lines stay.
+    off.open(s, Page::Character);
+    o = off.frame(s, {}, vp);
+    CHECK(hasText(o.draw, "Health") && hasText(o.draw, "Experience") && hasText(o.draw, "Skills"));
+    // A shop always shows what the player can pay.
+    s.shop.active = true;
+    CHECK(goldVisible(s));
+}
+
 int main() {
     testCodec();
     testReader();
@@ -1008,6 +1042,7 @@ int main() {
     testScreenMouse();
     testScreenJournalDisabledInMultiplayer();
     testScreenSpellsOffInCampaign();
+    testScreenGoldHiddenInCampaign();
     testSkillsWithoutMagic();
     testScreenShopAndGuards();
     testKeyGate();

@@ -61,6 +61,11 @@ struct Manifest {
     // chests drop only the items the level gives them (drakan_game::treasureEnabled). Missing, or any value but false /
     // 0 / no / off: the level's gold is dealt out as on the disc.
     bool campaignTreasure = true;
+    // top-level `campaign_gold_counter = false`: the campaign has no use for gold (Drakan: Order of the Flame), so the
+    // inventory, the Character page and the PC pause menu show no gold amount while it is the current game (shops keep
+    // theirs). Separate from `campaign_treasure`: a campaign without drops may still pay gold for quests and run shops.
+    // Missing, or any value but false / 0 / no / off: the gold is shown as on the disc.
+    bool campaignGoldCounter = true;
     // top-level `level_aspect = ["Level title = 4:3"]`: levels whose cut scenes are framed for one picture shape (flat
     // pictures that fill a 4:3 screen, such as the Order of the Flame "Ruined Village Book"). While such a level is
     // loaded its world is rendered and shown at that aspect instead of the window's (drakan_widescreen).

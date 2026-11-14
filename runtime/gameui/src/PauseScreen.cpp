@@ -1331,6 +1331,8 @@ void PauseScreen::drawStatus(const Snapshot& s, const PauseState& st, DrawList& 
     } else {
         y += 6;
     }
+    if (!goldVisible(s)) // a campaign without a gold counter
+        return;
     p.text(d, {x, y, w, 36}, menuText("Gold"), FontRole::Body, th.textMuted);
     p.text(d, {x, y, w - 44, 36}, fmtInt(s.stats.gold), FontRole::Numeric, th.heading, TextAlign::Right);
     d.imageOr(p.map({x + w - 38, y - 2, 40, 40}), {ImageKind::UiIcon, uint32_t(UiIconId::GoldBag)},

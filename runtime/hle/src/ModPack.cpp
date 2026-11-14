@@ -454,6 +454,7 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     };
     m.campaignSpells = !switchedOff("campaign_spells");
     m.campaignTreasure = !switchedOff("campaign_treasure");
+    m.campaignGoldCounter = !switchedOff("campaign_gold_counter");
     m.levelCopies = many("level_copies");
     m.levelAspect = many("level_aspect");
     m.oneWayExits = many("one_way_exits");

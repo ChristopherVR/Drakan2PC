@@ -545,9 +545,25 @@ void testNoManaWithoutSpells() {
     CHECK(hasText(o.draw, "Health") && !hasText(o.draw, "Mana"));
 }
 
+// A campaign without a gold counter: the status panel shows no gold; health stays.
+void testNoGoldWithoutCounter() {
+    ScreenWorld w;
+    Snapshot s = w.read();
+    PauseScreen scr(hostConfig());
+    const PauseState st = validState();
+    const Viewport vp{0, 0, 1920, 1080};
+    scr.open();
+    PauseFrameOutput o = scr.frame(s, st, {}, vp);
+    CHECK(hasText(o.draw, "Health") && hasText(o.draw, "Gold"));
+    s.goldShown = false;
+    o = scr.frame(s, st, {}, vp);
+    CHECK(hasText(o.draw, "Health") && !hasText(o.draw, "Gold"));
+}
+
 int main() {
     testReadOptions();
     testNoManaWithoutSpells();
+    testNoGoldWithoutCounter();
     testQueueCoalescing();
     testNavigation();
     testSliderKeysAndPad();

@@ -173,6 +173,9 @@ struct Snapshot {
     // The current game has spells (host-set): false in a campaign whose pack says `campaign_spells = false` (Order of
     // the Flame). Then no Spells page and no mana bars are shown.
     bool spellsEnabled = true;
+    // The current game shows Rynn's gold (host-set): false in a campaign whose pack says `campaign_gold_counter =
+    // false` (Order of the Flame). Then the header, the Character page and the pause menu show no gold; a shop does.
+    bool goldShown = true;
     bool dualWield = false;           // [general] dual_wield
     bool bowDrawn = false;            // the bow holds the left hand (no off-hand equip)
     uint32_t shieldSlot = 0;          // handle in equipment slot 2 (a shield or the left-hand weapon), 0 = empty
@@ -188,6 +191,11 @@ struct Snapshot {
     // A left-hand weapon is held or the option is on: the screens name hands.
     bool handsShown() const;
 };
+
+// Whether the gold amount is drawn: always while a shop is open (the player pays with it), else as the campaign says.
+inline bool goldVisible(const Snapshot& s) {
+    return s.goldShown || s.shop.active;
+}
 
 // ---- dual wielding ----
 // What using `it` does with hands (gameui/DualWield.h): the labels "Equip to left hand", "Unequip left hand", ...
