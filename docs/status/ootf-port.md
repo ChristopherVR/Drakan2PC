@@ -640,6 +640,16 @@ on a pack with the same code, by the boulder alone), one strike fells the tree a
 trunk takes a running jump (three of six scripted tries failed at its butt end). No save after Heron's Crystal on the new
 pack (New Game and placements). Needs a regenerated pack and a new game. See [boulders and tree](../journal/2026-11-14/ootf-ruined-boulders-tree.md).
 
+**November 14 PC object behaviour audit and the tree as on the PC (round 7):** the felled tree now sinks into place while
+it falls and the roots at its foot collide only low, so after one strike the orc on the far side dies under it (the PC's own
+timer chain) and Rynn walks over it with W alone (played from New Game after placements). A converter-driven audit of every
+scalar field of every PC object in the 23 levels found: six push-over objects (now a blow fells or breaks them and sends
+their PC message: the Wartok Canyons pillar falls as a bridge with its brace, Alwarren's bricks and the Islands goblin
+pillar break), 77 name-mapped barrels and crates with the disc's 5 health instead of the PC 10 or 20 (now PC), and the
+boulders fixed earlier; creature stats, break-away floor pauses, flame light fields and the rest are listed with reasons.
+Seen in passing: the magic flame ring round Alwarren's barrier crystal does not burn in the pack. Formats `0afdb74`; needs
+a regenerated pack and a new game. See [object behaviour audit](../journal/2026-11-14/ootf-object-behaviour-audit.md).
+
 **November 14 item requirements:** the Chain Mail of Ruined Village could not be worn ("Exp. Level Needed 3",
 "That can't be used right now." on the modern screen, greyed on the native one; Rynn is level 1). The PC game has no
 requirement on any item, but converted armour kept the Drakan 2 template's Skill Level, which the engine checks against

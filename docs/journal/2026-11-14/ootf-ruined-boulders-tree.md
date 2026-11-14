@@ -159,3 +159,12 @@ Crystal on the new pack.
 * Getting onto the trunk takes a running jump; three of six scripted tries failed at its butt end.
 * A save made on the old pack keeps the old objects: the owner needs the rebuilt pack and a new campaign game.
 * Drakan 2 is not reached by the change (converter only); not played.
+
+## 6. Follow-up: the tree as on the PC (same day)
+
+The owner asked for the PC behaviour: the orc the tree lands on, and a trunk walked onto with no running jump. Formats
+`0afdb74`: the Mover sinks 469 units while it falls (Type 4), so the trunk's top near its foot is a step over the ledge,
+and the roots at its foot collide only with their low polygons. With the PC chain unchanged (detector, the orc walking to the
+far end of the gap, the Timer that gibs him 1.65 s after the push) one strike fells the tree, the orc dies under it and Rynn
+crosses with W alone (run `tr4`). The running jump and the three failed walk-ons of section 3 no longer apply. Details and
+the campaign-wide audit of PC object behaviours: [object behaviour audit](ootf-object-behaviour-audit.md).
