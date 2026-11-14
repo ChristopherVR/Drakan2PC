@@ -98,6 +98,14 @@ border vertices are lit from the slope of the neighbouring layer instead of half
 the fade distance and the PC's own 4 m grid stay as the PS2 engine draws them. Needs a regenerated pack, the HD step for
 it and a new game. See [mountains and snow](../journal/2026-11-14/ootf-terrain-look.md).
 
+**November 14 view distance (round 6):** the far clip of the engine is one world view distance, 75 cells (153,600
+units) in every level, Order of the Flame included, with the distance fog full exactly there; the terrain grid, frustum
+and object cap stop at it. `[video] view_distance` (1 to 3, default 1, live) moves it and the fog out together, while the
+object activity loop and the sound distance keep the PS2 numbers. From the air over the Islands, 2 brings the far
+islands out of the fog but shows gaps where the PC sea ends; in Drakan 2 (Ravenshold) the level's sea plane edge shows
+from 1.25 on, so the default stays 1. Linking the sea from further (`DRAKAN_WATER_VISIBLE_CELLS`) did not close the gaps.
+Exe only; no pack change. See [view distance](../journal/2026-11-14/ootf-view-distance.md).
+
 **November 14 renderer draw cost (round 4):** the Direct3D 11 renderer now binds only the draw state that changed
 (`[video] draw_state_cache`, on by default, `0` = the old path). Same picture (identical replays, a read-back check of
 every draw's state in the game). On a quiet machine at 4K with the owner's settings Wartok Canyons runs at 38.2 / 55.3

@@ -442,6 +442,30 @@ Numbers, pictures and what is not established: [gfx-models](../journal/2026-11-1
 
 What a GS draw carries: screen-space vertices (x, y, z, fog), one vertex colour (the game's lighting, baked or summed
 by VU1), ST and Q, one texture, the blend / test state. No normal, tangent, world position or light. The engine's
+**View distance and distance fog** (`[video] view_distance`, 1 to 3, default 1, PAL; `drakan_view_distance.cpp`,
+rules `runtime/world/include/world/ViewDistance.h`). The "level view distance" above is one world field, written with
+the distance fog by the world's fog setter `0x142f70` (a0 = world `0x4de5e0`, f12 = far in cells, f13 = fog range in
+cells; called with 16 / 6 at world creation and 75 / 48.75 at every level load seen, Drakan 2 and converted Order of
+the Flame alike). It writes `+0x388` far (cells), `+0x38c` (far x 2048)^2 and the fog record `+0x394..+0x3b0`
+(F, S^2, F^2, 1 / (F^2 - S^2), F, R, 1 / R, S with F = far x 2048, R = range x 2048, S = F - R: the fog starts at 53760
+units and is full at 153600). Readers:
+
+| Reader | Uses | Option |
+| --- | --- | --- |
+| `0x153828` terrain view (once per frame): grid radius in cells, the fog record pointer for the frame (`0x147450`) | `+0x388` | scaled |
+| `0x1535b8` view frustum corners at max(`+0x388`, `+0x390`) cells | `+0x388` | scaled |
+| `0x18ba28` object draw cap `min(+0xf8, far x 2048)` | `+0x388` | scaled |
+| VU1 fog constants of every draw (`0x1e97a0` from `0x189b38`, `0x1581bc` chunk draw, `0x1626a8`, `0x133498`, `0x1289ac`, `0x1ab7b4`), `0x1afaa8`, `0x1b0a34` | fog record | scaled |
+| particles `0x193d08` (half far), `0x1941a0`, `0x195878` (0.9 far) | `+0x388` | scaled |
+| `0x15cba0` per-layer object activity: objects within `min(+0xf8, far x 2048) + radius` of the camera get their `+0x50` method called | `+0x388` | original (the call runs with the unscaled value) |
+| sound `0x1b1ee0`, `0x1b7f30` (PlaySound) | `+0x38c` | original (written back after every setter call) |
+
+The underwater fog (`0x142fe0`, `+0x390` 47.75 cells, record `+0x3b8`) is not touched. The grid radius is bounded by a
+static table of 64-byte rows at `0x556e90` (2 x radius + 1 rows) with about 470 rows of room before the next variable,
+hence the cap of 3. What it shows and costs: [view distance](../journal/2026-11-14/ootf-view-distance.md). Drakan 2 levels
+end in flat sea planes and cut-off ground just past the original fog (Ravenshold shows the edge from 1.25 on), so the
+default stays 1.
+
 world camera (`SceneGuideCamera`) is published separately, and with DLSS or a ray effect on the lighting snapshot
 (`SceneLighting`: the sun vector, colour and ambient of the terrain layer under the eye, read from the layer record at
 `+0x124`, `+0x130`, `+0x13c`, plus its point lights).
