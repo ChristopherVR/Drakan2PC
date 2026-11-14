@@ -155,6 +155,27 @@ describe('project campaign settings', () => {
             'campaign_spells',
         );
     });
+    it('turns gold and trinket drops off in the manifest, apart from the spells', () => {
+        const p = campaignProject();
+        const toml = (q: ModProject): string =>
+            buildManifestToml({ id: 'm', target: { profile: 'pal' }, levels: ['One Copy'], ...campaignMeta(q) });
+        expect(campaignMeta(p).campaignTreasure).toBeUndefined(); // drops on: no key
+        expect(toml(p)).not.toContain('campaign_treasure');
+        p.campaign!.treasure = false;
+        const back = parseProject(serializeProject(p));
+        expect(back.campaign!.treasure).toBe(false);
+        expect(back.campaign!.spells).toBeUndefined();
+        expect(campaignMeta(back)).toMatchObject({ campaign: 'the-test-valley', campaignTreasure: false });
+        expect(campaignMeta(back).campaignSpells).toBeUndefined();
+        expect(toml(back)).toContain('campaign_treasure = false');
+        expect(toml(back)).not.toContain('campaign_spells');
+        expect(toml(back).indexOf('campaign_treasure')).toBeLessThan(toml(back).indexOf('[target]'));
+        back.campaign!.treasure = true;
+        expect(campaignMeta(parseProject(serializeProject(back))).campaignTreasure).toBeUndefined();
+        expect(buildManifestToml({ id: 'm', target: { profile: 'pal' }, campaignTreasure: false })).not.toContain(
+            'campaign_treasure',
+        );
+    });
     it('forgets a removed start level', () => {
         expect(removeLevel(campaignProject(), 'One Copy').campaign!.start).toBeNull();
     });

@@ -73,6 +73,8 @@ export interface ProjectCampaign {
     cover: CampaignCover | null;
     /** false: Rynn has no spells in this campaign (manifest `campaign_spells = false`). Left out = she has them. */
     spells?: boolean;
+    /** false: nothing drops gold or trinkets in this campaign (manifest `campaign_treasure = false`). Left out = it does. */
+    treasure?: boolean;
 }
 
 /** A position on the Campaign map, in map units (pixels at 100% zoom). */
@@ -962,6 +964,7 @@ function parseCampaign(v: unknown): ProjectCampaign | undefined {
         saves: s('saves'),
         cover,
         ...(o['spells'] === false ? { spells: false } : {}),
+        ...(o['treasure'] === false ? { treasure: false } : {}),
     };
 }
 
@@ -976,6 +979,7 @@ export function campaignMeta(p: ModProject): Partial<ModMeta> {
         ...(c.start ? { campaignStart: c.start } : {}),
         ...(c.saves && c.saves !== c.id ? { campaignSaves: c.saves } : {}),
         ...(c.spells === false ? { campaignSpells: false } : {}),
+        ...(c.treasure === false ? { campaignTreasure: false } : {}),
     };
 }
 

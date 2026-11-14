@@ -67,6 +67,12 @@ export interface ModMeta {
      */
     campaignSpells?: boolean;
     /**
+     * `campaign_treasure = false`: nothing in the campaign drops gold or trinkets (Drakan: Order of the Flame has no
+     * shops). While it is the game being played, defeated creatures, broken barrels and crates and opened chests leave
+     * only the items the level gives them; Drakan keeps its treasure. Left out (or true) = treasure as on the disc.
+     */
+    campaignTreasure?: boolean;
+    /**
      * Levels whose cut scenes are framed for one picture shape: level title -> aspect (`4:3`, `16:9` or a number).
      * While such a level is loaded the game renders and shows its world at that aspect instead of the window's
      * (manifest `level_aspect`; the OotF converter marks the "Ruined Village Book", whose paintings fill a 4:3 screen).
@@ -197,6 +203,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.campaign && m.campaignSaves) l.push(`campaign_saves = ${tomlStr(m.campaignSaves)}`);
     if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
     if (m.campaign && m.campaignSpells === false) l.push('campaign_spells = false');
+    if (m.campaign && m.campaignTreasure === false) l.push('campaign_treasure = false');
     const aspects = Object.entries(m.levelAspect ?? {});
     if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
     if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);

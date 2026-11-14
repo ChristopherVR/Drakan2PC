@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -278,6 +278,9 @@ const pack = await buildOotfPack(
         ...(opt['campaign'] !== undefined ? { campaign: 'ootf' as const, campaignName: 'Drakan: Order of the Flame' } : {}),
         // Rynn has no spells in Order of the Flame: no Spells page, mana orb or casting while the campaign is played
         ...(opt['campaign'] !== undefined ? { campaignSpells: false } : {}),
+        // nor gold and trinkets (no shops): defeated creatures, barrels and chests drop only what the OotF data gives them;
+        // --treasure 1 keeps Drakan 2's drops
+        ...(opt['campaign'] !== undefined && opt['treasure'] !== '1' ? { campaignTreasure: false } : {}),
         // the rendered OotF title theme ("gui", PC Background Music ID 4) plays on the title menu while the campaign is chosen
         ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for (the Ruined Village Book: 4:3)

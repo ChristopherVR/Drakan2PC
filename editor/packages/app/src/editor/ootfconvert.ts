@@ -41,6 +41,8 @@ export interface ConvertRequest {
     ps2Models?: Ps2ModelSwapOptions;
     /** Map screen choices by lower-case PC level path (the dialog's "Map screen" section); levels not listed keep their own map. */
     levelMaps?: Record<string, LevelMapOverride>;
+    /** true: creatures, barrels and chests drop Drakan 2's gold and trinkets in the campaign (default false: OotF has no shops). */
+    treasure?: boolean;
 }
 
 export interface LevelSummary {
@@ -139,6 +141,8 @@ export async function runConversion(
         ...(start ? { campaign: 'ootf', campaignName: 'Drakan: Order of the Flame', campaignStart: start.title } : {}),
         // Rynn has no spells in Order of the Flame: no Spells page, mana orb or casting while the campaign is played
         ...(start ? { campaignSpells: false } : {}),
+        // nor gold and trinkets (no shops): defeated creatures, barrels and chests drop only what the OotF data gives them
+        ...(start && !req.treasure ? { campaignTreasure: false } : {}),
         // the rendered OotF title theme plays on the title menu while the campaign is chosen
         ...(start && result.music?.title ? { campaignTitleMusic: result.music.title } : {}),
         // levels of flat picture scenes are shown at the aspect they were framed for

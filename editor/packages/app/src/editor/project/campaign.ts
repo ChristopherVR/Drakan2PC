@@ -174,6 +174,30 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
         );
     }
 
+    // Defeated creatures, barrels, crates and chests drop gold and trinkets (manifest `campaign_treasure`); Order of the
+    // Flame has no shops, so its campaign has none.
+    function treasureSwitch(c: ProjectCampaign): HTMLElement {
+        const on = c.treasure !== false;
+        return h(
+            'div',
+            { class: 'cpg-switch-row' },
+            h('button', {
+                type: 'button',
+                class: `ui-switch${on ? ' on' : ''}`,
+                id: 'cpg-treasure',
+                role: 'switch',
+                'aria-checked': on ? 'true' : 'false',
+                'aria-label': 'Creatures drop gold and trinkets',
+                onclick: () => update({ treasure: !on }),
+            }),
+            h(
+                'span',
+                { class: 'cpg-switch-text' },
+                on ? 'Creatures drop gold and trinkets' : 'No gold or trinket drops',
+            ),
+        );
+    }
+
     const field = (
         label: string,
         id: string,
@@ -432,6 +456,14 @@ export function createCampaignPane(host: CampaignHost): CampaignPane {
                     c.spells === false
                         ? 'No Spells page, no mana orb and no casting, as in Order of the Flame. Circle still parries.'
                         : 'Rynn learns spells from scrolls and casts them, as in Drakan.',
+                ),
+                field(
+                    'Drops',
+                    'cpg-treasure',
+                    treasureSwitch(c),
+                    c.treasure === false
+                        ? 'Creatures, barrels, crates and chests leave only the items the level gives them, as in Order of the Flame.'
+                        : 'Defeated creatures, broken barrels and opened chests scatter gold and trinkets, as in Drakan.',
                 ),
             ),
             h('div', { class: 'pjx-sub' }, 'Cover picture'),
