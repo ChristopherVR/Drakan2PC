@@ -121,3 +121,32 @@ differ; no `overrides/` entry changes, so a Drakan 2 game with the pack installe
 * Volume: PC clips keep their PC volume and drop-off; whether torches or voices are too loud or quiet next to Drakan 2
   sounds was not judged.
 * SPU2 sample memory with more clips per level was not measured (the survey's peak was 17 of 48 voices).
+
+## 6. Owner's decision: keep the Drakan 2 sound where the PC class has none (formats `669d5f0`)
+
+"There is no need to empty the sound if PC doesn't have it. Do play Drakan 2 sound there unless it causes issues, so make it
+configurable." A PC sound field without a sound now keeps the template's Drakan 2 sound (sections 2 and the table above
+described the old clearing). `--class-sounds-clear 1` (pipeline `classSoundsClear: true`, default off) restores it. Convert
+log: `802 field(s) of 416 converted classes (0 cleared ...)`; pack `packs/keep1`.
+
+Runs on `keep1` (dist exe of 21:30 at 35e00f99, owner's ini, Ruined Village New Game, god mode, `DRAKAN_SND_DBG=1`):
+
+| What | Run | Log |
+| --- | --- | --- |
+| Locked door: the Priests' door 773, placed in front, walked up, E | `rv-locked2` | `Its Locked 2` (PC, the object's own list) twice |
+| Locked door: the Outer Door R 922 | `rv-locked2` | `Hmm I need a key2` (PC, object's list) |
+| Doors opening and closing: Outer Door L / R, Inner Door R (E), the start house door (auto-open, walked away so it closes) | `rv-locked2`, `rv-doors` | Outer Door L Open Start `0x40410` and Outer Door R Open Looped `0x4040d`: kept Drakan 2 clips, FX.SDB 1040 "Door_HeavyW_O_1ps-4" and 1037 "Door_HeavyW_O_4" (heavy wooden door, fits); then `DoorBounce` (PC Bang Hinges) three times; the start house door closes with `DoorBounce` (PC); its loop and stop slots are empty in both games (id 0) |
+| Torches, equip | `rv-doors`, `rv-locked2` | `NewTorch_1/2/3_11k` (looped), `Equip Sword`: unchanged |
+
+Not run again on this pack: the Islands goblins (their PC fields are written as before; only empty PC fields changed).
+The Ruined Village "Locked Door" 892 is unlocked by its object (Locked 0), so it says nothing; its class now keeps the
+template's five "It's locked" clips.
+
+Drakan 2 sounds that look wrong in an OotF slot, by the template's name (from `DRAKAN_DBG_CLASSSOUNDS`, not heard):
+candidates for `--class-sounds-clear 1` or a per-field rule:
+* Queen (template "Armor Gryphon"): I See You, I Hear You, Death Sound list, Hit Ground: gryphon voices on the Succubus Queen.
+* Succubus (template "Gryphon"): Death Sound list, Hit Ground.
+* Crimson Knight (template "Invisible Wartock"): I Hear You, Being burnt: Wartok voices on a knight.
+* Drone (template "Blade Dragon (Crow)"): I See You, Hit Ground, Wing Flap.
+* Tick (template "Spider"): Being burnt (a spider sound; likely fine).
+The doors, gates and movers seen keep Drakan 2 door and mechanism sounds of the same kind.

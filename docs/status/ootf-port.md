@@ -706,8 +706,8 @@ See [sound and subtitles](../journal/2026-11-14/ootf-sound-subtitles.md).
 
 **November 14 class-default sounds (round 7):** converted classes kept their Drakan 2 template's sounds (torches asked
 for sound 0; goblins had no voice; weapons played the template's equip and pickup sounds). The sounds stage now converts
-the sounds a PC class names in its own fields and writes them field by field into the clone (989 fields of 470 classes;
-a PC field without a sound clears the template's); a torch's crackle, named through its sound effect class, plays as the
+the sounds a PC class names in its own fields and writes them field by field into the clone (802 fields of 416 classes;
+a PC field without a sound keeps the Drakan 2 sound, owner's choice; `--class-sounds-clear 1` empties it); a torch's crackle, named through its sound effect class, plays as the
 PS2 flame's looping sound with the loop flag. Name-mapped Drakan 2 classes (Rynn, Arokh, mapped creatures and potions)
 and enemies with Drakan 2 models keep their own sounds (Drakan 2's records are shared). `--class-sounds 0` turns it off.
 Played (logs, not heard): Ruined Village torches now play their PC crackle and hold it looped, Atimar equips with the PC
@@ -715,7 +715,7 @@ sound, Islands goblins call their PC lines and their darts hit with the PC impac
 voice, a door's start or bang, the map chime. A converted clip in "Picked Up Sound" made the pickup silent (the engine's
 pickup path refuses it; A/B on one record), so that field keeps Drakan 2's sound. Also: Wartok Canyons' warrior scene (a detector's
 class-default scene, 7 clips) is now converted (not played); the Islands start has no music because the PC level starts
-without (Initial Music ID 0). Pack +3.1 %. Formats `d86fb8a`, `5dbdec2`; needs a regenerated pack and a new game. See
+without (Initial Music ID 0). Pack +3.1 %. Formats `d86fb8a`, `5dbdec2`, `669d5f0`; needs a regenerated pack and a new game. See
 [class sounds](../journal/2026-11-14/ootf-class-sounds.md).
 
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
