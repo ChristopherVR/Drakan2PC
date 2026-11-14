@@ -79,6 +79,9 @@ def main() -> None:
         return None
 
     text = args.template.read_text(encoding="utf-8")
+    # Function variants patch PAL instruction words; the runtime swaps them in only on the PAL build
+    # (drakan_terrain_chunks.cpp), so other regions get none (with the comment block above each table).
+    text = re.sub(r"(?ms)\n(?:#[^\n]*\n)*\[\[variants\]\]\n.*?^\]\n", "", text)
     dropped = []
 
     def named(m: re.Match) -> str:
