@@ -660,6 +660,18 @@ Axe equip on both screens, Rynn wears the chain armour, Armor Rating 20 (PC 0.2)
 Open: damage reduction in a fight and the other armours in game. See
 [item requirements](../journal/2026-11-14/ootf-item-requirements.md).
 
+**November 14 subtitles on barks, sound survey (round 7):** the owner's "Woah" subtitle is the Wartok idle mumble: a clip a
+Volcanic scene plays (so it was transcribed) that the orc classes' Ambient Sounds and four Ruined Village waypoints also
+play, and the runtime shows a marked clip whoever plays it. Subtitle lines now have a `kind`; the converter marks a line
+whose clip a PC class or object plays by itself as a bark and writes no text, and a hand list can withhold scene effects
+the speech model wrote as words (a villager's moan in scene 1.2a seen subtitled, now not). Drakan 2's disc does the same
+(its creature voices carry empty text). Played: the Ruined Village opening and 1.2a scenes, a Wartok fight, the Islands
+greeting: dialogue still subtitled. The mumble itself never fired in three placed runs. Survey: converted classes do not
+get their PC class-default sounds (torches and sconce flames ask for sound 0 and are silent; death, hit, door, map chime,
+Arokh's remarks and many ambient loops are missing from the pack); proposed as its own converter task. Formats `071d205`,
+main `e25661c3`; needs a regenerated pack (add `build/review/ootf-sound/subtitles/kinds.json` last to `--subtitles`).
+See [sound and subtitles](../journal/2026-11-14/ootf-sound-subtitles.md).
+
 **November 9 builder:** the guided builder (`DrakanPC-Setup.exe`, `Build-Drakan.cmd -OotfSource <path>`) can now convert Order of the
 Flame from an install folder, disc folder, `.mdx` / `.iso` or zip and install the pack, and make HD textures for the disc and the pack,
 with an estimated time per step. See [builder extras](../journal/2026-11-09/builder-extras.md) and `BUILDING.md`.

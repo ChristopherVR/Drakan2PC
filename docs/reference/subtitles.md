@@ -228,3 +228,10 @@ A pack therefore stores a clip's subtitle as timed pages, `[[<start s>]]text[[<s
 
 Tests: `drakan_subtitle_toggle_test` (page parsing, Latin-1 text, one start per play, playback on the media clock; pages
 ending with a stopped sound and at a load, the narration left alone, handles forgotten at a load).
+
+**Which clips get pages (2026-11-14).** The runtime shows the pages of any instance that plays a marked clip, so the
+choice is made when the pack is built: only dialogue and narration lines get marked text. A clip that a class default or
+a level object also plays by itself (a creature's idle mumble, pain or attack list, a waypoint's sound) is a bark and is
+written without text, as Drakan 2 does on its disc (NPCS.SDB: 392 voices with the speech flag, 1 with text; SYSTEM.SDB:
+136 and 0). Subtitle lines carry a `kind`; see `reference/modding.md` "Subtitles of a pack's voice clips" and
+`docs/journal/2026-11-14/ootf-sound-subtitles.md`. No runtime change.

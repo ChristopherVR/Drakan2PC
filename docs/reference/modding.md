@@ -884,6 +884,17 @@ lines of an existing output file, stores each line's `confidence`, flags unsure 
 `--review <txt>`. The speech model it needs is listed in `BUILDING.md`; the tool names it and its size and stops instead of
 downloading it unless `--allow-download` is given.
 
+Only dialogue and narration are shown. A line may carry `"kind"`: `dialogue` (the default), `narration`, `bark` (a voice
+the game plays by itself: an idle mumble, pain, attack or taunt lists) or `effect` (a scene sound that is not speech, such
+as a moan or a grunt the speech model wrote as words); barks and effects get no text. The converter marks a line as a bark
+when the PC data has a class default or a level object play its clip outside a sequence (`listObjectSounds`,
+`classifySubtitleLines`; the convert log names each one), and the tool writes the same kind from the export's
+`played_by`. A kind in a file always wins, and a line with a `kind` and no `cues` only sets the kind and keeps the text of
+an earlier file, so a short hand-written list such as
+`{ "bank": "common/fx/fx", "id": 891, "kind": "effect", "kindReason": "a moan" }` added last to `--subtitles` withholds
+a line without editing the transcription. A later line without a kind keeps the earlier line's kind. Drakan 2 does the
+same on its disc: its creature voices carry the speech flag with an empty text.
+
 The file is engine-neutral (keyed by the PC sound bank and id, times relative to the clip) and can be corrected by hand; the
 pack carries the lines it used as `story/subtitles.json` beside the engine's copy in the descriptors. It is game text made
 from game audio: keep it under `build/` or `local/`, never in the repository.
