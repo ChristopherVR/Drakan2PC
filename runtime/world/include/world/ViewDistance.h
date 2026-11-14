@@ -18,6 +18,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace world::view_distance {
 
@@ -66,6 +70,83 @@ inline FogFields fields(FogArgs a) {
     f.farSquared = farSq;
     f.record = {far, startSq, far * far, 1.0f / (far * far - startSq), far, rangeUnits, 1.0f / rangeUnits, start};
     return f;
+}
+
+} // namespace world::view_distance
+
+// Far scenery ([video] far_scenery, with a factor above 1). The terrain draw (PAL 0x152330) draws the layers of the
+// view layer's `visible` list, and the level lists were made for the original view distance: the layers listed from
+// one place reach a little past it (Ravenshold: 72 cells for a 45 cell view distance), so a larger view distance
+// shows where the list ends (the sea as a flat plane with a straight edge, sea without the islands in it). The draw
+// list is widened to the layers the game itself lists from nearby places: the closure of the lists from the view
+// layer over layers whose box lies within `reach` cells of the view layer's box. The original entries keep their
+// order and come first; the added ones follow by distance. Only the draw sees the wider list.
+namespace world::view_distance {
+
+struct LayerBox {
+    float x0 = 0, z0 = 0, x1 = 0, z1 = 0; // cells
+};
+
+// Distance in cells between two boxes on the ground plane (0 when they touch or overlap).
+inline float boxDistance(const LayerBox& a, const LayerBox& b) {
+    const float dx = std::max({b.x0 - a.x1, a.x0 - b.x1, 0.0f});
+    const float dz = std::max({b.z0 - a.z1, a.z0 - b.z1, 0.0f});
+    return std::sqrt(dx * dx + dz * dz);
+}
+
+// How far (cells) the draw list reaches for a level view distance `farCells` at `factor`: the scaled view distance
+// plus two cells, so a layer that the frustum can just reach is in.
+inline float scenicReach(float farCells, float factor) {
+    return farCells * clampFactor(factor) + 2.0f;
+}
+
+// `boxOf(i, box)` gives layer i's box (false when the layer is not usable), `listOf(i, out)` its visible list.
+// Returns the widened list for view layer `view` (at most `maxEntries` long): the original list first, as it is.
+template <class BoxOf, class ListOf>
+std::vector<uint16_t> widenedList(uint32_t view, uint32_t layerCount, float reach, size_t maxEntries, BoxOf boxOf,
+                                  ListOf listOf) {
+    std::vector<uint16_t> out;
+    std::vector<uint16_t> list;
+    if (view >= layerCount || !listOf(view, list))
+        return out;
+    out = list;
+    LayerBox home;
+    if (!boxOf(view, home) || !(reach > 0.0f) || out.size() >= maxEntries)
+        return out;
+    std::vector<uint8_t> seen(layerCount, 0);
+    seen[view] = 1;
+    for (uint16_t i : out)
+        if (i < layerCount)
+            seen[i] = 1;
+    std::vector<std::pair<float, uint16_t>> added;
+    std::vector<uint16_t> queue(out.begin(), out.end());
+    std::vector<uint16_t> links;
+    while (!queue.empty()) {
+        const uint16_t at = queue.back();
+        queue.pop_back();
+        if (at >= layerCount || !listOf(at, links))
+            continue;
+        for (uint16_t j : links) {
+            if (j >= layerCount || seen[j])
+                continue;
+            seen[j] = 1;
+            LayerBox b;
+            if (!boxOf(j, b))
+                continue;
+            const float d = boxDistance(home, b);
+            if (!(d <= reach))
+                continue;
+            added.push_back({d, j});
+            queue.push_back(j);
+        }
+    }
+    std::stable_sort(added.begin(), added.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (const auto& [d, j] : added) {
+        if (out.size() >= maxEntries)
+            break;
+        out.push_back(j);
+    }
+    return out;
 }
 
 } // namespace world::view_distance

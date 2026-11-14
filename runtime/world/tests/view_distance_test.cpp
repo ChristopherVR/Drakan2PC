@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <vector>
 
 #include "world/ViewDistance.h"
 
@@ -54,6 +55,51 @@ int main() {
     CHECK(near(g.record[7] / g.record[0], f.record[7] / f.record[0]));
     // the clamp holds for the terrain grid: at most 3 times
     CHECK(scaled(a, 5.0f).farCells == 225.0f);
+
+    // far scenery: boxes, reach, and the widened draw list
+    CHECK(boxDistance({0, 0, 10, 10}, {5, 5, 20, 20}) == 0.0f);
+    CHECK(boxDistance({0, 0, 10, 10}, {13, 0, 20, 10}) == 3.0f);
+    CHECK(boxDistance({0, 0, 10, 10}, {13, 14, 20, 20}) == 5.0f);
+    CHECK(scenicReach(45.0f, 2.0f) == 92.0f && scenicReach(75.0f, 1.0f) == 77.0f && scenicReach(75.0f, 9.0f) == 227.0f);
+    {
+        // a row of 10 layers, each 10 cells wide; every layer lists itself and its neighbours; layer 7 lists 9
+        // (a cave the game links from there); layer 5 is not usable
+        std::vector<std::vector<uint16_t>> lists(11);
+        for (uint16_t i = 0; i < 10; ++i) {
+            lists[i].push_back(i);
+            if (i > 0)
+                lists[i].push_back(uint16_t(i - 1));
+            if (i < 9)
+                lists[i].push_back(uint16_t(i + 1));
+        }
+        lists[0] = {0, 1, 300}; // an index past the layer count is kept where it is and never followed
+        lists[10] = {10};       // not linked by anyone
+        auto boxOf = [](uint32_t i, LayerBox& b) {
+            if (i == 5)
+                return false;
+            b = {float(i) * 10, 0, float(i) * 10 + 10, 10};
+            return true;
+        };
+        auto listOf = [&](uint32_t i, std::vector<uint16_t>& out) {
+            if (i >= lists.size())
+                return false;
+            out = lists[i];
+            return true;
+        };
+        // reach 25 from layer 0 (0..10): layers 1 (0 cells), 2 (10), 3 (20); 4 is 30 away
+        auto w = widenedList(0, 11, 25.0f, 64, boxOf, listOf);
+        CHECK((w == std::vector<uint16_t>{0, 1, 300, 2, 3}));
+        // no reach: the list as it is
+        CHECK((widenedList(0, 11, 0.0f, 64, boxOf, listOf) == std::vector<uint16_t>{0, 1, 300}));
+        // an unusable layer stops the walk (5 has no box, so 6.. are not reached through it)
+        auto far = widenedList(3, 11, 100.0f, 64, boxOf, listOf);
+        CHECK((far == std::vector<uint16_t>{3, 2, 4, 1, 0}));
+        // the cap keeps the original entries
+        CHECK((widenedList(0, 11, 25.0f, 4, boxOf, listOf) == std::vector<uint16_t>{0, 1, 300, 2}));
+        CHECK((widenedList(0, 11, 25.0f, 2, boxOf, listOf) == std::vector<uint16_t>{0, 1, 300}));
+        // a view layer out of range gives nothing
+        CHECK(widenedList(12, 11, 25.0f, 64, boxOf, listOf).empty());
+    }
 
     if (g_failed)
         std::fprintf(stderr, "%d check(s) failed\n", g_failed);

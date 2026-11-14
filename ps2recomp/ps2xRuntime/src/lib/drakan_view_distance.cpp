@@ -1,17 +1,23 @@
 #include "drakan_view_distance.h"
 
 #include "drakan_config.h"
+#include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
+#include "runtime/ps2_memory.h"
 #include "world/ViewDistance.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
+#include <vector>
 
 namespace drakan_view_distance {
 namespace {
@@ -26,6 +32,19 @@ constexpr uint32_t kFar = 0x388u;               // f32 far, cells
 constexpr uint32_t kFarSquared = 0x38cu;        // f32 (far * 2048)^2, read by the sound code
 constexpr uint32_t kRecord = 0x394u;            // 8 x f32 fog record
 constexpr uint32_t kRamSize = 32u * 1024u * 1024u;
+
+// Far scenery: the terrain draw walks the view layer's visible list (layer +0x70 u16 list, +0x78 count).
+constexpr uint32_t kTerrainDraw = 0x152330u;       // a0 = terrain (layers at +8, count at +0x10)
+constexpr uint32_t kCellLookup = 0x14b6b8u;        // cell lookup: searches the old layer's list (actors, the view)
+constexpr uint32_t kViewLayer = 0x4dad58u + 0x8cu; // index of the layer the camera is in, -1 for none
+constexpr uint32_t kLayerStride = 0x164u;
+constexpr uint32_t kLayerList = 0x70u;
+constexpr uint32_t kLayerListCount = 0x78u;
+constexpr uint32_t kMalloc = 0x4ac628u;       // a0 = size
+constexpr uint32_t kFree = 0x4acc40u;         // a0 = block
+constexpr uint32_t kSignalSema = 0x4bc180u;   // a0 = semaphore
+constexpr uint32_t kHeapSemaWord = 0x515260u; // the semaphore the game holds round its heap calls
+constexpr size_t kMaxEntries = 4096;
 
 std::atomic<bool> g_installed{false};
 std::atomic<float> g_factor{rules::kOff};
@@ -50,8 +69,38 @@ struct Scope {
 };
 Scope g_scope;
 
+// Far scenery state (g_mutex).
+std::atomic<bool> g_sceneryOn{true};
+bool g_sceneryAllowed = false; // heap_extend on: more layers drawn means more draw blocks resident at once
+PS2Runtime::RecompiledFunction g_origDraw = nullptr;
+PS2Runtime::RecompiledFunction g_origLookup = nullptr;
+uint32_t g_cacheBase = 0, g_cacheCount = 0;
+float g_cacheReach = 0;
+std::unordered_map<uint32_t, std::vector<uint16_t>> g_lists;
+uint32_t g_buf = 0, g_bufEntries = 0; // guest block for the widened list, from the game's heap
+uint32_t g_bufView = 0xffffffffu, g_bufBase = 0;
+uint32_t g_allocFailures = 0;
+struct Swap {
+    bool active = false;
+    int thread = 0;
+    uint32_t layer = 0, origList = 0, origCount = 0, count = 0;
+};
+Swap g_swap;
+
 inline bool inRam(uint32_t a, uint32_t bytes) {
     return a >= 0x100000u && bytes <= kRamSize && a <= kRamSize - bytes;
+}
+// Anywhere in guest RAM, the extended heap included (level data and the list block can live there).
+inline bool inGuest(uint32_t a, uint32_t bytes) {
+    return a >= 0x100000u && bytes <= PS2_RAM_SIZE && a <= PS2_RAM_SIZE - bytes;
+}
+inline uint32_t u32(const uint8_t* ram, uint32_t a) {
+    uint32_t v;
+    std::memcpy(&v, ram + a, 4);
+    return v;
+}
+inline void putU32(uint8_t* ram, uint32_t a, uint32_t v) {
+    std::memcpy(ram + a, &v, 4);
 }
 inline float f32(const uint8_t* ram, uint32_t a) {
     float v;
@@ -94,7 +143,160 @@ void hookSetFog(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         applyLocked(ram, factor);
 }
 
+// Puts the view layer's own list back (g_mutex), only when the fields still hold what the swap wrote.
+void unswapLocked(uint8_t* ram) {
+    if (!g_swap.active)
+        return;
+    if (u32(ram, g_swap.layer + kLayerList) == g_buf) {
+        putU32(ram, g_swap.layer + kLayerList, g_swap.origList);
+        putU32(ram, g_swap.layer + kLayerListCount, g_swap.origCount);
+    }
+    g_swap.active = false;
+}
+
+// A guest block of at least `entries` u16 from the game's heap, taken under the game's heap semaphore (g_mutex). The
+// semaphore is polled, because a nested guest call runs without preemption and must not wait: when the heap is busy
+// this frame draws the level's own list and a later frame tries again.
+bool ensureBuffer(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t entries) {
+    if (g_buf && g_bufEntries >= entries)
+        return true;
+    if (g_allocFailures > 64)
+        return false;
+    const int sema = static_cast<int>(u32(ram, kHeapSemaWord));
+    if (rt->eeScheduler().pollSemaphore(sema) != sema)
+        return false;
+    drakan_lifecycle::Event e;
+    e.rdram = ram;
+    e.runtime = rt;
+    e.ctx = c;
+    if (g_buf) {
+        drakan_lifecycle::callGuest(e, kFree, g_buf);
+        g_buf = 0;
+        g_bufEntries = 0;
+    }
+    const uint32_t want = std::max<uint32_t>(1024u, (entries + 255u) & ~255u);
+    const uint32_t block = drakan_lifecycle::callGuest(e, kMalloc, want * 2u) & 0x1fffffffu;
+    drakan_lifecycle::callGuest(e, kSignalSema, static_cast<uint32_t>(sema));
+    g_bufView = 0xffffffffu;
+    if (!block || (block & 1u) || !inGuest(block, want * 2u)) {
+        ++g_allocFailures;
+        return false;
+    }
+    g_buf = block;
+    g_bufEntries = want;
+    if (g_log)
+        std::fprintf(stderr, "[view-distance] far scenery list block 0x%x (%u entries)\n", g_buf, want);
+    return true;
+}
+
+// The widened list of a view layer (g_mutex), cached per level and reach.
+const std::vector<uint16_t>& sceneryList(const uint8_t* ram, uint32_t base, uint32_t count, uint32_t view,
+                                         float reach) {
+    if (base != g_cacheBase || count != g_cacheCount || reach != g_cacheReach) {
+        g_lists.clear();
+        g_cacheBase = base;
+        g_cacheCount = count;
+        g_cacheReach = reach;
+        g_bufView = 0xffffffffu;
+    }
+    if (auto it = g_lists.find(view); it != g_lists.end())
+        return it->second;
+    auto boxOf = [&](uint32_t i, rules::LayerBox& b) {
+        const uint32_t a = base + i * kLayerStride;
+        const float x = f32(ram, a + 8) / rules::kCell, z = f32(ram, a + 16) / rules::kCell;
+        const uint32_t w = u32(ram, a + 0x1c), h = u32(ram, a + 0x20);
+        if (!std::isfinite(x) || !std::isfinite(z) || !w || !h || w > 4096 || h > 4096)
+            return false;
+        b = {x, z, x + float(w), z + float(h)};
+        return true;
+    };
+    auto listOf = [&](uint32_t i, std::vector<uint16_t>& out) {
+        const uint32_t a = base + i * kLayerStride;
+        const uint32_t list = u32(ram, a + kLayerList) & 0x1fffffffu, n = u32(ram, a + kLayerListCount);
+        out.clear();
+        if (n > kMaxEntries || (n && !inGuest(list, n * 2u)))
+            return false;
+        out.resize(n);
+        if (n)
+            std::memcpy(out.data(), ram + list, n * 2u);
+        return true;
+    };
+    auto& slot = g_lists[view];
+    slot = rules::widenedList(view, count, reach, std::min<size_t>(kMaxEntries, count), boxOf, listOf);
+    if (g_log)
+        std::fprintf(stderr, "[view-distance] far scenery: layer %u lists %u, draws %zu (reach %.1f cells)\n", view,
+                     u32(ram, base + view * kLayerStride + kLayerListCount), slot.size(), reach);
+    return slot;
+}
+
+void hookTerrainDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t returnPc = GPR_U32(c, 31);
+    bool swapped = false;
+    if (c->pc == kTerrainDraw) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        unswapLocked(ram); // a draw that never came back through here
+        const float factor = g_factor.load(std::memory_order_relaxed);
+        const uint32_t terrain = GPR_U32(c, 4) & 0x1fffffffu;
+        if (g_sceneryAllowed && g_sceneryOn.load(std::memory_order_relaxed) && factor > rules::kOff && g_known &&
+            inGuest(terrain, 0x14)) {
+            const uint32_t base = u32(ram, terrain + 8) & 0x1fffffffu, count = u32(ram, terrain + 0x10);
+            const uint32_t view = u32(ram, kViewLayer);
+            if (count && count <= kMaxEntries && view < count && inGuest(base, count * kLayerStride)) {
+                const float reach = rules::scenicReach(g_args.farCells, factor);
+                const uint32_t layer = base + view * kLayerStride;
+                const uint32_t origList = u32(ram, layer + kLayerList), origCount = u32(ram, layer + kLayerListCount);
+                const std::vector<uint16_t>& list = sceneryList(ram, base, count, view, reach);
+                if (list.size() > origCount && ensureBuffer(ram, c, rt, uint32_t(list.size()))) {
+                    if (g_bufView != view || g_bufBase != base) {
+                        std::memcpy(ram + g_buf, list.data(), list.size() * 2u);
+                        g_bufView = view;
+                        g_bufBase = base;
+                    }
+                    g_swap = {
+                        true, rt->eeScheduler().currentThreadId(), layer, origList, origCount, uint32_t(list.size())};
+                    putU32(ram, layer + kLayerList, g_buf);
+                    putU32(ram, layer + kLayerListCount, uint32_t(list.size()));
+                    swapped = true;
+                }
+            }
+        }
+    }
+    g_origDraw(ram, c, rt);
+    if (swapped && c->pc == returnPc) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        unswapLocked(ram);
+    }
+}
+
+// Every other reader of the list sees the level's own list: the widened list starts with it, so only the count is put
+// back for the call (a draw in progress keeps the count it read at its start).
+void hookCellLookup(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    bool narrowed = false;
+    uint32_t layer = 0, count = 0;
+    if (c->pc == kCellLookup) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_swap.active && u32(ram, g_swap.layer + kLayerList) == g_buf) {
+            layer = g_swap.layer;
+            count = g_swap.count;
+            putU32(ram, layer + kLayerListCount, g_swap.origCount);
+            narrowed = true;
+        }
+    }
+    g_origLookup(ram, c, rt);
+    if (narrowed) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_swap.active && g_swap.layer == layer && u32(ram, layer + kLayerList) == g_buf)
+            putU32(ram, layer + kLayerListCount, count);
+    }
+}
+
 void hookTerrainView(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == kTerrainView) {
+        // The draw calls the terrain view after its layer loop: the list is not read again in that draw.
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_swap.active && g_swap.thread == rt->eeScheduler().currentThreadId())
+            unswapLocked(ram);
+    }
     if (c->pc == kTerrainView) {
         const float factor = g_factor.load(std::memory_order_relaxed);
         if (factor != g_applied) {
@@ -138,6 +340,14 @@ void hookActivity(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 
 } // namespace
 
+void configureScenery(bool on) {
+    g_sceneryOn.store(on, std::memory_order_relaxed);
+}
+
+bool scenery() {
+    return g_sceneryOn.load(std::memory_order_relaxed);
+}
+
 void configure(float factor) {
     g_factor.store(rules::clampFactor(factor), std::memory_order_relaxed);
 }
@@ -164,8 +374,21 @@ void install(PS2Runtime& rt) {
     rt.replaceFunction(kSetFog, &hookSetFog);
     rt.replaceFunction(kTerrainView, &hookTerrainView);
     rt.replaceFunction(kObjectActivity, &hookActivity);
+    configureScenery(drakan_cfg::getBool("video", "far_scenery", "DRAKAN_FAR_SCENERY", true));
+    g_sceneryAllowed = drakan_cfg::getBool("general", "heap_extend", "DRAKAN_HEAP_EXTEND", true) &&
+                       rt.hasFunction(kTerrainDraw) && rt.hasFunction(kCellLookup) && rt.hasFunction(kMalloc) &&
+                       rt.hasFunction(kFree) && rt.hasFunction(kSignalSema);
+    if (g_sceneryAllowed) {
+        g_origDraw = rt.lookupFunction(kTerrainDraw);
+        g_origLookup = rt.lookupFunction(kCellLookup);
+        rt.replaceFunction(kTerrainDraw, &hookTerrainDraw);
+        rt.replaceFunction(kCellLookup, &hookCellLookup);
+    }
     g_installed = true;
-    std::fprintf(stderr, "[view-distance] installed (view distance x%.2f)\n", g_factor.load());
+    std::fprintf(stderr, "[view-distance] installed (view distance x%.2f, far scenery %s)\n", g_factor.load(),
+                 !g_sceneryAllowed    ? "unavailable: needs heap_extend"
+                 : g_sceneryOn.load() ? "on"
+                                      : "off");
 }
 
 } // namespace drakan_view_distance

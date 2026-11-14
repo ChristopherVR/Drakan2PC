@@ -80,6 +80,8 @@ struct VideoSettings {
     float terrainDistance = 1.0f;
     // view_distance: the world is drawn and its distance fog ends this many times further out, 1 (original) .. 3
     float viewDistance = 1.0f;
+    // far_scenery: with view_distance above 1, also draw the layers the level lists from nearby places (no edge)
+    bool farScenery = true;
     bool dlssNeural = false; // dlss_neural: DLSS 5 neural rendering, independent of Super Resolution
     std::string dlssNeuralResolution = "output"; // dlss_neural_resolution: output | render (NR on the SR output, or
                                                  // on the reduced raster before SR; only differs with a reduced mode)

@@ -359,6 +359,13 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                    "original distances. Costly: more ground and objects are drawn."
                  : "Needs the PAL executable layout; not available for this disc.",
              v.viewDistance, 1.0f, 3.0f, "x%.2f", 0.25f, caps.viewDistance);
+    b.toggle("video.far_scenery", "Far scenery",
+             caps.viewDistance
+                 ? "With a view distance above 1, also draws the hills, islands and sea that the level only shows "
+                   "from nearer places, so the world does not end in a straight edge. Off draws only what the "
+                   "level shows from where you are."
+                 : "Needs the PAL executable layout; not available for this disc.",
+             false, caps.viewDistance && v.viewDistance > 1.0f);
     b.toggle("video.terrain_detail", "Terrain detail",
              caps.terrainDetail
                  ? "Adds fine surface detail and large-scale variation to the ground and mountains, fixed in the "

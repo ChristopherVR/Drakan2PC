@@ -148,6 +148,8 @@ protected:
             drakan_terrain_distance::configure(n.terrainDistance);
         if (n.viewDistance != p.viewDistance)
             drakan_view_distance::configure(n.viewDistance);
+        if (n.farScenery != p.farScenery)
+            drakan_view_distance::configureScenery(n.farScenery);
     }
 
 private:

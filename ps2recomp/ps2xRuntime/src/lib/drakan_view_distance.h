@@ -24,4 +24,14 @@ bool available();
 void configure(float factor);
 float factor();
 
+// Far scenery ([video] far_scenery, env DRAKAN_FAR_SCENERY, default on; live): with a factor above 1 the terrain draw
+// (0x152330) walks a wider list than the view layer's own `visible` list: the closure of the lists of the layers the
+// game lists from nearby places, within the scaled view distance (world/ViewDistance.h widenedList). The level lists
+// were made for the original distance, so without it the sea ends in a straight edge and far islands are missing.
+// The wider list lives in one block from the game's heap and is swapped into the view layer only for the draw's layer
+// loop; the cell lookup 0x14b6b8 (actor and view layer refiling) always sees the level's own list. Needs heap_extend
+// (more layers drawn means more terrain draw blocks resident at once). Off = the view distance alone.
+void configureScenery(bool on);
+bool scenery();
+
 } // namespace drakan_view_distance

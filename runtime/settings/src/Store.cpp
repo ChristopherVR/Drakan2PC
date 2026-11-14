@@ -420,6 +420,9 @@ const std::vector<Field>& fields() {
         {"video", "view_distance", false, GETF(video.viewDistance, "%.2f"), SETF(video.viewDistance),
          "the world is drawn and its distance fog ends this many times further out, 1 (original) .. 3; creatures, "
          "sounds and events keep their original distances"},
+        {"video", "far_scenery", false, GETB(video.farScenery), SETB(video.farScenery),
+         "1 = with view_distance above 1 the world also draws the hills, islands and sea the level only shows "
+         "from nearer places, so it does not end in a straight edge; 0 = only what the level lists for each place"},
         {"video", "terrain_detail", false, GETB(video.terrainDetail), SETB(video.terrainDetail),
          "1 = fine detail and large-scale variation on the ground and mountains, 0 = the terrain as before"},
         {"video", "terrain_detail_strength", false, GETF(video.terrainDetailStrength, "%.2f"),
@@ -841,6 +844,7 @@ std::string settingLabel(const std::string& key) {
         {"video.hd_textures", "HD texture replacement"},
         {"video.terrain_distance", "Ground texture distance"},
         {"video.view_distance", "View distance"},
+        {"video.far_scenery", "Far scenery"},
         {"video.terrain_detail", "Terrain detail"},
         {"video.terrain_detail_strength", "Terrain detail strength"},
         {"video.terrain_cliffs", "Cliff textures"},
