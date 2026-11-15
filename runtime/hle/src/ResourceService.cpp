@@ -79,7 +79,6 @@ void ResourceService::prepare(const FileService::Open& f, const ResourceRequestW
     }
     if (!e)
         e = f.srsc.find(r.type, r.id, r.sub);
-    const bool duck = e && duck_ && duck_(f.node.key, r.type, id, r.offset);
     if (!e) {
         logf("resource: %s: %04x/%u/%d not found", f.node.key.c_str(), r.type, r.id, (s16)r.sub);
         return fail(ST_NOT_FOUND);
@@ -160,8 +159,6 @@ void ResourceService::prepare(const FileService::Open& f, const ResourceRequestW
     out.len = len;
     if (out.dtype == 1) {
         adpcmFixup(data, r.flags);
-        if (duck)
-            CampaignMusicDucker::silenceAdpcm(data);
         data.resize((len + 0x3f) & ~0x3fu, 0); // IOP transfers len rounded up to 64
     }
 }

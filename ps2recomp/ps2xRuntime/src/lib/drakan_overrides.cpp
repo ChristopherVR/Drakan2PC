@@ -1522,35 +1522,221 @@ void campaignSoundSwapHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
 // music category's level (0x1b6930: level, ramp seconds, manager, category), but it has no stop: an action with track 0
 // plays nothing and the cue keeps playing. The PC's music action with id 0 stops the music with a fade out (Order of
 // the Flame, Ruined Village scene 1.3: Dark Union fades out over 9 s before Rynn meets the old man). A converted stop
-// passes the level kSceneMusicStop, which no disc scene, music loop or scene start / end uses. This hook then calls the
-// engine's category stop (0x1b6ac8: fade seconds, manager, category) with the ramp time, which alone did not silence
-// the cue in game (reason not established), and has the campaign music ducker serve every streaming track silent until
-// a track's descriptor is read again: that is what ends the music (when the buffered chunks run out, not a real fade).
+// passes the level kSceneMusicStop, which no disc scene, music loop or scene start / end uses. This hook calls the
+// engine's category stop (0x1b6ac8: fade seconds, manager, category) with the ramp time instead: every track of the
+// music category fades out over it and ends (hle::MusicCategoryOverride puts converted tracks in that category).
 constexpr float kSceneMusicStop = -4096.0f;
 PS2Runtime::RecompiledFunction g_musicLevelOrig = nullptr;
 PS2Runtime::RecompiledFunction g_musicStopFn = nullptr;
 uint32_t g_musicLevelAt = 0, g_musicStopAt = 0;
 std::atomic<int> g_musicStopLog{0};
-// The campaign's music ducker (set when a campaign has its own music); a scene stop silences its streamed tracks.
-std::shared_ptr<hle::CampaignMusicDucker> g_musicDucker;
+// A scene's own music level: at its start the engine lowers the music category to half (0x1b6930 from 0x1a4304) and
+// at its end it ramps back to the level it saved at the start (from 0x1a4680). Scenes that follow each other save the
+// half level of the previous one, so after Ruined Village 1.2a and 1.3 the campaign's music stayed at half volume. The
+// campaign skips both and keeps only the levels of the scenes' own music actions (the PC scenes have no such level; how
+// loud the PC plays music under a scene was not measured).
+uint32_t g_sceneStartLevelRa = 0, g_sceneEndLevelRa = 0;
+bool campaignMusic();
 
 void sceneMusicStopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t ra = getRegU32(ctx, 31);
+    if (ctx->pc == g_musicLevelAt && (ra == g_sceneStartLevelRa || ra == g_sceneEndLevelRa) && ra &&
+        getRegU32(ctx, 5) == 2 && campaignMusic()) {
+        ctx->pc = ra;
+        return;
+    }
     if (ctx->pc == g_musicLevelAt && ctx->f[12] == kSceneMusicStop && g_musicStopFn) {
         const float fade = ctx->f[13] > 0.0f ? ctx->f[13] : 0.0f;
         if (g_musicStopLog.fetch_add(1) < 64)
             std::fprintf(stderr, "[music] scene stop: category %d, fade %.2f s (ra=%x)\n",
                          static_cast<int32_t>(getRegU32(ctx, 5)), fade, getRegU32(ctx, 31));
-        if (g_musicDucker) {
-            const size_t n = g_musicDucker->stopAll();
-            if (g_musicStopLog.load() <= 64)
-                std::fprintf(stderr, "[music] scene stop: %zu streamed track(s) silenced\n", n);
-        }
         ctx->f[12] = fade;
         ctx->pc = g_musicStopAt;
         g_musicStopFn(rdram, ctx, rt);
         return;
     }
     g_musicLevelOrig(rdram, ctx, rt);
+}
+
+// Campaign music hand-over, as on the PC (DirectMusic): a new track replaces the playing one with both fades at once,
+// and a scene's music outlives the scene. The sound manager (0x4db4f0) keeps a music category (record 2 at +0x48c,
+// 0x2c bytes: +0 = 0 one track at a time, +0x14 the track being faded out, +0x18 / +0x1c fade out / in seconds, +0x20
+// list of 16-byte entries {instance, priority, ..} with the newest first, +0x28 count). When a new track's descriptor
+// has been read (0x1b7758 sorts the instance into its category) and another track still plays, the engine fades that
+// one out and holds the new one until the fade has ended. A Triggered Music Loop's emitter (0x4030c8) takes a held
+// instance for one that has stopped (instance flag 0x4, not yet voiced) and stops it at once, so the tavern trigger of
+// Ruined Village (2 on and 8 off, then 8 on and 2 off, within half a second) ended in silence. While a campaign with
+// its own music is the current game the held track is started at once with its fade in (the start the engine does
+// after the fade out: 0x1b2ee8, 0x1b15e0); when the faded-out track is silent or gone the engine's second start of
+// the new one (from silence) is skipped and only its bookkeeping done (0x1b7758, 0x1b7cf8). A scene with a music action
+// pauses the playing music at its start (0x1b57f0 from 0x1a3d48) and at its end fades out the music it started and
+// resumes the paused one (0x1b58e0 from 0x1a4418), unless the action asked to keep it. On the PC a scene's music
+// replaces the playing music and plays on after the scene, so the campaign skips both (Ruined Village 1.3 cut Dark
+// Union at its start instead of fading it out at 4.6 s). Drakan 2 is untouched. DRAKAN_MUSIC_HANDOVER=0 leaves the
+// engine's own hand-over.
+constexpr uint32_t kSoundManager = 0x4db4f0u, kMusicCategory = 2, kCategoryDefaults = 0x4e8cd8u;
+PS2Runtime::RecompiledFunction g_musicSortOrig = nullptr, g_musicStartFn = nullptr, g_soundStopOrig = nullptr,
+                               g_musicPopOrig = nullptr, g_musicPauseOrig = nullptr;
+uint32_t g_musicSortAt = 0, g_musicStartAt = 0, g_soundStopAt = 0, g_musicPopAt = 0, g_sceneEndPopRa = 0,
+         g_musicPauseAt = 0, g_sceneStartPauseRa = 0;
+std::shared_ptr<hle::CampaignMusicRedirect> g_campaignMusic;
+std::atomic<int> g_musicHandLog{0};
+
+bool campaignMusic() {
+    return g_campaignMusic && g_campaignMusic->campaignActive();
+}
+bool guestOk(uint32_t a, uint32_t n) {
+    a &= 0x1FFFFFFFu;
+    return a >= 0x100000u && a + n <= PS2_RAM_SIZE;
+}
+uint32_t gu32(const uint8_t* rdram, uint32_t a) {
+    uint32_t v = 0;
+    std::memcpy(&v, rdram + (a & 0x1FFFFFFFu), 4);
+    return v;
+}
+float gf32(const uint8_t* rdram, uint32_t a) {
+    float v = 0;
+    std::memcpy(&v, rdram + (a & 0x1FFFFFFFu), 4);
+    return v;
+}
+void gput(uint8_t* rdram, uint32_t a, uint32_t v) {
+    std::memcpy(rdram + (a & 0x1FFFFFFFu), &v, 4);
+}
+void gputf(uint8_t* rdram, uint32_t a, float v) {
+    std::memcpy(rdram + (a & 0x1FFFFFFFu), &v, 4);
+}
+uint32_t musicCategory() {
+    return drakan_region::guestAddress(kSoundManager) + 0x48c + kMusicCategory * 0x2c;
+}
+
+// The track started early by musicSortHook (0 = none): the engine would start it a second time, with its fade in from
+// silence, once the faded-out track has ended.
+std::atomic<uint32_t> g_handedOver{0};
+
+void endHandOver(uint8_t* rdram, uint32_t cat) {
+    // the engine's own bookkeeping at the end of a hand-over: no track fading out, the category's default fades
+    gput(rdram, cat + 0x14, 0);
+    const uint32_t defaults = drakan_region::guestAddress(kCategoryDefaults) + kMusicCategory * 0x18;
+    gput(rdram, cat + 0x1c, gu32(rdram, defaults));
+    gput(rdram, cat + 0x18, gu32(rdram, defaults + 4));
+    g_handedOver = 0;
+}
+
+// After a call into guest code from a hook: true when it returned (as PS2_JAL sees it), and then ctx->pc is `ra`;
+// false when the guest thread was suspended inside it, which is resumed later and returns to `ra` on its own.
+bool returned(R5900Context* ctx, uint32_t target, uint32_t ra) {
+    if (ctx->pc == ra)
+        return true;
+    if (ctx->pc != target || g_ps2Unwinding)
+        return false;
+    ctx->pc = ra;
+    return true;
+}
+
+void musicSortHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t inst = getRegU32(ctx, 5);
+    const uint32_t ra = getRegU32(ctx, 31);
+    const bool fresh = guestOk(inst, 0x80) && static_cast<int32_t>(gu32(rdram, inst + 0x18)) == -2;
+    const uint32_t cat = musicCategory();
+    if (!fresh && inst && inst == g_handedOver.load() && campaignMusic()) {
+        // the engine's update of the held track: it starts the track when the faded-out one is gone or silent; this
+        // one already plays, so only the bookkeeping is done
+        const uint32_t held = gu32(rdram, cat + 0x14);
+        const uint32_t list = gu32(rdram, cat + 0x20), count = gu32(rdram, cat + 0x28);
+        bool found = false;
+        if (held && count <= 64 && guestOk(list, count * 16))
+            for (uint32_t i = 0; i < count && !found; ++i)
+                found = gu32(rdram, list + i * 16) == held;
+        if (!held || !found ||
+            (guestOk(held, 0x80) && gf32(rdram, held + 0x1c) >= 1.0f && !(gu32(rdram, held + 8) & 0x800u))) {
+            endHandOver(rdram, cat);
+            ctx->pc = ra;
+            return;
+        }
+    }
+    // the playing track: when it already fades out with its own time (a Triggered Music Loop turned off), that fade
+    // is kept rather than the category's
+    const uint32_t top0 = fresh && gu32(rdram, cat + 0x28) && guestOk(gu32(rdram, cat + 0x20), 16)
+                              ? gu32(rdram, gu32(rdram, cat + 0x20))
+                              : 0;
+    const bool ownFade = guestOk(top0, 0x80) && gu32(rdram, top0 + 0x44) == 2;
+    const uint32_t ownRate = ownFade ? gu32(rdram, top0 + 0x38) : 0;
+    g_musicSortOrig(rdram, ctx, rt);
+    // the original was suspended (it resumes on its own later): nothing to look at yet; the next update hands over
+    if (!returned(ctx, g_musicSortAt, ra) || !guestOk(inst, 0x80) || gu32(rdram, inst + 0x18) != kMusicCategory ||
+        !campaignMusic())
+        return;
+    const uint32_t list = gu32(rdram, cat + 0x20), count = gu32(rdram, cat + 0x28), held = gu32(rdram, cat + 0x14);
+    if (gu32(rdram, cat) != 0 || count < 2 || count > 64 || !held || held == inst || inst == g_handedOver.load() ||
+        !guestOk(list, count * 16) || gu32(rdram, list) != inst)
+        return;
+    // a scene's cue is voiced at once (it only waits for its fade in); a loop's track waits to be started (0x400)
+    const bool waiting = (gu32(rdram, inst + 8) & 0x400u) != 0;
+    const float fadeOut = gf32(rdram, cat + 0x18), fadeIn = gf32(rdram, cat + 0x1c);
+    // a third track in a row: the one below the new track fades out too when it is not the one already fading
+    const uint32_t below = gu32(rdram, list + 16);
+    if (below != held && guestOk(below, 0x80) && gu32(rdram, below + 0x44) != 2) {
+        gput(rdram, below + 0x44, 2);
+        gputf(rdram, below + 0x38, fadeOut > 0.0f ? (1.0f - gf32(rdram, below + 0x1c)) / fadeOut : 1000.0f);
+    }
+    if (fresh && ownFade && held == top0)
+        gput(rdram, held + 0x38, ownRate);
+    // start the new track now with its fade in (0x1b2ee8, then 0x1b15e0, as the engine's own start); a track that
+    // already fades in with its own time (a loop's or a cue's) keeps it
+    if (fadeIn > 0.0f && gu32(rdram, inst + 0x44) != 1) {
+        gput(rdram, inst + 0x44, 1);
+        gputf(rdram, inst + 0x38, -1.0f / fadeIn);
+        gputf(rdram, inst + 0x1c, 1.0f);
+    }
+    g_handedOver = inst;
+    if (g_musicHandLog.fetch_add(1) < 64) {
+        const float in = gu32(rdram, inst + 0x44) == 1 ? -1.0f / gf32(rdram, inst + 0x38) : 0.0f;
+        const float rate = guestOk(held, 0x40) ? gf32(rdram, held + 0x38) : 0.0f;
+        const float out = rate > 0.0f ? (1.0f - gf32(rdram, held + 0x1c)) / rate : 0.0f;
+        std::fprintf(stderr, "[music] track %x starts now (fade in %.2f s), %x fades out (%.2f s left)\n",
+                     gu32(rdram, inst + 0xc), in, guestOk(held, 0x10) ? gu32(rdram, held + 0xc) : 0u, out);
+    }
+    if (waiting) {
+        gput(rdram, inst + 8, gu32(rdram, inst + 8) & ~0x400u);
+        SET_GPR_U32(ctx, 4, inst);
+        SET_GPR_U32(ctx, 5, 0x80000000u); // sign-extended: the engine's "keep the flags" start
+        ctx->pc = g_musicStartAt;
+        g_musicStartFn(rdram, ctx, rt); // returns to `ra` (r31), also when it is suspended and resumed later
+        if (!returned(ctx, g_musicStartAt, ra))
+            return;
+    }
+}
+
+void soundStopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t inst = getRegU32(ctx, 5), ra = getRegU32(ctx, 31);
+    g_soundStopOrig(rdram, ctx, rt);
+    if (!returned(ctx, g_soundStopAt, ra) || !g_campaignMusic || !inst)
+        return;
+    const uint32_t cat = musicCategory();
+    if (gu32(rdram, cat + 0x14) == inst && campaignMusic())
+        endHandOver(rdram, cat); // the faded-out track has ended
+    if (inst == g_handedOver.load())
+        g_handedOver = 0;
+}
+
+void musicPauseHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (getRegU32(ctx, 31) == g_sceneStartPauseRa && getRegU32(ctx, 5) == kMusicCategory && campaignMusic()) {
+        if (g_musicHandLog.fetch_add(1) < 64)
+            std::fprintf(stderr, "[music] scene start: the playing music goes on\n");
+        ctx->pc = getRegU32(ctx, 31);
+        return;
+    }
+    g_musicPauseOrig(rdram, ctx, rt);
+}
+
+void musicPopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (getRegU32(ctx, 31) == g_sceneEndPopRa && getRegU32(ctx, 5) == kMusicCategory && campaignMusic()) {
+        if (g_musicHandLog.fetch_add(1) < 64)
+            std::fprintf(stderr, "[music] scene end: the scene's music plays on\n");
+        ctx->pc = getRegU32(ctx, 31);
+        return;
+    }
+    g_musicPopOrig(rdram, ctx, rt);
 }
 
 void applyTraceEnv(PS2Runtime& rt) {
@@ -2079,6 +2265,30 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 g_musicStopFn = runtime.lookupFunction(g_musicStopAt);
                 runtime.replaceFunction(g_musicLevelAt, &sceneMusicStopHook);
             }
+            g_musicSortAt = drakan_region::guestAddress(0x1b7758u);
+            g_musicStartAt = drakan_region::guestAddress(0x1b15e0u);
+            g_soundStopAt = drakan_region::guestAddress(0x1b7cf8u);
+            g_musicPopAt = drakan_region::guestAddress(0x1b58e0u);
+            g_sceneEndPopRa = drakan_region::guestAddress(0x1a4668u);
+            g_musicPauseAt = drakan_region::guestAddress(0x1b57f0u);
+            g_sceneStartPauseRa = drakan_region::guestAddress(0x1a42a0u);
+            g_sceneStartLevelRa = drakan_region::guestAddress(0x1a4304u);
+            g_sceneEndLevelRa = drakan_region::guestAddress(0x1a4680u);
+            const char* hand = std::getenv("DRAKAN_MUSIC_HANDOVER");
+            if (drakan_region::build().identityAddresses && (!hand || hand[0] != '0') &&
+                runtime.hasFunction(g_musicSortAt) && runtime.hasFunction(g_musicStartAt) &&
+                runtime.hasFunction(g_soundStopAt) && runtime.hasFunction(g_musicPopAt) &&
+                runtime.hasFunction(g_musicPauseAt)) {
+                g_musicSortOrig = runtime.lookupFunction(g_musicSortAt);
+                g_musicStartFn = runtime.lookupFunction(g_musicStartAt);
+                g_soundStopOrig = runtime.lookupFunction(g_soundStopAt);
+                g_musicPopOrig = runtime.lookupFunction(g_musicPopAt);
+                g_musicPauseOrig = runtime.lookupFunction(g_musicPauseAt);
+                runtime.replaceFunction(g_musicSortAt, &musicSortHook);
+                runtime.replaceFunction(g_soundStopAt, &soundStopHook);
+                runtime.replaceFunction(g_musicPopAt, &musicPopHook);
+                runtime.replaceFunction(g_musicPauseAt, &musicPauseHook);
+            }
         }
         if (g_mods && !g_mods->soundSwapFiles().empty()) {
             // Campaign sound swaps (sounds/swaps.ini): Drakan 2 sounds this campaign plays differently, only while it
@@ -2121,13 +2331,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 music->setActive([] { return drakan_game::currentModId(); });
                 host->iop.res.setIdRedirect(
                     [music](const std::string& key, uint16_t type, uint16_t id) { return music->map(key, type, id); });
-                // a campaign's music cue replaces the playing loop, as on the PC
-                auto ducker = std::make_shared<hle::CampaignMusicDucker>();
-                ducker->setActive([music] { return music->campaignActive(); });
-                g_musicDucker = ducker;
-                host->iop.res.setChunkDuck([ducker](const std::string& key, uint16_t type, uint16_t id, uint32_t off) {
-                    return ducker->silence(key, type, id, off);
-                });
+                // a campaign's music hands over as on the PC (musicSortHook, soundStopHook, musicPopHook)
+                g_campaignMusic = music;
             }
         }
         { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)
@@ -2146,6 +2351,13 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         const char* lodFix = std::getenv("DRAKAN_NPC_LOD_FIX");
         if (!lodFix || lodFix[0] != '0')
             host->iop.res.addOverride(std::make_shared<hle::CharacterLodFixOverride>());
+    }
+    {
+        // Converted music tracks whose descriptor names the effects category play in the music category, as every
+        // disc track does (hle::MusicCategoryOverride). DRAKAN_MUSIC_CATEGORY_FIX=0 serves them as the pack wrote them.
+        const char* fix = std::getenv("DRAKAN_MUSIC_CATEGORY_FIX");
+        if (!fix || fix[0] != '0')
+            host->iop.res.addOverride(std::make_shared<hle::MusicCategoryOverride>());
     }
 #ifdef PS2X_HAVE_GSR
     {

@@ -236,3 +236,129 @@ pwsh scripts/buildtool/Build-LocalGame.ps1 -IsoPath "<iso>" -WorkDir build/final
 Log: 23 levels, 6 trees lowered, `drakan 2 ground: 103673 cells`, 297 subtitle lines; the pack holds no "Erokh" or
 "Riff Crystal" (69 "Arokh", 50 "Rift Crystal"). HD step: 71 new textures. The morning pack is kept in
 `build/review/pack-1115/ootf-levels.before.zip`.
+
+## 9. Music after a scene stop, and the tavern trigger (afternoon)
+
+Private play folder `build/review/ootf-music/play` (copy of `build/final-game/bin`, the dist pack `9f1ad4f6...`, the
+owner's ini with its own ELF copy, textures hard-linked). Driver `tools/probe.py`: New Game (or `--level`), optional Esc
+skips, `--plan` placements, `--tavern --stage` (Rynn placed inside the tavern by trigger 1790 and moved out in short
+steps until the back half turns loop 2 on, 25 s in the doorway, then out through the front half into the street).
+A thread reads the sound manager's categories from guest RAM (`music.jsonl`, 4 to 50 times a second). Audio:
+`ootf-opening/tools/musiccorr.py` (ncc per 4 s window) and `tools/amp.py` (gain of one track in the dump: the
+projection on the best-lag window of the track, divided by that window's norm).
+
+### Causes
+
+* **The converted tracks were not music.** The u32 at +16 after the name of a PS2 `0x302` descriptor is the sound's
+  category in the sound manager: every PS2MUSIC.SDB track on the disc has 2 (music), SYSTEM.SDB has 0 (effects) and 4,
+  INTERFCE.SDB 3 and 4. `writePs2Descriptor` wrote 0, so every OotF track played in the effects category (run `p1`,
+  shipped exe: `e0008`, `e0006` in category 0, category 2 empty). Consequences: tracks did not replace each other (the
+  reason the chunk ducker was added on 9 November), the engine's music stop `0x1b6ac8` on category 2 found nothing (why
+  run `fix1` kept playing), and neither the Music Volume option (category 2's gain, `music_volume / 100`) nor the scene
+  music levels reached the campaign's music.
+* **The old tavern silence** (`base2`, `ootf-final` `tavern1`) came from how those runs crossed the trigger: placed at
+  186400 and walked straight through, Rynn crosses both halves within half a second (back half: 2 on, the other loops
+  off; front half: 8 on, the others off) and ends in the street. Trace of `base3` (shipped exe): loop 2 starts, the
+  front half turns it off (`0x1b82a8` from the loop handler) and turns 8 on again; 8 restarts its track at offset 0
+  without a descriptor read and without a pause in its chunk requests, and the ducker serves a track restarted that way
+  silent ("a wrapping loop with no gap stays silent"). So the street was silent after the tavern; after the 1.3 stop
+  the same, with 2 getting one chunk. A player who stops in the doorway does hear 2 with the shipped exe: `base4`
+  (shipped exe, the staged walk below) has 2 at ncc 0.80 to 0.96 in the doorway and 8 at 0.80 to 0.95 in the street.
+* **With the category fixed (first runs `a1`, `a3`)** the engine's own hand-over showed four more faults:
+  1. A new track waits in the category until the old one has faded out (`0x1b7758` holds it; the old one fades with the
+     category's fade out). The Triggered Music Loop emitter (`0x4030c8`) asks whether its instance plays (instance flag
+     0x4: a positional sound not voiced yet) and stops a held instance at once (`0x1b82a8` -> `0x1b7cf8`, 20 ms after
+     the sort, trace `a4`). At the tavern 8 was stopped while 2 faded out: silence again.
+  2. When the faded-out track ends, the engine starts the held track, also one that already plays: its fade in starts
+     again from silence (`d1`: `e0006` back at attenuation 0.99 when 8 ended, 3 s into its 7 s fade in).
+  3. A scene with a music action pauses the playing music at its start (`0x1b57f0` from `0x1a3d48`) and at its end fades
+     out the music it started and resumes the paused one (`0x1b58e0` from `0x1a4418`), unless the action's `keep` is set.
+     Dark Union ended with 1.1 and, in the next try, was cut at the start of 1.3 (paused) instead of fading at 4.6 s.
+  4. A scene lowers the music category to half at its start and ramps back to the level it saved; chained scenes saved
+     the half level of the previous one, and after 1.2a and 1.3 the music stayed at half (`c2`).
+
+### Fixes (runtime; the installed pack works without a reconversion)
+
+* `hle::MusicCategoryOverride` (`ResourceOverride.h/.cpp`, installed for every game in `drakan_overrides.cpp`): a
+  PS2MUSIC.SDB descriptor with category 0 is served with 2 (log `music: 0302/8 served in the music category`). Disc
+  tracks already have 2, so Drakan 2 is unchanged. `DRAKAN_MUSIC_CATEGORY_FIX=0` turns it off.
+* `drakan_overrides.cpp`, only while a campaign with its own music is the current game (`CampaignMusicRedirect`), PAL
+  addresses only, `DRAKAN_MUSIC_HANDOVER=0` turns it off:
+  * `musicSortHook` on `0x1b7758`: a new music track the engine would hold is started at once with its fade in (the
+    engine's own start, `0x1b15e0`; a cue that is already voiced keeps its own fade in); the old one keeps fading out
+    (with its own time when a loop's Off already started one); a third track in a row fades the one below too. When the
+    faded-out track is silent or gone, the engine's second start of the new track is skipped and only its bookkeeping
+    done (no track fading out, the category's default fades). Log `[music] track e0008 starts now (fade in 3.00 s),
+    e0002 fades out (2.99 s left)`. A call into the original that is suspended (the guest thread switches inside it) is
+    left alone; the next update of the instance hands over instead.
+  * `soundStopHook` on `0x1b7cf8`: the same bookkeeping when the faded-out track is stopped.
+  * `musicPauseHook` / `musicPopHook`: the pause at a scene's start and the fade-out / resume at its end are skipped
+    (`[music] scene start: the playing music goes on`, `scene end: the scene's music plays on`).
+  * `sceneMusicStopHook` (on `0x1b6930`) also drops a scene's own half level and its restore, a choice: the PC scenes
+    have no such level, but how loud the PC plays music under a scene was not measured. For the level -4096 it now calls
+    only the category stop, which fades every music track out over the ramp and ends it: a real fade.
+* `hle::CampaignMusicDucker` and `ResourceService::setChunkDuck` are removed: the engine now replaces the music itself.
+* Converter (formats, outside the `ootfseq.ts` named for this task: `ootfsound.ts`, `ootfdmusic.ts`): `Ps2Sound.category`
+  (written at +16), `OOTF_MUSIC_CATEGORY = 2` for the rendered tracks, so a new pack is right without the override. Not
+  reconverted here.
+
+**Volume:** the campaign's music now follows the Music Volume option, like the disc's music; before, OotF music played
+at full volume whatever the option said. The owner's `drakan_native_options.ini` has `music_volume = 13` (default 25),
+so at that setting the music will sound much quieter than before.
+
+### Proof (exe `3a9695cf...`, pack `9f1ad4f6...`)
+
+Run `d6` (New Game, no skip, `music_volume` 100 for clean correlations; after the scenes three quick placements back
+half, front half, back half; then the staged tavern walk), dump seconds, ncc of tracks 2 / 6 / 8:
+
+| Dump time | Audible | RAM / log |
+| --- | --- | --- |
+| 48 to 56 | 8 (0.72 to 0.78) | `e0008` alone |
+| 60 | 6 coming (0.43), 8 going (0.20) | `track e0006 starts now (fade in 7.00 s), e0008 fades out (3.00 s left)`; 6 at attenuation 0.98, 0.56, 0.23, 0 at +0, 3, 5, 7 s |
+| 64 to 160 (1.1, 1.2a, 1.3 start) | 6 (0.29 to 0.87) | `scene end: plays on` after 1.1, `scene start: goes on` at 1.2a and 1.3 |
+| 164 to 172 | 6 fading: gain 0.090, 0.090, 0.075, 0.066, 0.058, 0.043, 0.032, 0.020, then noise (1 s steps; 0.10 before) | `scene stop: category 2, fade 9.00 s` |
+| 172 to 262 (the talk with the old man, control) | none (0.07 to 0.12) | category 2 empty |
+| 264 to 296 (placements 2, 8, 2 within 1.6 s) | 8 (0.26 to 0.86) | see Open |
+| 304 to 328 (Rynn in the tavern doorway) | **2 (0.65 to 0.98)** | `track e0002 starts now`, 8 fades out over 3 s |
+| 332 to 356 (street) | **8 (0.67 to 0.94)** | `track e0008 starts now`, 2 fades out over 3 s |
+
+Run `d2` (the same without placements, at the owner's `music_volume` 13, exe `1a38e674`): 2 at 0.48 to 0.78 in the
+doorway, 8 at 0.70 to 0.91 in the street; the cue under the scenes' speech reads only 0.2 to 0.5 at that volume.
+
+Before, shipped exe (`base4`, same driver and settings as `d6`): 8 then 6 as above, the 1.3 stop cuts 6 when its
+buffered chunks run out (0.37 to 0.52 until about 172, then none), the quick placements leave silence (0.05 to 0.15 from
+264 to 296), the doorway plays 2 and the street 8 (ducker: each with a new descriptor read).
+
+**Volcanic** (`v3`, `--level "OotF 11 - Volcanic"`, `music_volume` 100): 9.1's cue 7 plays (ncc 0.54 to 0.96 from 8 s),
+the stop at 31.8 s fades it over 4 s (none from 40 s), then nothing, as on the PC, until Rynn walks through trigger 2890:
+`0302/9`, `e0009` fades in over 3 s and plays (ncc 0.17 to 0.50 under combat noise). Volcanic has no start loop.
+
+**Surdana** (Drakan 2, `s_base` shipped exe / `s_new3`, `--game d2 --level "Level 1A - Surdana"`, 120 s): the same
+music requests (`0302/89`, 18 chunks of 89), the same category-2 timeline in RAM (the opening scene lowers the music to
+half and its cue `0x70059` = track 89 plays), no `[music]` line in the new run, and the dump loudness per 10 s within
+1 % (166 / 166 ... 403 / 408). Drakan 2 is unaffected.
+
+Runs `a1` to `d5` are on intermediate builds (category only, then the hand-over without the second-start and suspend
+handling) and are kept only for the causes above.
+
+### Tests
+
+* `ctest --preset runtime-tests`: 200 of 200 (the usual data-dependent skips); `override_test` replaces the ducker case
+  with `MusicCategoryOverride` (category 0 -> 2, 2 and 3 left alone, short records, other files and types). The later
+  hook changes are in `drakan_overrides.cpp` only (not in the test tree).
+* formats `npx vitest run`: 69 files, 724 tests (new expectation: category 2 in the rendered track's descriptor);
+  `prettier --check` clean on the touched files. `clang-format` clean on the touched C++.
+
+### Open
+
+* Quick toggling inside the fade time: back half, front half, back half within 1.6 s ends with 8 although Rynn stands in
+  the back half. The third "2 on" reaches loop 2 while its own instance is still fading out, and the loop ignores an On
+  while it plays. The shipped exe ends silent there. Walking through once in either direction is right.
+* A converted cue still has `keep` 0 and the scenes still carry the engine's music flags; the runtime makes them behave
+  as on the PC only while the campaign is the current game. A pack converted with category 2 still needs this exe for
+  the hand-over and the stop.
+* Not compared with the PC by ear: the music level under scenes (now the music actions' own, full), Esc skips (a skip
+  runs the passed actions, so an Esc at 1.1 + 15 s keeps Dark Union playing), and Ruined Village's loop 8 not coming
+  back after the scenes until a trigger (as the PC data says: 1.3 stops all music).
+* In the harness walk Rynn drops off the tavern step into the street (y 16498 below the floor at 19248); a placement
+  detail, not the music.

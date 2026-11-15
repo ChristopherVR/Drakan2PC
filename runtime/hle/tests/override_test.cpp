@@ -336,30 +336,31 @@ int main() {
         CHECK(mr.map(music, 0x302, disc) == disc && mr.map(music, 0x304, disc) == disc);
         CHECK(mr.wanted() == disc);
     }
-    // a campaign's music cue replaces the playing loop: the older track's chunks are served silent
+    // converted music descriptors that name the effects category are served in the music category (2)
     {
-        bool on = false;
-        CampaignMusicDucker md;
-        md.setActive([&] { return on; });
-        const std::string music = "ENGLISH\MUSIC\PS2MUSIC\PS2MUSIC.SDB";
-        CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0)); // Drakan 2: nothing changes
-        on = true;
-        CHECK(!md.silence(music, 0x302, 8, 0) && !md.silence(music, 0x304, 8, 0) &&
-              !md.silence(music, 0x304, 8, 163840));
-        CHECK(!md.silence(music, 0x302, 6, 0)); // the cue's descriptor: the loop is replaced
-        CHECK(md.silence(music, 0x304, 8, 245760) && !md.silence(music, 0x304, 6, 0) &&
-              !md.silence(music, 0x304, 6, 163840));
-        CHECK(md.silence(music, 0x304, 8, 0));                              // a wrapping loop with no gap stays silent
-        CHECK(!md.silence("ENGLISH\COMMON\SOUNDS\SOUND.SDB", 0x304, 8, 0)); // other files untouched
-        // a scene stops the music: the cue goes silent too, also when it wraps, until a descriptor starts a track again
-        CHECK(md.stopAll() == 1);
-        CHECK(md.silence(music, 0x304, 6, 327680) && md.silence(music, 0x304, 6, 0) && md.silence(music, 0x304, 8, 0));
-        CHECK(!md.silence(music, 0x302, 2, 0) && !md.silence(music, 0x304, 2, 0) &&
-              md.silence(music, 0x304, 6, 163840));
-        std::vector<u8> blocks(32, 0xff);
-        CampaignMusicDucker::silenceAdpcm(blocks);
-        CHECK(blocks[0] == 0 && blocks[1] == 0xff && blocks[2] == 0 && blocks[15] == 0 && blocks[16] == 0 &&
-              blocks[17] == 0xff);
+        auto desc = [](u32 category) {
+            std::vector<u8> d = {4, 0, 'O', 'o', 't', 'F'};
+            const u32 words[] = {0xa, 0x00100001, 22050, (u32)-100, category, 0x41700000, 0, 0x99, 2};
+            for (u32 w : words)
+                for (int k = 0; k < 4; ++k)
+                    d.push_back((u8)(w >> (8 * k)));
+            return d;
+        };
+        std::vector<u8> d = desc(0);
+        CHECK(MusicCategoryOverride::patch(d) && d == desc(2));
+        CHECK(!MusicCategoryOverride::patch(d) && d == desc(2)); // a disc track (2) is left alone
+        std::vector<u8> speech = desc(3);
+        CHECK(!MusicCategoryOverride::patch(speech) && speech == desc(3));
+        std::vector<u8> shortRec = {4, 0, 'O', 'o', 't', 'F', 1, 2, 3};
+        CHECK(!MusicCategoryOverride::patch(shortRec)); // too short for the field
+        MusicCategoryOverride mc;
+        ResourceId music{"PS2MUSIC.SDB", "ENGLISH\\MUSIC\\PS2MUSIC\\PS2MUSIC.SDB", 0x302, 8, 44};
+        ResourceId chunk = music, other = music;
+        chunk.type = 0x304;
+        other.file = "SYSTEM.SDB";
+        CHECK(mc.wants(music) && !mc.wants(chunk) && !mc.wants(other));
+        std::vector<u8> e = desc(0);
+        CHECK(!mc.apply(other, e) && e == desc(0) && mc.apply(music, e) && e == desc(2));
     }
     // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at
     // read time

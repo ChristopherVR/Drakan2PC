@@ -117,3 +117,21 @@ live/device checks. This is separate from the older `SQRT.S` missing-sounds bug 
 * The first title-menu entry with a save is "Load Game": scripted runs press Cross on it (a save from decomp/iso/mc0 is loaded); "New Game" needs DPAD_DOWN first.
 
 Decompiled sound code used for this (Ghidra, `analysis/input_run.sh InputDecompile.java analysis/sound <addr> ...`): `analysis/sound/*.c`.
+
+## 6. Music category and the campaign music hand-over (2026-11-15)
+
+The sound manager (`0x4db4f0`) sorts every sound instance into one of five categories by the u32 at +16 after the name
+of its `0x302` descriptor (0 effects, 2 music, 3 / 4 interface and speech; every disc PS2MUSIC.SDB track has 2). The
+category records sit at manager +0x48c, 0x2c bytes each: +0 mode (0 = one instance at a time, music and category 3),
++4 gain (the Music Volume option for 2), +8 / +0xc / +0x10 level (an attenuation, 0 = full) with its target and ramp
+(`0x1b6930`), +0x14 the instance being faded out, +0x18 / +0x1c fade out / in (`0x1b6bd0`), +0x20 / +0x28 the list
+(16-byte entries, newest first) and its count. Instance +0x1c is its attenuation, +0x38 the fade rate, +0x44 the fade
+state (1 in, 2 out); `0x1b2ee8` / `0x1b2f20` start the fades, `0x1b7cf8` stops, `0x1b6ac8` stops a category.
+
+Converted Order of the Flame tracks had category 0 until 15 November; `hle::MusicCategoryOverride` serves them with 2.
+While a campaign with its own music is the current game, `drakan_overrides.cpp` makes the music category hand over as
+on the PC: a new track starts at once with its fade in while the old one fades out (the engine holds it, and a
+Triggered Music Loop's emitter then stops the held instance), and a scene neither pauses the playing music at its start,
+nor fades its own music out at its end, nor sets a music level of its own. Diagnostics: `[music]` lines in the log;
+`DRAKAN_MUSIC_CATEGORY_FIX=0` and `DRAKAN_MUSIC_HANDOVER=0` restore the engine's behaviour for comparisons. Evidence:
+`docs/journal/2026-11-15/ootf-opening-scenes.md` section 9.

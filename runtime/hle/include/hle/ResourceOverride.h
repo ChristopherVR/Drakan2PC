@@ -149,35 +149,22 @@ private:
     std::mutex mu_;
 };
 
-// ---- campaign music replaces the playing music
+// ---- music descriptors in the music category
 // ----------------------------------------------------------------------------------------------------------------
-// On the PC a new music cue replaces the playing music (DirectMusic switches the primary segment). The PS2 engine plays
-// a cue on top of the level's Triggered Music Loops, and a sequence message does not reach those loops, so in a
-// campaign the sample chunks (PS2MUSIC.SDB 0x304) of every track but the newest one are served silent (ADPCM blocks
-// with the predictor, shift and data zeroed, the loop flags kept). A track starts when its descriptor (0x302) is read;
-// a track whose chunk requests stop for a while and begin again at offset 0 starts again too. Drakan 2 is not affected.
-class CampaignMusicDucker {
+// The u32 at +16 after the name of a 0x302 sound descriptor is the sound's category in the sound manager (0 effects,
+// 2 music, 3 / 4 interface and speech; every PS2MUSIC.SDB track on the disc has 2). The music category plays one track
+// at a time: a new track fades the playing one out with the category's fade times (a cut scene's music action sets
+// them), the Music Volume option scales it, and a scene's music level and the category stop (0x1b6ac8) act on it.
+// Order of the Flame packs converted before 15 November 2026 wrote 0 (effects), so their tracks played on top of each
+// other at full volume and nothing could stop them. This serves such a PS2MUSIC.SDB descriptor with category 2.
+class MusicCategoryOverride final : public IResourceOverride {
 public:
-    void setActive(std::function<bool()> f) { active_ = std::move(f); }
-    // Observe a request; true = serve this sample chunk silent.
-    bool silence(const std::string& fileKey, u16 type, u16 id, u32 offset);
-    // Silence the ADPCM blocks of `data` (16-byte blocks, flag byte kept).
-    static void silenceAdpcm(std::vector<u8>& data);
-    // A cut scene stops the music (the PC's music action with id 0): every streaming track is served silent until a
-    // track's descriptor is read again (a cue, or a music loop started for the first time; a loop that is turned on
-    // again while its stream still runs reads no descriptor and stays silent). Returns the number of tracks silenced.
-    size_t stopAll();
-
-private:
-    struct Track {
-        std::chrono::steady_clock::time_point last{};
-        bool muted = false;
-    };
-    std::function<bool()> active_;
-    std::map<u16, Track> tracks_;
-    u16 current_ = 0;
-    std::mutex mu_;
-    static constexpr u16 kStopped = 0xFFFF; // `current_` after stopAll: no track is the current one
+    static constexpr u16 kType = 0x302;
+    static constexpr u32 kMusicCategory = 2;
+    bool wants(const ResourceId& id) override;
+    bool apply(const ResourceId& id, std::vector<u8>& data) override;
+    // The patch itself: true when `data` is a descriptor with category 0 and was changed.
+    static bool patch(std::vector<u8>& data);
 };
 
 // ---- XDB text

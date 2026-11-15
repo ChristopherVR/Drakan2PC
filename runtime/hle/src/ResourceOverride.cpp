@@ -304,50 +304,27 @@ u16 CampaignMusicRedirect::map(const std::string& fileKey, u16 type, u16 id) {
     return latched_;
 }
 
-// ---- campaign music replaces the playing music
-bool CampaignMusicDucker::silence(const std::string& fileKey, u16 type, u16 id, u32 offset) {
-    if (type != 0x302 && type != 0x304)
-        return false;
-    const size_t k = fileKey.size();
-    if (k < 12 || fileKey.compare(k - 12, 12, "PS2MUSIC.SDB") != 0 || !active_ || !active_())
-        return false;
-    using namespace std::chrono;
-    const auto now = steady_clock::now();
-    std::lock_guard<std::mutex> lock(mu_);
-    Track& t = tracks_[id];
-    const bool gap = t.last != steady_clock::time_point{} && now - t.last > seconds(8);
-    t.last = now;
-    if (type == 0x302 || (offset == 0 && gap) || current_ == 0) {
-        if (current_ != id) {
-            for (auto& [other, o] : tracks_)
-                if (other != id && !o.muted && now - o.last < seconds(8)) {
-                    o.muted = true;
-                    logf("music: track %u replaces %u (the older one is silenced)", id, other);
-                }
-            current_ = id;
-        }
-        t.muted = false;
-    }
-    return type == 0x304 && t.muted;
+// ---- music descriptors in the music category
+bool MusicCategoryOverride::wants(const ResourceId& id) {
+    return id.type == kType && id.file == "PS2MUSIC.SDB";
 }
 
-size_t CampaignMusicDucker::stopAll() {
-    std::lock_guard<std::mutex> lock(mu_);
-    size_t n = 0;
-    for (auto& [id, t] : tracks_)
-        if (!t.muted) {
-            t.muted = true;
-            ++n;
-        }
-    current_ = kStopped;
-    return n;
+bool MusicCategoryOverride::apply(const ResourceId& id, std::vector<u8>& data) {
+    if (!wants(id) || !patch(data))
+        return false;
+    logf("music: %04x/%u served in the music category (the pack wrote category 0)", id.type, id.id);
+    return true;
 }
 
-void CampaignMusicDucker::silenceAdpcm(std::vector<u8>& data) {
-    for (size_t i = 0; i + 16 <= data.size(); i += 16) {
-        data[i] = 0;
-        std::fill(data.begin() + i + 2, data.begin() + i + 16, u8{0});
-    }
+bool MusicCategoryOverride::patch(std::vector<u8>& data) {
+    // u16 name length, the name, then u32 flags, u16 channels, u16 bits, u32 rate, s32 volume, u32 category
+    if (data.size() < 2)
+        return false;
+    const size_t at = 2 + (data[0] | (data[1] << 8)) + 16;
+    if (data.size() < at + 4 || data[at] || data[at + 1] || data[at + 2] || data[at + 3])
+        return false;
+    data[at] = static_cast<u8>(kMusicCategory);
+    return true;
 }
 
 // ---- campaign credits
