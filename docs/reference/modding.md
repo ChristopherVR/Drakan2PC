@@ -782,6 +782,29 @@ Risk: a swap is by id, so any other use of a listed Drakan 2 id in the campaign 
 campaign but Rynn, Arokh and the Wartok clips names those ids). On the animation-event path (`0x10d100`), a clip event that
 repeats the sound still playing restarts it, since the playing instance carries the swapped id.
 
+### Magic Crystals (`gameplay/crystals.ini`)
+
+Order of the Flame's Fire, Ice and Lightning Crystals are Rynn's use-items: on the PC each use casts the class's `Effect`.
+Drakan 2 has no item class that casts on use, so the converter clones them from the mana power-up (class `0x100ab`) and
+writes a table the runtime acts on (formats `ootfcrystal.ts`, runtime `drakan_crystals.cpp`, up to 64 KiB per pack):
+
+```
+format = 1
+[crystal 0x342a3]      ; the crystal class (resource id: database index << 16 | class id, Resources = bank 3)
+effect = 0x40c07       ; the class spawned at Rynn on each use
+kind = fire            ; for the log
+name = Fire Crystal    ; for the log
+```
+
+The runtime hooks the power-up's message handler (`392aa0`); on the use message (`0x10cb`) of a listed crystal it queues
+one effect and, once the game is back in play (inventory closed), spawns it at Rynn through the engine's public spawn
+`0x181ad8` with Rynn as the owner. The native use still runs (one charge consumed; the hidden mana refill is harmless).
+The converted campaign casts the PC Fire Crystal FX (a native FX.ODB class: a ring of fire that burns what it reaches),
+Rynn's Ice Ring for the Ice Shield (it freezes and hurts; the PS2 Frost Shield draws and does nothing when spawned alone)
+and the Lightning Blade's secondary-attack generator for the charged bolt (two seeking bolts, no hold-to-charge). Log:
+`[crystals] <name> (resource ...) used`, `effect ... spawned at Rynn`. `DRAKAN_CRYSTALS=0` turns it off. PAL only.
+Journal `docs/journal/2026-11-16/ootf-fire-crystal.md`.
+
 ### Intro movie (pre-rendered opening)
 
 The PC install has no intro movie: "Psygnosis Presents", the owl and the title scenes are the engine-rendered level

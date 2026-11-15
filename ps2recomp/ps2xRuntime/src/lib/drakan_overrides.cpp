@@ -37,6 +37,7 @@
 #include "drakan_dlss.h"
 #ifdef PS2X_HAVE_GSR
 #include "drakan_arena.h"
+#include "drakan_crystals.h"
 #include "hle/ArenaLevel.h"
 #include "drakan_modes.h"
 #endif
@@ -2103,6 +2104,9 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 n = g_mods->load(modsDir);
             }
             drakan_input::module().setBowAimFiles(g_mods->bowAimFiles());
+#ifdef PS2X_HAVE_GSR
+            drakan_crystals::setTables(g_mods->crystalFiles());
+#endif
             g_mods->install(host->iop.res);
             g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
             drakan_coop_character::setRetargetedMotion(

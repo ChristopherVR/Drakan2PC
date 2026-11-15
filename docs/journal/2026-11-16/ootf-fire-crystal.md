@@ -70,53 +70,76 @@ breath.
 Tests: `vitest run` 737 passed (71 files) and `tsc --noEmit` on the committed tree; `test/ootfbreath.test.ts`
 (synthetic power-ups: fire, stream, magma, ice; other classes, fields, engines and ODBs untouched; only PC-only engines).
 
-## The crystals: cause, and why it is not fixed yet
+## The crystals: cause
 
 The converter clones Magic Crystal 91 (no PS2 class) from the mana power-up 171 (`PS2_SUBSTITUTES`). The clone keeps
 the PC icon, quantity and sounds but has no `Effect` field, so the PC effect is dropped; `Mana Boost` stays at the
-template's 100 (Fire, Ice) or 50 (Lightning). By the class data, using the crystal consumes one and fills Rynn's mana,
-which a campaign with `campaign_spells = false` neither shows nor uses: "nothing happens". (Inferred from the class and
-the mana power-up's handler; a scripted use was tried twice, `runs/wc-use1`, `wc-use2`, and did not get to the item: the
-first stopped at the Equipment help box, the second opened the modern screen but its grid showed no items to steer to.) The same holds for all three crystals in all
-levels (Fire Crystal in Ruined Village, Wartok Canyons, Islands, Mines, Alwarren, Rift Crystal, Succubus Lair; Ice and
-Lightning Crystals where placed).
+template's 100 (Fire, Ice) or 50 (Lightning). Using a crystal consumed one and filled Rynn's mana (seen: mana 20 -> 100
+on the use, `runs/wc-use4`, and `cr-off` below), which a campaign with `campaign_spells = false` neither shows nor uses:
+"nothing happens". The same held for all three crystals in every level that places them (Fire Crystal in Ruined
+Village, Wartok Canyons, Islands, Mines, Alwarren, Rift Crystal, Succubus Lair; Ice Crystals in Islands and Mines;
+Lightning Crystals in Islands, Islands Night and Volcano).
 
 No Drakan 2 item class casts an effect when used: potions (10, 89), mana (171), keys (33), the spell unlocker (178),
-books and treasure have no effect-on-use field. The PS2 does have the effects: FX #3079 "Fire Crystal FX" is still a
-class 90 ring in `FX.ODB`, the Frost Shield (RESOURES #15338) is class 119, and Drakan 2's own Rynn weapons spawn fire,
-ice and crystal rings as their secondary attack (generators 16497 / 16138 / 16709). Engine 96 (the Lightning Crystal's
-charged bolt) has no PS2 class.
+books and treasure have no effect-on-use field. Pointing the shared item field `Powerup Object` at FX #3079 (`packs/b2`,
+`runs/wc-pick`) is no fix: the engine spawns that object at the item at level load, while it lies in the world.
 
-Probe: the shared item field `Powerup Object` (unused by every PS2 and PC class) was pointed at FX #3079 in a private
-pack (`packs/b2`, `tools/patchpack.py`). Result (`runs/wc-pick`, `wc-use1`, Wartok Canyons): the engine spawns that
-object at the item at level load (a class `0x1005a` ring at the crystal's exact spot from the start, before Rynn is near
-it); it was gone about 3.5 s after Rynn was placed on the crystal (a pickup, or the ring's own 1.5 s life once it woke;
-not told apart). Either way it is spawned with the item lying in the world, not when the crystal is used, so it is no
-fix.
+## The crystals: fix
 
-What a fix needs (engine code, not done in this round):
+Formats `ootfcrystal.ts` writes `gameplay/crystals.ini` into the pack (crystal class resource id -> effect resource id,
+like `bows.ini`; reference `modding.md` "Magic Crystals"). The runtime (`drakan_crystals.cpp`, PAL only) hooks the mana
+power-up's message handler `392aa0` (vtable `0x533250` slot 3, event 32 of the class handler `392978`; it is where the
+Mana Boost is added, for message `0x10cb` with a user). For the use message of a listed crystal it queues one effect;
+when the game is back in play (inventory closed) the effect is spawned at Rynn's transform through the public spawn
+`0x181ad8(engine, owner = Rynn, transform, 0, 0, resIndex)` on a posted guest call (a host trampoline puts the transform
+on the dispatcher stack, as `drakan_arena.cpp` does). The native use is untouched: one charge is consumed. `ModManager`
+collects the files (`crystalFiles()`). `DRAKAN_CRYSTALS=0` turns it off; `DRAKAN_CRYSTALS_TRACE=1` logs every call of the
+handler.
 
-1. The converter writes `gameplay/crystals.ini` (like `bows.ini`): the converted crystal class -> its PS2 effect class
-   (#3079 fire ring; #15338 Frost Shield for ice; a class 58 bolt as an approximation for lightning).
-2. A runtime hook that notices a crystal use (the native consume-one path stays, so quantity and saves behave; a
-   quantity drop of a carried crystal handle is enough) and spawns the effect at Rynn through the engine's public spawn
-   `0x181ad8(ctx, owner = Rynn, transform, 0, 0, resIndex)` (`docs/journal/2026-10-31/actor-spawn.md`) on a guest
-   dispatcher thread, as `drakan_arena.cpp` does for its effects but with Rynn as the owner so the ring spares her.
-3. A private exe build to verify: ring drawn, an enemy's hit points drop, Rynn's do not.
+| Crystal | PC effect | What it casts in the converted game |
+| --- | --- | --- |
+| Fire | Fire Crystal FX (engine 90) | the same class (native in FX.ODB): a ring of fire from Rynn that sets what it reaches burning |
+| Ice | Ice Shield FX (engine 119): a shield round Rynn for 15 s | Rynn's Ice Ring (RESOURES #16137, the Maulgak Maul's secondary ring): freezes and hurts what it reaches. The PS2 Frost Shield (#15338) spawned alone, and through its generator #15568, drew nothing and hurt nothing (`runs/cr-ice1`, `cr-ice2`); Drakan 2 only makes it through the Ice Blade's secondary attack |
+| Lightning | Lightning Crystal FX (engine 96, none on the PS2): hold to charge, then a ground bolt | the Lightning Blade's secondary-attack generator (#15567): two seeking bolts from Rynn, no charge. The converted PC bolt (engine 58) spawned alone struck nothing (`runs/cr-lt1`) |
+
+### Evidence
+
+Private exe: scratch build tree `build/review/ootf-crystal/gb` linking a copy of `build/final-game`'s
+`ps2_generated.lib` (the ponytail agent's way; `tools/configure.sh`, `tools/build.sh`), run from a private copy of
+`dist/DrakanPC` with its own ELF copy. Pack `packs/c3` (full conversion with this converter). Runs drive the native
+Tab screen (`DRAKAN_INVENTORY_SCREEN=native`: Tab, Cross for the help box, Square = use), god mode off, Rynn's hit
+points from the stats block, creatures' from their instance data (`tools/crydrive.py`).
+
+| Run | Level, setup | Seen |
+| --- | --- | --- |
+| `fin-fire` | Wartok Canyons: Fire Crystal (2) picked up, Rynn placed by Orc 135 | log `Fire Crystal ... used`, `effect 40c07 spawned at Rynn ... (ok)`; no ring at level load (`0x1005a` count 0 from the start); the orc burns 40 -> 29, Rynn 100 throughout; the crystal count 2 -> 1 (`cr-fire4` `invc.png`). Ring and burning orc: `runs/cr-fire4/r0.png` |
+| `fin-ice` | Grimstone Mines: Ice Crystal (5) picked up, Rynn by Troll 1651 | `effect 33f09 spawned`; troll 100 -> 37 and frozen blue (`runs/cr-ice3/i1.png`), Rynn 100; count 5 -> 4 (`fin-ice/invc.png`) |
+| `fin-lt` | Volcano: Lightning Crystal picked up, Rynn by Ebon Knight 2699 | `effect 33ccf spawned`; two bolts (`fin-lt/lt_05.png`), knight 275 -> 272 -> 260, Rynn 100 (the health orb flashes violet for a moment) |
+| `cr-off` | as `fin-fire`, `DRAKAN_CRYSTALS=0` | `[crystals] off`; mana 20 -> 100 on the use (the native refill), no ring, the orc stays at 40 |
+
+Two uses in a row spawn two effects (`cr-ice1`). The camera in the Volcano shots sits in front of Rynn (the placement,
+not the crystal).
+
+Tests: formats vitest (`test/ootfcrystal.test.ts`: fire native, ice and lightning stand-ins, namespace and missing
+effect omitted), runtime `crystals_policy` (table parsing, use message) and `mod_test` (enabled packs only, load order).
 
 ## Other consumables
 
 Decoded from the re-converted pack against the PC classes: Lesser / Greater Life Crystal (engine 10) keep Health Boost 5 /
 10, Potion of Speed (89) FX Type 2 for 5 s, Ring of Invisibility FX 0 for 30 s, Rune of Invulnerability FX 1 for 20 s,
 the Dragon health power-ups (138) 50 / 100; the health potions map to the native PS2 potions. Only the Magic Crystals
-(91) lose their effect.
+(91) lost their effect.
 
 ## Not played
 
-The Ruined Village route to the mount (the fire power-up there), the Wartok poison pickup, the ice stand-in (13604) and
-Volcano with its four linked power-ups; only Rift World's fire was fired in game.
+* Breath: the Ruined Village route to the mount (the fire power-up there), the Wartok poison pickup, the ice stand-in
+  (13604) and Volcano with its four linked power-ups; only Rift World's fire was fired in game.
+* Crystals: the modern Tab screen's Use and the quick-slot keys (the native screen was used); a crystal used while
+  mounted (the effect is dropped with a log line unless Rynn is the controlled actor); the multiplayer "FIRE!" crystal of
+  Hill of Fire (omitted: its effect has no PS2 class); Drakan 2 (the hook only acts on resource ids listed by a pack).
 
 ## Rebuilds
 
-* Breath: pack only. Re-convert `ootf-levels.zip` with formats `938e188` or later; the exe is unchanged.
-* Crystals: unchanged (still a hidden mana refill).
+* Breath: pack only (formats `938e188` or later).
+* Crystals: pack (formats with `ootfcrystal.ts`) and exe (`drakan_crystals.cpp`): re-convert `ootf-levels.zip` and run
+  `Build-LocalGame.ps1 -Incremental`.

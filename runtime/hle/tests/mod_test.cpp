@@ -664,6 +664,24 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(mm.bowAimFiles().empty());
     }
 
+    // Magic Crystal tables: enabled packs only, in load order, nested copies ignored.
+    {
+        const fs::path mods = root / "mods_crystals";
+        for (const auto* id : {"first", "last", "off"}) {
+            writeText(mods / id / "mod.toml", toml(id));
+            writeText(mods / id / "gameplay/crystals.ini", std::string("format = 1\n;") + id);
+        }
+        writeText(mods / "first/gameplay/deeper/crystals.ini", "ignored");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"first", true}, {"off", false}, {"last", true}}) == 2);
+        CHECK(mm.crystalFiles().size() == 2);
+        CHECK(mm.crystalFiles()[0].second == "format = 1\n;first");
+        CHECK(mm.crystalFiles()[1].second == "format = 1\n;last");
+        CHECK(mm.bowAimFiles().empty());
+        CHECK(mm.load(mods.string(), {{"first", false}, {"off", false}, {"last", false}}) == 0);
+        CHECK(mm.crystalFiles().empty());
+    }
+
     // A pack whose zip or manifest cannot be read keeps the reason, enabled or not (the title screen names it).
     {
         const fs::path mods = root / "mods_unreadable";

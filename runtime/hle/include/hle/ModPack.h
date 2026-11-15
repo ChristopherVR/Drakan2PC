@@ -242,6 +242,9 @@ public:
     const std::vector<std::pair<std::string, std::string>>& soundSwapFiles() const { return soundSwapFiles_; }
     // Imported bow automatic-aiming sidecars, in enabled pack load order.
     const std::vector<std::pair<std::string, std::string>>& bowAimFiles() const { return bowAimFiles_; }
+    // Magic Crystal effect tables (`gameplay/crystals.ini`, <= 64 KiB: crystal class -> the effect its use spawns at
+    // Rynn), in enabled pack load order; `first` names the pack and file.
+    const std::vector<std::pair<std::string, std::string>>& crystalFiles() const { return crystalFiles_; }
 
     // Register in this order (entries first, then texts) before the first resource request. Null when empty.
     std::shared_ptr<IResourceOverride> entries() const;
@@ -275,6 +278,7 @@ private:
     std::vector<std::pair<std::string, std::string>> creditsFiles_;
     std::vector<std::pair<std::string, std::string>> soundSwapFiles_;
     std::vector<std::pair<std::string, std::string>> bowAimFiles_;
+    std::vector<std::pair<std::string, std::string>> crystalFiles_;
     std::shared_ptr<XdbTextOverride> texts_;
     size_t textCount_ = 0;
 };

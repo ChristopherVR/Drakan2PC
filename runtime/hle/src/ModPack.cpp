@@ -1683,6 +1683,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     creditsFiles_.clear();
     soundSwapFiles_.clear();
     bowAimFiles_.clear();
+    crystalFiles_.clear();
     texts_ = std::make_shared<XdbTextOverride>();
     textCount_ = 0;
     for (auto& c : cands) {
@@ -1727,6 +1728,12 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 std::vector<u8> text;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, text))
                     bowAimFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
+                continue;
+            }
+            if (lowPath == lower(c.prefix) + "gameplay/crystals.ini") {
+                std::vector<u8> text;
+                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
+                    crystalFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
             const std::string mapsRoot = lower(c.prefix) + "maps/";
