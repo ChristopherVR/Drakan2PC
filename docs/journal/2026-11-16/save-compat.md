@@ -68,7 +68,8 @@ wrong. So the refusal was the visible failure; the id shifts are what a guard mu
   Used by `planClassMapping` and the map and fire class allocators. Synthetic object ids are not pinned (they still follow
   feature order); a change there is caught by the layout check and refuses old saves instead of breaking them.
 * **`save_scope = "levels"`** in the OotF pack's manifest: the game neither records the pack for a save of another level nor
-  checks an older record of it there, so Drakan 2 saves stop depending on OotF rebuilds.
+  checks an older record of it there, so Drakan 2 saves stop depending on OotF rebuilds. The game cuts long level titles in save names (`OotF 02 - Ruined
+  Village .rsg` for the Book), so a title that starts with the save's name counts as the pack's level.
 * **`[general] save_pack_check = 0`** (env `DRAKAN_SAVE_PACK_CHECK`): a save of another pack build loads anyway (logged
   `loaded anyway`); missing packs and damaged records are still refused. For the player who wants an old save back and
   accepts the risk (the 9 Nov saves above).
@@ -108,11 +109,18 @@ wrong. So the refusal was the visible failure; the id shifts are what a guard mu
 * The runtime half (`save_scope`, `save_pack_check`, records per level) is covered by `save_record_test` but was not run
   in game: the exe was not rebuilt (no Build-LocalGame on `build/final-game` from this task). The release pack was not
   reconverted either; the next `extras.py ootf` run reconverts it with the installed pack as `--previous`.
+* Order for the player: reconvert (`extras.py ootf`, which now hands the installed `da1e598e3d3adfdd` pack to the
+  converter as `--previous`), then rebuild the exe. The build stays `da1e...` only while every release conversion sees the
+  pack it replaces; a private conversion copied over `build/ootf/mods` starts a fresh layout hash and refuses today's
+  saves. `build/review/save-compat/packs/pinned2/ootf-levels.zip` (build `da1e598e3d3adfdd`, HEAD converter) can serve
+  as `--previous` if the installed pack is lost.
 * Object ids the converter adds are not pinned; the layout check then refuses old saves of that level (no silent break).
   A converter change that adds objects must append them (modding.md).
 * Adding objects keeps the build: an old save then lacks the new objects (it never listed them). Not tried in game with a
   real added object; the loader evidence (statics are recreated from the save's 0x24 list) says so.
-* The layout ignores class defaults, models and animations. Checked once: a Ruined Village save made with
-  `pack-1115/ootf-levels.before-models.zip` (`runs/e3-make`, start-level redirect, F5 after the opening) loads on the
-  pinned pack with the model upgrade and jaws (`runs/e3-load`, record rewritten as the current exe still compares builds):
-  F8, walk, F5, F8 all fine. Rynn and the start area only; no upgraded creature was in the save's records.
+* The layout ignores class defaults, models and animations. Whether a record's length follows the model is open: in
+  the 14 Nov Slot1 save the converted creatures NPCS 7117 / 7118 have 394 / 548-byte records, in the 15 Nov saves 424 /
+  578 (`tools/compat.py`), and that save still loads and plays (`runs/e2a-daf6`). An attempt to make a save with
+  `pack-1115/ootf-levels.before-models.zip` (`runs/e3-make`, `DRAKAN_START_LEVEL` with `_FROM=OotF 00 - Intro`) started
+  Drakan 2's Surdana instead of the Ruined Village (the save is `Level 1A - Surdana.rsg`), so it says nothing about the
+  model upgrade.

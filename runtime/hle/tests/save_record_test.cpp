@@ -257,6 +257,12 @@ int main() {
         // A missing scoped pack is still missing (its classes may be in the save).
         disc.level = "Level 1C - Catacombs";
         CHECK(checkSave(disc, active({tex})).verdict == SaveVerdict::MissingPack);
+        // A save name cut short is still the pack's level (the Book: `OotF 02 - Ruined Village .rsg`).
+        scoped.levels.push_back({"OotF 02 - Ruined Village Book", "ootf", true});
+        disc.level = "OotF 02 - Ruined Village ";
+        CHECK(checkSave(disc, scoped).verdict == SaveVerdict::DifferentBuild);
+        CHECK(recordFor(scoped, "OotF 02 - Ruined Village ") == (std::vector<PackStamp>{ootfNew, tex}));
+        disc.level = "Level 1C - Catacombs";
         // Records written now leave the scoped pack out of saves of other levels.
         CHECK(recordFor(scoped, "Level 1C - Catacombs") == (std::vector<PackStamp>{tex}));
         CHECK(recordFor(scoped, "ootf 11 - volcanic") == (std::vector<PackStamp>{ootfNew, tex}));

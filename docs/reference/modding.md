@@ -431,7 +431,8 @@ was made with, and the game refuses a save it cannot vouch for.
 * **`save_scope = "levels"`** (top-level manifest key; the OotF converter writes it): the pack's saved classes and objects
   only concern its own `levels` (it adds classes and levels and changes no disc class or level). A save of another level
   does not record it, and an older record of it is not checked for such a save (`ActivePacks::levelScoped`), so Drakan 2
-  saves no longer depend on OotF rebuilds. A missing pack is still reported.
+  saves no longer depend on OotF rebuilds. A save whose file name is a pack level's title cut short (`OotF 02 - Ruined
+  Village .rsg` for "OotF 02 - Ruined Village Book") counts as that level. A missing pack is still reported.
 * **`[general] save_pack_check = 0`** (env `DRAKAN_SAVE_PACK_CHECK`): a save of another pack build (or one made before
   records existed) loads anyway, logged `[saves] <file>: different build ..., loaded anyway`; a missing pack or a damaged
   record is still refused. For a player who wants an old save back and accepts that objects whose class id changed may

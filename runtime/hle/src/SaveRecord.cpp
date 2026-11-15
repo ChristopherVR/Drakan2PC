@@ -33,11 +33,14 @@ bool sameLevel(const std::string& a, const std::string& b) {
     return asciiLower(trim(a)) == asciiLower(trim(b));
 }
 // A level-scoped pack (save_scope = "levels") that does not register `level`: saves of that level do not depend on it.
+// The save's name can be the level title cut short (`OotF 02 - Ruined Village .rsg` for "OotF 02 - Ruined Village
+// Book"), so a title that starts with the trimmed name counts as the pack's level: a wrong "in scope" only refuses.
 bool outOfScope(const ActivePacks& active, const std::string& packId, const std::string& level) {
     if (std::find(active.levelScoped.begin(), active.levelScoped.end(), packId) == active.levelScoped.end())
         return false;
+    const std::string want = asciiLower(trim(level));
     return std::none_of(active.levels.begin(), active.levels.end(), [&](const ActivePacks::LevelOwner& l) {
-        return l.packId == packId && sameLevel(l.level, level);
+        return l.packId == packId && asciiLower(trim(l.level)).compare(0, want.size(), want) == 0;
     });
 }
 } // namespace
