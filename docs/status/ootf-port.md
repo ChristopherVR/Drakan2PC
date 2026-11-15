@@ -93,6 +93,14 @@ Hider and Rift Crystal. Needs a regenerated pack and a new game. See [opening sc
 [ground placement](../journal/2026-11-15/ootf-ground-placement.md), [character models](../journal/2026-11-15/ootf-character-models.md)
 and [final check](../journal/2026-11-15/ootf-final-check.md).
 
+**November 16 Arokh awakening:** Arokh's scene clips now play on the Drakan 2 dragon: clips the PC Dragon class names
+(Ready, Fly, Hover, Landing ...) play the disc dragon's own, the scene acting clips are retargeted onto the disc rig
+through a joint table as SYSTEM.ADB clips (before, PC-rig clips in other ADBs were never found and he only floated along
+his keys). The stone Arokh in the lair is shown (a prop with the generator's model; the PS2 generator never draws its
+model) and breaks into its pieces, and the bonding lightning appears (scene messages 0 and Blow Up to a generator become
+On). Seen in "arokh awakening"; the other 24 Arokh scenes are checked offline only. Needs a regenerated pack. See
+[Arokh scenes](../journal/2026-11-16/ootf-arokh-scenes.md).
+
 **November 16 character model upgrade:** the Order of the Flame humans that keep their PC model (no Drakan 2 counterpart:
 Delon, Julian, the villagers, the mine slaves, the farmer, the warrior, Tuiri, Rimril, the hider, Shillah, the succubi
 and a few props: 18 models in the 23 converted levels) are refined at convert time from the player's data (formats `ootfskinupgrade.ts`): one
