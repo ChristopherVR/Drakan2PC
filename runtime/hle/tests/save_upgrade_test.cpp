@@ -168,6 +168,9 @@ int main() {
         CHECK(parseSaveRevisionRule(" 2|Level X| 5 6  7 ", SaveRevisionRule::Kind::AddObjects, r));
         CHECK(r.revision == 2 && r.level == "Level X" && r.ids == (std::vector<u32>{5, 6, 7}));
         CHECK(formatSaveRevisionRule(r) == "2 | Level X | 5 6 7");
+        CHECK(parseSaveRevisionRule("1 | L | 3353@2855 7", SaveRevisionRule::Kind::AddObjects, r));
+        CHECK(r.ids == (std::vector<u32>{3353, 7}) && r.needs == (std::vector<u32>{2855, 0}));
+        CHECK(formatSaveRevisionRule(r) == "1 | L | 3353@2855 7");
         CHECK(parseSaveRevisionRule("1 | OotF 01 - Ruined Village | 3a2b 4b07 | 321687 197611",
                                     SaveRevisionRule::Kind::ReplaceEffects, r));
         CHECK(r.fromClass == 0x3a2b && r.toClass == 0x4b07 && r.x == 321687.0f && r.z == 197611.0f);
@@ -261,6 +264,10 @@ int main() {
             if (src[i].type != 0x24 && src[i].type != 0x21)
                 CHECK(es[i].type == src[i].type && es[i].id == src[i].id && es[i].data == src[i].data);
 
+        // an id that needs another object: added while the save names it (40), not when it does not (99)
+        SaveRevisionRule cond;
+        CHECK(parseSaveRevisionRule("1 | L | 60@40 70@99", SaveRevisionRule::Kind::AddObjects, cond));
+        CHECK(upgradeSave(file, rules({}, {&cond}), out, rep, err) && rep.added == std::vector<u32>{60});
         // nothing to add: the same bytes back
         CHECK(upgradeSave(file, rules({10, 50}), out, rep, err) && !rep.changed() && out == file);
         // stale bytes after the index (an overwritten longer save) are dropped

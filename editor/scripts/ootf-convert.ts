@@ -391,7 +391,14 @@ for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w)
         if (title) addedObjects.set(title, ids);
         else console.warn(`warning: save revisions: objects added to ${path}, which is not a level of this pack`);
     }
-    const { revisions, bumped } = planSaveRevisions(previousRevisions, choice.kept, addedObjects, res.saveEffectSwaps ?? [], res.saveRelinks ?? [], new Map(Object.entries(res.saveTogglers ?? {})));
+    const { revisions, bumped } = planSaveRevisions(previousRevisions, choice.kept, addedObjects, res.saveEffectSwaps ?? [],
+        // Dragon relinks (res.saveRelinks) are not written yet: restoring the link gives the upgraded dragon the breath
+        // references but he still does not breathe in the next level (journal 2026-11-16/save-state-fix.md), and the
+        // relink cannot tell a breathless dragon from one that took a power-up normally.
+        [],
+        new Map(Object.entries(res.saveTogglers ?? {})),
+        new Map(Object.entries(res.saveAddRequires ?? {})),
+    );
     pack.files['mod.toml'] = strToU8(
         buildManifestToml({
             ...pack.meta,

@@ -20,8 +20,8 @@ between saved objects are slot numbers, so a record can never be removed or inse
 ## The mechanism: save revisions
 
 * The pack gets `save_revision = N` and per-revision lists in `mod.toml` (outside the layout and the build):
-  `save_added_objects`, `save_replaced_effects`, `save_relinked_powerups`, `save_reset_togglers`
-  ([modding.md](../../reference/modding.md#saves-and-pack-builds) "Save revisions").
+  `save_added_objects`, `save_replaced_effects`, `save_reset_togglers` (and `save_relinked_powerups`, which the game
+  reads but the converter does not write yet, section 4) ([modding.md](../../reference/modding.md#saves-and-pack-builds) "Save revisions").
 * The save record (`.rsg.mods`) gets `revision = N` in the pack section (absent = 0, older games ignore it, the build
   check does not read it). `.rlt` level states now get a record too; an older `.rlt` without one takes the lowest
   revision of the `.rsg` records beside it.
@@ -42,8 +42,10 @@ Cause: uid 3353 (class 3:18644, the blow-up prop, `ootfblowup.ts`) is the only o
 Village over the save's pack; no save names it, so the load never creates it. Prototype first (`tools/addstatic.py`,
 `proto/s33statue`, current exe): uid appended at the end of 0x24 (slot = old total), 0x21 total + 1 and pair in uid
 order; the statue stood on the pedestal at 4.4 s of the awakening and broke apart (`ev/proto_statue.jpg`). Fix:
-`save_added_objects = ["1 | OotF 01 - Ruined Village | 3353"]`. Guard: an id the save already names (any pair) is skipped,
-so saves made with the current pack (which name 3353) are untouched.
+`save_added_objects = ["1 | OotF 01 - Ruined Village | 3353@2855"]`. Guards: an id the save already names (any pair) is
+skipped, so saves made with the current pack (which name 3353) are untouched; and the prop is only added while the save
+still names its generator 2855 (Slot13 / Slot33 hold it as a saved record; the owner's `Slot14` Ruined Village `.rlt`,
+written after the awakening under the old pack, no longer has it, so a statue does not come back to an empty lair).
 
 ## 2. Stray flames
 
@@ -79,14 +81,17 @@ and Slot33 the list is empty and `+0x64` = 1: under the old pack the dragon had 
 was then empty. The level files link 1011 and 3157 the same in both packs (`rv_base.json`, `rv.json`). Re-arming the
 power-up alone (`rearm1`) or with the dragon's flags (`rearm2`) did nothing; restoring the link (`relink.py`,
 `rl_link`) made the awakening give the dragon the breath references (record as a new game's) and Wartok Canyons shows
-the amber breath orb instead of the grey one (`ev/rl_all.jpg`, `acc2_breath.jpg`). Shipped as `save_relinked_powerups`
-(every PC dragon and the Dragon Power-ups it links: Ruined Village, Alwarren, Rift World, Volcanic, an arena).
+the amber breath orb instead of the grey one (`ev/rl_all.jpg`, `acc2_breath.jpg`).
 
-**Still failing:** from the upgraded Slot33, Wartok Canyons has the amber orb but the attack still sets no breath bit
-(`[dragon]` trace: `f90` never `40002`; new game 393 ticks) and no breath projectile is born (`runs/acc2_aw33`
-breath_born 0, new game `runs/acc_awnew` 9). The new game's Arokh arrives with his power-up as a carried record; the
-upgraded one arrives without it, and the power-up's own record keeps a word the new game clears when the dragon takes it
-(`+0x84` 0x56 vs 0). Not traced further. The owner's Wartok Canyons save `Slot14` has a breathless Arokh (no breath
+**Still failing, not shipped:** with the relink (runtime rule `save_relinked_powerups`, run `acc2_aw33`) Wartok Canyons
+has the amber orb but the attack sets no breath bit (`[dragon]` trace: `f90` never `40002`; the new game 393 ticks) and
+no breath projectile is born (breath_born 0; new game `runs/acc_awnew` 9). The new game's Arokh arrives linking a carried
+power-up record; `acc2_aw33`'s arrives without one, but `acc_aw33` (an earlier build that relinked twice) arrived with one
+and did not breathe either, so that is not the whole cause. The power-up's record keeps a word the new game clears when
+the dragon takes it (`+0x84` 0x56 vs 0). Also the relink cannot tell a breathless dragon from one that took his
+power-up normally: the new game's Ruined Village `.rlt` after the awakening has the same `+0x64` = 1 and empty list. So
+the converter collects the dragons (`res.saveRelinks`) but does not write the lines; the game keeps the rule for a later
+fix. The owner's Wartok Canyons save `Slot14` has a breathless Arokh (no breath
 references, `+0x64` = 1, empty list) and no power-up in that level to relink: no rule repairs it.
 
 ## 5. Felled tree on a new game
@@ -103,23 +108,29 @@ profiles). Run `pitch_rw2`: 400 counts up and down on the ground and while walki
 (`gnd=1` in the `[dragon]` line); after Space the counts pitch him again (0.2 per tick up to the 0.75 limit). Take-off
 in open air in Wartok Canyons: not shown (the arrival cave does not lift him, `place` did not move the mounted dragon).
 
-## Acceptance (private exe `bin/drakan.exe` md5 `7df87e6a...`, pack `packs/conv4`)
+## Acceptance (private exe `bin/drakan.exe` md5 `20c7bab7...` = the committed code, pack `packs/conv5` md5 `17e01067...`)
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Pack: `--previous` installed pack, `--save-baseline`, release flags (`--subtitles`, `--previews`) | `save build da1e598e3d3adfdd kept`, revision 1; vs the installed pack only `mod.toml`, class 18645 and the RESOURES field lists differ | `packs/conv4/convert.log`, `ev/pack_diff_conv4.txt` |
-| Slot13: no flame at the standing tree, camp with grunts, F5 (record `revision = 1`, 3353 named, no 0x13a2b), F8 | Pass | `runs/acc_s13`, `ev/acc_s13.jpg`, `ev/acc_f5_parse.txt` |
-| Slot33: no flame over the felled tree, camp props shown, F5 / F8 | Pass | `runs/acc_s33`, `ev/acc_s33.jpg` |
-| Slot33: statue on the pedestal in the awakening | Pass | `runs/fx_s33aw`, `ev/fx_s33_statue.jpg` |
-| Slot33: breath after the awakening | **Fail** (amber orb, no breath) | `runs/acc2_aw33` |
+| Pack: `--previous` installed pack, `--save-baseline`, release flags (`--subtitles`, `--previews`) | `save build da1e598e3d3adfdd kept`, revision 1 (`3353@2855`, three effect swaps, togglers 2337 2684); vs the installed pack only `mod.toml`, class 18645 and the RESOURES field lists differ | `packs/conv5/convert.log`, `ev/pack_diff_conv5.txt` |
+| Slot13: no flame at the standing tree, camp with grunts, F5, F8 | Pass | `runs/fin_s13`, `ev/fin_s13.jpg` |
+| Slot33: no flame over the felled tree, camp props shown (togglers reset), F5, F8 | Pass | `runs/fin_s33`, `ev/fin_s33.jpg` |
+| F5 saves re-parsed: record `revision = 1`, 3353 named, no 0x13a2b record (the two flames kept as 0x148d5) | Pass | `ev/acc_f5_parse.txt` (fix8 / conv4 runs) |
+| Slot33: statue on the pedestal in the awakening, then the break | Pass | `runs/fin_aw33`, `ev/fin_aw33_statue.jpg` |
+| Slot33: breath after the awakening | **Fail** (with the relink: amber orb, no breath; without it, as before) | `runs/acc2_aw33` |
+| Slot14 (owner's Wartok Canyons save): load, its two tree-Mover flames made inert, F5, F8 | Pass | `runs/fin_s14` |
 | New game: awakening, Wartok Canyons breath | Pass (9 breath projectiles) | `runs/acc_awnew` |
-| Drakan 2 Catacombs `mc0/Slot1`: load, F5, F8 | Pass | `runs/d2cat` |
+| Drakan 2 Catacombs `mc0/Slot1`: load, F5 (record names only the motion pack), F8 | Pass | `runs/fin_d2cat` |
 | Mouse pitch on the ground | Pass | `runs/pitch_rw2` |
-| Tests | ctest (see final report), formats vitest 768 / 768 (77 files), editor-core 370 / 370, `run_tests.py` 562 OK | `logs/` |
+| Tests | ctest 205 / 205 (7 skipped, data-dependent), formats vitest 768 / 768 (77 files), editor-core 373 / 373, `run_tests.py` 562 OK (2 skipped), `save_upgrade_test` 93 checks | `logs/` |
 
 ## Not verified / limits
 
 * Breath from the upgraded Slot33 (above); the owner's `Slot14` stays breathless.
+* The cemetery toggler 2337 was reset in Slot33 but not looked at in game.
+* An old `.rlt` beside a `.rsg` the new game has written (Slot14 after F5: the old Ruined Village `.rlt` stays, the
+  `.rsg` record now says revision 1) is judged new; its rules (the statue, which `@2855` holds back there anyway, the
+  Ruined Village flames and togglers) are then not applied if the player returns to that level.
 * The felled tree on a new game; take-off in open air in Wartok Canyons.
 * A failed upgrade ("read as it is") is still stamped with the current revision at the next save.
 * `.rlt` files written by the earlier exe take their revision from the `.rsg` records beside them.

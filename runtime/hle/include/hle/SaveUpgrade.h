@@ -26,7 +26,7 @@ namespace hle::mods {
 
 struct SaveRevisionRule {
     enum class Kind {
-        AddObjects,     // manifest `save_added_objects = ["<rev> | <level title> | <id> <id> ..."]`
+        AddObjects,     // manifest `save_added_objects = ["<rev> | <level title> | <id>[@<required id>] ..."]`
         ReplaceEffects, // manifest `save_replaced_effects = ["<rev> | <level title> | <class hex> <class hex> | <x>
                         // <z>"]`
         RelinkPowerUps, // manifest `save_relinked_powerups = ["<rev> | <level title> | <dragon id> <power-up id> ..."]`
@@ -36,6 +36,9 @@ struct SaveRevisionRule {
     int revision = 0;     // the pack revision that made the change: applies to saves of an older revision
     std::string level;    // level title ("OotF 01 - Ruined Village")
     std::vector<u32> ids; // AddObjects, ResetTogglers: level object ids; RelinkPowerUps: the dragon, then its power-ups
+    // AddObjects: per id, a level object the save must still name for the id to be added (0 = none; `3353@2855`: the
+    // blow-up statue prop only while its generator has not burst).
+    std::vector<u32> needs;
     // ReplaceEffects: saved records without a level id whose class id (low 16 bits of the record's class word) is
     // `fromClass` and whose position is within kEffectRadius (x / z) of (x, z) get class `toClass` (same database).
     u16 fromClass = 0, toClass = 0;
@@ -76,7 +79,8 @@ struct SaveUpgradeReport {
 //  * AddObjects: level object ids appended to the untouched-object table (0x24) at its end, where no existing slot
 //  moves:
 //    the table's count and the 0x21 total grow by the number added, and each new (id, slot = old total + i) pair goes
-//    into the 0x21 pair list in id order. Ids the save already names (in a pair) are left out;
+//    into the 0x21 pair list in id order. Ids the save already names (in a pair) are left out, and so are ids whose
+//    required object the save does not name;
 //  * ReplaceEffects: applied to the saved records (0x102) that have no pair;
 //  * RelinkPowerUps: a saved dragon record with the "taken" mark and an empty list gets (0, n, power-up slots) back,
 //  for

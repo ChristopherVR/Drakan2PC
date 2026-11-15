@@ -89,10 +89,14 @@ bool parseSaveRevisionRule(const std::string& line, SaveRevisionRule::Kind kind,
         if (f.size() != 3)
             return false;
         for (const std::string& w : words(f[2])) {
-            u32 id = 0;
-            if (!toU32(w, 10, id) || id == 0)
+            const size_t at = w.find('@');
+            u32 id = 0, need = 0;
+            if (!toU32(w.substr(0, at), 10, id) || id == 0 ||
+                (at != std::string::npos &&
+                 (kind != SaveRevisionRule::Kind::AddObjects || !toU32(w.substr(at + 1), 10, need) || need == 0)))
                 return false;
             r.ids.push_back(id);
+            r.needs.push_back(need);
         }
         if (r.ids.size() < (kind == SaveRevisionRule::Kind::RelinkPowerUps ? 2u : 1u))
             return false;
@@ -114,8 +118,11 @@ bool parseSaveRevisionRule(const std::string& line, SaveRevisionRule::Kind kind,
 std::string formatSaveRevisionRule(const SaveRevisionRule& r) {
     std::string s = std::to_string(r.revision) + " | " + r.level + " | ";
     if (r.kind != SaveRevisionRule::Kind::ReplaceEffects) {
-        for (size_t i = 0; i < r.ids.size(); ++i)
+        for (size_t i = 0; i < r.ids.size(); ++i) {
             s += (i ? " " : "") + std::to_string(r.ids[i]);
+            if (i < r.needs.size() && r.needs[i])
+                s += "@" + std::to_string(r.needs[i]);
+        }
         return s;
     }
     char b[64];
@@ -146,12 +153,13 @@ bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevision
                  SaveUpgradeReport& report, std::string& err) {
     out.clear();
     report = {};
-    std::vector<u32> ids;
+    std::vector<std::pair<u32, u32>> ids; // (id, required id or 0)
     std::vector<const SaveRevisionRule*> replace, relink;
     std::vector<u32> togglers;
     for (const SaveRevisionRule* r : rules) {
         if (r->kind == SaveRevisionRule::Kind::AddObjects)
-            ids.insert(ids.end(), r->ids.begin(), r->ids.end());
+            for (size_t i = 0; i < r->ids.size(); ++i)
+                ids.emplace_back(r->ids[i], i < r->needs.size() ? r->needs[i] : 0u);
         else if (r->kind == SaveRevisionRule::Kind::ResetTogglers)
             togglers.insert(togglers.end(), r->ids.begin(), r->ids.end());
         else
@@ -225,11 +233,13 @@ bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevision
         if (list.back().second < total)
             slotNamed[list.back().second] = true;
     }
-    for (u32 id : ids) {
-        const bool named = std::any_of(list.begin(), list.end(), [&](const auto& p) { return p.first == id; });
-        if (!named && std::find(report.added.begin(), report.added.end(), id) == report.added.end())
+    const auto named = [&](u32 id) {
+        return std::any_of(list.begin(), list.end(), [&](const auto& p) { return p.first == id; });
+    };
+    for (const auto& [id, need] : ids)
+        if (!named(id) && (!need || named(need)) &&
+            std::find(report.added.begin(), report.added.end(), id) == report.added.end())
             report.added.push_back(id);
-    }
     std::vector<SrscPatch> patches;
     // Spawned records (no pair names their slot = record id - 1) of a replaced class near the rule's spot.
     if (!replace.empty())
