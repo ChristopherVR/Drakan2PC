@@ -60,7 +60,14 @@ def clean_text(text: str) -> str:
     """Plain text for the engine's font: straight quotes, no dashes that would read as an em-dash, one space."""
     text = text.replace("\u2018", "'").replace("\u2019", "'").replace("\u201c", '"').replace("\u201d", '"')
     text = re.sub(r"\s*[\u2013\u2014\u2015]\s*", ", ", text).replace("\u2026", "...").replace("\\", "/")
+    for wrong, right in NAME_FIXES:
+        text = re.sub(wrong, right, text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+# Names the model spells by ear, and the game's spelling; the converter applies the same table (formats
+# SUBTITLE_NAME_FIXES) to files written before an entry was added.
+NAME_FIXES = ((r"\bErokh\b", "Arokh"), (r"\bRin\b", "Rynn"))
 
 
 def build_cues(
