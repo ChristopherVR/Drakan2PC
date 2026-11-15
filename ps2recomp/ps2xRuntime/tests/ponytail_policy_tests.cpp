@@ -7,6 +7,7 @@ using drakan_ponytail::cadenceStep;
 using drakan_ponytail::dragScale;
 using drakan_ponytail::easedSpeed;
 using drakan_ponytail::engineSpeed;
+using drakan_ponytail::GatheredTable;
 using drakan_ponytail::kCadenceMaxStep;
 using drakan_ponytail::kCadenceStep;
 using drakan_ponytail::kDefaultSoftSpeed;
@@ -77,8 +78,8 @@ int main() {
     gathered = 0.0f;
     for (int i = 0; i < 1000; ++i)
         assert(cadenceStep(gathered, (i % 2 ? 1.0f / 144.0f : 1.0f / 240.0f)) <= kCadenceMaxStep);
-    // The world dt is in whole milliseconds: at every steady frame time of 4 to 17 ms the cloth steps 27 to 39 times
-    // a second, from 18 to 29 ms at most once a frame; no step gathers more than kCadenceMaxStep and no time is lost.
+    // The world dt is in whole milliseconds: at every steady frame time of 4 to 17 ms the cloth steps 25 to 39 times
+    // a second, from 18 to 29 ms as below; no step gathers more than kCadenceMaxStep and no time is lost.
     for (int ms = 4; ms <= 29; ++ms) {
         const float dt = 0.001f * static_cast<float>(ms);
         gathered = 0.0f;
@@ -94,9 +95,11 @@ int main() {
         }
         const float rate = static_cast<float>(steps) / 10.0f;
         if (ms <= 17)
-            assert(rate >= 27.0f && rate <= 39.0f);
+            assert(rate >= 25.0f && rate <= 39.0f);
+        else if (ms <= 21)
+            assert(rate >= 23.0f && rate <= 28.0f); // 47 to 55 fps: every other frame
         else
-            assert(steps <= frames);
+            assert(steps == frames); // 34 to 45 fps: every frame
         assert(near(total + gathered, dt * static_cast<float>(frames), 1e-2f));
     }
     // Jitter at 60 fps (16 and 17 ms frames): still about every other frame.
@@ -105,6 +108,22 @@ int main() {
     for (int i = 0; i < 600; ++i)
         jitterSteps += cadenceStep(gathered, (i % 3 ? 0.017f : 0.016f)) > 0.0f ? 1 : 0;
     assert(jitterSteps >= 290 && jitterSteps <= 310);
+    // The per-cloth table: a known cloth keeps its time; a new one steps at once; nine cloths in eight slots never all
+    // hold (each call then misses and steps), and a ninth cloth does not lose the first eight for good.
+    GatheredTable<8> table;
+    assert(table.find(0x1000u) == nullptr);
+    float* first = table.find(0x1000u);
+    assert(first && *first == 0.0f);
+    *first = 0.02f;
+    assert(table.find(0x1000u) == first && *first == 0.02f);
+    GatheredTable<8> busy;
+    int busySteps = 0;
+    for (int frame = 0; frame < 120; ++frame)
+        for (uint32_t c = 0; c < 9; ++c) {
+            float* g = busy.find(0x2000u + c * 0x100u);
+            busySteps += (g ? cadenceStep(*g, 0.008f) : 0.008f) > 0.0f ? 1 : 0;
+        }
+    assert(busySteps >= 120 * 9 / 4);
     // A zero frame time is the engine's own case (no step time): passed through, the gathered time cleared.
     gathered = 0.01f;
     assert(cadenceStep(gathered, 0.0f) == 0.0f && gathered == 0.0f);

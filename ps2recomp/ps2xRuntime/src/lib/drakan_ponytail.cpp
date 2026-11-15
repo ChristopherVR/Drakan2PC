@@ -31,21 +31,7 @@ float g_softSpeed = kDefaultSoftSpeed;
 int g_log = 0;
 std::atomic<int> g_lines{0};
 
-struct Gathered {
-    uint32_t state = 0;
-    float time = 0.0f;
-};
-Gathered g_gathered[8]; // per cloth (the player, co-op characters, NPCs that have one)
-int g_nextGathered = 0;
-
-float& gatheredFor(uint32_t state) {
-    for (Gathered& g : g_gathered)
-        if (g.state == state)
-            return g.time;
-    Gathered& g = g_gathered[g_nextGathered++ % 8];
-    g = Gathered{state, 0.0f};
-    return g.time;
-}
+GatheredTable<32> g_gathered; // per cloth (the player, co-op characters, NPCs that have one)
 
 struct Ram {
     uint8_t* data;
@@ -122,14 +108,15 @@ void clothStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     }
     const uint32_t dtAt = drakan_region::guestAddress(kWorldDt), invAt = drakan_region::guestAddress(kWorldInvDt);
     const float dt = r.f32(dtAt), inv = r.f32(invAt);
-    float& gathered = gatheredFor(state);
+    float* gathered = g_gathered.find(state);
     const bool running = (r.u32(state) & 0x11u) == 0x1u; // otherwise the step starts or resets the cloth itself
     if (!running) {
-        gathered = 0.0f;
+        if (gathered)
+            *gathered = 0.0f;
         g_orig(rdram, c, rt);
         return;
     }
-    const float stepDt = cadenceStep(gathered, dt);
+    const float stepDt = gathered ? cadenceStep(*gathered, dt) : dt; // a cloth new to the table steps at once
     if (stepDt == 0.0f) {
         // Hold: no integration (dt 0) and none of the three passes; the step still writes the particles, unchanged in
         // the body's frame, into the model's vertices. The frame of the last real step is kept for the next one.

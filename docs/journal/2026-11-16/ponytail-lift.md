@@ -55,14 +55,15 @@ Three causes, found by switching parts of the step from the hook (experiments, a
 A wrapper on `0x11d368` (and on its three passes, which only it calls), PAL only:
 
 * **Cadence.** Above 33 frames per second the step runs only on the frame nearest each 30 Hz step (`cadenceStep`:
-  gathered time within half a frame of 1/30 s, never more than 36.5 ms), with the gathered time as its dt (and 1/dt;
+  gathered time within half a frame of 1/30 s, never more than 42.5 ms), with the gathered time as its dt (and 1/dt;
   the engine caps it at 0.03 as at 30 Hz); on the frames in between it runs with dt 0 and the three passes return at
   once, so the particles stay put in the body's frame and are written to the model as they are, and the body frame of
   the last real step is put back so the next step re-bases over the whole interval. The world dt comes in whole
   milliseconds: a first rule (step when gathered + one frame passes 1/30 s) stepped on most 17 ms frames at 60 fps (132
   steps / 68 held per 200, walk 65 in `d2_60_c`); the rule above holds every other frame there (101 / 99) and is tested
-  for every steady 4 to 29 ms frame time and for 16 / 17 ms jitter. 27 to 39 steps per second from 58 to 250 fps;
-  40 to 55 fps step every frame (as before, without slow motion); 33 fps and slower are unchanged. Counted in the log:
+  for every steady 4 to 29 ms frame time and for 16 / 17 ms jitter. 25 to 39 steps per second from 58 to 250 fps;
+  47 to 57 fps hold every other frame (the engine runs the 40 ms step as 0.03, as a 25 fps PAL frame); 34 to 46 fps
+  step every frame; 33 fps and slower are unchanged. Counted in the log:
   3 passes skipped per held frame. The two other callers of the step (`0x1042c8`, a per-object update loop, and
   `0x17ec70`) call it once per object; Rynn's cloth was stepped once per frame in every run.
 * **Drag easing.** For each real step the drag coefficient (resource + 0x2c) is scaled so the drag sees
@@ -73,6 +74,8 @@ A wrapper on `0x11d368` (and on its three passes, which only it calls), PAL only
 * Restored right after the call, also when the step is preempted inside (it can wait on the heap semaphore). The world
   dt (`0x4de604` / `0x4de608`) is rewritten for the duration of the call only.
 * Applies to every cloth the engine steps; in Surdana and Ruined Village that is Rynn's ponytail alone (one state).
+  The gathered time is kept per cloth state in a table of 32 (`GatheredTable`); a state new to the table steps at once,
+  so more cloths than slots fall back to the engine's every-frame step instead of being held.
 
 `DRAKAN_PONYTAIL=0` off, `DRAKAN_PONYTAIL_SOFT_SPEED` (default 300; 0 = cadence and dt correction only),
 `DRAKAN_PONYTAIL_LOG` ([env flags](../../reference/env-flags.md)).
@@ -88,7 +91,11 @@ Same exe, `DRAKAN_PONYTAIL=0` / default:
 | Surdana uncapped, off / on (`d2_unc_off` / `d2_uncapped_c3`) | 16 / 15 | 81 / 33 | 83 / 43 (100 % / 13 %) | 87 / 66 |
 | Ruined Village scene 1.1 walk, uncapped (`rv_scene_p0` / `p1`) | 15 / 10 | 74 / 33 (>60: 72 % / 10 %) | (few samples) | |
 
-Run-to-run spread is about 8 degrees (two 30 Hz runs with the same settings: walk 33 and 41). Running still lifts
+Run-to-run spread is large: two 30 Hz runs with the same settings gave walk 33 and 41; a second uncapped run (with a
+50 fps presentation cap, which does not slow the world: dt stayed about 10 ms, `d2_50_p0` / `p1`) gave walk 80 off
+and 60 on (>60: 92 % / 50 %), run 86 / 66. A later 60 fps run with the final build (`d2_60_c4`) gave walk 12, run 62.
+The 34 to 57 fps band (whole 19 to 29 ms world frames) was not measured in game: the presentation cap did not get the
+world there. Running still lifts
 the tail further than walking: 50 degrees median at 30 Hz but 62 to 66 at 60 fps and uncapped, so a frame-rate gap
 remains for running. Stops and turns still swing it; jumps were not exercised. Ruined Village
 gameplay gave too few walking samples (Rynn placed in the 1.1 field mostly ran into slopes, `rv_unc_q0` / `q1`); its

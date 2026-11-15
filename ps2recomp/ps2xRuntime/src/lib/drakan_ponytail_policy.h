@@ -18,6 +18,7 @@
 // k2c also scales the level wind's push while moving, and with k2c below k28 the step's (k28 - k2c) x g x dt term
 // adds up to 15 % gravity while moving; both only make the tail hang lower.
 #include <cmath>
+#include <cstdint>
 
 namespace drakan_ponytail {
 
@@ -55,10 +56,11 @@ inline float dragScale(float distance, float worldDt, float worldInvDt, float so
 // 33 frames per second the step therefore runs on the frame nearest each 30 Hz step, with the time gathered since the
 // last step as its dt (the engine caps it at 0.03, as at 30 Hz); on the frames in between the particles are held in the
 // body's frame. The world dt is in whole milliseconds and jitters, so the rule is half a frame either side of 1/30 s,
-// and a step never gathers more than kCadenceMaxStep (no slow motion at 40 to 55 fps, which then step every frame).
+// and a step never gathers more than kCadenceMaxStep: 47 to 58 fps hold every other frame and step about 0.04 s, which
+// the engine runs as 0.03 (as a 25 fps PAL frame); 34 to 46 fps step every frame.
 // Returns the dt to step with, or 0 to hold this frame. `gathered` is per cloth.
 constexpr float kCadenceStep = 1.0f / 30.0f;
-constexpr float kCadenceMaxStep = 0.0365f;
+constexpr float kCadenceMaxStep = 0.0425f;
 
 inline float cadenceStep(float& gathered, float frameDt) {
     if (!(frameDt > 0.0f) || frameDt >= kEngineDtCap) {
@@ -72,5 +74,24 @@ inline float cadenceStep(float& gathered, float frameDt) {
     gathered = 0.0f;
     return dt;
 }
+
+// Gathered time per cloth state. A state not in the table steps at once (and takes a slot), so more cloths than
+// slots fall back to the engine's every-frame step instead of being held for ever.
+template <int N>
+struct GatheredTable {
+    uint32_t state[N] = {};
+    float time[N] = {};
+    int next = 0;
+    // The gathered time of `s`, or nullptr when `s` was not in the table (it is now, with 0 gathered).
+    float* find(uint32_t s) {
+        for (int i = 0; i < N; ++i)
+            if (state[i] == s)
+                return &time[i];
+        state[next] = s;
+        time[next] = 0.0f;
+        next = (next + 1) % N;
+        return nullptr;
+    }
+};
 
 } // namespace drakan_ponytail
