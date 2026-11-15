@@ -469,8 +469,8 @@ was made with, and the game refuses a save it cannot vouch for.
   The converter computes the lists: added objects are the `obj|` layout keys missing from the previous pack (or, when
   the previous pack has no `save_revision` yet, from `--save-baseline <zip>`, the pack the existing saves were made
   with); effect swaps come from the falling-tree Movers whose class "Special Effect" it clears, relinks from every PC
-  dragon (engine 28) and the Dragon Power-ups (57) it links (collected, not written: restoring the link gave the dragon
-  the breath references but not a working breath, journal), togglers from the zone-culling togglers, the needed uid of a
+  dragon (engine 28) and the Dragon Power-ups (57) it links (collected, not written: a breathless dragon of an older
+  pack is given the fire stand-in by the game itself, `drakan_dragon_breath.cpp`, journal 2026-11-16/breath-old-saves.md), togglers from the zone-culling togglers, the needed uid of a
   blow-up prop from its generator. Lines the previous
   pack listed keep their revision; anything new opens revision previous + 1 (`save revision N (new)` in the log). A new
   build (old saves refused) starts again at 0.

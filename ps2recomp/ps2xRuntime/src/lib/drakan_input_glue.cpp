@@ -31,6 +31,7 @@
 #include "drakan_intro_movie.h"
 #include "drakan_arena.h"
 #include "drakan_crystals.h"
+#include "drakan_dragon_breath.h"
 #include "drakan_playtest.h"
 #include "drakan_coop.h"
 #include "drakan_netplay.h"
@@ -848,6 +849,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (drakan_arena::takeUseTap())
         m.injectPadTap(Pad::L1, 2);
     drakan_crystals::beforePadMgr(g, rdram, gameplay);
+    drakan_dragon_breath::beforePadMgr(g, rdram, gameplay);
 #endif
     inventoryViewsTick(g, scr, gameplay);
     quickSlotsTick(g, scr, gameplay);
@@ -1640,6 +1642,7 @@ void drakanInstallInput(PS2Runtime& rt) {
     drakan_pvp::install(rt);
     drakan_arena::install(rt);
     drakan_crystals::install(rt);
+    drakan_dragon_breath::install(rt);
 #endif
     if constexpr (drakan_region::supports(drakan_region::Feature::DebugMenu))
         drakan_debug_menu::install(rt);
