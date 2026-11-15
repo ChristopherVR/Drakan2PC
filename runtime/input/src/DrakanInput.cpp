@@ -913,7 +913,7 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
     }
     if (cfg_.lookMode != LookMode::Direct || layerIsMenu_ || menuActive_.load() || !frame_.captured || hostOwned() ||
         dragon || nativeLookControlActive()) {
-        if (!dragon || cfg_.dragonStick) // dragon_mode = mouse: the counts belong to steerDragon
+        if (!dragon_ || cfg_.dragonStick) // dragon_mode = mouse on the controlled dragon: steerDragon takes them
             pendingDx_ = pendingDy_ = 0;
         aimPitchOwned_ = false;
         return false;

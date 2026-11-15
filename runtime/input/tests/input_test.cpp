@@ -743,6 +743,30 @@ static void testDragonMouseSteer() {
         }
     }
     {
+        // a dragon-mode camera look while the controlled actor is not the dragon: the counts are dropped there, not
+        // kept for steerDragon (which never runs) and replayed into the next on-foot look
+        FakeGuest g;
+        setup(g);
+        InputModule m;
+        m.initHeadless(c);
+        FrameInput f;
+        f.captured = true;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, false);
+        f.dx = 100;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, false);
+        CHECK(!m.afterCameraUpdateLook(g, PLAYER, LIM, true));
+        const size_t calls = g.calls.size();
+        m.beginFrame(FrameInput{});
+        m.beforePadMgrUpdate(g, false);
+        m.afterCameraUpdateLook(g, PLAYER, LIM, false);
+        bool turned = false;
+        for (size_t i = calls; i < g.calls.size(); ++i)
+            turned = turned || g.calls[i].addr == c.addrTurnFn;
+        CHECK(!turned);
+    }
+    {
         // controller A state bits on the controlled dragon (player + 0x94): bit 0 = no player input (no steering),
         // bit 3 = the native branch that does not pitch (no mouse pitch, the turn still applies)
         for (uint32_t bits : {1u, 8u}) {

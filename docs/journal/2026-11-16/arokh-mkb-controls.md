@@ -100,8 +100,9 @@ Flying forward (`runs/ground30`, W held, defaults 0.75 / 1.0):
 - So the defaults hold while he flies. At hover the game's correction pulls them back towards about +-0.5, as above.
 
 Holding Ctrl for 900 ticks took him down to a floor at y = 129,024 (`+0x90` stayed 0x40100 / 0x40000; bit 0x4000,
-controller A's landing branch, was never set). He did not land: landing is a separate action, and no recipe here
-reached it. At that floor:
+controller A's landing branch, was never set). That floor is the sea: the run's last frame (`runs/ground30/end.png`)
+shows him in flight just above the water with his wings spread. He did not land, and no recipe here reached solid
+ground. At that floor:
 - a 60-count turn applied in one tick (-0.12 rad, the view with it);
 - D slid him sideways;
 - W moved him, and the game levelled a -0.18 nose on its own while he moved;
@@ -121,12 +122,29 @@ Their ini patch writes `stick`, but the v3 upgrade would turn it to `mouse` on l
 recorded with the stick path. Older expectations were updated where the behaviour changed on purpose: the camera look on the dragon, strafe
 on the mount, and the v2 upgrade now ending at v3.
 
+Frames: `runs/mouse30d/end.png` and `runs/ground30/end.png` show the carried flight camera straight behind him, as the
+native one sits.
+
+Follow-up fixes (second commit):
+- The camera look's after-hook kept pending counts whenever the camera reported dragon mode. It now keeps them only
+  while the controlled actor is the dragon in mouse mode, so they cannot pile up and land in Rynn's next look.
+  There is a test for it.
+- The Arokh rows are listed as unavailable on discs without `DirectMouseLook` / `MovementInput`
+  (`drakan_settings_common.h`), like `camera_follow` / `strafe`. Apply reaches the module through the same
+  `drakan_input::reloadConfig(path)` as every other input key, which re-reads the file with `Config::loadOrCreate`.
+
+Harnesses that fly a dragon with the mouse (`coop_dragon.py`, `coop_dragon_ground.py`) now get mouse steering:
+faster turns, and the nose goes up on their small upward counts. Their checks are visual. `arena_dragons.py` uses W
+and the attack button only.
+
 ## Not verified
 
 - Breath / attack on the mount: not touched (another session owns it). The bindings are unchanged (`MOUSE1 = SQUARE`,
   `MOUSE2 = CIRCLE`, Square / Circle are the dragon's primary / secondary request). No run here checked that breath
   fires.
-- Landing, take-off, walking on the ground while mounted and dismounting were not exercised. The `+0x94` gates
+- **Grounded Arokh: no run reached it** (no attempt was made with a landing route, such as the OotF Islands start
+  with Arokh placed on the ground). Landing, take-off, walking on the ground while mounted and dismounting were not
+  exercised either. The `+0x94` gates
   follow the decompile but were never seen set. If the ground state uses other bits, the mouse still turns him about
   the world up axis there and could pitch him where the game does not level him.
 - Axes 0 / 1 (turn / pitch) are now idle in flight on mouse and keyboard, because the mouse no longer feeds the right
@@ -139,5 +157,8 @@ on the mount, and the v2 upgrade now ending at v3.
 - No visual bank on mouse turns: the game banks him only for its own (key / pad) turn rate. Mouse turns are flat.
 - The real feel at a desk (real mouse, real frame pacing) is not measured. The scripted counts reach the module through
   the same `FrameInput` path as Raw Input.
+- The full `ctest` (204 / 204 passed) ran on a tree where another session's half-edited `runtime/hle/tests/mod_test.cpp`
+  failed to build, so `mod_test` ran from an older binary. The input, settings and disc profile tests were rebuilt and
+  run on their own.
 - One run (`smooth30`) ended in a D3D11 device hang (`DXGI_ERROR_DEVICE_HUNG`) while other sessions' games shared the
   GPU. The rerun (`smooth30b`) was clean.

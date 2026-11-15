@@ -53,8 +53,10 @@ public:
                 c.unavailableSettings.insert(keys.begin(), keys.end());
         };
         require(Feature::DirectMouseLook,
-                {"input.mouse.free_combat", "input.mouse.camera_follow", "input.mouse.pitch_persist"});
-        require(Feature::MovementInput, {"input.keyboard.strafe"});
+                {"input.mouse.free_combat", "input.mouse.camera_follow", "input.mouse.pitch_persist",
+                 "input.mouse.dragon_mode", "input.mouse.dragon_sensitivity", "input.mouse.dragon_smoothing",
+                 "input.mouse.dragon_camera_carry"});
+        require(Feature::MovementInput, {"input.keyboard.strafe", "input.keyboard.dragon_strafe"});
         require(Feature::AdvancedInput, {"input.mouse.bow_aim", "input.menu.inventory_mouse",
                                          "general.skip_memcard_warning", "general.skip_intro_videos"});
         if (!supports(Feature::AdvancedInput))
