@@ -141,3 +141,64 @@ movement and foot-step sounds on the new materials; a frame-time benchmark on a 
 * The burnt black ground (367-375) stays OotF and meets Drakan 2 grass with a soft seam.
 * The editor's import dialog lists only object rows, not the ground families.
 * Needs a regenerated pack, the HD step for it (new far maps) and a new game; the exe does not change.
+
+## 7. Black patches with HD textures off: opaque copies of the Drakan 2 rock (2026-11-15 afternoon)
+
+Follow-up to `ootf-final-check.md` item 9b. Scratch, not committed: `build/review/ootf-opaque/` (`play/` private play
+folder: `build/final-game/bin` of 12:47, the owner's ini with `elf =` on a private ELF copy, `textures/` hard-linked from
+dist with only new files added; `packs/`, `runs/`, `ev/`, `tools/`, `hdwork/` + `hdout/` the private HD step).
+
+**How Drakan 2 draws 621: the same way, and with the same fault.** 621 "Brown Rock Outdoor" (material 92) and 535 "Rock -
+Gray (Outdoor)" (material 16) are 32 bpp with alpha selector 7 and feature bit 0x02; 621's raw alpha is 0 on 59 % of
+the texels and never above 0x7f; 535's raw alpha is 2 to 0x7e (no alpha-0 texel, 14 % below 0x10). Both keep a brown or grey colour under alpha 0 (621: mean
+130, 104, 68 at alpha 0). The disc uses them as ground: 535 on 29,416 cells of LEVEL1NA and in every level, 621 in LEVEL1IR
+(Inquisitor's Lair, 342 cells, cave floor and ceilings), LEVEL0RO (155), LEVEL1ED (74), LEVEL5NE (32), LEVEL4LD (12)
+(`tools/scan621.ts`). The
+converter already names the disc entry itself, so there is no other material or flag to copy. Inquisitor's Lair from the
+disc alone (OotF pack off) with HD textures off shows the same black, blocky patches on the 621 ceilings
+(`ev/disc_ir_hd0_texup.jpg` left, `runs/d2ir_hd0`, `runs/d2ir_hd1` for HD on, where they are gone).
+
+**Cause: the live texture upscale, not the texture.** With `GSR_TEXUP=1` (`texture_upscale = 1`, live upscale off) and HD off,
+the same disc view has no patches (`ev/disc_ir_hd0_texup.jpg` right); that is the one measurement. The rest is code
+reading, not traced per draw: the owner's `texture_upscale = auto` runs (inferred: the default filter picks smooth for
+this picture, not xBRZ) `smoothUpscale` (`runtime/gs/src/gs_texup.cpp`, Catmull-Rom on alpha-premultiplied colour) on native textures without
+an HD image. Its un-premultiply sets RGB to 0 wherever the interpolated alpha is near 0 (`inv = 0`), so the upscaled
+621 is black under its transparent texels (and darkened under 535's low-alpha ones). The splat pass draws the colour without texture alpha (only the noise pass
+uses it), so those texels are drawn black. This is gap 2 of `docs/reference/hd-textures.md`, in the live filter. The
+HD image keeps the colour under alpha 0 (`hd_pack.py` bleeds it). It has the same alpha as the disc entry (mean 39,
+93 % of the texels below 128), not opaque as `ootf-final-check.md` inferred, and draws fine.
+
+**Fix (converter, formats).** `TerrainTextureBuilder` gives a `native` ground entry that is drawn with texture alpha and is
+not fully opaque an opaque copy: header byte-identical (size, selector, feature byte, material at +40), colours
+unchanged, every alpha 0x80, under the next free id of the pack's `PROCTEES.TXD`, once per pack; the cells and the far
+maps use the copy (`opaqueTextureCopy`, `TerrainTextureOptions.nativeOpaque`, default on; dev knob
+`DRAKAN_TERRAIN_NATIVE_OPAQUE=0`; report `nativeOpaque`, log `drakan 2 ground, opaque copies: 621 -> 18208, 535 -> 18212`).
+The disc entries stay byte-identical (checked in the Ruined Village pack: every base entry unchanged, the level's
+splat TXD unchanged against the old pack), because Drakan 2 levels draw them while the pack is on. It applies to
+`--ps2-texture-map` ground rows as well. With HD on the look stays the same: the converter hands the copy's HD source
+(`--hd`, `<pack>.hdsrc`) as the disc entry's own picture with its alpha, so `hd_pack.py modextract` + `upscale`
+make the copy's HD image from the same source (needs `--hd`, as the play pack build uses). For 621 (`edba3646d79f303b`) and 535 (`12860babfc7bc797`) the result is
+pixel-identical to the disc images `7cce34f95c72d01c` and `6701dd7f02aeed37`, and the runtime uses an exact-hash image's
+alpha as it is (code reading, `gs_texture_cache.inl`; the run log does not name the hash used). Without that source, the RGB alias would give the disc image with the copy's alpha (opaque rock).
+Ruined Village uses only 621; Wartok Canyons uses both.
+
+| Picture (before left, after right) | Seen |
+| --- | --- |
+| `ev/rv_hd0_before_after.jpg` (`runs/rv_before_hd0b`, `rv_after_hd0`) | Ruined Village, HD off, tree 60 and the two 1845 views of item 9b: the black patches on the rock slope and the brown ground are gone; rock and ground are brown rock |
+| `ev/rv_hd1_before_after.jpg` (`runs/rv_before_hd1`, `rv_after_hd1`) | the same views with HD on: no visible difference |
+| `ev/wc_hd0_before_after.jpg` (`runs/wc_before_hd0`, `wc_after_hd0`) | Wartok Canyons, HD off, by a snow field with 535 and 621 cells (321422, 176469), four directions: black patches on the cliffs and dark specks on the rocky snow before, none after |
+
+Deviations: placed views (direct start, god mode, audio off, `place` with fixed yaw), DLSS not loaded (the bin copy
+has no `nvngx_dlss.dll`; DLSS plays no part, item 9b). The "before" packs are `ootf-final/packs/rv_t1` (formats
+`da38fdb`) and `packs/wc_before` (this tree with the knob at 0). Not run: Intro, Grimstone Mines, Grotto (same table),
+OotF with `texture_upscale = 1`.
+
+Open:
+
+* The runtime fault stays: `smoothUpscale` blackens the colour under alpha 0 for every alpha texture without an HD image,
+  so disc levels show it with HD off (Inquisitor's Lair ceilings; 535, on most disc ground, was not looked at on the disc). A fix there (upscale the colour unpremultiplied where alpha is 0, as `hd_pack.py`
+  does) would make the copies unnecessary. With HD off, the copies then draw opaque rock where the disc rock lets the
+  layer below through.
+* Splat passes draw in texture order; the copies have ids past the template's, like converted OotF tiles. No effect was
+  seen.
+* The play pack needs a reconversion and the HD step (two new images); the exe does not change.
