@@ -327,6 +327,8 @@ def run(args):
         os.environ,
         DRAKAN_INI=str(out / "drakan.ini"),
         DRAKAN_INPUT_INI=str(out / "input.ini"),
+        # The ini patch above says stick, but a controls v2 file is upgraded to dragon_mode = mouse on load.
+        DRAKAN_DRAGON_MODE="stick",
         DRAKAN_MEMCARD_DIR=str(out / "card/mc0"),
         DRAKAN_NATIVE_OPTIONS_INI=str(out / "native.ini"),
         DRAKAN_INPUT_SCRIPT=str(out / "recipe.txt"),

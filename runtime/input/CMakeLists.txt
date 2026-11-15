@@ -17,6 +17,7 @@ add_library(drakan_input STATIC
     src/MenuMouse.cpp
     src/DrakanInput.cpp
     src/BowAim.cpp
+    src/DragonSteer.cpp
     src/QuickSlots.cpp)
 add_library(drakan::input ALIAS drakan_input)
 target_include_directories(drakan_input PUBLIC include)
@@ -50,6 +51,9 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(cpu_affinity_test tests/cpu_affinity_tests.cpp)
     target_link_libraries(cpu_affinity_test PRIVATE drakan_input drakan::options)
     add_test(NAME cpu_affinity_test COMMAND cpu_affinity_test)
+    add_executable(dragon_steer_test tests/dragon_steer_tests.cpp)
+    target_link_libraries(dragon_steer_test PRIVATE drakan_input drakan::options)
+    add_test(NAME dragon_steer_test COMMAND dragon_steer_test)
     add_executable(quick_slots_test tests/quick_slots_tests.cpp)
     target_link_libraries(quick_slots_test PRIVATE drakan_input drakan::options)
     add_test(NAME quick_slots_test COMMAND quick_slots_test)

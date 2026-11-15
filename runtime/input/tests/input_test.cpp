@@ -605,16 +605,13 @@ static void testCamera() {
     m.beginFrame(f);
     m.afterCameraUpdateLook(g, PLAYER, LIM, false);
     NEAR(g.readF(CAM + 0x84), 0.6283 * 0.7, 1e-4);
-    // dragon: [-0.45 lim, +0.55 lim] with the 1.0472 limit
+    // dragon camera mode: the camera look is the game's own (the mouse steers Arokh in beforePadMgrUpdate)
     g.writeF(LIM, 1.0472f);
+    g.writeF(CAM + 0x84, 0.1f);
     f.dy = 100000;
     m.beginFrame(f);
-    m.afterCameraUpdateLook(g, PLAYER, LIM, true);
-    NEAR(g.readF(CAM + 0x84), -1.0472 * 0.45, 1e-4);
-    f.dy = -100000;
-    m.beginFrame(f);
-    m.afterCameraUpdateLook(g, PLAYER, LIM, true);
-    NEAR(g.readF(CAM + 0x84), 1.0472 * 0.55, 1e-4);
+    CHECK(!m.afterCameraUpdateLook(g, PLAYER, LIM, true));
+    NEAR(g.readF(CAM + 0x84), 0.1, 1e-6);
     // bad limits pointer -> falls back to the known constants
     g.writeF(LIM, 0.0f);
     f.dy = 100000;
@@ -675,6 +672,166 @@ static void testCamera() {
     CHECK(!m4.afterCameraUpdateLook(g4, PLAYER, LIM, false));
 }
 
+// ---- dragon_mode = mouse: the PadMgr hook turns / pitches the controlled Arokh's transform by this tick's counts ----
+static void testDragonMouseSteer() {
+    Config c = legacyPitch(Config::defaults());
+    const uint32_t actorHandle = 0x780000;
+    auto setup = [&](FakeGuest& g) {
+        setupCamera(g, 0, 1.0472f);
+        g.write32(0x600000 + 0x4b0, actorHandle);
+        for (int i = 0; i < 9; ++i) // identity rotation at handle + 0x20
+            g.writeF(actorHandle + 0x20 + 4 * i, (i % 4 == 0) ? 1.0f : 0.0f);
+    };
+    auto yawOf = [&](FakeGuest& g) { return std::atan2(-g.readF(actorHandle + 0x38), g.readF(actorHandle + 0x20)); };
+    auto pitchOf = [&](FakeGuest& g) {
+        return std::atan2(-g.readF(actorHandle + 0x34),
+                          std::hypot(g.readF(actorHandle + 0x28), g.readF(actorHandle + 0x40)));
+    };
+    {
+        FakeGuest g;
+        setup(g);
+        InputModule m;
+        m.initHeadless(c);
+        FrameInput f;
+        f.captured = true;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true); // first dragon tick (role change discards older counts)
+        f.dx = 100;
+        f.dy = -50;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        NEAR(yawOf(g), -0.2, 1e-4);  // mouse right: heading turns right by 100 x 0.002, at once
+        NEAR(pitchOf(g), 0.1, 1e-4); // mouse up: nose up by 50 x 0.002
+        uint8_t buf[32];
+        CHECK(m.fillPadSample(0, 0, buf));
+        const auto s = unpackPadSample(buf);
+        CHECK(s.rx == 128 && s.ry == 128); // the mouse is not fed into the right stick as well
+        m.beginFrame(FrameInput{});
+        m.beforePadMgrUpdate(g, true);
+        NEAR(yawOf(g), -0.2, 1e-4); // no counts: no drift, no coasting
+        f.dx = 0;
+        f.dy = -100000; // far beyond the nose-up limit
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        NEAR(pitchOf(g), c.dragonPitchMax, 1e-3);
+        CHECK(!m.afterCameraUpdateLook(g, PLAYER, LIM, true)); // the camera look does not apply the counts again
+    }
+    {
+        // not steered: on foot, menus, dragon_mode = stick, a physical right stick
+        for (int mode = 0; mode < 4; ++mode) {
+            FakeGuest g;
+            setup(g);
+            Config cc = c;
+            if (mode == 2)
+                cc.dragonStick = true;
+            InputModule m;
+            m.initHeadless(cc);
+            FrameInput f;
+            f.captured = true;
+            m.beginFrame(f);
+            m.beforePadMgrUpdate(g, mode != 0);
+            f.dx = 100;
+            if (mode == 3) {
+                f.gamepad.connected = true;
+                f.gamepad.rx = 0.5f;
+            }
+            if (mode == 1)
+                m.setMenuActive(true);
+            m.beginFrame(f);
+            m.beforePadMgrUpdate(g, mode != 0);
+            NEAR(yawOf(g), 0.0, 1e-6);
+        }
+    }
+    {
+        // controller A state bits on the controlled dragon (player + 0x94): bit 0 = no player input (no steering),
+        // bit 3 = the native branch that does not pitch (no mouse pitch, the turn still applies)
+        for (uint32_t bits : {1u, 8u}) {
+            FakeGuest g;
+            setup(g);
+            const uint32_t inner = 0x7b0000, actor = 0x7c0000;
+            g.write32(actorHandle + 0xfc, inner);
+            g.write32(inner + 0x10, actor);
+            g.write32(actor + 0x94, bits);
+            InputModule m;
+            m.initHeadless(c);
+            FrameInput f;
+            f.captured = true;
+            m.beginFrame(f);
+            m.beforePadMgrUpdate(g, true);
+            f.dx = 100;
+            f.dy = -50;
+            m.beginFrame(f);
+            m.beforePadMgrUpdate(g, true);
+            NEAR(pitchOf(g), 0.0, 1e-6);
+            NEAR(yawOf(g), bits == 8u ? -0.2 : 0.0, 1e-4);
+            g.write32(actor + 0x94, 0); // the counts of a blocked tick are dropped, not replayed later
+            m.beginFrame(FrameInput{});
+            m.beforePadMgrUpdate(g, true);
+            NEAR(yawOf(g), bits == 8u ? -0.2 : 0.0, 1e-4);
+        }
+    }
+    {
+        // dragon_camera_carry: the flight camera turns round him with the mouse turn (position and axes)
+        for (int carry = 0; carry < 2; ++carry) {
+            FakeGuest g;
+            setup(g);
+            const uint32_t view = 0x7d0000;
+            g.write32(CAM + 0x148, view);
+            for (int i = 0; i < 9; ++i)
+                g.writeF(view + 0x20 + 4 * i, (i % 4 == 0) ? 1.0f : 0.0f);
+            g.writeF(actorHandle + 0x14, 100.0f); // Arokh at (100, 50, 0), the camera 1000 behind him (+z)
+            g.writeF(actorHandle + 0x18, 50.0f);
+            g.writeF(view + 0x14, 100.0f);
+            g.writeF(view + 0x18, 50.0f);
+            g.writeF(view + 0x1c, 1000.0f);
+            Config cc = c;
+            cc.dragonCameraCarry = carry != 0;
+            InputModule m;
+            m.initHeadless(cc);
+            FrameInput f;
+            f.captured = true;
+            m.beginFrame(f);
+            m.beforePadMgrUpdate(g, true);
+            f.dx = 100; // heading -0.2
+            m.beginFrame(f);
+            m.beforePadMgrUpdate(g, true);
+            NEAR(yawOf(g), -0.2, 1e-4);
+            const float vx = g.readF(view + 0x14) - 100.0f, vz = g.readF(view + 0x1c);
+            const float viewYaw = std::atan2(-g.readF(view + 0x38), g.readF(view + 0x20));
+            if (carry) {
+                NEAR(std::atan2(vx, vz), -0.2, 1e-4); // still straight behind him
+                NEAR(std::hypot(vx, vz), 1000.0, 1e-2);
+                NEAR(g.readF(view + 0x18), 50.0, 1e-3);
+                NEAR(viewYaw, -0.2, 1e-4);
+            } else {
+                NEAR(vx, 0.0, 1e-6);
+                NEAR(vz, 1000.0, 1e-6);
+                NEAR(viewYaw, 0.0, 1e-6);
+            }
+        }
+    }
+    {
+        // invert_y and dragon_sensitivity
+        FakeGuest g;
+        setup(g);
+        Config cc = c;
+        cc.invertY = true;
+        cc.dragonScale = 0.5f;
+        InputModule m;
+        m.initHeadless(cc);
+        FrameInput f;
+        f.captured = true;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        f.dx = 100;
+        f.dy = -50;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        NEAR(yawOf(g), -0.1, 1e-4);
+        NEAR(pitchOf(g), -0.05, 1e-4);
+    }
+}
+
 static void writeFile(const std::string& p, const std::string& t);
 // ---- controls v2: persistent pitch, strafe, capture vs menu context ----
 static void testSpellMovementAxes() {
@@ -687,6 +844,7 @@ static void testSpellMovementAxes() {
     g.write32(actorInner + 0x10, PLAYER);
     g.write32(rec, 0);
     g.writeF(rec + 8, 0.8f);
+    c.dragonStrafe = false; // the mount below keeps the game's mapping
     InputModule m;
     m.initHeadless(c);
     auto tick = [&](FrameInput f, bool dragon = false) {
@@ -840,7 +998,9 @@ static void testControlsV2() {
         g.write32(REC, 0);
         g.writeF(REC + 8, 0.8f);
         InputModule m;
-        m.initHeadless(legacyPitch(c));
+        Config noDragonStrafe = legacyPitch(c);
+        noDragonStrafe.dragonStrafe = false;
+        m.initHeadless(noDragonStrafe);
         FrameInput f;
         f.captured = true;
         m.beginFrame(f);
@@ -849,9 +1009,23 @@ static void testControlsV2() {
         NEAR(g.readF(REC + 8), 1.0, 1e-6);
         m.beforePadMgrUpdate(g, false); // idempotent
         CHECK(g.read32(REC) == 3);
-        m.beforePadMgrUpdate(g, true); // Arokh: the game's own mapping
+        m.beforePadMgrUpdate(g, true); // Arokh with dragon_strafe = 0: the game's own mapping
         CHECK(g.read32(REC) == 0);
         NEAR(g.readF(REC + 8), 0.8, 1e-6);
+        {
+            InputModule md; // dragon_strafe = 1 (default) with dragon_mode = mouse: A / D strafe Arokh too
+            md.initHeadless(legacyPitch(c));
+            md.beginFrame(f);
+            md.beforePadMgrUpdate(g, true);
+            CHECK(g.read32(REC) == 3);
+            Config stick = legacyPitch(c);
+            stick.dragonStick = true; // the mouse is the stick: A / D keep turning him
+            md.initHeadless(stick);
+            md.beginFrame(f);
+            md.beforePadMgrUpdate(g, true);
+            CHECK(g.read32(REC) == 0);
+            NEAR(g.readF(REC + 8), 0.8, 1e-6);
+        }
         m.beforePadMgrUpdate(g, false);
         CHECK(g.read32(REC) == 3);
         m.setMenuActive(true);
@@ -901,10 +1075,10 @@ static void testControlsV2() {
         std::stringstream ss;
         ss << in.rdbuf();
         const std::string t1 = ss.str();
-        CHECK(t1.find("controls_version = 2") != std::string::npos && t1.find("strafe = 1") != std::string::npos &&
-              t1.find("pitch_sign = 1") != std::string::npos);
+        CHECK(t1.find("controls v2") != std::string::npos && t1.find("controls_version = 3") != std::string::npos &&
+              t1.find("strafe = 1") != std::string::npos && t1.find("pitch_sign = 1") != std::string::npos);
         Config b = Config::loadOrCreate(path, nullptr); // second load: no second block
-        CHECK(b.controlsVersion == 2);
+        CHECK(b.controlsVersion == 3);
         std::ifstream in2(path);
         std::stringstream s2;
         s2 << in2.rdbuf();
@@ -2591,7 +2765,7 @@ static void testStableAimPitch() {
         t.beforeCameraUpdateLook(guest, dragon, PLAYER);
         guest.writeF(CAM + 0x84, .05f);
         t.afterCameraUpdateLook(guest, PLAYER, LIM, dragon);
-        NEAR(guest.readF(CAM + 0x84), (exclusion >= 1 && exclusion <= 4) ? .05f : .09f, 1e-6);
+        NEAR(guest.readF(CAM + 0x84), exclusion >= 1 ? .05f : .09f, 1e-6); // 4, 5: Arokh, either dragon_mode
         t.beginFrame(FrameInput{});
         t.beforeCameraUpdateLook(guest, dragon, PLAYER);
         guest.writeF(CAM + 0x84, .03f);
@@ -3435,6 +3609,7 @@ int main() {
     testCamera();
     testControlsV2();
     testSpellMovementAxes();
+    testDragonMouseSteer();
     testCommands();
     testWalkControl();
     testExternalCapture();

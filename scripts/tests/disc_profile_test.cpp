@@ -131,6 +131,7 @@ void testMovement(drakan_input::CameraProfile profile) {
     input.setCameraProfile(profile);
     auto cfg = Config::defaults();
     cfg.toggleRun = false;
+    cfg.dragonStrafe = false; // the flight step below checks the native map comes back (A / D turn Arokh)
     input.initHeadless(cfg);
     input.reloadConfig(cfg);
     FrameInput frame;
@@ -169,7 +170,7 @@ void testMovement(drakan_input::CameraProfile profile) {
     input.beforePadMgrUpdate(g, false);
     input.afterMovementInput(g);
     assert(g.commands.size() == 5 && g.commands.back().i[3] == 1);
-    // Flight restores the disc's native axis map and scale and releases walk.
+    // Flight (with dragon_strafe = 0) restores the disc's native axis map and scale and releases walk.
     input.beforePadMgrUpdate(g, true);
     input.afterMovementInput(g);
     assert(g.commands.size() == 6 && g.commands.back().i[3] == 0);

@@ -298,6 +298,10 @@ invert_y = 0
 pitch_persist = 1
 camera_follow = 5
 bow_aim = ootf
+dragon_mode = mouse
+dragon_sensitivity = 1.0
+dragon_smoothing = 0
+dragon_camera_carry = 1
 yaw_sign = -1
 pitch_sign = -1
 stick_full_counts = 40
@@ -306,6 +310,7 @@ stick_sign_y = 1
 
 [keyboard]
 strafe = 1
+dragon_strafe = 1
 walk_scale = 0.5
 curve_compensation = 1
 directional_attack = modifier

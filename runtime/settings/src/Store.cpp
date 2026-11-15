@@ -618,7 +618,26 @@ const std::vector<Field>& fields() {
          "left to aim, release to shoot"},
         {"mouse", "free_combat", true, GETB(controls.freeCombat), SETB(controls.freeCombat),
          "free mouse combat: no controller target lock; mouse turns Rynn through attack animations"},
+        {"mouse", "dragon_mode", true, GETS(controls.dragonMode),
+         [](Settings& s, const std::string& v) {
+             const std::string u = lower(trim(v));
+             if (u == "mouse" || u == "direct")
+                 s.controls.dragonMode = "mouse";
+             else if (u == "stick")
+                 s.controls.dragonMode = "stick";
+         },
+         "Arokh: mouse = the mouse turns and pitches him directly like on foot; stick = the mouse drives the game's "
+         "right stick (the PS2 flight feel)"},
+        {"mouse", "dragon_sensitivity", true, GETF(controls.dragonScale, "%.2f"), SETF(controls.dragonScale),
+         "dragon_mode = mouse: multiplies sensitivity_x / sensitivity_y while you steer Arokh"},
+        {"mouse", "dragon_smoothing", true, GETF(controls.dragonSmoothing, "%.0f"), SETF(controls.dragonSmoothing),
+         "dragon_mode = mouse: ease the mouse steering over this many ms (0 = raw)"},
+        {"mouse", "dragon_camera_carry", true, GETB(controls.dragonCameraCarry), SETB(controls.dragonCameraCarry),
+         "dragon_mode = mouse: the view behind Arokh turns with each mouse turn at once (0 = the game's flight camera "
+         "swings round about half a second later)"},
         {"keyboard", "strafe", true, GETB(controls.strafeKeys), SETB(controls.strafeKeys), nullptr},
+        {"keyboard", "dragon_strafe", true, GETB(controls.dragonStrafe), SETB(controls.dragonStrafe),
+         "with dragon_mode = mouse, A / D strafe Arokh too (0 = A / D turn him)"},
         {"keyboard", "walk_scale", true, GETF(controls.walkScale, "%.2f"), SETF(controls.walkScale), nullptr},
         {"keyboard", "toggle_run", true, GETB(controls.toggleRun), SETB(controls.toggleRun), nullptr},
         {"keyboard", "curve_compensation", true, GETB(controls.curveCompensation), SETB(controls.curveCompensation),
@@ -828,6 +847,16 @@ std::string settingLabel(const std::string& key) {
         return "Free mouse combat";
     if (key == "input.mouse.camera_follow")
         return "Camera follow";
+    if (key == "input.mouse.dragon_mode")
+        return "Arokh steering";
+    if (key == "input.mouse.dragon_sensitivity")
+        return "Arokh mouse sensitivity";
+    if (key == "input.mouse.dragon_smoothing")
+        return "Arokh mouse smoothing";
+    if (key == "input.mouse.dragon_camera_carry")
+        return "Arokh camera follows the mouse";
+    if (key == "input.keyboard.dragon_strafe")
+        return "A / D strafe on Arokh";
     if (key == "input.mouse.bow_aim")
         return "Bow combat";
     if (key == "input.gamepad.debug_menu_combo")

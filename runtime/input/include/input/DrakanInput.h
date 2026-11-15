@@ -2,6 +2,7 @@
 #pragma once
 #include "input/Config.h"
 #include "input/CameraProfile.h"
+#include "input/DragonSteer.h"
 #include "input/FrameInput.h"
 #include "input/GuestInterface.h"
 #include "input/HostInput.h"
@@ -99,8 +100,10 @@ public:
     bool bowCrosshairVisible() const {
         return (bowAiming_.load() || bowSightOpen_.load()) && !hostOwned() && !menuActive_.load();
     }
-    // Before-hook for PadMgr_Update: A / D strafe (on foot) by pointing the left stick's X at the strafe axis (3)
-    // instead of the turn axis (0). `dragon` = current controlled-actor role: the game's mapping is restored there.
+    // Before-hook for PadMgr_Update: A / D strafe (on foot, and on Arokh with [keyboard] dragon_strafe) by pointing
+    // the left stick's X at the strafe axis (3) instead of the turn axis (0). `dragon` = current controlled-actor
+    // role. With [mouse] dragon_mode = mouse it also turns / pitches the controlled Arokh by the mouse counts of this
+    // tick (steerDragon, DragonSteer.h) before the game's controller runs.
     void beforePadMgrUpdate(IGuest& g, bool dragon);
 
     // After-hook for PadMgr_Update (0x1e3970): delivers ACT:/CMD: bindings and (optionally) menu cursor / clicks.
@@ -319,7 +322,10 @@ private:
     std::atomic<bool> menuCtx_{false};
     bool modeFlagSaved_ = false;
     uint32_t modeFlagValue_ = 0;
-    bool dragon_ = false;          // controlled-actor role reported through beforePadMgrUpdate
+    bool dragon_ = false;     // controlled-actor role reported through beforePadMgrUpdate
+    DragonSteer dragonSteer_; // dragon_mode = mouse: counts not yet turned into Arokh's heading / pitch
+    void steerDragon(IGuest& g, bool dragon);
+    void carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch);
     bool meleeDirections_ = false; // current native Rynn has a drawn melee weapon, no bow or summon
     uint64_t meleeIdentity_ = 0;   // current player/weapon; changing either cancels a buffered attack
     bool strafeActive_ = false;

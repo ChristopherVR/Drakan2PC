@@ -686,6 +686,42 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
               {"always", "Always"},
               {"off", "Arrow keys only"}});
 
+    pg.sections.push_back({"Arokh", {}});
+    b.sec = &pg.sections.back();
+    {
+        const bool mouseSteer = c.dragonMode != "stick" && c.lookMode == LookMode::Direct;
+        b.choice("input.mouse.dragon_mode", "Arokh steering",
+                 "Mouse: moving the mouse turns and pitches Arokh at once by a fixed angle per count, like looking "
+                 "round on foot (no dead zone, no speed limit, no drift after you stop); W / S fly forward / slow "
+                 "down, Space climbs, Ctrl / C dives. Right stick emulation: the mouse drives the game's right stick "
+                 "as on the PS2 (turns build up and coast). A controller's right stick always steers natively.",
+                 {{"mouse", "Mouse (PC)"}, {"stick", "Right stick emulation"}}, false, env.caps.directMouseLook);
+        char fm[48];
+        std::snprintf(fm, sizeof fm, "x%%.2f   (%.4f rad / count)", static_cast<double>(c.sensX * c.dragonScale));
+        SettingRow& s = b.slider("input.mouse.dragon_sensitivity", "Arokh mouse sensitivity",
+                                 "Multiplies the mouse sensitivity while you steer Arokh (1 = the same turn per "
+                                 "count as on foot).",
+                                 c.dragonScale, 0.25f, 4.0f, fm, 0.0f, mouseSteer);
+        s.logarithmic = true;
+        s.needs = "Needs Arokh steering: Mouse and Look mode: Direct.";
+        SettingRow& sm = b.slider("input.mouse.dragon_smoothing", "Arokh mouse smoothing",
+                                  "Spreads each mouse movement over this many milliseconds, for a softer flight "
+                                  "line. Every count still arrives. 0 = raw: Arokh turns on the same frame.",
+                                  c.dragonSmoothing, 0.0f, 150.0f, "%.0f ms", 5.0f, mouseSteer);
+        sm.zeroLabel = "Off (raw)";
+        sm.needs = "Needs Arokh steering: Mouse and Look mode: Direct.";
+        b.toggle("input.mouse.dragon_camera_carry", "Arokh camera follows the mouse",
+                 "The view behind Arokh turns with him on the same frame as the mouse. Off: the game's flight camera "
+                 "swings round after him about half a second later.",
+                 false, mouseSteer)
+            .needs = "Needs Arokh steering: Mouse and Look mode: Direct.";
+        b.toggle("input.keyboard.dragon_strafe", "A / D strafe on Arokh",
+                 "A and D slide Arokh sideways while the mouse turns him, as on foot. Off: A and D turn him (the "
+                 "PS2 mapping).",
+                 false, mouseSteer)
+            .needs = "Needs Arokh steering: Mouse and Look mode: Direct.";
+    }
+
     pg.sections.push_back({"Gamepad", {}});
     b.sec = &pg.sections.back();
     b.toggle("input.gamepad.enabled", "Use gamepad", "Merge an XInput pad with keyboard and mouse.", false,

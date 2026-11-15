@@ -10,6 +10,55 @@ Note: `docs/reference/iop-and-io.md` quotes libpad entry points 4 bytes off for 
 `scePadInit` 0x4b0948, `PortOpen` 0x4b0ba8, `Read` 0x4b0ef8, `GetState` 0x4b0f78, `SetMainMode` 0x4b1490, `SetActDirect` 0x4b1548.
 Use the `functions.csv` entry addresses for hooks.
 
+## Arokh on mouse and keyboard (2026-11-16)
+
+`[mouse] dragon_mode = mouse` (default from controls v3; `direct` is the same value) steers the controlled Arokh like
+mouse look on foot. `InputModule::beforePadMgrUpdate` (`steerDragon`) takes the counts since the last world tick and,
+before his controller runs, turns his world transform (`handle + 0x20`, rows of the 3 x 3) about the world up axis
+by `-dx x sensitivity_x x dragon_sensitivity` and about his own right axis by `-dy x sensitivity_y x
+dragon_sensitivity` (`input/DragonSteer.h`, pure and unit tested). The mouse no longer reaches the right stick
+in flight. A count is a fixed angle: there is no dead zone, no full-deflection clamp, no squared response, no rate
+lag and no coasting, at any world rate. The game's flight model is unchanged and still integrates keys and pads, so
+he flies where the nose points (W while nose up climbs, nose down dives).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `[mouse] dragon_mode` | `mouse` | `stick` = the 2026-10 path: the mouse is fed into the right stick (rate based, `stick_full_counts`). |
+| `[mouse] dragon_sensitivity` | 1.0 | Multiplier of `sensitivity_x` / `_y` while steering Arokh. |
+| `[mouse] dragon_smoothing` | 0 | Exponential ease of the counts (ms); every count still arrives. |
+| `[mouse] dragon_camera_carry` | 1 | Turns the flight camera's position round him and its axes by the same rotation, so the view follows the mouse in the same tick. The native flight camera (mode 1, not the mode-6 tick `camera_follow` carries) otherwise swings round about 0.5 s later. |
+| `[mouse] dragon_pitch_up` / `_down` | 0.75 / 1.0 rad | Nose limits of the mouse pitch, the hard limits of controller A (`0x271e18`) while he is slow. Both are held exactly while he flies forward. At hover the game's correction eases anything beyond about +-0.5 back to there. |
+| `[keyboard] dragon_strafe` | 1 | A / D slide him sideways (left stick X on axis 3, the flight model's lateral input) while the mouse turns him. 0, or `dragon_mode = stick`, keeps the PS2 mapping (A / D turn). |
+
+The keys were already right: W / S = forward / back (axis 2), Space (Triangle) climbs, Ctrl / C (Cross) dives. Mouse
+up raises the nose (mouse-look sense) and `invert_y` reverses it. The stick path had the opposite sense: mouse up put
+the nose down, as a pad's stick does. Steering stops while a physical right stick or an `RSTICK` binding is active,
+in menus, while host-owned or uncaptured, during scripted control (`0x4fbafc`), and while his `+0x94` bit 0 is set
+(controller A reads no player input then). His `+0x94` bit 3 (the branch where A does not pitch him) stops the mouse
+pitch. Both bits are [M] and were not seen set in flight. Counts are discarded on mount and dismount. Camera_UpdateLook and its after-hook leave Arokh alone in both modes: controllers A / B call it only in
+camera mode 6, and the camera look pitch is not his attitude. The old `direct` path therefore never steered the
+flight. `DRAKAN_DRAGON_MODE` / `_SENS` / `_SMOOTHING` / `_STRAFE` override the file for one run, and
+`DRAKAN_DRAGON_TRACE=1` logs one `[dragon]` line per tick ([env flags](env-flags.md)). Older files are upgraded in
+place: `dragon_mode = stick` (the default every earlier file was written with) becomes `mouse`, and
+`controls_version` becomes 3. F1 > Controls > Arokh has the rows.
+
+Flight model facts used here ([M], `FUN_003a5210`, called by controllers A, B and C with the player object):
+`+0xc` pitch rate and `+0x10` yaw rate are first-order lags `rate += min(1, dt x k) x (gain x input - rate)` with
+`k` = `+0x38` / `+0x3c`. Controller A pitches the transform by `2 x (+0xc) x dt` about its axis 0 and rolls
+it about axis 2. The roll feeds a turn of its own (`+0x14 = k x sin(roll)`) and speed scales the direct yaw. So a stick turn
+builds up, banks and coasts.
+
+Measured on Ravenshold (Rynn on Arokh) with the same private exe in both modes. Numbers are per probe of the recipe:
+"t90" is the number of world ticks until 90 % of the final heading change, "coast" is the change after the last count.
+Logs are in `docs/journal/2026-11-16/arokh-mkb-controls.md`.
+
+| Probe (30 Hz) | stick (old): rad, mrad/count, t90, coast | mouse (new): rad, t90, coast | view t90 old / new |
+| --- | --- | --- | --- |
+| 30 counts in one tick | -0.027, 0.90, 28, all of it | -0.060, 0, 0 | 38 / 0 |
+| 360 counts in 3 ticks (flick) | -0.080, 0.22 (clamped), 3, -0.036 | -0.720, 2, 0 | 20 / 2 |
+| 10 counts x 30 ticks | -0.446, 1.49, 28, -0.016 | -0.600, 26, 0 | 40 / 26 |
+| 1 count x 60 ticks | -0.114, 1.90, 55, -0.002 | -0.120, 53, 0 | 64 / 54 |
+
 ## Keyboard directional attacks (2026-11-05)
 
 `PadSynth::synthesizePad` projects active `LSTICK_*` bindings onto matching D-pad buttons while a
@@ -93,8 +142,8 @@ from the opening scripted walk, and the controlled actor's profile class to reta
 `disc_combat_check.py` runs the same native-save melee and movement recipes on each release. The paired checks
 cover target damage, block release, walk press/release, strafe without rotation and direct yaw. Native Ravenshold
 starts establish real mounted climb/forward movement and mouse yaw/pitch on both discs, plus native attack
-request release. Flight keeps `dragon_mode = stick`; direct dragon writes, breath damage and landing remain
-outside this evidence. Observer offsets and serialized fixture classes also live in the disc profiles.
+request release. Flight then kept `dragon_mode = stick` (since 2026-11-16 the default is `mouse`, see
+"Arokh on mouse and keyboard"); breath damage and landing remain outside this evidence. Observer offsets and serialized fixture classes also live in the disc profiles.
 See [the combat/flight journal](../journal/2026-10-30/usa-combat-flight.md) and [harness commands](../../scripts/README.md#disc-combat-and-flight-checks).
 
 ## 1. Big picture
@@ -390,7 +439,7 @@ running port with real `SendInput` (mouse_event / keybd_event) and `PrintWindow`
 | Yaw | unchanged and verified again visually: mouse right turns right (the scene moves left; 300 counts x 0.002 = 0.6 rad of heading, `FUN_0013ee90`). Raw counts -> angle, no acceleration, no smoothing, independent of the frame rate (the Raw Input deltas are accumulated between frames). |
 | Why the pitch snapped back | `Camera_UpdateLook` runs in two modes selected by `InputDev` vslot `+0x3c(2)` = `*(PadMgr + 0x4d4)` (set to 1 in the PadMgr constructor): non-zero ("stick position mode", `uVar7 = 1`) calls `Camera_SoftLimitAxis` and eases `cam+0x84` towards the position given by the stick (0 when centred) every frame; zero = pure rate mode (`pitch += cam+0x9c * dt * 2.2`, `cam+0x9c` follows axis 1), which has no re-centring. The module now clears that word (`addr_stick_mode_flag = 0x4e9594`) **only for the duration of the `Camera_UpdateLook` call** while the mouse looks (direct mode, no pad right stick deflected) and restores it afterwards (pad users keep the stock behaviour). This also holds while the capture is dropped by focus loss (Alt, Alt+Tab) or an Esc release, as long as the mouse / keyboard last owned the view: before 2026-11-08 the uncaptured frames left the flag set and a lowered pitch swung back up to level in the background. The old `pitch_hold_ms` hack (re-writing the pitch for 1.2 s) is gone. Verified: pitch -0.6283 stayed -0.6283 for 3 s with the mouse idle. |
 | Strafe on A / D | Scheme A maps the left stick X to axis 0 (turn). The stick records at `PadMgr+0x498` (`{s32 axisId, float out, float scale}` per stick: lx, ly, rx, ry) are rewritten before every `PadMgr_Update`: lx -> axis 3 (the strafe axis, what scheme C uses), scale 1.0, on foot only; while the last `Camera_UpdateLook` call was in dragon mode, in menus and with `[keyboard] strafe = 0` the game's own record is put back (the options code reinstalls it, the module re-detects that). No change in Options > Controller is needed. Verified: `D` moves the player along the heading's side vector and the tent in view drifts left (`r4_ctl_s1_strafeD.png`), `A` returns. |
-| Arokh flight | Camera mode (`dragonMode` argument of `Camera_UpdateLook`, limits 1.047) is exposed to the module. In flight the mouse goes through the game's own right-stick path (`[mouse] dragon_mode = stick`, rate based, same `stick_full_counts` / `invert_y` as the stick look mode) instead of the direct heading / pitch write; `direct` is available but unverified. Mounted Ravenshold movement was checked on both releases with the 2026-10-30 disc harness (see Runtime disc integration). Which of `Controller_Update_A/B/C` (0x271e18 / 0x274c18 / 0x311220) is the dragon one is still unknown; all three call `Player_GatherInput`, and the stick mapping tables (`Options_LoadStickScheme`, air table 0x511f08) feed the same axes, so the stick path works for whichever it is. |
+| Arokh flight | Superseded 2026-11-16 by "Arokh on mouse and keyboard" (`dragon_mode = mouse`). Camera mode (`dragonMode` argument of `Camera_UpdateLook`, limits 1.047) is exposed to the module. In flight the mouse went through the game's own right-stick path (`[mouse] dragon_mode = stick`, rate based, same `stick_full_counts` / `invert_y` as the stick look mode) instead of the direct heading / pitch write; `direct` was available but never steered the flight. Mounted Ravenshold movement was checked on both releases with the 2026-10-30 disc harness (see Runtime disc integration). Which of `Controller_Update_A/B/C` (0x271e18 / 0x274c18 / 0x311220) is the dragon one is still unknown; all three call `Player_GatherInput`, and the stick mapping tables (`Options_LoadStickScheme`, air table 0x511f08) feed the same axes, so the stick path works for whichever it is. |
 | Capture vs menu | New `InputModule::setMenuContext`: the mouse is released and the brass cursor drawn only while a game menu / message box (screen ids 1 2 3 4 5 8 9 10 13 0x17 0x1b 0x1c), the inventory / map, or the F1 overlay is up. Cut scenes, loading screens and gameplay (the "menu layer" for the pad bindings) keep the mouse captured and hide the cursor, even right after the mouse moved. |
 | Menu clicks | The click-on-empty-area -> Cross fallback of `MenuMouse` is removed: a click that is not over a focusable widget does nothing (it activated the highlighted row on pages without widgets). |
 

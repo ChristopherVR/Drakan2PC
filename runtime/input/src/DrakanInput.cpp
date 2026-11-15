@@ -683,14 +683,14 @@ void InputModule::beforeCameraUpdateLook(IGuest& g, bool dragon, uint32_t player
         // Focus loss (Alt, Alt+Tab, a click outside) or a cursor released with Esc drops the capture, but the mouse
         // still owns the view: the neutral stick must not let the native re-centring swing a lowered (or raised)
         // pitch back to level while the window is in the background.
-        if (mouseLook && mouseKeyboardOwner_ && cfg_.pitchPersist && !(dragon && cfg_.dragonStick))
+        if (mouseLook && mouseKeyboardOwner_ && cfg_.pitchPersist && !dragon)
             holdPitch();
         return;
     }
     // A physical right stick (pad) keeps the game's own behaviour (position mode: the pitch follows the stick and
     // re-centres on release).
-    if (dragon && cfg_.dragonStick)
-        return; // flight: the game's own stick path steers
+    if (dragon)
+        return; // Arokh: the game's own look (dragon_mode = stick) or steerDragon (mouse) steers
     // Direct mouse displacement must not inherit a controller's decaying rates.
     // Clear them BEFORE native integration, including idle mouse frames. A live
     // right stick/RSTICK binding returned above and retains its native momentum.
@@ -912,8 +912,9 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
         modeFlagSaved_ = false;
     }
     if (cfg_.lookMode != LookMode::Direct || layerIsMenu_ || menuActive_.load() || !frame_.captured || hostOwned() ||
-        (dragon && cfg_.dragonStick) || nativeLookControlActive()) {
-        pendingDx_ = pendingDy_ = 0;
+        dragon || nativeLookControlActive()) {
+        if (!dragon || cfg_.dragonStick) // dragon_mode = mouse: the counts belong to steerDragon
+            pendingDx_ = pendingDy_ = 0;
         aimPitchOwned_ = false;
         return false;
     }
@@ -1051,6 +1052,7 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     dragon_ = dragon;
     if (dragon)
         freeCombatFrame_.store(false);
+    steerDragon(g, dragon);
     // record i (0 = lx) at addrStickMap + 12 * i: {s32 axisId, float out, float scale} (docs/reference/input.md 2
     // / 3.2)
     const uint32_t rec = cfg_.addrStickMap;
@@ -1099,8 +1101,9 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     meleeDirections_ = melee;
     meleeIdentity_ = meleeIdentity;
     const bool casting = summon >= 1 && summon <= 4;
-    const bool want =
-        cfg_.strafeKeys && !casting && !padSteering && frame_.focused && !layerIsMenu_ && !dragon && !hostOwned();
+    const bool dragonStrafe = cfg_.dragonStrafe && !cfg_.dragonStick && cfg_.lookMode == LookMode::Direct;
+    const bool want = cfg_.strafeKeys && !casting && !padSteering && frame_.focused && !layerIsMenu_ &&
+                      (!dragon || dragonStrafe) && !hostOwned();
     const int32_t axis = static_cast<int32_t>(g.read32(rec));
     if (want) {
         if (axis != 3) { // (re)installed by the options code: remember the game's own mapping, then strafe
@@ -1116,6 +1119,161 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
             g.write32(rec + 8, strafeOrigScale_);
         }
         strafeActive_ = false;
+    }
+}
+
+// [mouse] dragon_camera_carry: the view behind Arokh eases round him about half a second after he turns (the native
+// flight camera). Turn its position round him and its axes by the same rotation the mouse gave him, so the mouse turns
+// the view at once; the native follow then only covers his travel, as before.
+void InputModule::carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw,
+                                    float pitch) {
+    const auto& l = camera_.layout;
+    const auto valid = [](uint32_t address, uint64_t bytes) {
+        const uint32_t p = address & 0x1fffffffu;
+        return p >= 0x100000u && p < kGuestRamEnd && bytes <= kGuestRamEnd - p;
+    };
+    const uint32_t handle = valid(ctx, uint64_t(l.contextCamera) + 4) ? g.read32(ctx + l.contextCamera) : 0;
+    const uint32_t inner = valid(handle, uint64_t(l.handleInner) + 4) ? g.read32(handle + l.handleInner) : 0;
+    const uint32_t cam = valid(inner, uint64_t(l.innerData) + 4) ? g.read32(inner + l.innerData) : 0;
+    const uint32_t obj = valid(cam, uint64_t(l.cameraTransform) + 4) ? g.read32(cam + l.cameraTransform) : 0;
+    if (!valid(obj, uint64_t(l.transformRight) + 36) || obj == dragon ||
+        (g.read32(cam + l.cameraFlags) & (0x80u | 0x20000u)))
+        return;
+    float off[3], cols[3][3];
+    for (int i = 0; i < 3; ++i) {
+        off[i] = g.readF(obj + l.transformPosition + 4u * static_cast<uint32_t>(i)) -
+                 g.readF(dragon + l.transformPosition + 4u * static_cast<uint32_t>(i));
+        for (int c = 0; c < 3; ++c)
+            cols[c][i] = g.readF(obj + l.transformRight + 4u * static_cast<uint32_t>(i * 3 + c));
+    }
+    // A camera far from him is not following him (a cut-in, a fixed view): leave it to the game.
+    if (!(off[0] * off[0] + off[1] * off[1] + off[2] * off[2] < 1.0e8f))
+        return;
+    const float up[3] = {0, 1, 0};
+    float right[3] = {m[0], m[3], m[6]}; // his right axis after the turn: the pitch axis
+    const float rl = std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
+    if (!(rl > 1e-6f))
+        pitch = 0.0f;
+    else
+        for (float& v : right)
+            v /= rl;
+    auto turn = [&](float v[3]) {
+        if (yaw != 0.0f)
+            rotateAbout(v, up, yaw);
+        if (pitch != 0.0f)
+            rotateAbout(v, right, pitch);
+    };
+    turn(off);
+    for (auto& c : cols)
+        turn(c);
+    for (int i = 0; i < 3; ++i) {
+        g.writeF(obj + l.transformPosition + 4u * static_cast<uint32_t>(i),
+                 g.readF(dragon + l.transformPosition + 4u * static_cast<uint32_t>(i)) + off[i]);
+        for (int c = 0; c < 3; ++c)
+            g.writeF(obj + l.transformRight + 4u * static_cast<uint32_t>(i * 3 + c), cols[c][i]);
+    }
+}
+
+// dragon_mode = mouse: the counts gathered since the last world tick turn the controlled Arokh's transform about the
+// world up axis and pitch it about his own right axis (input/DragonSteer.h), before the game's controller integrates
+// its own rates for this tick. Keys and a pad keep the game's flight model; nothing else is written.
+void InputModule::steerDragon(IGuest& g, bool dragon) {
+    static const bool trace = [] {
+        const char* e = std::getenv("DRAKAN_DRAGON_TRACE");
+        return e && e[0] && e[0] != '0';
+    }();
+    const auto& l = camera_.layout;
+    const auto valid = [](uint32_t address, uint64_t bytes) {
+        const uint32_t p = address & 0x1fffffffu;
+        return p >= 0x100000u && p < kGuestRamEnd && bytes <= kGuestRamEnd - p;
+    };
+    const bool mouseMode = dragon && !cfg_.dragonStick && cfg_.lookMode == LookMode::Direct;
+    bool owned = mouseMode && frame_.captured && frame_.focused && !layerIsMenu_ && !menuActive_.load() &&
+                 !hostOwned() && !nativeLookControlActive() && !g.read32(camera_.scripted);
+    if (!owned) {
+        dragonSteer_.reset();
+        if (mouseMode)
+            pendingDx_ = pendingDy_ = 0;
+    } else {
+        dragonSteer_.add(pendingDx_, pendingDy_);
+        pendingDx_ = pendingDy_ = 0;
+    }
+    if (!dragon || (!owned && !trace))
+        return;
+    const uint32_t ctx = g.read32(camera_.context);
+    const uint32_t h = valid(ctx, uint64_t(l.contextActor) + 4) ? g.read32(ctx + l.contextActor) : 0;
+    const uint32_t mAddr = h + l.transformRight; // rows of the rotation, see DragonSteer.h
+    if (!valid(h, uint64_t(l.transformRight) + 36))
+        return;
+    float m[9];
+    for (int i = 0; i < 9; ++i)
+        m[i] = g.readF(mAddr + 4u * static_cast<uint32_t>(i));
+    for (float v : m)
+        if (!std::isfinite(v))
+            return;
+    // Controller A (0x271e18) reads no player input while +0x94 bit 0 is set (it runs 0x267cf0 instead) and does
+    // not pitch the transform itself while bit 3 is set (its other, ground-style yaw branch). Follow it: no mouse
+    // steering at all in the first state, no mouse pitch in the second, so he cannot be left tilted where the game
+    // would not level him. Both bits are read from the decompile; neither was seen set in flight (trace f94).
+    const uint32_t ai = valid(h, uint64_t(l.handleInner) + 4) ? g.read32(h + l.handleInner) : 0;
+    const uint32_t actor = valid(ai, uint64_t(l.innerData) + 4) ? g.read32(ai + l.innerData) : 0;
+    const bool actorOk = valid(actor, uint64_t(l.playerFlags2) + 4);
+    const uint32_t flags2 = actorOk ? g.read32(actor + l.playerFlags2) : 0u;
+    if (owned && (flags2 & 1u)) {
+        dragonSteer_.reset();
+        owned = false;
+    }
+    DragonSteerStep s;
+    float pitchApplied = 0.0f;
+    if (owned) {
+        DragonSteerConfig c;
+        c.sensX = cfg_.sensX;
+        c.sensY = cfg_.sensY;
+        c.scale = cfg_.dragonScale;
+        c.invertX = cfg_.invertX;
+        c.invertY = cfg_.invertY;
+        c.smoothingMs = cfg_.dragonSmoothingMs;
+        c.pitchMin = cfg_.dragonPitchMin;
+        c.pitchMax = cfg_.dragonPitchMax;
+        s = dragonSteer_.step(c, frame_.frameSeconds);
+        if (s.yaw != 0.0f)
+            rotateWorldYaw(m, s.yaw);
+        if (!(flags2 & 8u))
+            pitchApplied = clampPitchDelta(dragonPitch(m), s.pitch, c.pitchMin, c.pitchMax);
+        if (pitchApplied != 0.0f)
+            rotateLocalPitch(m, pitchApplied);
+        if (s.yaw != 0.0f || pitchApplied != 0.0f) {
+            for (int i = 0; i < 9; ++i)
+                g.writeF(mAddr + 4u * static_cast<uint32_t>(i), m[i]);
+            if (cfg_.dragonCameraCarry)
+                carryDragonCamera(g, ctx, h, m, s.yaw, pitchApplied);
+        }
+    }
+    if (trace) {
+        // One line per world tick while Arokh is controlled: this tick's counts, the angles applied here, his heading
+        // / pitch / position after them (before the native controller) and the view's heading.
+        const uint32_t handle = valid(ctx, uint64_t(l.contextCamera) + 4) ? g.read32(ctx + l.contextCamera) : 0;
+        const uint32_t inner = valid(handle, uint64_t(l.handleInner) + 4) ? g.read32(handle + l.handleInner) : 0;
+        const uint32_t cam = valid(inner, uint64_t(l.innerData) + 4) ? g.read32(inner + l.innerData) : 0;
+        const uint32_t view = valid(cam, uint64_t(l.cameraTransform) + 4) ? g.read32(cam + l.cameraTransform) : 0;
+        float vm[9] = {};
+        if (valid(view, uint64_t(l.transformRight) + 36))
+            for (int i = 0; i < 9; ++i)
+                vm[i] = g.readF(view + l.transformRight + 4u * static_cast<uint32_t>(i));
+        std::fprintf(
+            stderr,
+            "[dragon] f=%d dt=%.4f dx=%d dy=%d mode=%s own=%d yawIn=%.5f pitchIn=%.5f yaw=%.5f pitch=%.5f "
+            "pos=%.1f,%.1f,%.1f view=%.5f vpitch=%.5f cmode=%u cflags=%x f90=%x f94=%x rx=%u ry=%u lx=%u ly=%u\n",
+            frameNo_, static_cast<double>(frame_.frameSeconds), frame_.dx, frame_.dy,
+            cfg_.dragonStick ? "stick" : "mouse", owned ? 1 : 0, static_cast<double>(s.yaw),
+            static_cast<double>(pitchApplied), static_cast<double>(dragonYaw(m)), static_cast<double>(dragonPitch(m)),
+            static_cast<double>(g.readF(h + l.transformPosition)),
+            static_cast<double>(g.readF(h + l.transformPosition + 4)),
+            static_cast<double>(g.readF(h + l.transformPosition + 8)), static_cast<double>(dragonYaw(vm)),
+            static_cast<double>(dragonPitch(vm)), cam ? g.read32(cam + l.cameraMode) : 0u,
+            cam ? g.read32(cam + l.cameraFlags) : 0u, actorOk ? g.read32(actor + l.playerFlags) : 0u,
+            actorOk ? g.read32(actor + l.playerFlags2) : 0u, padSample_[4], padSample_[5], padSample_[6],
+            padSample_[7]);
     }
 }
 

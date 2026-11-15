@@ -302,7 +302,7 @@ capture_mouse = 1          ; hide + clip the cursor while playing
 release_on_esc = 0         ; 1: Esc also toggles the capture by hand (not needed: the cursor is freed automatically whenever the game is not in gameplay, e.g. pause menu)
 toggle_key = F10           ; manual capture toggle
 look_mode = direct         ; direct = raw angles into camera/player, stick = emulate the right stick
-controls_version = 2       ; 2 = Order-of-the-Flame style controls (A/D strafe, mouse pitch stays); written by the upgrade of older files
+controls_version = 3       ; 2 = Order-of-the-Flame style controls (A/D strafe, mouse pitch stays), 3 = mouse steering for Arokh; written by the upgrade of older files
 
 [mouse]
 sensitivity_x = 0.0020     ; radians per mouse count (direct mode)
@@ -317,7 +317,12 @@ pitch_view_gain = 1.8      ; the game shows 1.8x the camera pitch on foot; mouse
 bow_draw = 1             ; hold left to show the drawn bow (aiming stance on the torso until the release); 0 = pose only on release
 bow_aim = ootf             ; ootf: hold left to draw and aim (crosshair), release to shoot, walk any direction, right click toggles the first-person sight; native = the original PS2 bow (click fires); modern = ootf without the first-person sight adapters
 bow_zoom = 0.85            ; field of view factor while aiming the bow (1 = no zoom)
-dragon_mode = stick        ; Arokh flight: stick = the mouse steers through the game's own right-stick path (OotF style flight), direct = raw angles like on foot (unverified)
+dragon_mode = mouse        ; Arokh: mouse = the mouse turns and pitches him directly like on foot (no stick, dead zone or rate lag); stick = the mouse drives the game's right stick (the PS2 flight feel)
+dragon_sensitivity = 1.0   ; dragon_mode = mouse: multiplies sensitivity_x / sensitivity_y while you steer Arokh
+dragon_camera_carry = 1    ; dragon_mode = mouse: the view behind Arokh turns with each mouse turn at once (0 = the game's flight camera swings round him about half a second later)
+dragon_smoothing = 0       ; dragon_mode = mouse: ease the mouse steering over this many ms (0 = raw, every count turns him at once)
+dragon_pitch_up = 0.75     ; dragon_mode = mouse: highest nose-up angle the mouse sets (radians; the game's own hard limit while slow)
+dragon_pitch_down = 1.0    ; dragon_mode = mouse: steepest nose-down angle the mouse sets (radians; the game's own hard limit while slow)
 yaw_sign = -1              ; verified in the running game: mouse right turns right
 pitch_sign = -1            ; negative camera pitch looks DOWN; mouse up raises it. Explicit legacy signs are preserved.
 stick_full_counts = 40     ; stick mode: counts per 1/30 s for full deflection (independent of the frame rate)
@@ -328,6 +333,7 @@ stick_sign_y = 1
 walk_scale = 0.5
 toggle_run = 0             ; 1 = press WALK to switch between running and walking; starts running
 strafe = 1                 ; A / D strafe like Drakan: Order of the Flame (0 = the game's own mapping: A / D turn). Needs no change in the game's Options.
+dragon_strafe = 1          ; with [mouse] dragon_mode = mouse, A / D strafe Arokh too (the mouse turns him); 0 = A / D turn him
 curve_compensation = 1     ; undo the game's squared stick response so WASD is full speed
 directional_attack = modifier ; when WASD + attack is a directional special move: modifier = only while DIRECTIONAL_ATTACK (Left Alt) is held, so a plain attack keeps walking / strafing; tap = press the movement key and attack together; always = whenever a movement key is held; off = arrow keys only
 
@@ -564,10 +570,22 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
                 std::string u = upper(v);
                 if (u == "STICK")
                     c.dragonStick = true;
-                else if (u == "DIRECT")
+                else if (u == "MOUSE" || u == "DIRECT")
                     c.dragonStick = false;
                 else
-                    w("dragon_mode must be stick|direct");
+                    w("dragon_mode must be mouse|stick");
+            } else if (K == "DRAGON_SENSITIVITY")
+                F(c.dragonScale);
+            else if (K == "DRAGON_SMOOTHING")
+                F(c.dragonSmoothingMs);
+            else if (K == "DRAGON_CAMERA_CARRY")
+                B(c.dragonCameraCarry);
+            else if (K == "DRAGON_PITCH_UP") {
+                F(c.dragonPitchMax);
+                c.dragonPitchMax = std::fabs(c.dragonPitchMax);
+            } else if (K == "DRAGON_PITCH_DOWN") {
+                F(c.dragonPitchMin);
+                c.dragonPitchMin = -std::fabs(c.dragonPitchMin);
             } else if (K == "YAW_SIGN")
                 F(c.yawSign);
             else if (K == "PITCH_SIGN")
@@ -606,6 +624,8 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
                 B(c.toggleRun);
             else if (K == "STRAFE")
                 B(c.strafeKeys);
+            else if (K == "DRAGON_STRAFE")
+                B(c.dragonStrafe);
             else if (K == "CURVE_COMPENSATION")
                 B(c.curveCompensation);
             else if (K == "DIRECTIONAL_ATTACK") {
@@ -718,6 +738,7 @@ Config Config::loadOrCreate(const std::string& path, std::string* warnings) {
             o << defaultIniText();
         else if (warnings)
             *warnings += "could not create " + path + "\n";
+        applyEnvOverrides(c);
         return c;
     }
     std::stringstream ss;
@@ -725,31 +746,101 @@ Config Config::loadOrCreate(const std::string& path, std::string* warnings) {
     f.close();
     const std::string text = ss.str();
     parse(text, c, warnings);
-    if (c.controlsVersion < 2) {
-        upgradeFile(path, text);
+    if (c.controlsVersion < 3) {
+        const std::string upgraded = upgradeText(text, c.controlsVersion);
+        parse(upgraded, c, nullptr);
+        std::ofstream o(path, std::ios::binary | std::ios::trunc);
+        if (o)
+            o << upgraded;
     }
+    applyEnvOverrides(c);
     return c;
 }
 
+// DRAKAN_DRAGON_MODE = mouse | stick, DRAKAN_DRAGON_SENS (dragon_sensitivity), DRAKAN_DRAGON_SMOOTHING (ms) and
+// DRAKAN_DRAGON_STRAFE = 0 | 1 override the file for one run (docs/reference/env-flags.md); the file is not changed.
+void Config::applyEnvOverrides(Config& c) {
+    if (const char* e = std::getenv("DRAKAN_DRAGON_MODE")) {
+        const std::string u = upper(trim(e));
+        if (u == "STICK")
+            c.dragonStick = true;
+        else if (u == "MOUSE" || u == "DIRECT")
+            c.dragonStick = false;
+    }
+    auto num = [](const char* name, float& dst) {
+        if (const char* e = std::getenv(name); e && *e) {
+            char* end = nullptr;
+            const float v = std::strtof(e, &end);
+            if (end != e && std::isfinite(v) && v >= 0.0f)
+                dst = v;
+        }
+    };
+    num("DRAKAN_DRAGON_SENS", c.dragonScale);
+    num("DRAKAN_DRAGON_SMOOTHING", c.dragonSmoothingMs);
+    if (const char* e = std::getenv("DRAKAN_DRAGON_STRAFE"); e && (e[0] == '0' || e[0] == '1'))
+        c.dragonStrafe = e[0] == '1';
+}
+
 // Files written before the Order-of-the-Flame style controls (A / D strafe, persistent mouse pitch) get a marker block
-// appended: the new keys all default to the new behaviour when absent, so the block only makes them visible (and stops
-// the upgrade from running again). Existing user bindings / sensitivities are never touched; the obsolete pitch_hold_ms
-// line is left in place (ignored).
-void Config::upgradeFile(const std::string& path, const std::string& text) {
-    const std::string up = upper(text);
-    // An explicit legacy sign may be intentional inversion. Keep every original
-    // byte; an absent sign already inherits the current default from defaults().
-    const std::string& body = text;
-    std::string add = "\n; ---- controls v2 (added automatically): Order of the Flame style controls ----\n";
-    add += "[general]\ncontrols_version = 2\n";
-    if (up.find("STRAFE") == std::string::npos)
-        add += "[keyboard]\nstrafe = 1                 ; A / D strafe (0 = A / D turn like the stock PS2 scheme A)\n";
-    if (up.find("PITCH_PERSIST") == std::string::npos)
-        add += "[mouse]\npitch_persist = 1          ; the camera pitch stays where the mouse left it (pitch_hold_ms "
-               "above is obsolete)\n";
-    std::ofstream o(path, std::ios::binary | std::ios::trunc);
-    if (o)
-        o << body << add;
+// appended (version 2): the new keys all default to the new behaviour when absent, so the block only makes them
+// visible. Existing user bindings / sensitivities are never touched; the obsolete pitch_hold_ms line is left in place
+// (ignored).
+//
+// Version 3 (2026-11-16, mouse steering for Arokh): `dragon_mode = stick` was the written default of every older file
+// and `direct` never steered the flight (Camera_UpdateLook does not run for Arokh in flight), so that line is replaced
+// by the new default and controls_version is set to 3 in place; every other line is kept byte for byte.
+std::string Config::upgradeText(const std::string& text, int version) {
+    std::string body = text;
+    if (version < 2) {
+        const std::string up = upper(text);
+        // An explicit legacy sign may be intentional inversion. Keep every original
+        // byte; an absent sign already inherits the current default from defaults().
+        std::string add = "\n; ---- controls v2 (added automatically): Order of the Flame style controls ----\n";
+        add += "[general]\ncontrols_version = 2\n";
+        if (up.find("STRAFE") == std::string::npos)
+            add += "[keyboard]\nstrafe = 1                 ; A / D strafe (0 = A / D turn like the stock PS2 scheme "
+                   "A)\n";
+        if (up.find("PITCH_PERSIST") == std::string::npos)
+            add += "[mouse]\npitch_persist = 1          ; the camera pitch stays where the mouse left it "
+                   "(pitch_hold_ms above is obsolete)\n";
+        body += add;
+    }
+    std::string out;
+    size_t pos = 0;
+    bool versionWritten = false;
+    while (pos < body.size()) {
+        size_t nl = body.find('\n', pos);
+        const bool last = nl == std::string::npos;
+        if (last)
+            nl = body.size();
+        std::string line = body.substr(pos, nl - pos);
+        const bool cr = !line.empty() && line.back() == '\r';
+        if (cr)
+            line.pop_back();
+        const size_t eq = line.find('=');
+        const std::string key = eq == std::string::npos ? std::string() : upper(trim(line.substr(0, eq)));
+        if (key == "CONTROLS_VERSION") {
+            line = "controls_version = 3       ; 3 = mouse steering for Arokh (written by the upgrade of older files)";
+            versionWritten = true;
+        } else if (key == "DRAGON_MODE") {
+            std::string v = line.substr(eq + 1);
+            if (const size_t sc = v.find(';'); sc != std::string::npos)
+                v.resize(sc);
+            const std::string u = upper(trim(v));
+            if (u == "STICK" || u == "DIRECT")
+                line = "dragon_mode = mouse        ; Arokh: mouse = the mouse turns and pitches him directly (stick = "
+                       "the game's right stick, the PS2 flight feel)";
+        }
+        out += line;
+        if (cr)
+            out += '\r';
+        if (!last)
+            out += '\n';
+        pos = nl + 1;
+    }
+    if (!versionWritten)
+        out += "\n[general]\ncontrols_version = 3\n";
+    return out;
 }
 
 // Older drakan_input.ini files (written before Enter confirmed in-game popups) have no Enter binding in the gameplay

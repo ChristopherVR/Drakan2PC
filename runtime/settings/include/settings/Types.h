@@ -168,7 +168,12 @@ struct ControlSettings {
     bool inventoryMouse =
         true;                 // [menu] inventory_mouse (inventory / map: pointer steps the selection, wheel = sections)
     bool pitchPersist = true; // [mouse] pitch_persist (camera pitch stays where the mouse left it)
-    bool curveCompensation = true;              // [keyboard] curve_compensation
+    std::string dragonMode = "mouse"; // [mouse] dragon_mode: mouse (the mouse steers Arokh directly) | stick
+    float dragonScale = 1.0f;         // [mouse] dragon_sensitivity (x sensitivity_x / _y while steering Arokh)
+    float dragonSmoothing = 0.0f;     // [mouse] dragon_smoothing (ms; 0 = raw)
+    bool dragonCameraCarry = true;    // [mouse] dragon_camera_carry (the view turns with Arokh's mouse turns at once)
+    bool dragonStrafe = true;         // [keyboard] dragon_strafe (A / D strafe Arokh with dragon_mode = mouse)
+    bool curveCompensation = true;    // [keyboard] curve_compensation
     std::string directionalAttack = "modifier"; // [keyboard] directional_attack: modifier | tap | always | off
     bool gamepadEnabled = true;                 // [gamepad] enabled
     float gamepadDeadzone = 0.15f;              // [gamepad] deadzone

@@ -55,10 +55,16 @@ struct Config {
     bool invertX = false;
     bool invertY = false;
     float pitchHoldMs = 1200.0f; // DEPRECATED (ignored since controls v2): superseded by pitchPersist
-    bool dragonStick = true;     // Arokh flight: the mouse steers through the game's own right-stick path (rate based)
-                                 // instead of the direct camera / heading write
-    bool pitchPersist = true;    // direct mode: the game's pitch re-centring is switched off while the mouse look is
-                                 // active, so the pitch stays where the mouse left it
+    // [mouse] dragon_mode: mouse (default; `direct` is the same) = mouse counts turn and pitch Arokh by a fixed angle
+    // each (DragonSteer.h); stick = the mouse is fed into the game's right stick (rate based, the 2026-10 behaviour)
+    bool dragonStick = false;
+    float dragonScale = 1.0f;       // [mouse] dragon_sensitivity: multiplies sensitivity_x / _y while Arokh is steered
+    float dragonSmoothingMs = 0.0f; // [mouse] dragon_smoothing: optional ease of the mouse steering (ms, 0 = raw)
+    bool dragonCameraCarry = true;  // [mouse] dragon_camera_carry: the view turns with Arokh's mouse turns at once
+    float dragonPitchMin = -1.0f;   // [mouse] dragon_pitch_down / dragon_pitch_up: nose limits of the mouse pitch (rad)
+    float dragonPitchMax = 0.75f;
+    bool pitchPersist = true; // direct mode: the game's pitch re-centring is switched off while the mouse look is
+                              // active, so the pitch stays where the mouse left it
     float yawSign =
         -1.0f; // angle passed to the player turn function = yawSign * dx * sensX   (verified: mouse right turns right)
     float pitchSign = -1.0f; // pitch += pitchSign * dy * sensY. A negative camera pitch looks DOWN (verified with
@@ -81,10 +87,12 @@ struct Config {
     float stickFullCounts = 40.0f; // Stick mode: counts per 1/30 s that equal full deflection
     float stickSignX = 1.0f, stickSignY = 1.0f;
     // [keyboard]
-    float walkScale = 0.5f; // left-stick magnitude while a WALK-bound key is held
-    bool toggleRun = false; // WALK switches between run and walk on each press instead of while held
-    bool strafeKeys = true; // A / D (left stick x) strafe instead of turn, like Drakan: Order of the Flame (on foot;
-                            // the Arokh flight keeps the game's mapping)
+    float walkScale = 0.5f;   // left-stick magnitude while a WALK-bound key is held
+    bool toggleRun = false;   // WALK switches between run and walk on each press instead of while held
+    bool strafeKeys = true;   // A / D (left stick x) strafe instead of turn, like Drakan: Order of the Flame (on foot;
+                              // on Arokh see dragonStrafe)
+    bool dragonStrafe = true; // [keyboard] dragon_strafe: with dragon_mode = mouse, A / D strafe Arokh as well (the
+                              // mouse turns him); 0 = A / D turn him as on the PS2
     bool curveCompensation = true; // pre-invert the game's pow(|v|,2) so keyboard movement is linear/full speed
     DirectionalAttackMode directionalAttack = DirectionalAttackMode::Modifier; // [keyboard] directional_attack
     // [gamepad]
@@ -147,8 +155,10 @@ struct Config {
     static void migrate(Config& cfg);
     // Loads path; if it does not exist, writes the default file there and returns defaults.
     static Config loadOrCreate(const std::string& path, std::string* warnings);
-    // Appends the controls-v2 marker block to an older ini (see Config.cpp).
-    static void upgradeFile(const std::string& path, const std::string& text);
+    // The text of an older file (controls_version < 3) after the upgrade (versions 2 and 3, see Config.cpp);
+    // loadOrCreate writes it back.
+    static std::string upgradeText(const std::string& text, int version);
+    static void applyEnvOverrides(Config& c); // DRAKAN_DRAGON_* run overrides (env-flags.md)
     static const char* defaultIniText();
 };
 
