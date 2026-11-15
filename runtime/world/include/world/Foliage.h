@@ -122,7 +122,7 @@ inline void shearAdd(Lean l, float len, float out[3]) {
 // The offset of a leaf vertex is a function of its model position only (two copies of one vertex in two draw
 // arrays move together) and grows with its height above the model's base and its distance from the trunk.
 
-inline constexpr float kLeafCut = 0.1f;   // share of transparent texels from which a material is a leaf material
+inline constexpr float kLeafCut = 0.1f;    // share of transparent texels from which a material is a leaf material
 inline constexpr float kOpaqueCut = 0.02f; // at most this share: a solid (trunk / branch) material
 
 inline bool leafMaterial(float cutShare) {
@@ -218,15 +218,14 @@ inline LeafFrame leafFrame(Lean dir, float x, float z, uint32_t seed, double t, 
     const float sway = static_cast<float>(std::sin(kTwoPi * 0.45 * t + jitter));
     const float lean = (0.008f + 0.016f * gust + 0.006f * (0.3f + gust) * sway) * height * s;
     const float fa = 0.006f * (0.4f + gust) * height * s, fb = 0.004f * (0.4f + gust) * height * s;
-    const float world[3][3] = {{dir.x * lean, 0.0f, dir.z * lean},
-                               {dir.x * fa, 0.3f * fa, dir.z * fa},
-                               {-dir.z * fb, 0.2f * fb, dir.x * fb}};
+    const float world[3][3] = {
+        {dir.x * lean, 0.0f, dir.z * lean}, {dir.x * fa, 0.3f * fa, dir.z * fa}, {-dir.z * fb, 0.2f * fb, dir.x * fb}};
     LeafFrame f;
     float* out[3] = {f.sway, f.flutterA, f.flutterB};
     for (int v = 0; v < 3; ++v)
         for (int r = 0; r < 3; ++r)
-            out[v][r] = toModel[r * 3 + 0] * world[v][0] + toModel[r * 3 + 1] * world[v][1] +
-                        toModel[r * 3 + 2] * world[v][2];
+            out[v][r] =
+                toModel[r * 3 + 0] * world[v][0] + toModel[r * 3 + 1] * world[v][1] + toModel[r * 3 + 2] * world[v][2];
     const double a1 = kTwoPi * 1.7 * t + 2.1 * jitter, a2 = kTwoPi * 2.6 * t + 3.7 * jitter;
     f.s1 = static_cast<float>(std::sin(a1));
     f.c1 = static_cast<float>(std::cos(a1));

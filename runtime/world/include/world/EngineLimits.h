@@ -54,7 +54,8 @@ inline uint32_t budgetBytes(int mb) {
 // bytes the heap takes above the retail 32 MB when its retail part is full; without it the level's own (0).
 inline constexpr int kAutoModelMb = 16, kAutoAnimationMb = 8;
 
-// The MiB an option value asks for: "auto" or empty = the automatic budget above, a number = that (0 = the level's own).
+// The MiB an option value asks for: "auto" or empty = the automatic budget above, a number = that (0 = the level's
+// own).
 inline int optionMb(const char* value, bool heapExtends, int autoMb) {
     if (!value || !*value || (value[0] == 'a' || value[0] == 'A'))
         return heapExtends ? autoMb : 0;
