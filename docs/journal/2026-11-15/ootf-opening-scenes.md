@@ -218,3 +218,21 @@ nothing holds the screen black. The fade of 1.1's end runs at its skip, so about
   nothing is audible in the 25 s after, in the shipped build too (`base2`). Not examined; the in-level music triggers were
   last verified on 2026-11-08 without the opening scenes.
 * Door holds also apply to the church scenes and the Wartok Magic Farmer scenes; not played.
+
+## Play pack rebuilt with every 15 November fix (12:42)
+
+`extras.py ootf` passes no `--subtitles`, and `build/ootf/convert-state.json` is older than the code, so a plain rerun
+would rebuild the pack without subtitles. The owner's pack was converted by hand, then the HD step and the build:
+
+```sh
+node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts --ootf build/ootf/cab_disc \
+  --ps2 build/ootf/ps2/data --template LEVEL1NA --campaign 1 --id ootf-levels --iso "<iso>" \
+  --out build/ootf/mods/ootf-levels.zip --cover scripts/buildtool/kit/art/ootf-cover.png --hd --hd-sources-only 1 \
+  --subtitles "build/review/ootf-church/subtitles/english2.json;build/review/ootf-church/subtitles/corrections.json"
+python scripts/buildtool/extras.py hd --iso "<iso>" --play dist/DrakanPC --work build/hd --ootf-pack build/ootf/mods/ootf-levels.zip
+pwsh scripts/buildtool/Build-LocalGame.ps1 -IsoPath "<iso>" -WorkDir build/final-game -Incremental -Jobs 8 -ModDirectory build/ootf/mods
+```
+
+Log: 23 levels, 6 trees lowered, `drakan 2 ground: 103673 cells`, 297 subtitle lines; the pack holds no "Erokh" or
+"Riff Crystal" (69 "Arokh", 50 "Rift Crystal"). HD step: 71 new textures. The morning pack is kept in
+`build/review/pack-1115/ootf-levels.before.zip`.

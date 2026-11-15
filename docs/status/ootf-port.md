@@ -77,6 +77,21 @@ Alwarren, played there with walking, swings and F5 / F8. Needs a regenerated pac
 
 **November 15 ground textures (round 8):** the stitched look of converted ground is the PS2 splat blend meeting the PC's random tile variants: each cell fades into its eight neighbours, and where the PC paints neighbours with different variants of one surface no texture is ever drawn at full weight (0.6 % of Ruined Village cells against 41 % in Surdana), so the ground was a patchwork of half-blended squares. Whole Mountain World ground families (a surface's variants and its transition tiles) now draw the closest Drakan 2 ground from the template's own Proc Textures (grass 537, brown rock 621 tiled over 4 x 4 cells, snow 563, earth paths 13719 Mud, rocky snow tracks 535; 244 tiles, formats `DEFAULT_PS2_TERRAIN_FAMILIES`), with their disc materials and HD images: 54 % of Ruined Village cells at full weight, no seams in Ruined Village and Wartok Canyons, and far fewer terrain passes (in-run counters 51 to 86 fps at the Wartok start). On by default, `--ps2-terrain 0` keeps the OotF ground, `--ps2-texture-map` rows naming `WORLDCON/PROCTEES/PROCTEES.TXD#<id>` edit it. Object rows give the burnt houses fire-blackened stone, the stone bridges Drakan 2 stone blocks and cobbles, and the rock models the Drakan 2 rock. Islands, Volcanic and Rift World ground is not mapped yet. Needs a regenerated pack, the HD step and a new game. See [ground textures](../journal/2026-11-15/ootf-ground-textures.md).
 
+**November 15 owner's Ruined Village list (round 9):** the opening scenes no longer jump Rynn's fallen body (the
+lying key is skipped when the fall clip already brought her down), run their fades (PC fader starts become On, so the
+actors vanish under black), stop the music before the talk with the old man (Julian, called Atimar; a converted stop is
+music level -4096, which a runtime hook turns into the engine stop plus silenced streamed tracks; packs need this exe),
+hold the old man's auto-open door shut until the scene ends or is skipped, and play the Scavenger's run (scene clips of
+creatures on their Drakan 2 model are matched by name). Scene actors keep their level scale (the 1.5 Wartoks stood in
+the air), trees floating over the ground all round are lowered onto it (6 in 3 levels, `DRAKAN_TREE_GROUNDING=off`),
+template attachments a PC class lacks are cleared (the trog claw on the miners' shoulders, 8 inherited armour parts on
+the Volcanic Ebon Knight, not seen), and Rynn leaves Arokh 2 s before Intro 3 ends so the level Timer cannot leave her
+hair simulation off. Not changed: the half-buried villager (a corpse lying on a steep slope), Delon's low-poly model and
+still mouth (as on the PC), the ponytail lifting when walking (the engine's, also in Surdana). Subtitles spell Arokh, Rynn,
+Hider and Rift Crystal. Needs a regenerated pack and a new game. See [opening scenes](../journal/2026-11-15/ootf-opening-scenes.md),
+[ground placement](../journal/2026-11-15/ootf-ground-placement.md), [character models](../journal/2026-11-15/ootf-character-models.md)
+and [final check](../journal/2026-11-15/ootf-final-check.md).
+
 **November 15 PS2-style remakes (round 8):** props with no Drakan 2 model get new drawings built at convert time from
 their OotF mesh, each a row of the Drakan 2 model table and off by default: talon torches and Succubus pillars (Loop
 subdivision, rounder and smoothly shaded, OotF textures), the Succubus ruin corridor pieces (the same with their joining
