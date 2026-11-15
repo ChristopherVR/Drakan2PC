@@ -12,7 +12,7 @@ Started by Stomp Player 1625 when Rynn stands on the Soul Crystal (`ootf-ruined-
 
 | Actor | PC object | What the PC scene does |
 | --- | --- | --- |
-| Arokh | 1011, Dragon (engine 28) | hidden at 0, shown at 5.11 s; 63 clip actions: the dragon class's own clips (Ready, Fly, Hover, Landing, Mount, Walk) and 26 scene clips (`1_6ready.rea`, `1_6i` to `1_6z2`, `5_2b`), on channels 0 (body), 1 (wings) and 4 (neck) |
+| Arokh | 1011, Dragon (engine 28) | hidden at 0, shown at 5.11 s; 34 clip actions: the dragon class's own clips (Ready, Fly, Hover, Landing, Mount, Walk) and 26 scene clips (`1_6ready.rea`, `1_6i` to `1_6z2`, `5_2b`), on channels 0 (body), 1 (wings) and 4 (neck) |
 | Blow up dragon | 2855, "Blow Up Dragon Generator" (engine 63, model `StoneDragon2`, Run Type 1, Object Selection 2, 15 stone pieces) | shown at 0, Blow Up (4259) at 5.06 s, hidden at 5.11 s |
 | Particle 1 / 2 | 2472 / 2474, Soul Flare generators | message 25 at 108.57 s / 3.71 s |
 | Rynn Lightning, Aroch Lighting, Lightning 3 to 5 | 2475, 2476, 2859 to 2861, Soul Lightning generators (spawn "Soul Lightning 1 / 2", engine 58) | message 0 at 108.23 s (Lightning 5 at 108.56 s) |
@@ -48,7 +48,7 @@ Blow Up (scenes 4.2, 4.7c, 5.051). Census of every PC scene message to a generat
 to Rimril's phase-in / phase-out generators (Islands: "No Tasks Done", "partial completion", "tasks complete", "Rimril first
 contact") and to Volcanic's "Solve Magic generator" (9.6a); Blow Up only to the stone Arokh; 15, 25, 2469 and On elsewhere.
 
-## Fixes (converter, formats `e35b471`)
+## Fixes (converter, formats `e35b471` and the end idle below)
 
 * **Arokh's clips** (`ootfdragon.ts`, used by `playerClipBuilder.addDragon` in `ootfpipeline.ts`, only for the actor that
   is the level's class-28 dragon):
@@ -62,6 +62,10 @@ contact") and to Volcanic's "Solve Magic generator" (9.6a); Blow Up only to the 
     head, feet, tail tip and hands point within 5 to 12 degrees of the PC pose from the root; folded wings land up to 45
     degrees off because the disc wing bones have other lengths (the fold looks folded, the tip sits elsewhere).
   * Channels follow the same table (`dragonChannelMap`): PC 1 wings -> 27, 4 neck -> 15, 19 saddle -> 14 (as before).
+    The full conversion logs no unmapped dragon channel.
+  * When a scene gives Arokh back to the game he gets the disc Dragon class's Ready clip as an end idle, as the player gets
+    hers (`dragonReadyClip`, `endIdleForActor`): with his acting clips now playing, four scenes ("6_5", "6-2 Meeting
+    Tuiri", "No Tasks Done", "Rimril first contact") would otherwise release him in a retargeted acting clip.
   * The Intro's "Aroch" is a class 17 prop on the PC dragon model and keeps its converted clips.
 * **The stone Arokh** (`ootfblowup.ts`): a PC generator with a model and Run Type 1 gets a static prop (a PC class copied
   from a generic prop of the level, engine 17, with the generator's model, placed at the generator), planned like every
@@ -84,7 +88,10 @@ Exe: the `dist/DrakanPC` build (SHA-256 prefix `bcb5a431`), unchanged in every r
 | `base1` | the dist pack | `0x2063f` the whole scene | absent (empty pedestal), no pieces | none (`base1_lightning.jpg`) |
 | `fix1`, `fix2` | Ruined Village only, clips and messages | changes with the scene: retargeted (`0x20000` + 2364..) and disc clips (1607 Ready, 1635 Hover, 1595 Fly, 1599 Landing, 1606 Mount, 1613 Walk) | pieces fly at 5 s, statue still absent | bolts around the crystal from 108 s; trace: On to all five generators, each finishes after its life time |
 | `fix3` | Ruined Village only, final converter | as above | **statue on the pedestal**, then swapped for the living Arokh as the pieces fly (`fix3s_start.jpg`) | as above (`fix3_lightning.jpg`) |
-| `full1` | all 23 levels, final converter | 20 different clips over the scene | as fix3 (`full1_statue.jpg`) | as fix3 (`full1_lightning.jpg`) |
+| `full1` | all 23 levels, converter `e35b471` | 20 different clips over the scene | as fix3 (`full1_statue.jpg`) | as fix3 (`full1_lightning.jpg`) |
+
+Run `fix4` (Ruined Village only, with the end idle) plays the whole scene to 148.5 s: the end idle 1607 is the clip at the
+release, Arokh and Rynn stand together at the cave mouth (149879, 25210, 211978), no error in the log.
 
 Frames: `build/review/ootf-arokh-scenes/evidence/` (`base1_start.jpg`, `base1_4s.jpg`, `base1_lightning.jpg` before;
 `fix3s_start.jpg`, `fix3_lightning.jpg`, `full1_statue.jpg`, `full1_lightning.jpg` after). In the after frames Arokh rears
@@ -98,7 +105,6 @@ unmapped-clip warnings are unchanged (29, other actors).
 ## Needs
 
 * A regenerated pack (the pack command in `docs/journal/2026-11-15/ootf-opening-scenes.md`). No executable change.
-* Existing saves made after the lair keep working; the scene is played once.
 
 ## Not verified
 
@@ -110,4 +116,13 @@ unmapped-clip warnings are unchanged (29, other actors).
   presses nothing after the scene); the scene's actions up to 148 s played.
 * The statue prop and the generator's pieces: the living Arokh can appear a frame or two before the pieces leave (the
   generator releases them on its next tick). Compared with the PC by data only, not side by side.
+* After a release: whether the dragon's game controller replaces a scene clip by itself, and whether neck or wing overlay
+  clips still running at the release (channels 15, 21, 23, 27 in 7 scenes, `tools/arokhend.ts`) clear, was not seen in
+  game; the awakening ends with the level exit.
+* The lair before the scene: the PC places the living Arokh hidden (object 1011 flags 0) and only the statue shows. The
+  PS2 dragon object was registered without its hidden bit in the RAM census before the scene (`probe1`), so the living
+  Arokh may stand beside (inside) the statue during gameplay; one look from the lair floor did not frame the pedestal.
+  Not settled.
+* Saves: the change adds a class and a level object to Ruined Village; old saves against the new pack were not checked
+  (see `save-compat.md` for the pack build check).
 * Folded-wing poses of retargeted clips differ from the PC pose (bone lengths); not compared with the PC renderer.
