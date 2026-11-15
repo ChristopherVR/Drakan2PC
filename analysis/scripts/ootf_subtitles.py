@@ -67,7 +67,13 @@ def clean_text(text: str) -> str:
 
 # Names the model spells by ear, and the game's spelling; the converter applies the same table (formats
 # SUBTITLE_NAME_FIXES) to files written before an entry was added.
-NAME_FIXES = ((r"\bErokh\b", "Arokh"), (r"\bRin\b", "Rynn"))
+NAME_FIXES = (
+    (r"\bErokh\b", "Arokh"),
+    (r"\bRin\b", "Rynn"),
+    (r"\bWynn\b", "Rynn"),
+    (r"\bHeider\b", "Hider"),
+    (r"\bRiff Crystal\b", "Rift Crystal"),
+)
 
 
 def build_cues(
