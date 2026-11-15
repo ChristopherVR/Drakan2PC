@@ -432,6 +432,7 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.name = one("name");
     m.version = one("version");
     m.build = one("build");
+    m.saveScope = one("save_scope");
     m.author = one("author");
     m.description = one("description");
     m.profiles = many("target.profile");

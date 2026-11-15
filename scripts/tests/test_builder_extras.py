@@ -557,10 +557,18 @@ class ConverterTests(unittest.TestCase):
         hd = extras.converter_command("node", self.install, self.dir / "d", self.iso, self.dir / "o.zip", hd=True)
         self.assertEqual(hd[hd.index("--hd-sources-only") + 1], "1")
         self.assertIn("--hd", hd)
+        # the replaced pack hands its class ids and save build on (modding.md "Saves and pack builds")
+        self.assertEqual(cmd[cmd.index("--previous") + 1], "none")
+        old = self.dir / "old.zip"
+        kept = extras.converter_command(
+            "node", self.install, self.dir / "d", self.iso, self.dir / "o.zip", False, None, old
+        )
+        self.assertEqual(kept[kept.index("--previous") + 1], str(old))
 
     def test_converter_script_knows_the_flag_the_builder_passes(self):
         source = (ROOT / "editor/scripts/ootf-convert.ts").read_text(encoding="utf-8")
         self.assertIn("hd-sources-only", source)
+        self.assertIn("opt['previous']", source)
 
     def test_state_decides_when_to_convert_again(self):
         mods = self.work / "mods"

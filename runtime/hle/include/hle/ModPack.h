@@ -39,6 +39,10 @@ struct Manifest {
     // top-level `build = "<id>"`: the pack's save compatibility id (1-64 of letters, digits, '.', '_', '-'; the editor
     // writes the content hash, see packContentHash in SaveRecord.h). Empty = not declared.
     std::string build;
+    // top-level `save_scope = "levels"`: the pack's saved classes and objects only concern its own `levels` (it adds
+    // classes and levels and changes none of the disc), so a save of another level does not depend on its build
+    // (SaveRecord.h). Empty = every save made while the pack is active depends on it.
+    std::string saveScope;
     std::vector<std::string> profiles;                            // target.profile ("pal", "usa", "*")
     std::vector<std::string> profileHashes;                       // target.hash (hex), optional
     std::vector<std::string> loadAfter, loadBefore, dependencies; // dependencies: "id" or "id>=1.2.0"

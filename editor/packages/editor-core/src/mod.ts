@@ -99,6 +99,13 @@ export interface ModMeta {
      * the disc layout would hang on them.
      */
     terrainChunkTextures?: number;
+    /**
+     * `save_scope = "levels"`: the pack's save layout (savelayout.ts) only concerns its own levels. It adds classes and
+     * levels but changes no class or level of the disc, so a save of another level never depends on the pack's build
+     * and the game does not refuse it when the pack is rebuilt (modding.md "Saves and pack builds"). The OotF converter
+     * writes it. Left out = every save made while the pack was active records and checks its build.
+     */
+    saveScope?: 'levels';
 }
 
 /** A `one_way_exits` entry: `Level title @ x, y, z` (numbers, the exit object's position). */
@@ -216,6 +223,7 @@ export function buildManifestToml(m: ModMeta): string {
     if (aspects.length) l.push(`level_aspect = [${aspects.map(([level, a]) => tomlStr(`${level} = ${a}`)).join(', ')}]`);
     if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);
     if (m.terrainChunkTextures !== undefined) l.push(`terrain_chunk_textures = ${m.terrainChunkTextures}`);
+    if (m.saveScope) l.push(`save_scope = ${tomlStr(m.saveScope)}`);
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

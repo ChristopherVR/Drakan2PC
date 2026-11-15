@@ -407,6 +407,35 @@ was made with, and the game refuses a save it cannot vouch for.
   says `mods: '<id>' build <id> (from the manifest | content hash)` and `[saves] content pack '<id>' build ...`.
 * **Pin it only on purpose.** A hand-made pack may set `build` itself and keep it across updates that leave every save
   valid (new textures or text only). Change it (or leave it out) whenever an update changes level, class or object data.
+* **The OotF converter's build is a save format** (2026-11-16, formats `savelayout.ts`,
+  [journal](../journal/2026-11-16/save-compat.md)). A save names classes by `(database, class id)` (the first word of
+  each 0x102 record) and level objects by uid (0x24 / 0x21); everything else (models, textures, sounds, music, terrain,
+  positions, class defaults) is read from the pack again. The pack's *save layout* is therefore: every class record of
+  `new/` and `overrides/` (`class|<ODB>|<id>` -> name, engine class, field count) and every level's database list and
+  object table (`obj|<level>|<uid>` -> db:class). The converter reads the pack it replaces (`--previous <zip>`, default
+  the `--out` file, `none` = start afresh; `extras.py` keeps the old pack as `ootf-levels.previous.zip` until the new one
+  is written) and
+  * hands its class ids on (`classIdPins`, `ClassIdPinner`: per ODB, name + engine class -> ids; the k-th such class keeps
+    the k-th old id, every old id stays reserved, new classes are numbered above them; `planClassMapping`, the map and
+    the grown fire classes), so a newly supported class no longer renumbers the others;
+  * keeps the previous `build` while the new layout only adds keys (new classes, levels, objects: an old save does not
+    name them and simply does not recreate a new object), and logs `save build <id> kept`; otherwise the build is the
+    hash of the new layout (`saveLayoutId`) and the log lists the ids that changed meaning (`WARNING: saves of the
+    previous pack ... will be refused`).
+
+  Objects the converter adds (exit boxes, door holds, cull boxes ...) are still numbered in feature order after the PC
+  ids, so **a converter change must add new synthetic objects after the existing ones** (run its feature last, or give
+  the objects ids above every id the level had); otherwise the layout check refuses old saves of that level. Guard:
+  `savelayout.test.ts`. Without a previous pack (a fresh install, a private test conversion) the build is the layout
+  hash, so two conversions with the same layout agree.
+* **`save_scope = "levels"`** (top-level manifest key; the OotF converter writes it): the pack's saved classes and objects
+  only concern its own `levels` (it adds classes and levels and changes no disc class or level). A save of another level
+  does not record it, and an older record of it is not checked for such a save (`ActivePacks::levelScoped`), so Drakan 2
+  saves no longer depend on OotF rebuilds. A missing pack is still reported.
+* **`[general] save_pack_check = 0`** (env `DRAKAN_SAVE_PACK_CHECK`): a save of another pack build (or one made before
+  records existed) loads anyway, logged `[saves] <file>: different build ..., loaded anyway`; a missing pack or a damaged
+  record is still refused. For a player who wants an old save back and accepts that objects whose class id changed may
+  misbehave.
 * **The record.** When the game writes a save (`<saveId>Slot<n>/<level>.rsg`, manual, quick and level-change saves
   alike, and the level-start save `<card>/<level>.rsg` that a death reloads) while content packs are active, it writes
   `<level>.rsg.mods` beside it (memory card write observer, `drakan_save_guard.cpp`; `[saves] <file>: pack record <id>
@@ -429,7 +458,7 @@ was made with, and the game refuses a save it cannot vouch for.
 
   | Save | Loads when | Otherwise (the player reads) |
   | --- | --- | --- |
-  | has a record | every recorded pack is active with the same build (packs added since do not matter) | another build: "This save was made with a different version of the mod pack X. It cannot be loaded with the version installed now."; pack not active: "This save needs the mod pack X. Enable it on the Mods page and restart the game to load it." |
+  | has a record | every recorded pack is active with the same build (packs added since do not matter; a `save_scope = "levels"` pack is only checked for its own levels) | another build: "This save was made with a different version of the mod pack X. It cannot be loaded with the version installed now."; pack not active: "This save needs the mod pack X. Enable it on the Mods page and restart the game to load it." |
   | record unreadable (no `format = 1`, a pack without `build`) | never | "The list of mod packs stored with this save is damaged. The save cannot be loaded." |
   | no record (stock saves, saves made without content packs, saves of earlier game versions) | unless its level (the `.rsg` name) is registered by an active pack whose manifest declares a `build` | "This save was made with an earlier version of the mod pack X. It cannot be loaded with the version installed now." |
 

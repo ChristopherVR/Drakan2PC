@@ -77,6 +77,10 @@ const Entry kEntries[] = {
     {"general", "save_pages", "4",
      "Load Game / Save Game: number of pages of four slots (1 = the original four slots, 4 = 16 slots); Next / Back "
      "buttons, PgUp / PgDn and L1 / R1 switch pages; page 1 = the original save folders (env DRAKAN_SAVE_PAGES)"},
+    {"general", "save_pack_check", "1",
+     "1 = Load Game refuses a save made with another build of a mod pack whose saved classes or objects changed (such "
+     "a save can stall or break the game); 0 = load such saves anyway (keep a copy of the save; a missing pack is "
+     "still refused) (env DRAKAN_SAVE_PACK_CHECK)"},
     {"general", "model_cache_mb", "auto",
      "memory the game keeps for loaded models before it drops the least recently used ones and reads them from the "
      "disc again: auto = 16 MB when heap_extend is on, else the level's own budget; 0 = the level's own budget (5.4 MB "

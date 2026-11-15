@@ -22,8 +22,9 @@ import { createHash } from 'node:crypto';
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
-import { buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { Iso9660, SrscReader, SubtitleTable, classifySubtitleLines, listObjectSounds, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { strToU8, unzipSync } from 'fflate';
+import { buildManifestToml, buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
+import { chooseSaveBuild, classIdPins, packSaveLayout, Iso9660, SrscReader, SubtitleTable, classifySubtitleLines, listObjectSounds, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -211,11 +212,25 @@ const subtitles = await (async () => {
     console.warn(`subtitles: ${table.size} line(s) shown, ${table.withheld.length} withheld by their kind`);
     return table;
 })();
+// Saves across rebuilds (docs/reference/modding.md "Saves and pack builds"): the previous build of the pack (--previous <zip>,
+// default the --out file when it exists; --previous none = start afresh) hands its class ids on, so classes the conversion
+// adds do not renumber the others, and the new pack keeps its `build` while nothing a save names changed.
+const previousPath = opt['previous'] === 'none' ? '' : (opt['previous'] ?? (existsSync(need('out')) ? need('out') : ''));
+let previous: { build: string; files: Record<string, Uint8Array> } | undefined;
+if (previousPath) {
+    const files = unzipSync(new Uint8Array(readFileSync(previousPath)), {
+        filter: (f) => /^mod\.toml$/i.test(f.name) || /^new\/[^/]+\.ODB\//i.test(f.name) || /^overrides\/[^/]+\.(ODB|LVL)\//i.test(f.name) || /^files\/.*\.(LVL|ODB)$/i.test(f.name),
+    });
+    const build = /^build\s*=\s*"([^"]+)"/m.exec(new TextDecoder().decode(files['mod.toml'] ?? new Uint8Array()))?.[1];
+    if (build) previous = { build, files };
+    else console.warn(`warning: --previous ${previousPath} names no build; class ids and the save build start afresh`);
+}
 const res = await convertOotfLevels(
     src,
     levels,
     { template, odbs, ssds, dbFiles, hostMod: await optReader('RESOURES.MOD'), hostTxd: await optReader('RESOURES.TXD'), hostAdb: await optReader('RESOURES.ADB'), hostSdb: await optReader('RESOURES.SDB'), playerMod, playerAdb, musicSdb: await optReader('PS2MUSIC.SDB'), mods: await optMap('MOD'), hostFiles, adbs: await optMap('ADB'), xdbFiles: readdirSync(ps2).some((f) => /\.XDB$/i.test(f)) ? new Set(readdirSync(ps2).filter((f) => /\.XDB$/i.test(f)).map((f) => f.toUpperCase())) : undefined, splatTxd: splats['TXD'], procTxd: existsSync(join(ps2, 'PROCTEES.TXD')) ? new Uint8Array(readFileSync(join(ps2, 'PROCTEES.TXD'))) : undefined, readPs2Txd },
     {
+        ...(previous ? { classIdPins: classIdPins(previous.files) } : {}),
         name: (pc) => `${prefix}${pcLevelName(pc.header)}`,
         log: (m) => console.warn(m),
         subtitles,
@@ -348,6 +363,20 @@ if (opt['campaign'] !== undefined) {
     for (const k of ['cover', 'background']) if (opt[k] && !existsSync(opt[k]!)) console.warn(`warning: --${k} ${opt[k]} not found; no picture added`);
 }
 for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w);
+{
+    // The pack's build is its save-format id (savelayout.ts): kept from the previous pack while every class id and object id a
+    // save can name still means the same, else the hash of the new layout. save_scope: the pack changes no disc class or level.
+    const layout = await packSaveLayout(pack.files);
+    const choice = chooseSaveBuild(layout, previous && { build: previous.build, layout: await packSaveLayout(previous.files) });
+    pack.files['mod.toml'] = strToU8(buildManifestToml({ ...pack.meta, build: choice.build, saveScope: 'levels' }));
+    const d = choice.diff;
+    if (!previous) console.log(`save build ${choice.build} (no previous pack: saves of earlier builds are refused)`);
+    else if (choice.kept) console.log(`save build ${choice.build} kept: saves of the previous pack still load (${d!.added} class/object ids added)`);
+    else {
+        console.warn(`WARNING: saves of the previous pack (build ${previous.build}) will be refused: new save build ${choice.build}. ${d!.changed.length} ids changed meaning, ${d!.removed.length} are gone:`);
+        for (const k of [...d!.changed, ...d!.removed.map((r) => `${r}: gone`)].slice(0, 40)) console.warn(`  ${k}`);
+    }
+}
 writeFileSync(need('out'), zipOotfPack(pack));
 console.log(`wrote ${opt['out']} (${pack.levels.length} levels, ${Object.keys(pack.files).length} files)`);
 // --hd-sources-only 1: only write the lossless sources next to the pack; the caller (scripts/buildtool/extras.py) runs the HD pack.

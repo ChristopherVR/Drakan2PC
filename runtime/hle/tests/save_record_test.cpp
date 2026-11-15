@@ -234,8 +234,48 @@ int main() {
         CHECK(checkSave(legacy, withLevels).ok());
 
         // The record written now: the active content packs.
-        CHECK(recordFor(active({ootf, tex})) == (std::vector<PackStamp>{ootf, tex}));
-        CHECK(recordFor(active({})).empty());
+        CHECK(recordFor(active({ootf, tex}), "Level 1A - Surdana") == (std::vector<PackStamp>{ootf, tex}));
+        CHECK(recordFor(active({}), "Level 1A - Surdana").empty());
+
+        // save_scope = "levels" (the OotF converter's pack): only saves of its own levels depend on its build. A save
+        // of a disc level made while it was active (it recorded the pack) loads with another build of it; a save of one
+        // of its levels is still checked.
+        ActivePacks scoped = active({ootfNew, tex});
+        scoped.levels = {{"OotF 11 - Volcanic", "ootf", true}};
+        scoped.levelScoped = {"ootf"};
+        SaveCheckInput disc;
+        disc.hasRecord = true;
+        disc.record = {ootf, tex};
+        disc.level = "Level 1C - Catacombs";
+        CHECK(checkSave(disc, scoped).ok());
+        disc.record = {ootf, PackStamp{"tex", "Textures", "1", "t0"}}; // a pack without the scope still counts
+        CHECK(checkSave(disc, scoped).verdict == SaveVerdict::DifferentBuild);
+        disc.record = {ootf, tex};
+        disc.level = "OotF 11 - Volcanic";
+        r = checkSave(disc, scoped);
+        CHECK(r.verdict == SaveVerdict::DifferentBuild && !r.ok() && !r.overridden);
+        // A missing scoped pack is still missing (its classes may be in the save).
+        disc.level = "Level 1C - Catacombs";
+        CHECK(checkSave(disc, active({tex})).verdict == SaveVerdict::MissingPack);
+        // Records written now leave the scoped pack out of saves of other levels.
+        CHECK(recordFor(scoped, "Level 1C - Catacombs") == (std::vector<PackStamp>{tex}));
+        CHECK(recordFor(scoped, "ootf 11 - volcanic") == (std::vector<PackStamp>{ootfNew, tex}));
+
+        // [general] save_pack_check = 0: the build verdicts load anyway and say so; missing packs and damaged
+        // records do not.
+        ActivePacks lenient = active({ootfNew});
+        lenient.levels = {{"OotF 11 - Volcanic", "ootf", true}};
+        lenient.loadOtherBuilds = true;
+        save.record = {ootf};
+        save.recordReadable = true;
+        r = checkSave(save, lenient);
+        CHECK(r.verdict == SaveVerdict::DifferentBuild && r.overridden && r.ok());
+        r = checkSave(legacy, lenient);
+        CHECK(r.verdict == SaveVerdict::OlderThanPack && r.ok());
+        save.record = {tex};
+        CHECK(!checkSave(save, lenient).ok());
+        save.recordReadable = false;
+        CHECK(!checkSave(save, lenient).ok());
         CHECK(std::string(saveVerdictName(SaveVerdict::DifferentBuild)) == "different build");
     }
 

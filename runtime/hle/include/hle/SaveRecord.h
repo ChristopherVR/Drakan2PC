@@ -65,18 +65,29 @@ struct ActivePacks {
         bool buildDeclared = false; // the pack's manifest names a `build`
     };
     std::vector<LevelOwner> levels; // levels registered by loaded packs
+    // Packs whose manifest says `save_scope = "levels"`: their saved classes and objects only concern their own levels
+    // (the OotF converter's pack adds classes and levels and changes none of the disc). A save of another level does
+    // not record them, and an older record of such a pack is not checked for a save of another level.
+    std::vector<std::string> levelScoped;
+    // `[general] save_pack_check = 0`: a save made with another build of a pack (or before builds were recorded) loads
+    // anyway; the verdict is still reported (`SaveCheck::overridden`). A missing pack or a damaged record still
+    // refuses.
+    bool loadOtherBuilds = false;
 };
 struct SaveCheck {
     SaveVerdict verdict = SaveVerdict::Ok;
-    PackStamp pack; // the pack the verdict is about (recorded or active stamp); empty for Ok / BadRecord
-    bool ok() const { return verdict == SaveVerdict::Ok; }
+    PackStamp pack;          // the pack the verdict is about (recorded or active stamp); empty for Ok / BadRecord
+    bool overridden = false; // DifferentBuild / OlderThanPack that loads anyway (ActivePacks::loadOtherBuilds)
+    bool ok() const { return verdict == SaveVerdict::Ok || overridden; }
 };
 // The load policy. A save with a record loads when every recorded pack is active with the same build (packs added
-// since do not matter). A save without a record (stock saves, saves made without content packs, saves of earlier
-// game versions) loads unless its level is registered by an active pack whose manifest declares a build.
+// since do not matter; a level-scoped pack that does not register the save's level is not checked). A save without
+// a record (stock saves, saves made without content packs, saves of earlier game versions) loads unless its level is
+// registered by an active pack whose manifest declares a build. `loadOtherBuilds` lets the build verdicts load.
 SaveCheck checkSave(const SaveCheckInput& save, const ActivePacks& active);
 
-// The record to write for a save made now: the active content packs (empty = write none, remove an old one).
-std::vector<PackStamp> recordFor(const ActivePacks& active);
+// The record to write for a save of `level` made now: the active content packs, without the level-scoped packs that
+// do not register that level (empty = write none, remove an old one).
+std::vector<PackStamp> recordFor(const ActivePacks& active, const std::string& level);
 
 } // namespace hle::mods

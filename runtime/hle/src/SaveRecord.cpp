@@ -32,6 +32,14 @@ std::string oneLine(const std::string& s) {
 bool sameLevel(const std::string& a, const std::string& b) {
     return asciiLower(trim(a)) == asciiLower(trim(b));
 }
+// A level-scoped pack (save_scope = "levels") that does not register `level`: saves of that level do not depend on it.
+bool outOfScope(const ActivePacks& active, const std::string& packId, const std::string& level) {
+    if (std::find(active.levelScoped.begin(), active.levelScoped.end(), packId) == active.levelScoped.end())
+        return false;
+    return std::none_of(active.levels.begin(), active.levels.end(), [&](const ActivePacks::LevelOwner& l) {
+        return l.packId == packId && sameLevel(l.level, level);
+    });
+}
 } // namespace
 
 bool isContentPath(const std::string& path) {
@@ -174,9 +182,12 @@ SaveCheck checkSave(const SaveCheckInput& save, const ActivePacks& active) {
                 r.pack = want;
                 return r;
             }
+            if (outOfScope(active, want.id, save.level))
+                continue;
             if (have->build != want.build) {
                 r.verdict = SaveVerdict::DifferentBuild;
                 r.pack = *have;
+                r.overridden = active.loadOtherBuilds;
                 return r;
             }
         }
@@ -191,13 +202,18 @@ SaveCheck checkSave(const SaveCheckInput& save, const ActivePacks& active) {
         const auto pack = std::find_if(active.packs.begin(), active.packs.end(),
                                        [&](const PackStamp& p) { return p.id == l.packId; });
         r.pack = pack != active.packs.end() ? *pack : PackStamp{l.packId, l.packId, {}, {}};
+        r.overridden = active.loadOtherBuilds;
         return r;
     }
     return r;
 }
 
-std::vector<PackStamp> recordFor(const ActivePacks& active) {
-    return active.packs;
+std::vector<PackStamp> recordFor(const ActivePacks& active, const std::string& level) {
+    std::vector<PackStamp> out;
+    for (const PackStamp& p : active.packs)
+        if (!outOfScope(active, p.id, level))
+            out.push_back(p);
+    return out;
 }
 
 } // namespace hle::mods

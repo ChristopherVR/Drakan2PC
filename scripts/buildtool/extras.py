@@ -613,7 +613,14 @@ def convert_needed(work: Path, state: dict, force: bool = False) -> bool:
 
 
 def converter_command(
-    node: str, install: Path, data: Path, iso: Path, out: Path, hd: bool, cover: Path | None = None
+    node: str,
+    install: Path,
+    data: Path,
+    iso: Path,
+    out: Path,
+    hd: bool,
+    cover: Path | None = None,
+    previous: Path | None = None,
 ) -> list[str]:
     cmd = [
         node, "--experimental-transform-types", "--no-warnings", CONVERTER,
@@ -627,6 +634,9 @@ def converter_command(
         # lossless sources of the textures the converter has to quantise or resize, next to the pack (<out>.hdsrc); the HD step
         # indexes and upscales them itself, so the converter does not start its own HD run
         cmd += ["--hd", "--hd-sources-only", "1"]
+    # the pack this one replaces: its class ids are kept and, while no saved class or object changes meaning, its build, so
+    # the player's saves keep loading (docs/reference/modding.md "Saves and pack builds"); without it the ids start afresh
+    cmd += ["--previous", str(previous) if previous else "none"]
     return cmd
 
 
@@ -680,7 +690,10 @@ def convert_ootf(
     )
     mods.mkdir(parents=True, exist_ok=True)
     out = mods / f"{PACK_ID}.zip"
-    out.unlink(missing_ok=True)
+    # The pack being replaced stays beside it until the new one is written: the converter reads its class ids and build.
+    previous = mods / f"{PACK_ID}.previous.zip"
+    if out.is_file():
+        out.replace(previous)
     if hd:
         shutil.rmtree(out.with_name(out.name + ".hdsrc"), ignore_errors=True)
     log_file = work / "convert.log"
@@ -690,10 +703,12 @@ def convert_ootf(
     )
     mark = time.time()
     environment = dict(os.environ, DRAKAN_ISO=str(iso))
-    code = run_logged(converter_command(node, install, data, iso, out, hd, cover), log_file, root, environment)
+    command = converter_command(node, install, data, iso, out, hd, cover, previous if previous.is_file() else None)
+    code = run_logged(command, log_file, root, environment)
     if code or not out.is_file():
         raise ExtrasError(f"The converter stopped (exit code {code}). Last lines of {log_file}:\n{tail(log_file)}")
     timings.record("ootf-convert", time.time() - mark)
+    previous.unlink(missing_ok=True)
     write_mods_ini(mods)
     (work / "convert-state.json").write_text(json.dumps(state), encoding="utf-8")
     wrote = next(

@@ -1,6 +1,7 @@
 #include "drakan_save_guard.h"
 
 #include "Kernel/Stubs/MemoryCard.h"
+#include "drakan_config.h"
 #include "drakan_region.h"
 #include "hle/ModPack.h"
 #include "hle/SaveRecord.h"
@@ -111,7 +112,7 @@ void written(const fs::path& path) {
     std::vector<hle::mods::PackStamp> packs;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        packs = hle::mods::recordFor(g_active);
+        packs = hle::mods::recordFor(g_active, path.stem().string());
         g_slotCache.clear();
         g_entryCache.clear();
     }
@@ -252,6 +253,8 @@ void configure(const hle::mods::ModManager* mods) {
             if (st.state != hle::mods::ModState::Loaded || !st.content)
                 continue;
             active.packs.push_back({st.manifest.id, st.manifest.name, st.manifest.version, st.build});
+            if (st.manifest.saveScope == "levels")
+                active.levelScoped.push_back(st.manifest.id);
         }
         for (const hle::mods::ExtraLevel& l : mods->extraLevels()) {
             const auto st = std::find_if(mods->status().begin(), mods->status().end(),
@@ -259,8 +262,16 @@ void configure(const hle::mods::ModManager* mods) {
             active.levels.push_back({l.name, l.modId, st != mods->status().end() && st->buildDeclared});
         }
     }
-    for (const auto& p : active.packs)
-        std::fprintf(stderr, "[saves] content pack '%s' build %s: saves record it\n", p.id.c_str(), p.build.c_str());
+    // [general] save_pack_check = 0: saves of another pack build load anyway (the player's choice; they may misbehave).
+    active.loadOtherBuilds = !drakan_cfg::getBool("general", "save_pack_check", "DRAKAN_SAVE_PACK_CHECK", true);
+    for (const auto& p : active.packs) {
+        const bool scoped =
+            std::find(active.levelScoped.begin(), active.levelScoped.end(), p.id) != active.levelScoped.end();
+        std::fprintf(stderr, "[saves] content pack '%s' build %s: %s\n", p.id.c_str(), p.build.c_str(),
+                     scoped ? "saves of its own levels record it" : "saves record it");
+    }
+    if (active.loadOtherBuilds)
+        std::fprintf(stderr, "[saves] save_pack_check = 0: saves of other pack builds load anyway\n");
     std::lock_guard<std::mutex> lock(g_mutex);
     g_active = std::move(active);
     g_slotCache.clear();
@@ -314,6 +325,15 @@ Verdict checkSave(const fs::path& rsg) {
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         r = hle::mods::checkSave(in, g_active);
+    }
+    if (r.overridden) { // loads anyway: say so once per save
+        static std::set<std::string> warned;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (warned.insert(rsg.string()).second)
+            std::fprintf(stderr, "[saves] %s: %s (pack '%s' build %s), loaded anyway (save_pack_check = 0)\n",
+                         rsg.filename().string().c_str(), hle::mods::saveVerdictName(r.verdict), r.pack.id.c_str(),
+                         r.pack.build.c_str());
+        return out;
     }
     out.problem = problemOf(r.verdict);
     if (!out.refused())
