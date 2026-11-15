@@ -331,6 +331,18 @@ bool CampaignMusicDucker::silence(const std::string& fileKey, u16 type, u16 id, 
     return type == 0x304 && t.muted;
 }
 
+size_t CampaignMusicDucker::stopAll() {
+    std::lock_guard<std::mutex> lock(mu_);
+    size_t n = 0;
+    for (auto& [id, t] : tracks_)
+        if (!t.muted) {
+            t.muted = true;
+            ++n;
+        }
+    current_ = kStopped;
+    return n;
+}
+
 void CampaignMusicDucker::silenceAdpcm(std::vector<u8>& data) {
     for (size_t i = 0; i + 16 <= data.size(); i += 16) {
         data[i] = 0;

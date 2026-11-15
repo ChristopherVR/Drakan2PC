@@ -1518,6 +1518,41 @@ void campaignSoundSwapHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
     g_swapPlayOrig(rdram, ctx, rt);
 }
 
+// Scene music stop. A cut scene's music action (sequence action 8, handler in 0x1a4c50) can start a track and set the
+// music category's level (0x1b6930: level, ramp seconds, manager, category), but it has no stop: an action with track 0
+// plays nothing and the cue keeps playing. The PC's music action with id 0 stops the music with a fade out (Order of
+// the Flame, Ruined Village scene 1.3: Dark Union fades out over 9 s before Rynn meets the old man). A converted stop
+// passes the level kSceneMusicStop, which no disc scene, music loop or scene start / end uses. This hook then calls the
+// engine's category stop (0x1b6ac8: fade seconds, manager, category) with the ramp time, which alone did not silence
+// the cue in game (reason not established), and has the campaign music ducker serve every streaming track silent until
+// a track's descriptor is read again: that is what ends the music (when the buffered chunks run out, not a real fade).
+constexpr float kSceneMusicStop = -4096.0f;
+PS2Runtime::RecompiledFunction g_musicLevelOrig = nullptr;
+PS2Runtime::RecompiledFunction g_musicStopFn = nullptr;
+uint32_t g_musicLevelAt = 0, g_musicStopAt = 0;
+std::atomic<int> g_musicStopLog{0};
+// The campaign's music ducker (set when a campaign has its own music); a scene stop silences its streamed tracks.
+std::shared_ptr<hle::CampaignMusicDucker> g_musicDucker;
+
+void sceneMusicStopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == g_musicLevelAt && ctx->f[12] == kSceneMusicStop && g_musicStopFn) {
+        const float fade = ctx->f[13] > 0.0f ? ctx->f[13] : 0.0f;
+        if (g_musicStopLog.fetch_add(1) < 64)
+            std::fprintf(stderr, "[music] scene stop: category %d, fade %.2f s (ra=%x)\n",
+                         static_cast<int32_t>(getRegU32(ctx, 5)), fade, getRegU32(ctx, 31));
+        if (g_musicDucker) {
+            const size_t n = g_musicDucker->stopAll();
+            if (g_musicStopLog.load() <= 64)
+                std::fprintf(stderr, "[music] scene stop: %zu streamed track(s) silenced\n", n);
+        }
+        ctx->f[12] = fade;
+        ctx->pc = g_musicStopAt;
+        g_musicStopFn(rdram, ctx, rt);
+        return;
+    }
+    g_musicLevelOrig(rdram, ctx, rt);
+}
+
 void applyTraceEnv(PS2Runtime& rt) {
     const char* e = std::getenv("DRAKAN_TRACE_FN");
     if (!e)
@@ -2034,6 +2069,17 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                                                     size_t n) { credits->patchRead(fs, node, offset, data, n); });
             std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
         }
+        {
+            // converted cut scenes stop their music with a fade (sceneMusicStopHook)
+            g_musicLevelAt = drakan_region::guestAddress(0x1b6930u);
+            g_musicStopAt = drakan_region::guestAddress(0x1b6ac8u);
+            if (g_musicLevelAt && g_musicStopAt && runtime.hasFunction(g_musicLevelAt) &&
+                runtime.hasFunction(g_musicStopAt)) {
+                g_musicLevelOrig = runtime.lookupFunction(g_musicLevelAt);
+                g_musicStopFn = runtime.lookupFunction(g_musicStopAt);
+                runtime.replaceFunction(g_musicLevelAt, &sceneMusicStopHook);
+            }
+        }
         if (g_mods && !g_mods->soundSwapFiles().empty()) {
             // Campaign sound swaps (sounds/swaps.ini): Drakan 2 sounds this campaign plays differently, only while it
             // is the current game.
@@ -2078,6 +2124,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 // a campaign's music cue replaces the playing loop, as on the PC
                 auto ducker = std::make_shared<hle::CampaignMusicDucker>();
                 ducker->setActive([music] { return music->campaignActive(); });
+                g_musicDucker = ducker;
                 host->iop.res.setChunkDuck([ducker](const std::string& key, uint16_t type, uint16_t id, uint32_t off) {
                     return ducker->silence(key, type, id, off);
                 });

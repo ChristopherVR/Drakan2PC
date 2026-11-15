@@ -351,6 +351,11 @@ int main() {
               !md.silence(music, 0x304, 6, 163840));
         CHECK(md.silence(music, 0x304, 8, 0));                              // a wrapping loop with no gap stays silent
         CHECK(!md.silence("ENGLISH\COMMON\SOUNDS\SOUND.SDB", 0x304, 8, 0)); // other files untouched
+        // a scene stops the music: the cue goes silent too, also when it wraps, until a descriptor starts a track again
+        CHECK(md.stopAll() == 1);
+        CHECK(md.silence(music, 0x304, 6, 327680) && md.silence(music, 0x304, 6, 0) && md.silence(music, 0x304, 8, 0));
+        CHECK(!md.silence(music, 0x302, 2, 0) && !md.silence(music, 0x304, 2, 0) &&
+              md.silence(music, 0x304, 6, 163840));
         std::vector<u8> blocks(32, 0xff);
         CampaignMusicDucker::silenceAdpcm(blocks);
         CHECK(blocks[0] == 0 && blocks[1] == 0xff && blocks[2] == 0 && blocks[15] == 0 && blocks[16] == 0 &&

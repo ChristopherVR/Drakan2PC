@@ -163,6 +163,10 @@ public:
     bool silence(const std::string& fileKey, u16 type, u16 id, u32 offset);
     // Silence the ADPCM blocks of `data` (16-byte blocks, flag byte kept).
     static void silenceAdpcm(std::vector<u8>& data);
+    // A cut scene stops the music (the PC's music action with id 0): every streaming track is served silent until a
+    // track's descriptor is read again (a cue, or a music loop started for the first time; a loop that is turned on
+    // again while its stream still runs reads no descriptor and stays silent). Returns the number of tracks silenced.
+    size_t stopAll();
 
 private:
     struct Track {
@@ -173,6 +177,7 @@ private:
     std::map<u16, Track> tracks_;
     u16 current_ = 0;
     std::mutex mu_;
+    static constexpr u16 kStopped = 0xFFFF; // `current_` after stopAll: no track is the current one
 };
 
 // ---- XDB text
