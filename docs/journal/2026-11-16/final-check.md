@@ -26,8 +26,10 @@ either game is quoted here.
   earlier opening runs did not play the movie in full.
 * Another session's game (from `dist/DrakanPC`, started 20:15, later restarted) ran from the middle of the check on.
   Runs `ootf_a`, `d2movie` and the runtime tests were before it; every other run had it beside it (one game of mine at a
-  time). The `dist/DrakanPC` files newer than the start marker are that game's `drakan.log` and an `mc0_ootf` save. My
-  runs log and save into their own run folders.
+  time). The `dist/DrakanPC` files newer than the start marker are all dated 20:15 or later and come from that game:
+  `drakan.log`, `renderer_session.txt`, `multiplayer.ini`, `shadercache/`, `previews/mods/` and an `mc0_ootf` save. No
+  `*.ini` other than `multiplayer.ini` changed, and nothing changed before 20:15. My runs start the game in
+  `build/review/final-1116/play` and log and save into their run folders.
 
 ## Results
 
@@ -57,19 +59,23 @@ loaded, so nothing of the movie was cut visibly.
 
 ### 2. Ruined Village opening
 
-* **Models, mouths.** Delon in 1.1 during "I hope his reward..." (`ev/b_11_delon_mouth.jpg`, frames `f0012` to
+* **Models, mouths.** Shipped pack read back with `tools/packmodel.mts` (from `ootf-models2`): `Delon(h)` has 2,104
+  triangles, `julian (h)` has 1,824, and both end in a `jaw` node, as `ootf-model-upgrade.md` describes. Delon in 1.1 during "I hope his reward..." (`ev/b_11_delon_mouth.jpg`, frames `f0012` to
   `f0027`): a round head, and the lower lip and chin change from frame to frame (open in `f0014`, `f0016`, `f0021`,
   `f0024`, shut in `f0018`, `f0027`). Julian in the 1.3 close-up, 21 to 25 s (`ev/b_13_julian_mouth_zoom.jpg`): his chin
   drops under the moustache in `f0206` and `f0208` and closes in `f0210` and `f0216`. The overview sheets
-  (`ev/b_11_delon_overview.jpg`, `b_12a.jpg`, `b_13_overview.jpg`, `b_13_rest.jpg`) show no torn or stretched polygons.
-* **Door.** The old man's door is shut in every 1.3 frame where it is in view (16.8 to 18.2 s, `ev/b_13_door.jpg`).
+  (`ev/b_11_delon_overview.jpg`, `b_11_rest.jpg` (1.1 from 11 s), `b_12a.jpg`, `b_13_overview.jpg`, `b_13_rest.jpg` (1.3
+  from 30 s)) show no torn or stretched polygons. The camera moves in the Julian close-up, so his frames are weaker
+  evidence than Delon's.
+* **Door.** The old man's door is shut in the 1.3 frames where it is in view: 16.8 to 18.2 s (`ev/b_13_door.jpg`) and,
+  behind Rynn, 46 to 52 s (`ev/b_13_rest.jpg`).
 * **Subtitles.** "Find Arokh." and "Arokh." at 1.3 + 76.6 to 78.3 s (`ev/b_13_subtitles.jpg`).
 * **Music** (`ootf_a2`, category 2 from RAM `music.jsonl` via `tools/msum.py`, log lines, and the dump with
   `ootf-music/tools/amp.py`):
 
 | Driver time | RAM / log | Dump (ncc) |
 | --- | --- | --- |
-| 62.9 (level start) | `0xe0008` alone in the music category | track 8 0.17 to 0.24 (under speech, volume 13) |
+| 62.9 (level start) | `0xe0008` alone in the music category | track 8 0.17 to 0.24: no better than a track that is not playing (speech, volume 13), so RAM and log carry this row |
 | 74.6 (1.1) | `track e0006 starts now (fade in 7.00 s), e0008 fades out (3.00 s left)`; 8 gone at 77.7 | track 6 0.2 to 0.6 from about 120 |
 | 125.6, 179.7 | `scene end: the scene's music plays on`, `scene start: the playing music goes on` | |
 | 184.0 (1.3) | `scene stop: category 2, fade 9.00 s`; 6's attenuation rises linearly from 0.02 to 0.91 over 9 s (184 -> 193); the category is empty from 194.1 | none afterwards |
@@ -116,8 +122,13 @@ was not looked into.
 
 ### 6. Stability and frame rate
 
-Across the 18 game runs: no crash, no `[watchdog]`, no VU1 report, no device hang or removal, no texture budget miss.
-Every run exited with code 0. Each run with audio ends with the known `[hle] post(sid=0x1310) ... did not return within
+Across the 18 game runs (16 with the new exe, `il_old_*` with the old one): no crash, no `[watchdog]`, no VU1 report, no device hang or removal, no texture budget miss.
+Every run exited with code 0. One did not end the way the driver planned: `ootf_a` closed itself cleanly about
+12 s after control returned (20:14:55), with no quit sent and no `[in] script quit` line; the log ends in a normal
+`[run] shutdown`. The input script does not quit when its events run out (only a `quit` event does), and the other
+runs with the same recipe did not quit. The other session's game was started from `dist` 21 s later, and my borderless
+window covered the screen, so the likely cause is an outside window close; this was not proven. `ootf_a2` stood 80 s
+in gameplay after control with no exit. Each run with audio ends with the known `[hle] post(sid=0x1310) ... did not return within
 20 s` lines after `[run] shutdown`. Frame rate from `[frame-uncapped]` (`ootf_a`, no screenshots, nothing else on the
 machine): 1.1 99 fps mean (min 2 s window 72), **1.2a crowd scene 82 fps mean (min 48, median 83)**, 1.3 103. With the
 other game running (`ootf_a2`): 34 / 29 / 25.
