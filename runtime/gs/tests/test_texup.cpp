@@ -73,6 +73,30 @@ int main(int argc, char** argv) {
                 art[y * 64 + x] = 0x80000000u | v | (v << 8) | ((v / 2) << 16);
             }
         CHECK(!looksUninitialized(art.data(), 64, 64), "checkered grainy art still upscales");
+        // The Ruined Village night sky ramp: the same bands in sparse random memory (most words zero), whose rows
+        // average under 60 levels between neighbours.
+        std::vector<uint32_t> sparse(64 * 64);
+        for (uint32_t y = 0; y < 64; ++y)
+            for (uint32_t x = 0; x < 64; ++x) {
+                random = random * 1664525u + 1013904223u;
+                const bool written = y <= 6 || (y >= 32 && y <= 38);
+                const uint32_t noise = (random >> 29) < 2 ? (random >> 4) & 0x007F7F7Fu : 0u;
+                sparse[y * 64 + x] = written ? 0x00705452u : noise;
+            }
+        CHECK(looksUninitialized(sparse.data(), 64, 64, true),
+              "sparse random rows around a sampled band are left native");
+        CHECK(!looksUninitialized(sparse.data(), 64, 64, false),
+              "the sparse test is only for raw 24-bit colour (palette and 32-bit art can look like it)");
+        // Art with sharp detail in fewer than half of its rows (an icon atlas: edges of 70 levels every two texels in
+        // 40 % of the rows, flat colour elsewhere) still upscales.
+        std::vector<uint32_t> atlas(64 * 64);
+        for (uint32_t y = 0; y < 64; ++y)
+            for (uint32_t x = 0; x < 64; ++x) {
+                const bool detailed = (y % 5) < 2;
+                const uint32_t v = detailed && (x / 2) % 2 ? 170u : 100u;
+                atlas[y * 64 + x] = 0x80000000u | v | (v << 8) | (v << 16);
+            }
+        CHECK(!looksUninitialized(atlas.data(), 64, 64, true), "an atlas with sharp edges in some rows still upscales");
     }
     {
         // The GUI page's jobs (urgent lane) start before queued background upscales; each lane keeps its order.

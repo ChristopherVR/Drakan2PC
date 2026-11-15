@@ -464,7 +464,7 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
         key.factor = 0; // resolved by the job
         key.packed = (mxl << 12) | (1u << 16) | (viaAlias ? (1u << 17) : 0u);
     } else {
-        if (factor <= 1 || texup::looksUninitialized(base.data(), W, H))
+        if (factor <= 1 || texup::looksUninitialized(base.data(), W, H, (uint32_t)bitsOf(s.tex0, 20, 6) == PSM_CT24))
             return;
         key.factor = factor;
         key.packed = (uint32_t)algo | ((wrapS ? 1u : 0u) << 8) | ((wrapT ? 1u : 0u) << 9) | (mxl << 12);

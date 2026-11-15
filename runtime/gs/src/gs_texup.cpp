@@ -87,20 +87,36 @@ Stats analyse(const uint32_t* px, uint32_t w, uint32_t h) {
     return s;
 }
 
-bool looksUninitialized(const uint32_t* px, uint32_t w, uint32_t h) {
+bool looksUninitialized(const uint32_t* px, uint32_t w, uint32_t h, bool rawColour) {
     if (!px || w < 8 || h < 8)
         return false;
+    // Dense random bytes: a quarter of the rows average more than 60 levels between horizontal neighbours.
     const uint32_t need = std::max(4u, h / 4);
-    uint32_t noisy = 0;
+    // Sparse random bytes (mostly zero words with scattered values, as around the Ruined Village night sky ramp)
+    // average less, but a quarter of their neighbour pairs still jump by more than 64 in some channel. Painted art does
+    // that too (vertical stripes, sparkle particles: up to 81 % of the rows of 6,135 disc and pack textures), but only
+    // in palette or 32-bit formats; the sky ramps are raw 24-bit colour, where no disc or pack texture reaches it. So
+    // this test runs only for raw 24-bit colour and needs half of the rows (the ramps: 78 %).
+    const uint32_t needJumps = rawColour ? std::max(4u, h / 2) : h + 1;
+    uint32_t noisy = 0, jumpy = 0;
     for (uint32_t y = 0; y < h; ++y) {
         const uint32_t* row = px + (size_t)y * w;
         uint64_t diff = 0;
-        for (uint32_t x = 0; x + 1 < w; ++x)
-            for (int c = 0; c < 24; c += 8)
-                diff += (uint32_t)std::abs((int)((row[x] >> c) & 255) - (int)((row[x + 1] >> c) & 255));
+        uint32_t jumps = 0;
+        for (uint32_t x = 0; x + 1 < w; ++x) {
+            int largest = 0;
+            for (int c = 0; c < 24; c += 8) {
+                const int d = std::abs((int)((row[x] >> c) & 255) - (int)((row[x + 1] >> c) & 255));
+                diff += (uint32_t)d;
+                largest = std::max(largest, d);
+            }
+            jumps += largest > 64;
+        }
         if (diff > (uint64_t)60 * 3 * (w - 1) && ++noisy >= need)
             return true;
-        if (noisy + (h - 1 - y) < need)
+        if ((uint64_t)jumps * 4 > (uint64_t)(w - 1) && ++jumpy >= needJumps)
+            return true;
+        if (noisy + (h - 1 - y) < need && jumpy + (h - 1 - y) < needJumps)
             return false;
     }
     return false;

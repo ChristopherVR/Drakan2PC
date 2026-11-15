@@ -136,7 +136,11 @@ Options: `--iso`, `--work` (default build\hdpack), `--out`, `--exe`, `--scale` (
   exact authored hash (a runtime texture or an exact pack file), it now runs, and the HD image is used.
 * `texup::looksUninitialized`: textures whose rows are mostly random memory stay native in the live upscale path.
   The intro's 64x64 CT24 sky ramp is point sampled in two written bands, and the 8x smooth filter blended the
-  garbage rows into them as rainbow stripes (`docs/journal/2026-10-24/inventory-sky-textures.md`).
+  garbage rows into them as rainbow stripes (`docs/journal/2026-10-24/inventory-sky-textures.md`). Rows count as random
+  when they average more than 60 levels between neighbours (a quarter of the rows), or, for raw 24-bit colour (PSMCT24)
+  only, when a quarter of their neighbour pairs jump by more than 64 (half of the rows; sparse random memory, the Order
+  of the Flame night sky ramp behind the Ruined Village sea, `docs/journal/2026-11-15/ootf-distant-sea.md`; palette and
+  32-bit art with stripes or sparkles reaches that too, so it is not tested there).
 
 ## 9. Palette-animated and palette-swapped textures: HD index maps (2026-10-22)
 Gap 1 left every volatile texture at native resolution (`setupUpscale` returns early for volatile slots unless the exact

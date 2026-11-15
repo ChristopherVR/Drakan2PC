@@ -58,8 +58,11 @@ Algo classify(const Stats& s);
 // Uninitialised memory sampled as a texture: the game can point-sample a few written rows of a texture whose other
 // rows hold random bytes (the 64x64 CT24 sky ramp of the intro). Any upscale mixes those rows into the sampled ones,
 // so such textures stay native. True when at least a quarter of the rows (and 4) average more than 60 levels between
-// horizontal neighbours, which painted art and photographic noise do not reach.
-bool looksUninitialized(const uint32_t* px, uint32_t w, uint32_t h);
+// horizontal neighbours, which painted art and photographic noise do not reach, or, for raw 24-bit colour
+// (`rawColour`, PSMCT24) only, when at least half of the rows (and 4) jump by more than 64 in some channel between a
+// quarter of their neighbour pairs (sparse random memory, mostly zero words, as around the night sky ramp of the Order
+// of the Flame Ruined Village; palette and 32-bit art with stripes or sparkles reaches that too).
+bool looksUninitialized(const uint32_t* px, uint32_t w, uint32_t h, bool rawColour = false);
 
 // Upscale `src` (w x h) by factor 2 / 4 / 8 (anything else is rounded down to a power of two, 1 = copy). wrapX / wrapY:
 // the texture tiles (GS REPEAT), so the kernels read the opposite edge instead of clamping. `out` receives (w*factor) x
