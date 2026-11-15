@@ -34,6 +34,7 @@ struct CameraLayout {
     uint32_t playerTransform = 0x80;
     uint32_t playerFlags = 0x90;
     uint32_t playerFlags2 = 0x94;
+    uint32_t dragonGrounded = 0x9c; // Arokh's instance data: 1 while he stands or walks, 0 in the air (RAM dumps)
     uint32_t playerTarget = 0x4da;
     uint32_t playerAimAnchor = 0x114;
     uint32_t playerAnchorY = 0x520;

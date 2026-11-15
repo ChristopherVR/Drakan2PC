@@ -35,7 +35,10 @@ up raises the nose (mouse-look sense) and `invert_y` reverses it. The stick path
 the nose down, as a pad's stick does. Steering stops while a physical right stick or an `RSTICK` binding is active,
 in menus, while host-owned or uncaptured, during scripted control (`0x4fbafc`), and while his `+0x94` bit 0 is set
 (controller A reads no player input then). His `+0x94` bit 3 (the branch where A does not pitch him) stops the mouse
-pitch. Both bits are [M] and were not seen set in flight. Counts are discarded on mount and dismount. Camera_UpdateLook and its after-hook leave Arokh alone in both modes: controllers A / B call it only in
+pitch. Both bits are [M] and were not seen set in flight. Bit 3 is set during a landing but not while he stands or
+walks, so the mouse pitch is also held while his instance data `+0x9c` is 1 (on the ground: Ready, Walk, strafe; 0 in
+the air; layout field `dragon_grounded`, RAM dumps of Rift World and Wartok Canyons; before 2026-11-16 a 400-count flick
+on the ground bobbed his nose by 40 degrees for about a second, [journal](../journal/2026-11-16/save-state-fix.md)). Counts are discarded on mount and dismount. Camera_UpdateLook and its after-hook leave Arokh alone in both modes: controllers A / B call it only in
 camera mode 6, and the camera look pitch is not his attitude. The old `direct` path therefore never steered the
 flight. `DRAKAN_DRAGON_MODE` / `_SENS` / `_SMOOTHING` / `_STRAFE` override the file for one run, and
 `DRAKAN_DRAGON_TRACE=1` logs one `[dragon]` line per tick ([env flags](env-flags.md)). Older files are upgraded in

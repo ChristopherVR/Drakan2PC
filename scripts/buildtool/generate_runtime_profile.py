@@ -83,6 +83,7 @@ CAMERA_FIELDS = (
     "player_transform",
     "player_flags",
     "player_flags2",
+    "dragon_grounded",
     "player_target",
     "player_aim_anchor",
     "player_anchor_y",

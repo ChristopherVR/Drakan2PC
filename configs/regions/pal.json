@@ -84,6 +84,7 @@
     "player_transform": 128,
     "player_flags": 144,
     "player_flags2": 148,
+    "dragon_grounded": 156,
     "player_target": 1242,
     "player_aim_anchor": 276,
     "player_anchor_y": 1312,

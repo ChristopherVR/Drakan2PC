@@ -1238,7 +1238,12 @@ void InputModule::steerDragon(IGuest& g, bool dragon) {
         s = dragonSteer_.step(c, frame_.frameSeconds);
         if (s.yaw != 0.0f)
             rotateWorldYaw(m, s.yaw);
-        if (!(flags2 & 8u))
+        // On the ground (instance +0x9c = 1 while he stands, walks or strafes; 0 in the air, RAM dumps of Rift World
+        // and Wartok Canyons) the game levels the nose again within a second or so, so a mouse pitch there only bobs
+        // his head: the vertical counts are dropped until he is in the air.
+        const bool grounded =
+            actorOk && valid(actor, uint64_t(l.dragonGrounded) + 4) && g.read32(actor + l.dragonGrounded) == 1u;
+        if (!(flags2 & 8u) && !grounded)
             pitchApplied = clampPitchDelta(dragonPitch(m), s.pitch, c.pitchMin, c.pitchMax);
         if (pitchApplied != 0.0f)
             rotateLocalPitch(m, pitchApplied);
@@ -1260,20 +1265,21 @@ void InputModule::steerDragon(IGuest& g, bool dragon) {
         if (valid(view, uint64_t(l.transformRight) + 36))
             for (int i = 0; i < 9; ++i)
                 vm[i] = g.readF(view + l.transformRight + 4u * static_cast<uint32_t>(i));
-        std::fprintf(
-            stderr,
-            "[dragon] f=%d dt=%.4f dx=%d dy=%d mode=%s own=%d yawIn=%.5f pitchIn=%.5f yaw=%.5f pitch=%.5f "
-            "pos=%.1f,%.1f,%.1f view=%.5f vpitch=%.5f cmode=%u cflags=%x f90=%x f94=%x rx=%u ry=%u lx=%u ly=%u\n",
-            frameNo_, static_cast<double>(frame_.frameSeconds), frame_.dx, frame_.dy,
-            cfg_.dragonStick ? "stick" : "mouse", owned ? 1 : 0, static_cast<double>(s.yaw),
-            static_cast<double>(pitchApplied), static_cast<double>(dragonYaw(m)), static_cast<double>(dragonPitch(m)),
-            static_cast<double>(g.readF(h + l.transformPosition)),
-            static_cast<double>(g.readF(h + l.transformPosition + 4)),
-            static_cast<double>(g.readF(h + l.transformPosition + 8)), static_cast<double>(dragonYaw(vm)),
-            static_cast<double>(dragonPitch(vm)), cam ? g.read32(cam + l.cameraMode) : 0u,
-            cam ? g.read32(cam + l.cameraFlags) : 0u, actorOk ? g.read32(actor + l.playerFlags) : 0u,
-            actorOk ? g.read32(actor + l.playerFlags2) : 0u, padSample_[4], padSample_[5], padSample_[6],
-            padSample_[7]);
+        std::fprintf(stderr,
+                     "[dragon] f=%d dt=%.4f dx=%d dy=%d mode=%s own=%d yawIn=%.5f pitchIn=%.5f yaw=%.5f pitch=%.5f "
+                     "pos=%.1f,%.1f,%.1f view=%.5f vpitch=%.5f cmode=%u cflags=%x f90=%x f94=%x gnd=%u rx=%u ry=%u "
+                     "lx=%u ly=%u\n",
+                     frameNo_, static_cast<double>(frame_.frameSeconds), frame_.dx, frame_.dy,
+                     cfg_.dragonStick ? "stick" : "mouse", owned ? 1 : 0, static_cast<double>(s.yaw),
+                     static_cast<double>(pitchApplied), static_cast<double>(dragonYaw(m)),
+                     static_cast<double>(dragonPitch(m)), static_cast<double>(g.readF(h + l.transformPosition)),
+                     static_cast<double>(g.readF(h + l.transformPosition + 4)),
+                     static_cast<double>(g.readF(h + l.transformPosition + 8)), static_cast<double>(dragonYaw(vm)),
+                     static_cast<double>(dragonPitch(vm)), cam ? g.read32(cam + l.cameraMode) : 0u,
+                     cam ? g.read32(cam + l.cameraFlags) : 0u, actorOk ? g.read32(actor + l.playerFlags) : 0u,
+                     actorOk ? g.read32(actor + l.playerFlags2) : 0u,
+                     actorOk && valid(actor, uint64_t(l.dragonGrounded) + 4) ? g.read32(actor + l.dragonGrounded) : 0u,
+                     padSample_[4], padSample_[5], padSample_[6], padSample_[7]);
     }
 }
 
