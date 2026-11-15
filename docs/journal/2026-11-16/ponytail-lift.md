@@ -54,12 +54,17 @@ Three causes, found by switching parts of the step from the hook (experiments, a
 
 A wrapper on `0x11d368` (and on its three passes, which only it calls), PAL only:
 
-* **Cadence.** Above 33 frames per second the step runs only when the gathered frame time reaches a 30 Hz frame
-  (`cadenceStep`), with that time as its dt (and 1/dt); on the frames in between it runs with dt 0 and the three passes
-  return at once, so the particles stay put in the body's frame and are written to the model as they are, and the body
-  frame of the last real step is put back so the next step re-bases over the whole interval. 30 steps per second at 60
-  and 120 fps, 30 to 36 at 144 and more; 33 fps and slower are unchanged. Counted in the log: 3 passes skipped per
-  held frame.
+* **Cadence.** Above 33 frames per second the step runs only on the frame nearest each 30 Hz step (`cadenceStep`:
+  gathered time within half a frame of 1/30 s, never more than 36.5 ms), with the gathered time as its dt (and 1/dt;
+  the engine caps it at 0.03 as at 30 Hz); on the frames in between it runs with dt 0 and the three passes return at
+  once, so the particles stay put in the body's frame and are written to the model as they are, and the body frame of
+  the last real step is put back so the next step re-bases over the whole interval. The world dt comes in whole
+  milliseconds: a first rule (step when gathered + one frame passes 1/30 s) stepped on most 17 ms frames at 60 fps (132
+  steps / 68 held per 200, walk 65 in `d2_60_c`); the rule above holds every other frame there (101 / 99) and is tested
+  for every steady 4 to 29 ms frame time and for 16 / 17 ms jitter. 27 to 39 steps per second from 58 to 250 fps;
+  40 to 55 fps step every frame (as before, without slow motion); 33 fps and slower are unchanged. Counted in the log:
+  3 passes skipped per held frame. The two other callers of the step (`0x1042c8`, a per-object update loop, and
+  `0x17ec70`) call it once per object; Rynn's cloth was stepped once per frame in every run.
 * **Drag easing.** For each real step the drag coefficient (resource + 0x2c) is scaled so the drag sees
   `v / (1 + v / 300)`, v the true speed over the real step time (`dragScale`). At rest the scale is 1 (the standing
   hang and the level wind are unchanged); the drag force from motion saturates towards 5 x 300 = 1500 (about 20
@@ -79,16 +84,18 @@ Same exe, `DRAKAN_PONYTAIL=0` / default:
 | Run | stand | slow 100-700 | walk 700-1500 | run > 1500 |
 | --- | --- | --- | --- | --- |
 | Surdana 30, off / on (`d2_30_off` / `d2_30_c`) | 15 / 14 | 60 / 23 | 78 / 41 (>60: 94 % / 18 %) | 85 / 50 |
-| Surdana 60, off / on (`d2_60_off` / `d2_60_c2`) | 15 / 15 | 64 / 37 | 80 / 35 (95 % / 12 %) | 85 / 70 |
-| Surdana uncapped, off / on (`d2_unc_off` / `d2_uncapped_c2`) | 16 / 13 | 81 / 35 | 83 / 38 (100 % / 8 %) | 87 / 67 |
+| Surdana 60, off / on (`d2_60_off` / `d2_60_c3`) | 15 / 14 | 64 / 29 | 80 / 20 (95 % / 10 %) | 85 / 62 |
+| Surdana uncapped, off / on (`d2_unc_off` / `d2_uncapped_c3`) | 16 / 15 | 81 / 33 | 83 / 43 (100 % / 13 %) | 87 / 66 |
 | Ruined Village scene 1.1 walk, uncapped (`rv_scene_p0` / `p1`) | 15 / 10 | 74 / 33 (>60: 72 % / 10 %) | (few samples) | |
 
 Run-to-run spread is about 8 degrees (two 30 Hz runs with the same settings: walk 33 and 41). Running still lifts
-the tail further than walking (60 to 70 degrees median), and stops, turns and jumps still swing it. Ruined Village
+the tail further than walking: 50 degrees median at 30 Hz but 62 to 66 at 60 fps and uncapped, so a frame-rate gap
+remains for running. Stops and turns still swing it; jumps were not exercised. Ruined Village
 gameplay gave too few walking samples (Rynn placed in the 1.1 field mostly ran into slopes, `rv_unc_q0` / `q1`); its
 cloth parameters read from RAM are identical to Surdana's, so the Surdana table stands for it.
 
-Frames (uncapped, the owner's setting; screenshots kick the off runs harder than the on runs, see cause 3):
+Frames (uncapped, the owner's setting; taken with the first cadence rule of `c61ebf8c`, which held frames at
+uncapped rates as the current one does; screenshots kick the off runs harder than the on runs, see cause 3):
 * `build/review/ponytail/evidence/d2_walk_zoom_off_top_on_bottom.jpg` (Surdana, runs `d2_shot_p0` / `d2_shot_p1`,
   camera behind her): walking, off, the tail is a short stub pointing back at the camera (held out level); on, it hangs
   down her back. Running, on, it hangs and swings a little out. `d2_walk_off_top_on_bottom.jpg` is the wider view.
@@ -101,6 +108,9 @@ Frames (uncapped, the owner's setting; screenshots kick the off runs harder than
 * Real console footage: whether the PS2 held the tail out like the off rows at its 25 to 30 Hz is still not compared.
   The 30 Hz off row is the closest the port has; the fix changes it too (by the drag easing).
 * Other cloths (none seen in the two levels) and co-op characters' ponytails: covered by the same code, not looked at.
-* A visible 30 Hz step of the tail at high frame rates (the tail moves with the body between steps): not seen in the
-  frames, not checked frame by frame in motion.
+* A visible 30 Hz step of the tail at high frame rates (the tail moves rigidly with the body between steps, then jumps
+  by one step of its own motion): not measured (no per-step particle displacement logged) and not checked frame by
+  frame in motion; the still frames show nothing odd.
+* Jumping and falling; Ruined Village gameplay walking frames (only the scene was captured, and only one of its shots
+  shows the tail from the side).
 * Drakan 2 levels other than Surdana; NTSC builds (the hook is PAL only).

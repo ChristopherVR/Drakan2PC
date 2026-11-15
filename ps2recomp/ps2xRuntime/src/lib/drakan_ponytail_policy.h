@@ -50,13 +50,15 @@ inline float dragScale(float distance, float worldDt, float worldInvDt, float so
 }
 
 // Step cadence. The PS2 ran the step at 25 to 30 Hz (dt 0.03 after the cap). At the PC's frame rates its passes that
-// do not scale with dt (rebasing the particles into the moving body's frame, the length constraints, the body
-// collisions) run two to four times as often per second and hold the tail out stiffly even with no drag at all. Above
-// 33 frames per second the step therefore runs only when the time gathered since the last step reaches a 30 Hz step
-// (kCadenceStep), with the gathered time as its dt (the engine caps it at 0.03 as at 30 Hz); on the frames in
-// between the particles are held in the body's frame. Returns the dt to step with, or 0 to hold this frame.
-// `gathered` is per cloth.
-constexpr float kCadenceStep = 1.0f / 30.0f + 0.0005f; // a 30 Hz frame, with room for timer jitter
+// do not scale with dt (re-basing the particles into the moving body's frame, the length constraints, the body
+// collisions) run two to seven times as often per second and hold the tail out stiffly even with no drag at all. Above
+// 33 frames per second the step therefore runs on the frame nearest each 30 Hz step, with the time gathered since the
+// last step as its dt (the engine caps it at 0.03, as at 30 Hz); on the frames in between the particles are held in the
+// body's frame. The world dt is in whole milliseconds and jitters, so the rule is half a frame either side of 1/30 s,
+// and a step never gathers more than kCadenceMaxStep (no slow motion at 40 to 55 fps, which then step every frame).
+// Returns the dt to step with, or 0 to hold this frame. `gathered` is per cloth.
+constexpr float kCadenceStep = 1.0f / 30.0f;
+constexpr float kCadenceMaxStep = 0.0365f;
 
 inline float cadenceStep(float& gathered, float frameDt) {
     if (!(frameDt > 0.0f) || frameDt >= kEngineDtCap) {
@@ -64,7 +66,7 @@ inline float cadenceStep(float& gathered, float frameDt) {
         return frameDt;
     }
     gathered += frameDt;
-    if (gathered + frameDt <= kCadenceStep)
+    if (gathered < kCadenceStep - 0.5f * frameDt && gathered + frameDt <= kCadenceMaxStep)
         return 0.0f;
     const float dt = gathered;
     gathered = 0.0f;

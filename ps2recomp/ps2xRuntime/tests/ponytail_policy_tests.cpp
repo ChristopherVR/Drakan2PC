@@ -7,6 +7,7 @@ using drakan_ponytail::cadenceStep;
 using drakan_ponytail::dragScale;
 using drakan_ponytail::easedSpeed;
 using drakan_ponytail::engineSpeed;
+using drakan_ponytail::kCadenceMaxStep;
 using drakan_ponytail::kCadenceStep;
 using drakan_ponytail::kDefaultSoftSpeed;
 
@@ -61,7 +62,7 @@ int main() {
     float stepped = 0.0f, held = 0.0f;
     for (int i = 0; i < 120; ++i) {
         const float s = cadenceStep(gathered, 1.0f / 120.0f);
-        assert(s >= 0.0f && s <= kCadenceStep);
+        assert(s >= 0.0f && s <= kCadenceMaxStep);
         if (s == 0.0f)
             held += 1.0f;
         else
@@ -75,7 +76,35 @@ int main() {
     assert(near(cadenceStep(gathered, 1.0f / 60.0f), 1.0f / 30.0f, 1e-5f));
     gathered = 0.0f;
     for (int i = 0; i < 1000; ++i)
-        assert(cadenceStep(gathered, (i % 2 ? 1.0f / 144.0f : 1.0f / 240.0f)) <= kCadenceStep);
+        assert(cadenceStep(gathered, (i % 2 ? 1.0f / 144.0f : 1.0f / 240.0f)) <= kCadenceMaxStep);
+    // The world dt is in whole milliseconds: at every steady frame time of 4 to 17 ms the cloth steps 27 to 39 times
+    // a second, from 18 to 29 ms at most once a frame; no step gathers more than kCadenceMaxStep and no time is lost.
+    for (int ms = 4; ms <= 29; ++ms) {
+        const float dt = 0.001f * static_cast<float>(ms);
+        gathered = 0.0f;
+        int steps = 0, frames = 0;
+        float total = 0.0f;
+        for (float t = 0.0f; t < 10.0f; t += dt, ++frames) {
+            const float s = cadenceStep(gathered, dt);
+            assert(s >= 0.0f && s <= kCadenceMaxStep);
+            if (s > 0.0f) {
+                ++steps;
+                total += s;
+            }
+        }
+        const float rate = static_cast<float>(steps) / 10.0f;
+        if (ms <= 17)
+            assert(rate >= 27.0f && rate <= 39.0f);
+        else
+            assert(steps <= frames);
+        assert(near(total + gathered, dt * static_cast<float>(frames), 1e-2f));
+    }
+    // Jitter at 60 fps (16 and 17 ms frames): still about every other frame.
+    gathered = 0.0f;
+    int jitterSteps = 0;
+    for (int i = 0; i < 600; ++i)
+        jitterSteps += cadenceStep(gathered, (i % 3 ? 0.017f : 0.016f)) > 0.0f ? 1 : 0;
+    assert(jitterSteps >= 290 && jitterSteps <= 310);
     // A zero frame time is the engine's own case (no step time): passed through, the gathered time cleared.
     gathered = 0.01f;
     assert(cadenceStep(gathered, 0.0f) == 0.0f && gathered == 0.0f);
