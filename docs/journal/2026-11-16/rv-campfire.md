@@ -4,7 +4,7 @@ Owner reports (Order of the Flame campaign, Ruined Village): "textures missing .
 going up in the elevator. There is a spot where there is fire but the roast pit, the log laying where the axe is and the
 three wartoks / grunts are not there", and "The tree that we can cut that kills the wartok / grunt there: there is a weird
 flame next to it and the flame even changes once the tree is destroyed". Both are converter faults, fixed in formats
-`09f6550` (`src/ootfzonecull.ts`, `src/ootftree.ts`, one block in `src/ootfpipeline.ts`); the runtime is unchanged.
+`09f6550` and its follow-up (`src/ootfzonecull.ts`, `src/ootftree.ts`, one block in `src/ootfpipeline.ts`); the runtime is unchanged.
 Scratch, packs, runs and frames: `build/review/rv-campfire/` (not tracked; private play folder `play` with its own ELF
 copy, HD textures copied in). Nothing from either game is quoted here beyond object, class and field names.
 
@@ -47,18 +47,21 @@ What was established in game (dist exe `bcb5a431...`, dist pack `0214d9e7...`, `
 
 The converted game draws far and does not need the PC culling. A PC Visibility Toggler counts as zone culling when it is in
 Depends on Message mode, has at least 4 links, every link source is a detector or a timer, at least one detector sends its
-Show and one its Hide message, and every link that starts hidden is static scenery (engine 17, 13 or 20). Then the hidden
+Show and one its Hide message, some of its links start hidden, and every link that starts hidden is static scenery (engine 17,
+13 or 20). Then the hidden
 links start visible, the Hide sources no longer link to the toggler, and the hidden creatures a Show detector of that
 toggler wakes are shown too when they stand within 6,144 units (x / z) of one of its hidden links. Log line per toggler.
 
-Campaign census of the 74 PC togglers (`tools/cullsurvey.ts`, `tools/zonecensus.ts`): 8 match. Ruined Village 2196, 2199,
-2238, 2337, 2684, 2731, Alwarren 2546 (plants and falls, all visible: only its hides are cut) and Wartok Canyons 2854 (the
-spider pit props, all visible: only its hides are cut). Grotto 808 does not (a hidden Boulder, engine 16); Volcano 2322 does
-not (one link); puzzle togglers (one source, Movers, plates, locks, waypoints) do not. Single-level conversion of Ruined Village: "zone culling: 6 toggler(s), 53 object(s) shown":
+Campaign census of the 74 PC togglers (`tools/cullsurvey.ts`, `tools/zonecensus.ts`): 2 match, Ruined Village 2337 and 2684.
+A first version also took the zones that start visible (Ruined Village 2196, 2199, 2238, 2731, Alwarren 2546, Wartok Canyons
+2854) and only cut their hides; it was narrowed (formats second commit) because Ruined Village timer 2197 (Start Mode 0, 0 s)
+hides 2196's 141 objects (tavern interior, fire flies) at level load on the PC and on dist, and that change was not looked
+at. Grotto 808 does not match (a hidden Boulder, engine 16); Volcano 2322 does not (one link); puzzle togglers (one source,
+Movers, plates, locks, waypoints) do not. Single-level conversion of Ruined Village: "zone culling: 2 toggler(s), 53 object(s) shown":
 2684 shows 13 props and 4 grunts (orc 109, 13,000 units away, still waits for 2716), 2337 shows the cemetery's 36 graves
 and crypt pieces (on the dist pack the crypt entrance is a see-through hole until its detector 2335 fires,
-`ev/ev_crypt_dist.jpg`; now it stands from the start, `ev/ev_crypt_fix.jpg`); the others were visible from the start and
-are no longer hidden when Rynn leaves (village interiors, trees, houses).
+`ev/ev_crypt_dist.jpg`; now it stands from the start, `ev/ev_crypt_fix.jpg`). The Hide detectors 2683 and 2336 have no
+link to their togglers in the converted LVL.
 
 Prototype first (`lvlpatch` pack `proto1`): with the props and grunts shown at load and Rynn away for 150 s, the grunts
 were still at the fire (`ev/ev_proto1.jpg`), so waking them early does not send them off their waypoints.
@@ -72,21 +75,24 @@ pack; `ev/ev_bis2.jpg`). The Mover shown with the tree removed still has it; the
 (`ev/ev_m12.jpg`). Cause: `fallingTreeMoverClass` names 18 Mover fields; the planner cloned the PS2 Mover closest to them,
 RESOURES "!! Flaming Bolt  test!!", and kept its other defaults, among them "Special Effect" 14891 (a flame class). The
 Mover carries that effect whether hidden or not and turns it with the trunk when it falls, hence "changes once the tree is
-destroyed". Fix: `placeFallingTrees` sets "Special Effect" 0 on every tree Mover (and follower Mover). Not a regression of
+destroyed" (the turning is inferred from the effect being the Mover's; no before frame of a felled tree on dist). Fix:
+`placeFallingTrees` sets "Special Effect" 0 on every tree Mover (and follower Mover) as an object parameter; the converted
+class still carries `0x3a2b` (checked in `packs/fix1`), so the after frames test the override. Not a regression of
 15 / 16 November either (the tree Mover exists since 14 November).
 
 ## 3. Proof (converter-built pack)
 
 `tools/conv.sh fix1`: Ruined Village alone, dist converter flags (wide chunks, subtitles), working tree of formats with this
-change (and other sessions' uncommitted formats work), pack `packs/fix1/ootf-levels.zip` (`00a8b9f4...`), same dist exe.
+change (and other sessions' uncommitted formats work), pack `packs/fix1/ootf-levels.zip` (`00a8b9f4...`, first version of
+the rule), same dist exe. `packs/fix2` (`f7bd9cd4...`, the narrowed rule, same log lines for 2337 / 2684): run `fix2` shows
+the camp props at load and the tree without flame.
 Run `fix1`: the camp at level load has fire pit, spit, log, crates, barrels and the grunts around the fire
 (`ev/after_camp_load.png`); the push tree has no flame (`ev/after_tree.png`). Run `fall_fix2` (the same pack with a test
 link from detector 2622 to the tree's toggler and Mover, to fell it without a weapon): the trunk lies over the gap, no flame
 (`ev/after_tree_fallen.png`; the standing tree also stays there because the test link does not destroy it).
 
 The owner needs the rebuilt campaign pack (`extras.py ootf` / the converter run of `ootf-opening-scenes.md`, then the HD step
-and the incremental build); the exe does not change. Saves made on the old pack keep the old objects of a level already
-entered; Ruined Village entered fresh (or a save made before it) gets the camp.
+and the incremental build); the exe does not change.
 
 ## 4. Not verified
 
@@ -95,4 +101,5 @@ entered; Ruined Village entered fresh (or a save made before it) gets the camp.
 * Felling the tree with Atimar on the new pack (the felled state came from a test link); the grunt the tree lands on.
 * The other matched togglers in game beyond the cemetery view: Ruined Village 2196 / 2199 / 2238 / 2731, Alwarren 2546 and
   Wartok Canyons 2854 now never hide (only Ruined Village was converted and played here).
+* What a save made inside Ruined Village on the old pack shows with the new pack (expected: the saved object states).
 * The full 23-level pack, the German tree, sound.
