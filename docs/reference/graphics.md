@@ -479,6 +479,19 @@ grid); at 2 the 8 MB pack texture cache overflowed, so `game_texture_cache_kb = 
 scenery widens the draw. Pictures and numbers:
 [view horizon](../journal/2026-11-14/ootf-view-horizon.md).
 
+**Far land** (part of far scenery, `DRAKAN_FAR_LAND=0` turns it off alone; rules `world/FarLand.h`). The converted
+Order of the Flame levels keep the PC `visible` lists, made for the PC fog (12 / 30 cells): no list names a floor or
+ceiling more than about 35 cells away, and nearer layers only when the PC thought them visible from the ground, while
+the converted level keeps the PS2 view distance (fog from 26 to 75 cells). So far hills and river banks were missing
+and the sky showed through, cut along layer edges. At `view_distance` 1 in a converted level
+(`drakan_texture_budget::convertedLevel`) the same swap gives the draw the view layer's own list plus the unlisted
+floors and ceilings up to 77 cells away that a line of sight from the camera reaches over the level's ground (highest
+drawn floor per vertex, read once per layout from the layer table). One list per view layer and camera cell, 1 to 4 ms
+to make, cached. Writing longer lists into the level instead crashed or hung the game (the lists are read outside the
+draw). Cost at the owner's Ruined Village spot: about +20 % of the layers drawn, VU1 +35 % and frame time about +13 %
+(median of 3, noisy machine); `game_texture_cache_kb = auto` gives converted levels 16 MB with it on.
+[distance view](../journal/2026-11-16/ootf-distance-view.md).
+
 Object `+0xf8` comes from the model's 0x0200 float (`shading & 0x20000`), from `radius * 70.71` (`0x17f8d8`) or from a
 setter (`0x17d2c8`); the mode is in object `+4` bits 0x30000000 and 0x5f0ac723 means no limit. Only skinned models
 have LOD tables (57 on the PAL disc). Both renderers draw what VU1 emits, so the settings need no backend code.

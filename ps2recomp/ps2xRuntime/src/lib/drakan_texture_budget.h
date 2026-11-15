@@ -15,4 +15,7 @@ namespace drakan_texture_budget {
 void install(PS2Runtime& runtime);
 // The LEVELLST.TXT titles of the levels the mod packs add (after the packs are loaded).
 void setPackLevels(const std::vector<std::string>& levels);
+// True while the loaded level comes from a pack or a campaign pack is the current game (the converted Order of the
+// Flame levels): the levels whose texture budget is raised. Far land (drakan_view_distance) draws there only.
+bool convertedLevel();
 } // namespace drakan_texture_budget

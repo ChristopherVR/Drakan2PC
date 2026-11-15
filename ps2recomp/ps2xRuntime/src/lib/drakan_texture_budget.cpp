@@ -100,6 +100,10 @@ void setPackLevels(const std::vector<std::string>& levels) {
     g_packLevels.insert(levels.begin(), levels.end());
 }
 
+bool convertedLevel() {
+    return g_packLevel.load() || drakan_game::current() != drakan_game::Game::Drakan;
+}
+
 void install(PS2Runtime& rt) {
     if constexpr (!drakan_region::build().identityAddresses)
         return;

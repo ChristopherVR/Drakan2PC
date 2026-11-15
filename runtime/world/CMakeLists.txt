@@ -47,6 +47,11 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     target_link_libraries(world_view_distance_test PRIVATE drakan_world drakan::options)
     add_test(NAME world_view_distance_test COMMAND world_view_distance_test)
 
+    # Far land of converted levels (header only): line of sight over the ground, the layers added to a view list.
+    add_executable(world_far_land_test tests/far_land_test.cpp)
+    target_link_libraries(world_far_land_test PRIVATE drakan_world drakan::options)
+    add_test(NAME world_far_land_test COMMAND world_far_land_test)
+
     # Engine budget rules (header only): shadow distance factor, model / animation cache budgets.
     add_executable(world_engine_limits_test tests/engine_limits_test.cpp)
     target_link_libraries(world_engine_limits_test PRIVATE drakan_world drakan::options)

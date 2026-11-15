@@ -31,10 +31,17 @@ float factor();
 // The wider list lives in one block from the game's heap and is swapped into the view layer only for the draw's layer
 // loop; the cell lookup 0x14b6b8 (actor and view layer refiling) always sees the level's own list. Needs heap_extend
 // (more layers drawn means more terrain draw blocks resident at once). Off = the view distance alone.
+//
+// Far land (part of far scenery, env DRAKAN_FAR_LAND=0 turns it off alone): at factor 1 in a converted level
+// (drakan_texture_budget::convertedLevel) the draw list is the view layer's own list plus the unlisted floors and
+// ceilings up to 77 cells away that a line of sight reaches over the level's ground from above the view layer
+// (world/FarLand.h). The converted levels' lists are the PC's, made for the PC fog, so far hills and river banks were
+// missing and the sky showed through (docs/journal/2026-11-16/ootf-distance-view.md). Same swap as above: only the draw
+// sees it.
 void configureScenery(bool on);
 bool scenery();
-// True while far scenery widens the draw (installed, on, factor above 1). The converted levels then keep more textures
-// resident: drakan_texture_budget gives packs the largest automatic game texture cache.
+// True while far scenery can widen the draw (installed, on, and a factor above 1 or far land on). The converted levels
+// then keep more textures resident: drakan_texture_budget gives packs the largest automatic game texture cache.
 bool sceneryWidens();
 
 } // namespace drakan_view_distance

@@ -362,10 +362,11 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
     b.toggle("video.far_scenery", "Far scenery",
              caps.viewDistance
                  ? "With a view distance above 1, also draws the hills, islands and sea that the level only shows "
-                   "from nearer places, so the world does not end in a straight edge. Off draws only what the "
-                   "level shows from where you are."
+                   "from nearer places, so the world does not end in a straight edge. In the Order of the Flame "
+                   "levels it also draws the far hills in sight at the original distance, where the level's own "
+                   "lists stop short of the haze. Off draws only what the level shows from where you are."
                  : "Needs the PAL executable layout; not available for this disc.",
-             false, caps.viewDistance && v.viewDistance > 1.0f);
+             false, caps.viewDistance);
     b.toggle("video.terrain_detail", "Terrain detail",
              caps.terrainDetail
                  ? "Adds fine surface detail and large-scale variation to the ground and mountains, fixed in the "
