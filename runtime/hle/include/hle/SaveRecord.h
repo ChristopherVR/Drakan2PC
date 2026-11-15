@@ -31,11 +31,14 @@ u32 crc32Of(const u8* data, size_t size);
 // A content pack as a save records it.
 struct PackStamp {
     std::string id, name, version, build;
+    // The pack's save revision (manifest `save_revision`, SaveUpgrade.h) when the save was written; 0 = none recorded.
+    // Not part of the build check: a newer revision of the same build loads older saves and upgrades them.
+    int revision = 0;
     bool operator==(const PackStamp&) const = default;
 };
 
 // The record text (`<save>.rsg.mods`, UTF-8, LF): a comment, `format = 1`, then one `[pack <id>]` section per pack
-// with `name`, `version`, `build`.
+// with `name`, `version`, `build` and, for a revision above 0, `revision` (earlier games ignore the key).
 std::string formatSaveRecord(const std::vector<PackStamp>& packs);
 // Parses a record. False for an unreadable one (no `format`, a newer format, a pack without id or build); the caller
 // then treats the save as unloadable, never as "no record".

@@ -433,6 +433,11 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.version = one("version");
     m.build = one("build");
     m.saveScope = one("save_scope");
+    m.saveRevision = std::max(0, std::atoi(one("save_revision").c_str()));
+    m.saveAddedObjects = many("save_added_objects");
+    m.saveReplacedEffects = many("save_replaced_effects");
+    m.saveRelinkedPowerUps = many("save_relinked_powerups");
+    m.saveResetTogglers = many("save_reset_togglers");
     m.author = one("author");
     m.description = one("description");
     m.profiles = many("target.profile");
@@ -1092,6 +1097,7 @@ bool fieldListOffsets(const std::vector<u8>& blob, std::vector<size_t>& at) {
     at.push_back(o);
     return true;
 }
+} // namespace
 
 bool unzlib(const u8* p, size_t n, std::vector<u8>& out) {
     return n > 6 && (p[0] & 0x0F) == 8 && ((p[0] << 8) | p[1]) % 31 == 0 && inflateRaw(p + 2, n - 2, out, 64u << 20);
@@ -1121,7 +1127,6 @@ std::vector<u8> zlibStored(const std::vector<u8>& d) {
         z.push_back((u8)(adler >> s));
     return z;
 }
-} // namespace
 
 bool rebaseFieldLists(const std::vector<u8>& baseStored, size_t baseClasses, size_t newClasses,
                       std::vector<u8>& packStored) {

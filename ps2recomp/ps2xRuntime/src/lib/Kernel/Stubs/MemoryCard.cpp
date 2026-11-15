@@ -1,6 +1,8 @@
 #include "Common.h"
 #include "MemoryCard.h"
 
+#include <atomic>
+
 namespace ps2_stubs {
 namespace {
 constexpr int32_t kMcCmdGetInfo = 0x01;
@@ -80,6 +82,7 @@ struct McPortState {
 
 std::mutex g_mcStateMutex;
 std::array<McFileWrittenCallback, static_cast<size_t>(McWriteObserver::Count)> g_fileWritten{};
+std::atomic<McReadFilter> g_readFilter{nullptr};
 int32_t g_mcNextFd = 1;
 int32_t g_mcLastCmd = 0;
 bool g_mcCommandPending = false;
@@ -470,6 +473,9 @@ void sceMcChdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     setReturnS32(ctx, 0);
 }
 
+void setMcReadFilter(McReadFilter filter) {
+    g_readFilter.store(filter);
+}
 void setMcFileWrittenCallback(McFileWrittenCallback callback, McWriteObserver who) {
     std::lock_guard<std::mutex> lock(g_mcStateMutex);
     g_fileWritten[static_cast<size_t>(who)] = callback;
@@ -848,6 +854,17 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     const uint32_t flags = getRegU32(ctx, 7);
 
     int32_t result = kMcResultNoEntry;
+    // A read-only open of an existing file may be served from memory (setMcReadFilter); asked outside the card lock.
+    std::vector<uint8_t> replacement;
+    bool replaced = false;
+    if ((flags & PS2_FIO_O_RDWR) == PS2_FIO_O_RDONLY && isValidMcPortSlot(port, slot)) {
+        if (const McReadFilter filter = g_readFilter.load()) {
+            const std::filesystem::path host = mcHostPath(port, path);
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(host, ec))
+                replaced = filter(host, replacement);
+        }
+    }
     {
         std::lock_guard<std::mutex> lock(g_mcStateMutex);
         if (isValidMcPortSlot(port, slot)) {
@@ -869,7 +886,21 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                 } else if (!std::filesystem::exists(hostPath.parent_path(), ec) || ec) {
                     result = kMcResultNoEntry;
                 } else {
-                    FILE* file = openMcHostFile(hostPath, flags);
+                    FILE* file = nullptr;
+                    if (replaced && exists) {
+                        file = std::tmpfile();
+                        if (file &&
+                            (std::fwrite(replacement.data(), 1, replacement.size(), file) != replacement.size() ||
+                             std::fseek(file, 0, SEEK_SET) != 0)) {
+                            std::fclose(file);
+                            file = nullptr;
+                        }
+                        if (!file)
+                            std::fprintf(stderr,
+                                         "[MC] read filter: no temporary file, the card file is read as it is\n");
+                    }
+                    if (!file)
+                        file = openMcHostFile(hostPath, flags);
                     if (!file) {
                         result = exists ? kMcResultDeniedPermit : kMcResultNoEntry;
                     } else {

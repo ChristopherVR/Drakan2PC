@@ -15,6 +15,7 @@ add_library(drakan_hle STATIC
     src/CampaignSoundSwaps.cpp
     src/ModPack.cpp
     src/SaveRecord.cpp
+    src/SaveUpgrade.cpp
     src/SoundService.cpp)
 add_library(drakan::hle ALIAS drakan_hle)
 if(EMSCRIPTEN)
@@ -42,6 +43,9 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(save_record_test tests/save_record_test.cpp)
     target_link_libraries(save_record_test PRIVATE drakan_hle drakan::options)
     add_test(NAME save_record_test COMMAND save_record_test)
+    add_executable(save_upgrade_test tests/save_upgrade_test.cpp)
+    target_link_libraries(save_upgrade_test PRIVATE drakan_hle drakan::options)
+    add_test(NAME save_upgrade_test COMMAND save_upgrade_test)
     add_executable(override_test tests/override_test.cpp)
     target_link_libraries(override_test PRIVATE drakan_hle drakan::options)
     add_executable(resource_sequence_test tests/resource_sequence_test.cpp)

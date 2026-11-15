@@ -43,6 +43,11 @@ struct Manifest {
     // classes and levels and changes none of the disc), so a save of another level does not depend on its build
     // (SaveRecord.h). Empty = every save made while the pack is active depends on it.
     std::string saveScope;
+    // top-level `save_revision = N` with `save_added_objects` / `save_replaced_effects` /
+    // `save_relinked_powerups` / `save_reset_togglers` lines (SaveUpgrade.h): what each
+    // revision of the same `build` changed, so a save of an older revision is upgraded when it loads. 0 = none.
+    int saveRevision = 0;
+    std::vector<std::string> saveAddedObjects, saveReplacedEffects, saveRelinkedPowerUps, saveResetTogglers;
     std::vector<std::string> profiles;                            // target.profile ("pal", "usa", "*")
     std::vector<std::string> profileHashes;                       // target.hash (hex), optional
     std::vector<std::string> loadAfter, loadBefore, dependencies; // dependencies: "id" or "id>=1.2.0"
@@ -105,6 +110,10 @@ public:
 std::shared_ptr<ModArchive> openArchive(const std::string& path, std::string& err);
 // Raw deflate (RFC 1951). Exposed for tests.
 bool inflateRaw(const u8* in, size_t inSize, std::vector<u8>& out, size_t expectedSize);
+// A zlib stream (2-byte header, deflate, Adler-32) inflated into `out` (at most 64 MiB). False when it is not one.
+bool unzlib(const u8* in, size_t inSize, std::vector<u8>& out);
+// `data` as a zlib stream of stored blocks (no compression): what any inflater, the game's too, reads.
+std::vector<u8> zlibStored(const std::vector<u8>& data);
 
 // One edit of an SRSC container (header 'SRSC', index of {type,id,sub,off,size}).
 struct SrscPatch {

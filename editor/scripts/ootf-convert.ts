@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-terrain 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--model-upgrade 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-terrain 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--model-upgrade 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--previous <zip>|none] [--save-baseline <zip>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -24,7 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { strToU8, unzipSync } from 'fflate';
 import { buildManifestToml, buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
-import { chooseSaveBuild, classIdPins, packSaveLayout, Iso9660, SrscReader, SubtitleTable, classifySubtitleLines, listObjectSounds, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
+import { addedLevelObjects, chooseSaveBuild, classIdPins, formatSaveAddedObjects, formatSaveRelinkedPowerUps, formatSaveReplacedEffects, formatSaveResetTogglers, packSaveLayout, planSaveRevisions, readSaveRevisions, Iso9660, SrscReader, SubtitleTable, classifySubtitleLines, listObjectSounds, mergeSubtitleFiles, parseSubtitleFile, convertOotfLevels, chunkTextureLimit, findPcLevels, setExactSink, loadPcLevel, ps2BlobFor, pcLevelName, ps2ModelSwapFromEdits, ps2TextureSwapFromEdits, type PcFileSource, type Ps2ModelSwapOptions, type Ps2TextureSwapOptions } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -367,8 +367,53 @@ for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w)
     // The pack's build is its save-format id (savelayout.ts): kept from the previous pack while every class id and object id a
     // save can name still means the same, else the hash of the new layout. save_scope: the pack changes no disc class or level.
     const layout = await packSaveLayout(pack.files);
-    const choice = chooseSaveBuild(layout, previous && { build: previous.build, layout: await packSaveLayout(previous.files) });
-    pack.files['mod.toml'] = strToU8(buildManifestToml({ ...pack.meta, build: choice.build, saveScope: 'levels' }));
+    const previousLayout = previous && (await packSaveLayout(previous.files));
+    const choice = chooseSaveBuild(layout, previous && previousLayout && { build: previous.build, layout: previousLayout });
+    // Save revisions (formats saverevisions.ts): what this build changed since the saves of the previous pack were made,
+    // so the game upgrades them on load (objects added, spawned effects retired). The history comes from the previous
+    // pack's manifest; a previous pack written before revisions is compared with --save-baseline <zip> (the pack the
+    // existing saves were made with) when given, else with itself.
+    const previousRevisions = readSaveRevisions(new TextDecoder().decode(previous?.files['mod.toml'] ?? new Uint8Array()));
+    let base = previousLayout;
+    if (choice.kept && previous && !previousRevisions.revision && !opt['save-baseline'])
+        console.warn(
+            'WARNING: the previous pack records no save revisions: objects it already added after the saves were made are not listed for them (pass --save-baseline <the pack those saves were made with>)',
+        );
+    if (choice.kept && !previousRevisions.revision && opt['save-baseline']) {
+        const bz = unzipSync(new Uint8Array(readFileSync(opt['save-baseline'])), { filter: (f) => /^files\/.*\.LVL$/i.test(f.name) });
+        base = await packSaveLayout(bz);
+        console.log(`save revisions: added objects counted against --save-baseline ${opt['save-baseline']}`);
+    }
+    const titleOf = new Map(pack.levels.map((l) => [`files/english/levels/${l.mangled.toLowerCase()}/${l.mangled.toLowerCase()}.lvl`, l.title]));
+    const addedObjects = new Map<string, number[]>();
+    for (const [path, ids] of base ? addedLevelObjects(base, layout) : new Map<string, number[]>()) {
+        const title = titleOf.get(path);
+        if (title) addedObjects.set(title, ids);
+        else console.warn(`warning: save revisions: objects added to ${path}, which is not a level of this pack`);
+    }
+    const { revisions, bumped } = planSaveRevisions(previousRevisions, choice.kept, addedObjects, res.saveEffectSwaps ?? [], res.saveRelinks ?? [], new Map(Object.entries(res.saveTogglers ?? {})));
+    pack.files['mod.toml'] = strToU8(
+        buildManifestToml({
+            ...pack.meta,
+            build: choice.build,
+            saveScope: 'levels',
+            ...(revisions.revision
+                ? {
+                      saveRevision: revisions.revision,
+                      saveAddedObjects: revisions.added.map(formatSaveAddedObjects),
+                      saveReplacedEffects: revisions.replaced.map(formatSaveReplacedEffects),
+                      saveRelinkedPowerUps: revisions.relinked.map(formatSaveRelinkedPowerUps),
+                      saveResetTogglers: revisions.resetTogglers.map(formatSaveResetTogglers),
+                  }
+                : {}),
+        }),
+    );
+    if (revisions.revision)
+        console.log(
+            `save revision ${revisions.revision}${bumped ? ' (new)' : ''}: older saves get ${revisions.added.reduce((n, a) => n + a.ids.length, 0)} added object(s), ${revisions.replaced.length} retired effect(s), ${revisions.relinked.length} relinked dragon(s) and ${revisions.resetTogglers.reduce((n, t) => n + t.ids.length, 0)} reset toggler(s) when they load`,
+        );
+    for (const line of [...revisions.added.map(formatSaveAddedObjects), ...revisions.replaced.map(formatSaveReplacedEffects), ...revisions.relinked.map(formatSaveRelinkedPowerUps), ...revisions.resetTogglers.map(formatSaveResetTogglers)])
+        console.log(`  ${line}`);
     const d = choice.diff;
     if (!previous) console.log(`save build ${choice.build} (no previous pack: saves of earlier builds are refused)`);
     else if (choice.kept) console.log(`save build ${choice.build} kept: saves of the previous pack still load (${d!.added} class/object ids added)`);

@@ -106,6 +106,17 @@ export interface ModMeta {
      * writes it. Left out = every save made while the pack was active records and checks its build.
      */
     saveScope?: 'levels';
+    /**
+     * `save_revision` with `save_added_objects` / `save_replaced_effects` / `save_relinked_powerups` /
+     * `save_reset_togglers` (formats saverevisions.ts): what each revision of the same `build` changed, so the game
+     * upgrades a save of an older revision when it loads it. Lines are the formatted rules (`formatSaveAddedObjects` ...).
+     * Left out / 0 = no revisions.
+     */
+    saveRevision?: number;
+    saveAddedObjects?: string[];
+    saveReplacedEffects?: string[];
+    saveRelinkedPowerUps?: string[];
+    saveResetTogglers?: string[];
 }
 
 /** A `one_way_exits` entry: `Level title @ x, y, z` (numbers, the exit object's position). */
@@ -224,6 +235,16 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.oneWayExits?.length) l.push(`one_way_exits = [${m.oneWayExits.map(tomlStr).join(', ')}]`);
     if (m.terrainChunkTextures !== undefined) l.push(`terrain_chunk_textures = ${m.terrainChunkTextures}`);
     if (m.saveScope) l.push(`save_scope = ${tomlStr(m.saveScope)}`);
+    if (m.saveRevision) {
+        l.push(`save_revision = ${m.saveRevision}`);
+        const lines: [string, string[] | undefined][] = [
+            ['save_added_objects', m.saveAddedObjects],
+            ['save_replaced_effects', m.saveReplacedEffects],
+            ['save_relinked_powerups', m.saveRelinkedPowerUps],
+            ['save_reset_togglers', m.saveResetTogglers],
+        ];
+        for (const [key, v] of lines) if (v?.length) l.push(`${key} = [${v.map(tomlStr).join(', ')}]`);
+    }
     l.push('', '[target]');
     if (m.target.profile !== undefined) {
         const p = m.target.profile;

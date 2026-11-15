@@ -5,6 +5,7 @@
 #include "drakan_region.h"
 #include "hle/ModPack.h"
 #include "hle/SaveRecord.h"
+#include "hle/SaveUpgrade.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "settings/Hud.h"
@@ -47,6 +48,21 @@ constexpr uint32_t kEntrySize = 0x168u, kCallbackNode = 0xc8u, kBoxCardMode = 0x
 
 std::mutex g_mutex;
 hle::mods::ActivePacks g_active;
+// Save revisions (SaveUpgrade.h): per content pack with a `save_revision`, its rules. g_mutex.
+struct PackRevisions {
+    std::string id;
+    int revision = 0;
+    std::vector<hle::mods::SaveRevisionRule> rules;
+};
+std::vector<PackRevisions> g_revisions;
+// What the read filter decided per save file (same size and time = same answer). g_mutex.
+struct Upgraded {
+    std::uintmax_t size = 0;
+    fs::file_time_type time{};
+    bool replaced = false;
+    std::vector<uint8_t> data;
+};
+std::map<std::string, Upgraded> g_upgraded;
 struct Cached {
     Verdict verdict;
     Clock::time_point at;
@@ -107,7 +123,9 @@ gameui::SavePackProblem problemOf(SaveVerdict v) {
 
 // After every successful write on the card: the pack record of a save (slot folder or card root).
 void written(const fs::path& path) {
-    if (!isRecordedSave(path))
+    // A level state (`.rlt`, the levels of the slot left earlier) gets a record too: it names the pack revision its
+    // content was written with (save revisions, SaveUpgrade.h); the load policy only reads the `.rsg` one.
+    if (!isRecordedSave(path) && path.extension() != ".rlt")
         return;
     std::vector<hle::mods::PackStamp> packs;
     {
@@ -144,11 +162,14 @@ void written(const fs::path& path) {
     // A slot holds one save; a record whose save the game replaced (another level) or deleted goes too.
     for (fs::directory_iterator it(path.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
         const fs::path p = it->path();
-        const std::string name = p.filename().string(), suffix = std::string(".rsg") + kRecordSuffix;
-        if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
-            std::error_code e2;
-            if (!fs::exists(p.parent_path() / name.substr(0, name.size() - std::strlen(kRecordSuffix)), e2))
-                fs::remove(p, e2);
+        const std::string name = p.filename().string();
+        for (const char* ext : {".rsg", ".rlt"}) {
+            const std::string suffix = std::string(ext) + kRecordSuffix;
+            if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                std::error_code e2;
+                if (!fs::exists(p.parent_path() / name.substr(0, name.size() - std::strlen(kRecordSuffix)), e2))
+                    fs::remove(p, e2);
+            }
         }
     }
 }
@@ -244,17 +265,152 @@ void trampoline(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     SET_GPR_U32(c, 2, 0); // what 43d028 returns
     c->pc = ra;
 }
+
+// --- save revisions (SaveUpgrade.h) -----------------------------------------------------------------------------
+
+PackRevisions revisionsOf(const hle::mods::Manifest& m) {
+    PackRevisions pr{m.id, m.saveRevision, {}};
+    using Kind = hle::mods::SaveRevisionRule::Kind;
+    const auto take = [&](const std::vector<std::string>& lines, Kind kind) {
+        for (const std::string& line : lines) {
+            hle::mods::SaveRevisionRule r;
+            if (hle::mods::parseSaveRevisionRule(line, kind, r) && r.revision <= pr.revision)
+                pr.rules.push_back(std::move(r));
+            else
+                std::fprintf(stderr, "[saves] content pack '%s': save revision line '%s' ignored\n", m.id.c_str(),
+                             line.c_str());
+        }
+    };
+    take(m.saveAddedObjects, Kind::AddObjects);
+    take(m.saveReplacedEffects, Kind::ReplaceEffects);
+    take(m.saveRelinkedPowerUps, Kind::RelinkPowerUps);
+    take(m.saveResetTogglers, Kind::ResetTogglers);
+    std::fprintf(stderr, "[saves] content pack '%s' save revision %d: %zu upgrade rule(s) for older saves\n",
+                 m.id.c_str(), pr.revision, pr.rules.size());
+    return pr;
+}
+
+// The revision of pack `packId` a save file was written with: its own record (`.rsg`, and `.rlt` level states written
+// by this game version); for an older level state without one, the lowest the `.rsg` records beside it name. 0 = none
+// recorded.
+int savedRevision(const fs::path& file, const std::string& packId) {
+    const auto fromRecord = [&](const fs::path& record, int& out) {
+        std::string text;
+        std::vector<hle::mods::PackStamp> packs;
+        if (!readText(record, text) || !hle::mods::parseSaveRecord(text, packs))
+            return false;
+        for (const auto& p : packs)
+            if (p.id == packId) {
+                out = p.revision;
+                return true;
+            }
+        return false;
+    };
+    int rev = 0;
+    std::error_code ec;
+    if (fs::exists(recordPath(file), ec))
+        return fromRecord(recordPath(file), rev) ? rev : 0;
+    int lowest = -1;
+    const std::string suffix = std::string(".rsg") + kRecordSuffix;
+    for (fs::directory_iterator it(file.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+            fromRecord(it->path(), rev))
+            lowest = lowest < 0 ? rev : std::min(lowest, rev);
+    }
+    return std::max(lowest, 0);
+}
+
+// Memory card read filter: a save or level state of an older pack revision is read upgraded (SaveUpgrade.h): the level
+// objects added since are appended to its tables and the spawned records replaced since get their inert class. The
+// file on the card stays as it is; the game's next save writes the upgraded state with the current revision.
+bool upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
+    const std::string ext = host.extension().string();
+    if (ext != ".rsg" && ext != ".rlt")
+        return false;
+    std::vector<PackRevisions> revisions;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_revisions.empty())
+            return false;
+        revisions = g_revisions;
+    }
+    std::error_code ec;
+    const std::uintmax_t size = fs::file_size(host, ec);
+    const fs::file_time_type time = fs::last_write_time(host, ec);
+    const std::string key = host.string(), level = host.stem().string(), name = host.filename().string();
+    std::vector<const hle::mods::SaveRevisionRule*> rules;
+    std::string about;
+    using Kind = hle::mods::SaveRevisionRule::Kind;
+    for (const PackRevisions& pr : revisions) {
+        const int rev = savedRevision(host, pr.id);
+        if (rev >= pr.revision)
+            continue;
+        for (const Kind kind : {Kind::AddObjects, Kind::ReplaceEffects, Kind::RelinkPowerUps, Kind::ResetTogglers})
+            for (const auto* r : hle::mods::rulesFor(pr.rules, kind, level, rev))
+                rules.push_back(r);
+        about += (about.empty() ? "" : ", ") + ("pack '" + pr.id + "' revision ") + std::to_string(rev) + " < " +
+                 std::to_string(pr.revision);
+    }
+    if (rules.empty())
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const auto it = g_upgraded.find(key);
+        if (it != g_upgraded.end() && it->second.size == size && it->second.time == time) {
+            if (it->second.replaced)
+                data = it->second.data;
+            return it->second.replaced;
+        }
+    }
+    Upgraded u{size, time, false, {}};
+    std::vector<uint8_t> in;
+    {
+        std::ifstream f(host, std::ios::binary);
+        in.assign(std::istreambuf_iterator<char>(f), {});
+    }
+    hle::mods::SaveUpgradeReport report;
+    std::string err;
+    if (!hle::mods::upgradeSave(in, rules, u.data, report, err)) {
+        std::fprintf(stderr, "[saves] %s (%s): not upgraded, read as it is (%s)\n", name.c_str(), about.c_str(),
+                     err.c_str());
+    } else if (!report.changed()) {
+        std::fprintf(stderr, "[saves] %s (%s): nothing to upgrade\n", name.c_str(), about.c_str());
+    } else {
+        std::string list;
+        for (uint32_t id : report.added)
+            list += (list.empty() ? "" : " ") + std::to_string(id);
+        std::fprintf(stderr,
+                     "[saves] %s (%s): upgraded on load: level objects added [%s], %zu spawned record(s) made inert, "
+                     "%zu dragon(s) given their power-ups again, %zu toggler(s) reset\n",
+                     name.c_str(), about.c_str(), list.c_str(), report.replaced, report.relinked, report.togglers);
+        u.replaced = true;
+    }
+    if (!u.replaced)
+        u.data.clear();
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_upgraded.size() > 64)
+        g_upgraded.clear();
+    g_upgraded[key] = u;
+    if (u.replaced)
+        data = std::move(u.data);
+    return u.replaced;
+}
 } // namespace
 
 void configure(const hle::mods::ModManager* mods) {
     hle::mods::ActivePacks active;
+    std::vector<PackRevisions> revisions;
     if (mods) {
         for (const hle::mods::ModStatus& st : mods->status()) {
             if (st.state != hle::mods::ModState::Loaded || !st.content)
                 continue;
             active.packs.push_back({st.manifest.id, st.manifest.name, st.manifest.version, st.build});
+            active.packs.back().revision = st.manifest.saveRevision;
             if (st.manifest.saveScope == "levels")
                 active.levelScoped.push_back(st.manifest.id);
+            if (st.manifest.saveRevision > 0)
+                revisions.push_back(revisionsOf(st.manifest));
         }
         for (const hle::mods::ExtraLevel& l : mods->extraLevels()) {
             const auto st = std::find_if(mods->status().begin(), mods->status().end(),
@@ -274,12 +430,15 @@ void configure(const hle::mods::ModManager* mods) {
         std::fprintf(stderr, "[saves] save_pack_check = 0: saves of other pack builds load anyway\n");
     std::lock_guard<std::mutex> lock(g_mutex);
     g_active = std::move(active);
+    g_revisions = std::move(revisions);
+    g_upgraded.clear();
     g_slotCache.clear();
     g_entryCache.clear();
 }
 
 void install(PS2Runtime& runtime) {
     ps2_stubs::setMcFileWrittenCallback(&written, ps2_stubs::McWriteObserver::SaveRecords);
+    ps2_stubs::setMcReadFilter(&upgradeOnRead);
     const uint32_t addr = drakan_region::guestAddress(kValidateSave);
     if (!runtime.hasFunction(addr)) {
         std::fprintf(stderr,

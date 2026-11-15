@@ -13,6 +13,11 @@ using McFileWrittenCallback = void (*)(const std::filesystem::path&);
 // Observers of a successful write (a close after writes), one slot per user, called outside the card lock.
 enum class McWriteObserver { Previews, SaveRecords, Count };
 void setMcFileWrittenCallback(McFileWrittenCallback callback, McWriteObserver who = McWriteObserver::Previews);
+// Called when a file that exists is opened for reading only (outside the card lock): returning true with `data` makes
+// that open read `data` instead of the file (the file itself is never changed). Used by the save upgrade
+// (drakan_save_guard: objects a newer content pack revision added). One filter; nullptr removes it.
+using McReadFilter = bool (*)(const std::filesystem::path& hostPath, std::vector<uint8_t>& data);
+void setMcReadFilter(McReadFilter filter);
 // Host path of a guest card path ("mc0:/BESCES-50006Slot1/x.rsg", "BESCES-50006Slot1/x.rsg" relative to the port's
 // current directory) on `port`.
 std::filesystem::path mcHostPath(int32_t port, const std::string& guestPath);

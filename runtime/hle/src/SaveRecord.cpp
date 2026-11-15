@@ -105,6 +105,8 @@ std::string formatSaveRecord(const std::vector<PackStamp>& packs) {
         s += "name = " + oneLine(p.name) + "\n";
         s += "version = " + oneLine(p.version) + "\n";
         s += "build = " + oneLine(p.build) + "\n";
+        if (p.revision > 0)
+            s += "revision = " + std::to_string(p.revision) + "\n";
     }
     return s;
 }
@@ -145,6 +147,8 @@ bool parseSaveRecord(const std::string& text, std::vector<PackStamp>& out) {
             cur->version = value;
         else if (key == "build")
             cur->build = value;
+        else if (key == "revision")
+            cur->revision = std::max(0, std::atoi(value.c_str()));
     }
     if (format != 1)
         return false;

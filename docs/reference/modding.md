@@ -437,6 +437,39 @@ was made with, and the game refuses a save it cannot vouch for.
   records existed) loads anyway, logged `[saves] <file>: different build ..., loaded anyway`; a missing pack or a damaged
   record is still refused. For a player who wants an old save back and accepts that objects whose class id changed may
   misbehave.
+* **Save revisions** (2026-11-16, runtime `hle/SaveUpgrade.h`, formats `saverevisions.ts`,
+  [journal](../journal/2026-11-16/save-state-fix.md)). A kept build means old saves load, not that they show the new pack:
+  a save holds every object it restores, so objects the converter added since are missing (a save lists untouched
+  objects by uid and leaves out destroyed, taken and killed ones, so "create every unnamed object" would bring those
+  back), and run-time state the old pack produced comes back. The pack therefore counts a top-level `save_revision`
+  and lists per revision what changed:
+
+  ```toml
+  save_revision = 1
+  save_added_objects = ["1 | OotF 01 - Ruined Village | 3353"]                      # rev | level | uid ...
+  save_replaced_effects = ["1 | OotF 01 - Ruined Village | 3a2b 48d5 | 321687 197611"] # rev | level | class inert | x z
+  save_relinked_powerups = ["1 | OotF 01 - Ruined Village | 1011 3157"]              # rev | level | dragon power-up ...
+  save_reset_togglers = ["1 | OotF 01 - Ruined Village | 2337 2684"]                 # rev | level | toggler ...
+  ```
+
+  The record gets `revision = N` in the pack's section (absent = 0; earlier games ignore the key; the build check does
+  not look at it). When the game opens a `.rsg` (or a `.rlt` level state, which takes the lowest revision of the
+  records beside it) of a pack level whose revision is older, the memory card read filter (`setMcReadFilter`,
+  `drakan_save_guard.cpp`) serves an upgraded copy; the file on the card is never changed, and the next save writes the
+  upgraded state with the current revision. The upgrade (`upgradeSave`) never moves a slot (references between saved
+  objects are slot numbers): added uids are appended at the end of the 0x24 table (0x21 total + n, pairs (uid, old total
+  + i)), uids the save already names are skipped; a spawned record without a uid of the old class at (x, z) +- 64 gets
+  the inert twin class (same database, same engine class, no particles or sound: the converter adds `<name> (off)`);
+  a dragon record whose power-up list is empty with the "taken" mark gets its power-up slots back; a toggler record's
+  saved state word `(state << 16) | 121` gets state 0. A save it cannot parse is read as it is (logged). Log: `[saves]
+  <file> (pack '<id>' revision 0 < 1): upgraded on load: ...`.
+
+  The converter computes the lists: added objects are the `obj|` layout keys missing from the previous pack (or, when
+  the previous pack has no `save_revision` yet, from `--save-baseline <zip>`, the pack the existing saves were made
+  with); effect swaps come from the falling-tree Movers whose class "Special Effect" it clears, relinks from every PC
+  dragon (engine 28) and the Dragon Power-ups (57) it links, togglers from the zone-culling togglers. Lines the previous
+  pack listed keep their revision; anything new opens revision previous + 1 (`save revision N (new)` in the log). A new
+  build (old saves refused) starts again at 0.
 * **The record.** When the game writes a save (`<saveId>Slot<n>/<level>.rsg`, manual, quick and level-change saves
   alike, and the level-start save `<card>/<level>.rsg` that a death reloads) while content packs are active, it writes
   `<level>.rsg.mods` beside it (memory card write observer, `drakan_save_guard.cpp`; `[saves] <file>: pack record <id>
