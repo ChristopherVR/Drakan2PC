@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-terrain 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -11,6 +11,9 @@
 // --ps2-texture-map <json> edits the table: a list of { "ootf": "<container>#<id>", "ps2": "<disc TXD path>#<id>" | null } rows
 // (null turns a row off). Disc TXDs are read from --ps2-txd <dir>, <ps2>/txd, <ps2> or the hosts dir, else from the disc image
 // (--iso, env DRAKAN_ISO, or the iso of dist/DrakanPC/drakan.ini).
+// Ground: whole OotF ground families (a surface's variants and transition tiles) draw the closest Drakan 2 ground texture
+// (formats DEFAULT_PS2_TERRAIN_FAMILIES); --ps2-terrain 0 keeps the OotF ground. Map rows naming WORLDCON/PROCTEES/PROCTEES.TXD#<id>
+// edit ground textures the same way.
 //
 // Drakan 2 models (formats ootfps2model.ts): Wartoks, orcs and plain weapons use the disc's own models. --ps2-models 0 keeps the
 // converter's earlier choices; --enemy-animations ootf retargets the PC clips onto the disc rigs instead of the disc's own clips;
@@ -147,7 +150,7 @@ if (!Object.keys(splats).length) {
 }
 
 // Drakan 2 textures in place of OotF ones (see the header): options and the disc TXD reader.
-let ps2Textures: Ps2TextureSwapOptions = { enabled: opt['ps2-textures'] !== '0' };
+let ps2Textures: Ps2TextureSwapOptions = { enabled: opt['ps2-textures'] !== '0', terrain: opt['ps2-terrain'] !== '0' };
 if (opt['ps2-texture-map']) ps2Textures = ps2TextureSwapFromEdits(JSON.parse(readFileSync(opt['ps2-texture-map'], 'utf8')), ps2Textures);
 let ps2Models: Ps2ModelSwapOptions = {
     enabled: opt['ps2-models'] !== '0',

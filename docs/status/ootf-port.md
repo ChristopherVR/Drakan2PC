@@ -75,6 +75,8 @@ generator, but the engine starts only their light, so the OotF fire quads stay (
 Alwarren, played there with walking, swings and F5 / F8. Needs a regenerated pack and a new game. See
 [Drakan 2 models](../journal/2026-11-14/ootf-d2-models.md).
 
+**November 15 ground textures (round 8):** the stitched look of converted ground is the PS2 splat blend meeting the PC's random tile variants: each cell fades into its eight neighbours, and where the PC paints neighbours with different variants of one surface no texture is ever drawn at full weight (0.6 % of Ruined Village cells against 41 % in Surdana), so the ground was a patchwork of half-blended squares. Whole Mountain World ground families (a surface's variants and its transition tiles) now draw the closest Drakan 2 ground from the template's own Proc Textures (grass 537, brown rock 621 tiled over 4 x 4 cells, snow 563, earth paths 13719 Mud, rocky snow tracks 535; 244 tiles, formats `DEFAULT_PS2_TERRAIN_FAMILIES`), with their disc materials and HD images: 54 % of Ruined Village cells at full weight, no seams in Ruined Village and Wartok Canyons, and far fewer terrain passes (in-run counters 51 to 86 fps at the Wartok start). On by default, `--ps2-terrain 0` keeps the OotF ground, `--ps2-texture-map` rows naming `WORLDCON/PROCTEES/PROCTEES.TXD#<id>` edit it. Object rows give the burnt houses fire-blackened stone, the stone bridges Drakan 2 stone blocks and cobbles, and the rock models the Drakan 2 rock. Islands, Volcanic and Rift World ground is not mapped yet. Needs a regenerated pack, the HD step and a new game. See [ground textures](../journal/2026-11-15/ootf-ground-textures.md).
+
 **November 15 PS2-style remakes (round 8):** props with no Drakan 2 model get new drawings built at convert time from
 their OotF mesh, each a row of the Drakan 2 model table and off by default: talon torches and Succubus pillars (Loop
 subdivision, rounder and smoothly shaded, OotF textures), the Succubus ruin corridor pieces (the same with their joining
@@ -879,6 +881,14 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
   flowers, small props and people (up to 70,000). Surdana meadow at 1.5: frame time -13.5 %, the added vector-unit work
   -65 %; at 2 only -18 % of the added work (people and grass stay). No change in the Ruined Village. Needs a rebuilt exe,
   no pack change. See [issue 6 draw distance taper](../journal/2026-11-15/issue6-draw-distance-taper.md).
+* Ruined Village distant sea (owner's items 5 and 9): a band of pale striped panels along the horizon over the sea was
+  the lower half of the procedural night sky, seen where the PC sea ends inside the view distance, drawn with its 64 x 64
+  lookup texture upscaled 8x together with the random memory around the two rows the sky samples. The renderer's test
+  that keeps such textures native missed it (mostly zero bytes); for raw 24-bit colour it now also counts rows full of
+  sharp jumps. Gone in game on the walk to the shore and from above. Not fixed: the straight far edge of the sea (layer
+  origins are stored unsigned, so the sea cannot simply reach past z = 0; a wrapped negative origin was not tried) and a
+  thin dark line across the sea (probably the join of two water layers). Needs a rebuilt exe, no pack change. See
+  [distant sea](../journal/2026-11-15/ootf-distant-sea.md).
 
 ## Known gaps
 
