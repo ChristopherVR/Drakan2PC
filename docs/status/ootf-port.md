@@ -87,7 +87,8 @@ the air), trees floating over the ground all round are lowered onto it (6 in 3 l
 template attachments a PC class lacks are cleared (the trog claw on the miners' shoulders, 8 inherited armour parts on
 the Volcanic Ebon Knight, not seen), and Rynn leaves Arokh 2 s before Intro 3 ends so the level Timer cannot leave her
 hair simulation off. Not changed: the half-buried villager (a corpse lying on a steep slope), Delon's low-poly model and
-still mouth (as on the PC), the ponytail lifting when walking (the engine's, also in Surdana). Subtitles spell Arokh, Rynn,
+still mouth (as on the PC). The ponytail no longer lifts level when walking (16 November, runtime, also
+Drakan 2: [ponytail lift](../journal/2026-11-16/ponytail-lift.md)). Subtitles spell Arokh, Rynn,
 Hider and Rift Crystal. Needs a regenerated pack and a new game. See [opening scenes](../journal/2026-11-15/ootf-opening-scenes.md),
 [ground placement](../journal/2026-11-15/ootf-ground-placement.md), [character models](../journal/2026-11-15/ootf-character-models.md)
 and [final check](../journal/2026-11-15/ootf-final-check.md).

@@ -63,6 +63,7 @@
 #include "drakan_lifecycle.h"
 #include "drakan_stomp_probe.h"
 #include "drakan_dragon_flight.h"
+#include "drakan_ponytail.h"
 #include "drakan_texture_budget.h"
 #include "drakan_save_reference_probe.h"
 #include "drakan_foliage.h"
@@ -1976,6 +1977,8 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_model_lights::install(runtime);     // more than three point lights per model (PAL)
     // Arokh's flight look-ahead: objects he starts inside do not stop him (PAL; DRAKAN_DRAGON_RAY_TRACE).
     drakan_dragon_flight::install(runtime);
+    // Rynn's ponytail cloth: walking no longer holds it out level (PAL; DRAKAN_PONYTAIL, DRAKAN_PONYTAIL_LOG).
+    drakan_ponytail::install(runtime);
     if constexpr (supports(Feature::SoundDebug))
         soundDebugInstall(runtime);
     if constexpr (supports(Feature::AdvancedInput)) {

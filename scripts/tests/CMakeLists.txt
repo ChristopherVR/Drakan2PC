@@ -84,6 +84,9 @@ add_test(NAME view_layer_policy COMMAND view_layer_policy_test)
 add_executable(dragon_flight_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/dragon_flight_policy_tests.cpp")
 drakan_enable_asserts(dragon_flight_policy_test)
 add_test(NAME dragon_flight_policy COMMAND dragon_flight_policy_test)
+add_executable(ponytail_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/ponytail_policy_tests.cpp")
+drakan_enable_asserts(ponytail_policy_test)
+add_test(NAME ponytail_policy COMMAND ponytail_policy_test)
 # Vertex-program records of the batch path: the CPU evaluation's arithmetic against the engine's, the tracker's policy.
 add_executable(vu_gpu_batch_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/vu_gpu_batch_tests.cpp")
 target_include_directories(vu_gpu_batch_policy_test PRIVATE "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib"
