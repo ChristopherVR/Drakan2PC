@@ -98,9 +98,9 @@ Swap g_swap;
 
 // Far land at factor 1 in converted levels (g_mutex): a snapshot of the level's terrain, taken once per terrain layout.
 bool g_farLandOn = true; // DRAKAN_FAR_LAND=0 turns it off alone (diagnostic)
-// Diagnostics (env DRAKAN_FAR_LAND_NEAR / _CUSHION / _RISE / _REACH): candidate distances in cells, observer spread.
-float g_farNear = farland::kNearCells, g_farCushion = farland::kCushionCells, g_farRise = farland::kRise;
-float g_farReachCap = 0.0f;
+// Diagnostics (env DRAKAN_FAR_LAND_NEAR / _REACH): candidate distances in cells.
+float g_farNear = farland::kNearCells;
+float g_farReachCap = farland::kReachCells;
 uint64_t g_farIdentity = 0;
 std::vector<farland::Layer> g_farLayers;
 std::unique_ptr<farland::Ground> g_farGround;
@@ -308,8 +308,8 @@ void farLandSnapshotLocked(const uint8_t* ram, uint32_t ramBytes) {
     g_farGround = std::make_unique<farland::Ground>(g_farLayers);
 }
 
-// The view layer's own list plus the far land in sight from the camera (g_mutex), cached per view layer and camera
-// cell. `key` receives the cache key (bit 63 set, so it never equals a closure list's view index).
+// The view layer's own list plus the far land in sight from the camera's cell (g_mutex), cached per view layer and
+// camera cell. `key` receives the cache key (bit 63 set, so it never equals a closure list's view index).
 const std::vector<uint16_t>& farLandList(const uint8_t* ram, uint32_t ramBytes, uint32_t base, uint32_t count,
                                          uint32_t view, float reach, uint64_t& key) {
     static const std::vector<uint16_t> kNone;
@@ -318,9 +318,10 @@ const std::vector<uint16_t>& farLandList(const uint8_t* ram, uint32_t ramBytes, 
     if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(cz) || std::fabs(cx) > 1e8f ||
         std::fabs(cy) > 1e8f || std::fabs(cz) > 1e8f)
         return kNone;
-    const auto cell = [](float v, float size) { return uint64_t(uint16_t(int32_t(std::floor(v / size)))); };
-    key = (1ull << 63) | uint64_t(view & 0x7fffu) << 48 | cell(cx, rules::kCell) << 32 | cell(cz, rules::kCell) << 16 |
-          cell(cy, 1024.0f);
+    const int ix = int(std::floor(cx / rules::kCell)), iz = int(std::floor(cz / rules::kCell)),
+              iy = int(std::floor(cy / farland::kCellHeight));
+    const auto bits = [](int v) { return uint64_t(uint16_t(v)); };
+    key = (1ull << 63) | uint64_t(view & 0x7fffu) << 48 | bits(ix) << 32 | bits(iz) << 16 | bits(iy);
     if (auto it = g_farLists.find(key); it != g_farLists.end())
         return it->second;
     if (g_farLists.size() >= kFarListsMax) {
@@ -338,9 +339,8 @@ const std::vector<uint16_t>& farLandList(const uint8_t* ram, uint32_t ramBytes, 
     if (g_farLayers.size() != count || !g_farGround)
         return slot;
     const auto t0 = std::chrono::steady_clock::now();
-    const std::vector<uint16_t> add =
-        farland::farLayers(view, g_farLayers, *g_farGround, slot, reach,
-                           farland::cameraObservers(cx, cy, cz, g_farCushion, g_farRise), g_farTargets, g_farNear);
+    const std::vector<uint16_t> add = farland::farLayers(view, g_farLayers, *g_farGround, slot, reach,
+                                                         farland::cellObservers(ix, iz, iy), g_farTargets, g_farNear);
     for (uint16_t j : add) {
         if (slot.size() >= kMaxEntries)
             break;
@@ -375,7 +375,7 @@ void hookTerrainDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                 const uint32_t origList = u32(ram, layer + kLayerList), origCount = u32(ram, layer + kLayerListCount);
                 uint64_t key = view;
                 float farReach = g_args.farCells + farland::kReachMargin;
-                if (g_farReachCap > 0.0f) // diagnostic: DRAKAN_FAR_LAND_REACH (cells)
+                if (g_farReachCap > 0.0f) // farland::kReachCells, or DRAKAN_FAR_LAND_REACH (cells)
                     farReach = std::min(farReach, g_farReachCap);
                 const std::vector<uint16_t>& list =
                     farLand ? farLandList(ram, PS2_RAM_SIZE, base, count, view, farReach, key)
@@ -523,8 +523,6 @@ void install(PS2Runtime& rt) {
             out = static_cast<float>(std::atof(v));
     };
     envFloat("DRAKAN_FAR_LAND_NEAR", g_farNear);
-    envFloat("DRAKAN_FAR_LAND_CUSHION", g_farCushion);
-    envFloat("DRAKAN_FAR_LAND_RISE", g_farRise);
     envFloat("DRAKAN_FAR_LAND_REACH", g_farReachCap);
     if (const char* cap = std::getenv("DRAKAN_FAR_SCENERY_REACH"))
         g_sceneryReachCap = static_cast<float>(std::atof(cap));

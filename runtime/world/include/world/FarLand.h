@@ -5,8 +5,8 @@
 // or ceiling more than 40 cells away, and nearer ones only when the PC thought them visible from the ground, while the
 // converted level keeps the PS2 view distance (fog from 26 to 75 cells) and a camera above Rynn. Hills and river banks
 // were missing and the sky showed through, cut along their layer edges (docs/journal/2026-11-16/ootf-distance-view.md).
-// These rules pick, for one view layer, the unlisted floors and ceilings within the view distance that a line of sight
-// reaches over the level's ground from somewhere above the view layer, so the draw grows by what can be seen. Layers
+// These rules pick, for one view layer, the unlisted floors and ceilings within kReachCells that a line of sight from
+// the camera's cell reaches over the level's ground, so the draw grows by what can be seen. Layers
 // behind hills stay out (the closure of the lists that far scenery uses at a larger view distance draws them too and
 // halved the frame rate at the Ruined Village spot).
 //
@@ -31,7 +31,12 @@ inline constexpr int kFloor = 0, kCeiling = 1, kWater = 2;
 inline constexpr float kNearCells = 0.0f;
 // Up to this far beyond the level's view distance (cells): the margin the engine's own cell rectangle adds.
 inline constexpr float kReachMargin = 2.0f;
-// Eye heights (world units) above the view layer's vertices: a camera behind Rynn, and one raised by a slope or jump.
+// Default reach (cells, box to box): the PC fog's end (30 cells) plus that margin. The layers that filled the owner's
+// gap are 12 to 31 cells away; the whole view distance (77) cost +131 % frame time on Arokh over the Islands (the
+// camera sees most of the level from up there) and +13 % at the owner's spot, 30 cells +5 % over the Islands. Past
+// 32 cells the haze (from 26 to 75 cells) hides most of what is left out.
+inline constexpr float kReachCells = 32.0f;
+// Eye heights (world units) above the view layer's vertices for observers spread over a layer (tests and calibration).
 inline constexpr float kEyes[] = {1200.0f, 6000.0f};
 // A ray passes a ground sample this far below it (world units) before it counts as blocked.
 inline constexpr float kClearance = 64.0f;
@@ -195,24 +200,16 @@ inline std::vector<Point> targets(const Layer& L) {
     return samplePoints(L, 3, 12);
 }
 
-// Observers at a camera (world units): the camera, plus (when not 0) four points `cushion` cells to its sides, and all
-// of them again `rise` above. The defaults are the camera alone: at the owner's Ruined Village spot a cushion of 1.5
-// cells and a rise of 1,500 added 60 layers to a list of 100 against 21 to 26 for the camera alone, for the same
-// picture, and the frame time grows with the layers drawn. A list is made per camera cell, so it follows the camera.
-inline constexpr float kCushionCells = 0.0f;
-inline constexpr float kRise = 0.0f;
-inline std::vector<Point> cameraObservers(float x, float y, float z, float cushion = kCushionCells,
-                                          float rise = kRise) {
-    const float cx = x / 2048.0f, cz = z / 2048.0f;
-    std::vector<Point> out;
-    for (int k = 0; k < (rise != 0.0f ? 2 : 1); ++k) {
-        const float up = k ? rise : 0.0f;
-        out.push_back({cx, cz, y + up});
-        if (cushion != 0.0f)
-            for (const auto& d : {std::pair<float, float>{cushion, 0}, {-cushion, 0}, {0, cushion}, {0, -cushion}})
-                out.push_back({cx + d.first, cz + d.second, y + up});
-    }
-    return out;
+// The camera cells a list is kept for: 2048 units across (one terrain cell) and kCellHeight high.
+inline constexpr float kCellHeight = 1024.0f;
+// Observers for every camera position in one camera cell (x, z in cells, a height bin of kCellHeight): the cell's four
+// corners and its centre at the top of the bin. So a list depends only on its cell and holds for any camera in it (a
+// list from the first camera point alone could miss a layer seen from the far side of the cell). A cushion of 1.5
+// cells and 1,500 units more height added 60 layers at the owner's Ruined Village spot against 21 to 26 for one
+// camera point, for the same picture, and the frame time grows with the layers drawn, so the cell is kept small.
+inline std::vector<Point> cellObservers(int cellX, int cellZ, int heightBin) {
+    const float x = float(cellX), z = float(cellZ), y = float(heightBin + 1) * kCellHeight;
+    return {{x, z, y}, {x + 1, z, y}, {x, z + 1, y}, {x + 1, z + 1, y}, {x + 0.5f, z + 0.5f, y}};
 }
 
 // Layers to add to view layer `view`'s list for the draw: floors and ceilings not in `listed`, between `near` and

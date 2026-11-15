@@ -62,30 +62,35 @@ changed between the two conversions: 12,213 and 12,221 files. The patched pack i
 `world/FarLand.h` (rules, `world_far_land_test`) and `drakan_view_distance.cpp`. At `view_distance` 1 in a converted
 level (`drakan_texture_budget::convertedLevel`: a level from a pack, or a campaign pack as the current game), far
 scenery's existing swap gives the terrain draw the view layer's own list plus its **far land**: the unlisted floors and
-ceilings up to 77 cells from the view layer (box to box, the view distance plus the engine's 2 cell margin) that a line
-of sight from the camera reaches over the level's ground. Targets: up to 3 x 3 vertices of the layer plus its 12
-highest; the ground is the highest drawn floor at each vertex, holes and invisible cells left out (cell bits 0x50 and
-0xa0); a ray is blocked where it passes more than 64 units under it, with 0.5 cell at the camera end and 1 cell at the
-target end not tested. Only floor and water view layers get far land (a ceiling view layer is a cave). The terrain is
-read once per layout from the guest's layer table (the fields `drakan_scene_geometry` reads); a list is made for each
-view layer and camera cell (2,048 units across, 1,024 high) the first time the camera is there, kept in a cache of up to
-1,024 lists, and takes 1 to 4 ms (log). The cell lookup keeps seeing the level's own list as before. Part of
-`[video] far_scenery` (default 1); `DRAKAN_FAR_LAND=0` turns it off alone; `DRAKAN_VIEW_DISTANCE_LOG=1` prints each
-list. `sceneryWidens()` now also holds with far land on, so `game_texture_cache_kb = auto` gives converted levels 16 MB
-(the setting's text and the settings page say what far scenery does at 1). Diagnostics: `DRAKAN_FAR_LAND_NEAR`,
-`_CUSHION`, `_RISE`, `_REACH`.
+ceilings up to 32 cells from the view layer (box to box: the PC fog's 30 cells plus the engine's 2 cell margin) that a
+line of sight from the camera's cell reaches over the level's ground. A list is made per view layer and camera cell
+(2,048 units across, 1,024 high) and depends only on that cell: the observers are the cell's four corners and centre at
+the top of its height bin, so it holds wherever the camera is in the cell. Targets: up to 3 x 3 vertices of the layer
+plus its 12 highest; the ground is the highest drawn floor at each vertex, holes and invisible cells left out (cell bits
+0x50 and 0xa0); a ray is blocked where it passes more than 64 units under it, with 0.5 cell at the observer end and 1
+cell at the target end not tested. Only floor and water view layers get far land (a ceiling view layer is a cave). The
+terrain is read once per layout from the guest's layer table (the fields `drakan_scene_geometry` reads); lists are kept
+in a cache of up to 1,024 and take 0.3 to 1.5 ms each (log). The cell lookup keeps seeing the level's own list as
+before. Part of `[video] far_scenery` (default 1); `DRAKAN_FAR_LAND=0` turns it off alone; `DRAKAN_VIEW_DISTANCE_LOG=1`
+prints each list. `sceneryWidens()` now also holds with far land on, so `game_texture_cache_kb = auto` gives converted
+levels 16 MB (the setting's text and the settings page say what far scenery does at 1). Diagnostics:
+`DRAKAN_FAR_LAND_NEAR` (least candidate distance, 0), `DRAKAN_FAR_LAND_REACH` (cells, 32; 0 = the view distance + 2).
 
-How it got there (lists at the owner's spot, view layer 92 with 100 entries of its own, from the log):
+How it got there (lists at the owner's spot, view layer 92 with 100 entries of its own, from the log; frame times
+below):
 
-| Version | Drawn | What it showed |
+| Version | Drawn at layer 92 | What it showed and cost |
 | --- | --- | --- |
-| Observers over the view layer (3 x 3 vertices, 1,200 and 6,000 up), candidates from 24 cells | 172 | far hills, but the gap behind the bridge stayed (`ev/fl_a1.jpg`): 181 and 183 are nearer than 24 |
-| The same from 0 cells | 188 | gap filled (`ev/fl2_a1.jpg`), but 31 against 83 fps at the floating-house spot in single frames |
-| Camera, four points 1.5 cells around it, and all 1,500 higher; from 0 cells | 139 to 166 | gap filled (`ev/fl3_a1.jpg`); +38 % frame time (below) |
-| Camera alone (committed) | 121 to 126 | the same picture (`ev/rank_a1.jpg`, top against middle) |
+| Observers over the view layer (3 x 3 vertices, 1,200 and 6,000 up), 24 to 77 cells | 172 | far hills, but the gap behind the bridge stayed (`ev/fl_a1.jpg`): 181 and 183 are nearer than 24 |
+| The same from 0 cells | 188 | gap filled (`ev/fl2_a1.jpg`); 31 against 83 fps at the floating-house spot in single frames |
+| Camera, four points 1.5 cells around it, all again 1,500 up; 0 to 77 cells | 139 to 166 | gap filled (`ev/fl3_a1.jpg`); +38 % frame time at the spot |
+| Camera point alone, 0 to 77 | 121 to 126 | the same picture (`ev/rank_a1.jpg`); +13 % at the spot, **+131 % on Arokh over the Islands** |
+| Camera cell (corners and centre), 0 to 77 | 132 to 152 | the same picture (`ev/fin_a1.jpg`); a list no longer depends on where in its cell it was made |
+| Camera cell, 0 to 32 cells (committed) | 116 to 119 | the gap behind the bridge filled, the hazy hills past 32 cells left out (`ev/reach_a1.jpg` rows: off, 30, 35, 77 cells; `ev/final_a1.jpg`); Islands +5 % at 30 cells |
 
-Candidates from 24 cells drew 148 here, a reach of 50 cells 135. The camera alone was the largest cut for the same
-picture, so it is the default.
+From the air the camera sees most of a level within the view distance, which is the closure's kind of list again, so
+the reach is held to the PC fog's end: past 32 cells the PS2 haze (26 to 75 cells) covers most of what is left out, and
+what filled the owner's gap is 12 to 31 cells away.
 
 Calibration of the line of sight (offline, the TypeScript version over the converted Ruined Village, observers over
 the layer): of the pairs the PC lists itself at 20 to 40 cells, 85 % pass (93 % with an eye at 15,000, 96 % at 30,000);
@@ -94,40 +99,42 @@ of the disc's own Surdana lists (made for 75 cells), 70 % of the pairs 30 to 77 
 
 ## Seen in game after the fix
 
-Private build of `build/review/ootf-distance2/game` (HEAD `deb41a6a` plus this change; the tree also held other
-sessions' uncommitted runtime edits, the ponytail cloth among them), exe copied into the play folder; dist pack
-(`mods_before`, the same file as `dist/DrakanPC/mods/ootf-levels.zip`); the owner's ini with `elf =` on a private copy.
-Placed, not played, unless said.
+Private build of `build/review/ootf-distance2/game` (HEAD `deb41a6a` plus this change, then the commits after it; the
+tree also held other sessions' uncommitted runtime edits, the ponytail cloth among them), exe copied into the play
+folder; dist pack (`mods_before`, the same file as `dist/DrakanPC/mods/ootf-levels.zip`); the owner's ini with
+`elf =` on a private copy. Placed, not played, unless said. Final exe `eda605ab...`:
 
-* Owner's view, before and after (`runs/fl_off/a1.png`, `runs/rank*` and the committed version's `runs/rk_tight/a1.png`;
-  side by side `ev/fl3_a1.jpg`, crops `ev/rank_a1.jpg`): the bank behind the bridge, the cliff and the hills beyond are
-  drawn, fading into the haze; no sky shows through and no stripes.
-* Floating house spot (`ev/fl3_b0.jpg`, the version with the cushion and rise; the committed one was not shot there in
-  that pose): the house stands on its hill, the bridge and the burning house appear below.
-* Played: from the ridge with W held, two mouse turns, down to the river and into it (`runs/walk_on`, 33 frames,
-  `ev/walk_on.jpg`): no sky gaps in any frame; 67 lists made on the way. Whether layers pop in at the edge of sight when
-  the camera crosses a cell was not judged frame by frame.
-* Islands on Arokh at (340000, 70000, 610000), three headings (`ev/islands_off_on.jpg`, left off, right on): with far
-  land the far islands and the castle stand in the sea where before there was open water or a fogged ghost. The list
-  there goes from 120 to 175 (the closure at 1.5 drew 353).
-* Volcanic loads and runs (`runs/volc_on`, lists of 32 grow to 41). No `[texbudget]` misses, no VU1 reports, no fatal
-  line in any run with the runtime version.
+* Owner's view, before and after (`runs/fl_off/a1.png`, `runs/final_on/a1.png`, side by side `ev/final_a1.jpg`): the
+  bank behind the bridge and the cliff over the river are drawn where the sky showed in stair steps; no stripes.
+* Floating house spot (`ev/final_b0.jpg`): the house stands on its hill, the bridge and the burning house appear below.
+* Played: from the ridge with W held, two mouse turns, down to the river and into it (`runs/walk_final`, 33 frames,
+  `ev/walk_final.jpg`; the same with the camera-point version in `runs/walk_on`): no sky gaps; looked at as a sheet,
+  so pop-in at cell changes was not judged frame by frame.
+* Islands on Arokh at (340000, 70000, 610000) with the 77-cell version (`ev/islands_off_on.jpg`, left off, right on):
+  far islands and the castle stand in the sea; at 32 cells most of that stays in the haze as before.
+* Volcanic loads and runs (`runs/volc_on`, 77-cell version). No `[texbudget]` misses, no VU1 reports, no fatal line
+  in any run with the runtime version.
 
 ## Frame time
 
-`scene_ab_bench.py`, Ruined Village at the owner's spot, 3 interleaved pairs, `DRAKAN_TEX_CACHE_KB=16384` on both so
-only far land differs, one other agent's game running during most runs (the tool's quiet check could not be met), so
-frame times are noisy (one "off" window at 30 ms):
+`scene_ab_bench.py`, interleaved pairs, `DRAKAN_TEX_CACHE_KB=16384` on both so only far land differs. Ruined Village
+runs had another agent's game running most of the time (noisy); the Islands runs were quiet.
 
-| Version | World fps off / on (median) | Frame ms off / on | VU1 ms per frame off / on | GS ms off / on | EE ms off / on |
-| --- | --- | --- | --- | --- | --- |
-| Camera plus cushion and rise (`bench`, texture cache 8 / 16 MB) | 68.0 / 52.4 | 13.37 / 18.43 (+38 %, 3 of 3 pairs) | 8.57 / 12.31 | 10.57 / 14.01 | 14.45 / 18.68 |
-| Camera alone, committed (`bench2`) | 59.0 / 52.9 | 16.52 / 18.71 (+13 %, 2 of 3 pairs slower) | 8.67 / 11.71 | 11.08 / 13.86 | 16.13 / 18.66 |
+| Scene, version | World fps off / on | Frame ms off / on (median) | VU1 ms off / on | GS ms off / on |
+| --- | --- | --- | --- | --- |
+| Ruined spot, camera + cushion + rise, 77 (`bench`, 8 / 16 MB) | 68.0 / 52.4 | 13.37 / 18.43 (+38 %, 3 of 3) | 8.57 / 12.31 | 10.57 / 14.01 |
+| Ruined spot, camera point, 77 (`bench2`) | 59.0 / 52.9 | 16.52 / 18.71 (+13 %) | 8.67 / 11.71 | 11.08 / 13.86 |
+| Islands on Arokh, camera point, 77 (`bench3`, quiet) | 74.8 / 32.5 | 13.31 / 30.33 (+131 %, 3 of 3) | 11.74 / 27.73 | 10.33 / 23.70 |
+| Islands on Arokh, off / reach 40 / reach 30 (`bench4`, 2 pairs, quiet) | 101.1 / 59.7 / 96.0 | 9.78 / 16.70 / 10.27 (+71 % / +5 %) | 8.64 / 15.78 / 9.32 | 7.68 / 13.78 / 8.07 |
+| **Committed (camera cell, reach 32)**, Islands on Arokh (`bench5`, another game running) | 64.0 / 54.9 | 15.57 / 17.79 (+14 %, range +2 to +59 %) | 12.62 / 13.67 | 11.41 / 12.46 |
+| **Committed**, Ruined spot (`bench5`, another game running, one off window at 33 ms) | 63.6 / 54.0 | 15.77 / 17.86 (+13 %, 2 of 3 pairs slower) | 8.87 / 10.55 | 10.88 / 12.92 |
 
-The VU1 and GS columns do not overlap between off and on: far land costs about a third more vector unit work at this
-spot, because the converted levels draw every layer on the full PC grid (no terrain detail level) and the far land is
-real ground in sight. The frame time is less clear on this machine; +13 % is the median. `far_scenery = 0` (or
-`DRAKAN_FAR_LAND=0`) is the old draw.
+The frame times of the last two rows are noisy (the machine was busy); the vector unit and GS times are the steadier
+measure: the committed version adds about 8 % VU1 work over the Islands and 19 % at the owner's spot, against 136 %
+and 35 % for the whole view distance.
+
+The converted levels draw every layer on the full PC grid (no terrain detail level), so far land costs what it draws.
+`far_scenery = 0` (or `DRAKAN_FAR_LAND=0`) is the old draw.
 
 ## (c) The flat dark mountains: the far colour map at night
 
@@ -139,23 +146,21 @@ the terrain passes at 2). Not changed.
 
 ## Tests
 
-* `ctest --preset runtime-tests`: 202 of 202 passed (6 data-dependent skipped) on the first runtime version; after the
-  camera observers the changed tests again (`world_far_land_test`, settings, view distance, texture budget: 7 of 7).
-  `world_far_land_test`: layers in sight added nearest first, listed and out-of-reach layers and ceiling view layers
-  left alone, a ridge hides, holes hide nothing, the ground's far edge, camera observers (alone by default; with a
-  cushion and a rise), a low camera behind a ridge against a high one.
-* clang-format clean on the changed files.
+* `ctest --preset runtime-tests`: 202 of 202 passed (6 data-dependent skipped) on the first runtime version and again
+  on the final one. `world_far_land_test`: layers in sight added nearest first, listed and out-of-reach layers and ceiling
+  view layers left alone, a ridge hides, holes hide nothing, the ground's far edge, the camera cell's observers, a low
+  camera cell behind a ridge against a high one.
+* clang-format clean on the changed files; `python scripts/run_tests.py` passed; `repository_guard.py` clean.
 
 ## Not verified
 
-* Frame times on a quiet machine; the main session should repeat the `bench2` A/B before deciding whether far land
-  stays on by default (one flag, `g_farLandOn` in `drakan_view_distance.cpp`, or a setting of its own).
-* The Islands flight cost (lists only, no bench), the other converted outdoor levels (Wartok Canyons, Islands Night,
-  Alwarren, Rift World, Succubus Lair) and the multiplayer maps from the pack.
-* Pop-in when the camera moves from cell to cell; caves and interiors seen from outside; a ceiling view layer.
-* The owner's exact camera: the spot was found from the level data and the picture, and the harness frames are near it,
-  not the same pose.
+* Frame times on a quiet machine at the Ruined Village spot (the Islands runs were quiet).
+* Other converted outdoor levels (Wartok Canyons, Islands Night, Alwarren, Rift World, Succubus Lair) and the
+  multiplayer maps from the pack; far land applies to any pack level, also one whose lists were made for the PS2.
+* Pop-in when the camera moves from cell to cell (cells of 2,048 units; a layer that comes into sight over a crest
+  appears with the next cell); caves and interiors seen from outside; a ceiling view layer.
+* The owner's exact camera: the spot was found from the level data and the picture; the harness frames are near it.
 * The flat far mountains: `terrain_distance` 2 was looked at once; no fix.
 * WebGPU / Vulkan (the change is in the guest draw list, renderer independent) and the release build.
 * Main session: rebuild the exe (`Build-LocalGame.ps1 -Incremental`). The pack does not need rebuilding (no converter
-  change).
+  change). Converted levels now get the 16 MB game texture cache with `game_texture_cache_kb = auto`.

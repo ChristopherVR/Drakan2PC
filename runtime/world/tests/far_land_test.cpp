@@ -87,15 +87,13 @@ int main() {
         CHECK(!Layer{}.usable());
     }
     {
-        // observers at the camera: the camera alone by default; with a cushion and a rise, four points to its sides
-        // and all of them again higher up
-        CHECK(cameraObservers(4096.0f, 11000.0f, 2048.0f).size() == 1);
-        const std::vector<Point> obs = cameraObservers(4096.0f, 11000.0f, 2048.0f, 1.5f, 1500.0f);
-        CHECK(obs.size() == 10);
-        CHECK(obs[0].x == 2.0f && obs[0].z == 1.0f && obs[0].y == 11000.0f);
-        CHECK(obs[1].x == 3.5f && obs[5].y == 12500.0f);
-        CHECK(cameraObservers(0.0f, 0.0f, 0.0f, 0.0f, 1500.0f).size() == 2);
-        // from a camera low behind the ridge only the ridge layer is added; from high above it the far layers too
+        // observers for a camera cell: its four corners and centre at the top of its height bin
+        const std::vector<Point> obs = cellObservers(2, 1, 10);
+        CHECK(obs.size() == 5);
+        CHECK(obs[0].x == 2.0f && obs[0].z == 1.0f && obs[0].y == 11264.0f);
+        CHECK(obs[3].x == 3.0f && obs[3].z == 2.0f && obs[4].x == 2.5f && obs[4].z == 1.5f);
+        CHECK(cellObservers(-1, -2, -1)[0].y == 0.0f && cellObservers(-1, -2, -1)[0].x == -1.0f);
+        // from a camera cell low behind the ridge only the ridge layer is added; from high above it the far layers too
         std::vector<Layer> layers = {
             layer(kFloor, 0, 0, 4, 4),
             layer(kFloor, 4, 0, 30, 4),
@@ -107,10 +105,8 @@ int main() {
                 layers[1].heights[size_t(z) * 31 + x] = 50000.0f;
         const Ground g(layers);
         std::vector<std::vector<Point>> cache;
-        CHECK((farLayers(0, layers, g, {0}, 77.0f, cameraObservers(4096.0f, 11000.0f, 4096.0f), cache) ==
-               std::vector<uint16_t>{1}));
-        CHECK((farLayers(0, layers, g, {0}, 77.0f, cameraObservers(4096.0f, 200000.0f, 4096.0f), cache) ==
-               std::vector<uint16_t>{1, 2, 3}));
+        CHECK((farLayers(0, layers, g, {0}, 77.0f, cellObservers(2, 2, 10), cache) == std::vector<uint16_t>{1}));
+        CHECK((farLayers(0, layers, g, {0}, 77.0f, cellObservers(2, 2, 195), cache) == std::vector<uint16_t>{1, 2, 3}));
         CHECK(farLayers(0, layers, g, {0}, 77.0f, {}, cache).empty());
     }
     if (g_failed)
