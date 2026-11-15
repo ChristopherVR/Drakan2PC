@@ -113,7 +113,7 @@ const STATE = `(() => {
         open: !!dlg?.open, modal: !!dlg?.matches(':modal'), index: sel?.selectedIndex ?? -1, count: sel?.options.length ?? 0,
         trigger: trig ? c(trig) : null, focusTrigger: document.activeElement === trig,
         popup: opts.length > 0, popupInDialog: !!dlg && opts.length > 0 && dlg.contains(document.querySelector('.ui-dd-opt')),
-        opts, popups: document.querySelectorAll('.ui-dd-opt').length,
+        opts, popups: document.querySelectorAll('.ui-dd-opt').length, dlgBottom: d ? Math.round(d.bottom) : -1,
     };
 })()`;
 
@@ -164,10 +164,17 @@ try {
         console.log('     (no disc: importer opened from the command palette)');
     }
     await waitFor(`!!document.querySelector('dialog.ootf-dlg[open]')`, 'the import dialog');
-    // Without a disc there are no templates; synthetic names make the list long enough to leave the dialog.
+    // Without a disc there are no templates; synthetic names make the list long enough to leave the dialog. The
+    // popup is at most 360 px tall, so the dialog body is also cut to end just below the dropdown (it scrolls, as it
+    // does on a small screen): otherwise every row added to the dialog moves its bottom edge past the popup's, as
+    // the two voice rows did (measured locally at 1440x880: popup bottom 689, dialog bottom 690).
     await evaluate(`(() => {
-        const sel = document.querySelector('dialog.ootf-dlg select');
+        const dlg = document.querySelector('dialog.ootf-dlg');
+        const sel = dlg.querySelector('select');
         for (let i = sel.options.length; i < 16; i++) sel.add(new Option('Synthetic template ' + i, 'T' + i));
+        const body = dlg.querySelector('.od-body');
+        const trig = sel.nextElementSibling.getBoundingClientRect();
+        body.style.maxHeight = Math.ceil(trig.bottom - body.getBoundingClientRect().top + 24) + 'px';
     })()`);
     let s = await evaluate(STATE);
     check('import dialog is modal', s.open && s.modal);
@@ -181,7 +188,7 @@ try {
     check(
         'options below the dialog are hit-testable',
         outside.length > 0 && s.opts.every((o) => o.hit),
-        `${outside.length} below`,
+        `${outside.length} below (dialog bottom ${s.dlgBottom}, lowest option centre ${Math.round(Math.max(...s.opts.map((o) => o.y), 0))})`,
     );
     const pick = outside.find((o) => o.i !== before && o.i > 0) ?? s.opts.find((o) => o.i !== before && o.i > 0);
     await click([pick.x, pick.y]);
