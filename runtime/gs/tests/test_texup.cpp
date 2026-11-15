@@ -240,6 +240,91 @@ int main(int argc, char** argv) {
                                            : "no colour fringe at alpha edge (smooth)");
         }
     }
+    // Mixed alpha with real colour under alpha 0 (Proc Texture 621, a ground texture the game draws opaque: 43 % of
+    // its texels have alpha 0). The colour must come out as in the same image made opaque, not black.
+    for (uint32_t N : {2u, 4u, 8u}) {
+        for (int pattern = 0; pattern < 3; ++pattern) {
+            std::vector<uint32_t> mixed(16 * 16), opaque(16 * 16), a, b;
+            uint32_t seed = 99u + (uint32_t)pattern;
+            for (uint32_t y = 0; y < 16; ++y)
+                for (uint32_t x = 0; x < 16; ++x) {
+                    seed = seed * 1664525u + 1013904223u;
+                    const uint32_t rgb = px(60 + x * 9, 50 + y * 7, 40 + (x + y) * 3, 0);
+                    uint32_t alpha = 0x80;
+                    if (pattern == 0) // texel checker
+                        alpha = ((x ^ y) & 1) ? 0x80 : 0;
+                    else if (pattern == 1) // noisy, mostly low alpha, 45 % zero
+                        alpha = (seed >> 24) < 115 ? 0 : (seed >> 25) & 0x7f;
+                    else if (x >= 4 && x < 12 && y >= 4 && y < 12) // a solid transparent block
+                        alpha = 0;
+                    mixed[y * 16 + x] = rgb | (alpha << 24);
+                    opaque[y * 16 + x] = rgb | 0x80000000u;
+                }
+            upscale(mixed.data(), 16, 16, N, Algo::Smooth, false, false, a);
+            upscale(opaque.data(), 16, 16, N, Algo::Smooth, false, false, b);
+            int worst = 0, worstInside = 0;
+            double sum = 0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                const uint32_t x = (uint32_t)(i % (16 * N)) / N, y = (uint32_t)(i / (16 * N)) / N;
+                const bool inside = x >= 6 && x < 10 && y >= 6 && y < 10; // two texels from any alpha
+                for (int c = 0; c < 24; c += 8) {
+                    const int d = std::abs((int)((a[i] >> c) & 255) - (int)((b[i] >> c) & 255));
+                    worst = std::max(worst, d);
+                    if (inside)
+                        worstInside = std::max(worstInside, d);
+                    sum += d;
+                }
+            }
+            const double mean = sum / (3.0 * (double)a.size());
+            static const char* names[3] = {"texel checker", "noisy low alpha", "transparent block"};
+            char m[160];
+            std::snprintf(m, sizeof(m),
+                          "colour under alpha 0 matches the opaque image (smooth %ux, %s: mean %.2f, max %d)", N,
+                          names[pattern], mean, worst);
+            CHECK(mean <= 4.5 && worst <= 32 && (pattern != 2 || worstInside <= 1), m);
+        }
+    }
+    // xBRZ keeps the colour of transparent texels too: mostly alpha-0 texels over a colour gradient with scattered
+    // opaque ones (a blend of two alpha-0 colours used to be black, as under WORLDCON 314 / 315)
+    {
+        std::vector<uint32_t> src(16 * 16), o;
+        uint32_t seed = 7u;
+        for (uint32_t y = 0; y < 16; ++y)
+            for (uint32_t x = 0; x < 16; ++x) {
+                seed = seed * 1664525u + 1013904223u;
+                src[y * 16 + x] = px(40 + x * 12, 120, 40 + y * 12, (seed >> 24) < 38 ? 0x80 : 0);
+            }
+        upscale(src.data(), 16, 16, 4, Algo::XBrz, false, false, o);
+        size_t black = 0;
+        for (uint32_t c : o)
+            black += ((c >> 8) & 255) != 120; // every source colour has green 120; black would be 0
+        char m[96];
+        std::snprintf(m, sizeof(m), "xbrz keeps colour under alpha 0 (%zu pixels lost it)", black);
+        CHECK(black == 0, m);
+    }
+    // Cut-out edge: the colour under the transparent texels (white or green, not black) must not leak into visible
+    // edge texels as a halo, in any channel or direction (alpha ramp and unsharp mask included).
+    for (uint32_t under : {px(255, 255, 255, 0), px(0, 255, 0, 0), px(0, 0, 0, 0)})
+        for (uint32_t N : {2u, 4u, 8u}) {
+            std::vector<uint32_t> src(16 * 16), o;
+            for (int y = 0; y < 16; ++y)
+                for (int x = 0; x < 16; ++x) {
+                    const int dx = x - 8, dy = y - 8;
+                    src[y * 16 + x] = dx * dx + dy * dy < 30 ? px(200, 100, 50, 0x80) : under; // a disc
+                }
+            upscale(src.data(), 16, 16, N, Algo::Smooth, false, false, o);
+            int worst = 0;
+            for (uint32_t c : o)
+                if ((c >> 24) >= 8) {
+                    worst = std::max(worst, std::abs((int)(c & 255) - 200));
+                    worst = std::max(worst, std::abs((int)((c >> 8) & 255) - 100));
+                    worst = std::max(worst, std::abs((int)((c >> 16) & 255) - 50));
+                }
+            char m[128];
+            std::snprintf(m, sizeof(m), "no halo at a cut-out edge (smooth %ux, colour under %06x: max %d)", N,
+                          under & 0xffffffu, worst);
+            CHECK(worst <= 4, m);
+        }
     // wrap: a tiling pattern upscaled with wrap is periodic
     {
         std::vector<uint32_t> src(8 * 8), o;

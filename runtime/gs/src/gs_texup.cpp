@@ -171,8 +171,11 @@ inline double colorDist(uint32_t p1, uint32_t p2) {
 // back = back*(N-M)/N + front*M/N, alpha aware
 inline uint32_t gradient(uint32_t front, uint32_t back, uint32_t M, uint32_t N) {
     const uint32_t wf = cA(front) * M, wb = cA(back) * (N - M), ws = wf + wb;
-    if (ws == 0)
-        return 0;
+    if (ws == 0) {
+        // both transparent: keep their colour (textures drawn opaque use it) with alpha 0
+        auto st = [&](uint32_t f, uint32_t b) { return (f * M + b * (N - M)) / N; };
+        return (st(cR(front), cR(back)) << 16) | (st(cG(front), cG(back)) << 8) | st(cB(front), cB(back));
+    }
     auto ch = [&](uint32_t f, uint32_t b) { return (f * wf + b * wb) / ws; };
     const uint32_t a = ws / N;
     return (a << 24) | (ch(cR(front), cR(back)) << 16) | (ch(cG(front), cG(back)) << 8) | ch(cB(front), cB(back));
@@ -419,7 +422,7 @@ inline uint32_t fromArgb(uint32_t c, bool scaleAlpha) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// smooth: Catmull-Rom bicubic on alpha-premultiplied colour + mild unsharp mask
+// smooth: Catmull-Rom bicubic on alpha-premultiplied colour (plain colour under near-zero alpha) + mild unsharp mask
 inline float catmull(float t) {
     t = std::fabs(t);
     if (t < 1.0f)
@@ -429,104 +432,149 @@ inline float catmull(float t) {
     return 0.0f;
 }
 
+// Colour under alpha below kStraightRamp (of the texture's largest alpha) comes from the plain bicubic RGB, blending
+// into the alpha-weighted colour as alpha rises. The game draws some textures opaque although their alpha plane is
+// mostly empty (Proc Texture 621, the brown rock ground: 43 % of its texels have alpha 0); un-premultiplying turned
+// their colour black. Above the ramp the colour stays alpha weighted, so cut-out edges get no fringe from the colour
+// under the transparent texels.
+constexpr float kStraightRamp = 6.0f / 128.0f;
+
 void smoothUpscale(const uint32_t* src, uint32_t w, uint32_t h, uint32_t N, bool wrapX, bool wrapY,
                    std::vector<uint32_t>& out) {
     const uint32_t ow = w * N, oh = h * N;
-    // premultiplied float planes: r g b a (a in 0..1 of opaque 0x80 -> keep raw 0..255 scale for colour)
+    // float planes per texel: premultiplied r g b, a (0..1 of the largest alpha), straight r g b; then the per-channel
+    // minimum and maximum colour of the texels with alpha in the filter footprint (only the min / max taps of a pass)
+    constexpr int kP = 7, kMin = 7, kMax = 10, kAll = 13;
     uint32_t maxA = 0;
     for (size_t i = 0; i < (size_t)w * h; ++i)
         maxA = std::max(maxA, src[i] >> 24);
     const float aMax = (float)std::max(1u, maxA);
-    std::vector<float> pm((size_t)w * h * 4);
+    std::vector<float> pm((size_t)w * h * kAll);
     for (size_t i = 0; i < (size_t)w * h; ++i) {
         const uint32_t c = src[i];
         // GS textures can carry useful RGB with every alpha byte zero (CT24,
-        // TEXA=0, or TCC disabled). Premultiplying those by zero destroys their
-        // colour even though the pixel shader may ignore texture alpha.
+        // TEXA=0, or TCC disabled): such a texture is filtered as opaque.
         const float a = maxA ? (float)(c >> 24) / aMax : 1.0f;
-        pm[i * 4 + 0] = (float)(c & 255) * a;
-        pm[i * 4 + 1] = (float)((c >> 8) & 255) * a;
-        pm[i * 4 + 2] = (float)((c >> 16) & 255) * a;
-        pm[i * 4 + 3] = a;
+        for (int k = 0; k < 3; ++k) {
+            const float v = (float)((c >> (8 * k)) & 255);
+            pm[i * kAll + k] = v * a;
+            pm[i * kAll + 4 + k] = v;
+            pm[i * kAll + kMin + k] = a > 0.0f ? v : 1e9f;
+            pm[i * kAll + kMax + k] = a > 0.0f ? v : -1e9f;
+        }
+        pm[i * kAll + 3] = a;
     }
     auto wrapIdx = [](int i, int n, bool wrap) { return wrap ? (((i % n) + n) % n) : std::clamp(i, 0, n - 1); };
+    auto taps = [&](uint32_t o, uint32_t n, bool wrap, float wt[4], int idx[4]) {
+        const float s = ((float)o + 0.5f) / (float)N - 0.5f;
+        const int i0 = (int)std::floor(s);
+        const float f = s - (float)i0;
+        float ws = 0;
+        for (int k = 0; k < 4; ++k) {
+            wt[k] = catmull(f - (float)(k - 1));
+            ws += wt[k];
+        }
+        for (int k = 0; k < 4; ++k) {
+            wt[k] /= ws;
+            idx[k] = wrapIdx(i0 + k - 1, (int)n, wrap);
+        }
+    };
     // horizontal pass: h rows x ow
-    std::vector<float> tmp((size_t)ow * h * 4);
+    std::vector<float> tmp((size_t)ow * h * kAll);
     for (uint32_t ox = 0; ox < ow; ++ox) {
-        const float sx = ((float)ox + 0.5f) / (float)N - 0.5f;
-        const int i0 = (int)std::floor(sx);
-        const float f = sx - (float)i0;
         float wt[4];
-        float ws = 0;
-        for (int k = 0; k < 4; ++k) {
-            wt[k] = catmull(f - (float)(k - 1));
-            ws += wt[k];
-        }
-        for (int k = 0; k < 4; ++k)
-            wt[k] /= ws;
         int xi[4];
-        for (int k = 0; k < 4; ++k)
-            xi[k] = wrapIdx(i0 + k - 1, (int)w, wrapX);
-        for (uint32_t y = 0; y < h; ++y)
-            for (int c = 0; c < 4; ++c) {
+        taps(ox, w, wrapX, wt, xi);
+        for (uint32_t y = 0; y < h; ++y) {
+            float* t = &tmp[((size_t)y * ow + ox) * kAll];
+            for (int c = 0; c < kP; ++c) {
                 float acc = 0;
                 for (int k = 0; k < 4; ++k)
-                    acc += wt[k] * pm[((size_t)y * w + xi[k]) * 4 + c];
-                tmp[((size_t)y * ow + ox) * 4 + c] = acc;
+                    acc += wt[k] * pm[((size_t)y * w + xi[k]) * kAll + c];
+                t[c] = acc;
             }
-    }
-    std::vector<float> res((size_t)ow * oh * 4);
-    for (uint32_t oy = 0; oy < oh; ++oy) {
-        const float sy = ((float)oy + 0.5f) / (float)N - 0.5f;
-        const int j0 = (int)std::floor(sy);
-        const float f = sy - (float)j0;
-        float wt[4];
-        float ws = 0;
-        for (int k = 0; k < 4; ++k) {
-            wt[k] = catmull(f - (float)(k - 1));
-            ws += wt[k];
+            for (int c = 0; c < 3; ++c) {
+                float lo = 1e9f, hi = -1e9f;
+                for (int k = 0; k < 4; ++k) {
+                    lo = std::min(lo, pm[((size_t)y * w + xi[k]) * kAll + kMin + c]);
+                    hi = std::max(hi, pm[((size_t)y * w + xi[k]) * kAll + kMax + c]);
+                }
+                t[kMin + c] = lo;
+                t[kMax + c] = hi;
+            }
         }
-        for (int k = 0; k < 4; ++k)
-            wt[k] /= ws;
+    }
+    // vertical pass + un-premultiply: alpha-weighted colour (where any alpha), plain colour, alpha and the ramp weight
+    const size_t on = (size_t)ow * oh;
+    std::vector<float> wcol(on * 3), scol(on * 3), al(on), cw(on);
+    for (uint32_t oy = 0; oy < oh; ++oy) {
+        float wt[4];
         int yi[4];
-        for (int k = 0; k < 4; ++k)
-            yi[k] = wrapIdx(j0 + k - 1, (int)h, wrapY);
-        for (uint32_t ox = 0; ox < ow; ++ox)
-            for (int c = 0; c < 4; ++c) {
-                float acc = 0;
-                for (int k = 0; k < 4; ++k)
-                    acc += wt[k] * tmp[((size_t)yi[k] * ow + ox) * 4 + c];
-                res[((size_t)oy * ow + ox) * 4 + c] = acc;
+        taps(oy, h, wrapY, wt, yi);
+        for (uint32_t ox = 0; ox < ow; ++ox) {
+            float acc[kP] = {}, lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            for (int k = 0; k < 4; ++k) {
+                const float* t = &tmp[((size_t)yi[k] * ow + ox) * kAll];
+                for (int c = 0; c < kP; ++c)
+                    acc[c] += wt[k] * t[c];
+                for (int c = 0; c < 3; ++c) {
+                    lo[c] = std::min(lo[c], t[kMin + c]);
+                    hi[c] = std::max(hi[c], t[kMax + c]);
+                }
             }
+            const size_t i = (size_t)oy * ow + ox;
+            al[i] = std::clamp(acc[3], 0.0f, 1.0f);
+            cw[i] = std::clamp(acc[3] / kStraightRamp, 0.0f, 1.0f);
+            for (int c = 0; c < 3; ++c) {
+                const float plain = acc[4 + c];
+                // Where the bicubic lobes leave little alpha, un-premultiplying rings far outside the colours of the
+                // footprint: keep it inside their range, widened by the plain colour so an opaque texture (where both
+                // agree) keeps its bicubic sharpness.
+                float weighted = cw[i] > 0.0f ? acc[c] / acc[3] : plain;
+                if (lo[c] <= hi[c])
+                    weighted = std::clamp(weighted, std::min(lo[c], plain), std::max(hi[c], plain));
+                wcol[i * 3 + c] = std::clamp(weighted, 0.0f, 255.0f);
+                scol[i * 3 + c] = std::clamp(plain, 0.0f, 255.0f);
+            }
+        }
     }
-    // un-premultiply, unsharp mask on the colour (3x3 binomial blur at the output resolution)
-    std::vector<float> col((size_t)ow * oh * 3), al((size_t)ow * oh);
-    for (size_t i = 0; i < (size_t)ow * oh; ++i) {
-        const float a = std::clamp(res[i * 4 + 3], 0.0f, 1.0f);
-        al[i] = a;
-        const float inv = a > 1e-4f ? 1.0f / a : 0.0f;
-        for (int c = 0; c < 3; ++c)
-            col[i * 3 + c] = std::clamp(res[i * 4 + c] * inv, 0.0f, 255.0f);
-    }
+    // Unsharp mask (3x3 binomial blur at the output resolution) on each colour, then the ramp blends them. The blur
+    // of the alpha-weighted colour only takes neighbours that carry alpha, so a cut-out edge is not sharpened against
+    // the colour under its transparent texels.
     const float amount = 0.45f;
-    out.resize((size_t)ow * oh);
+    out.resize(on);
     auto cidx = [&](int x, int y) {
         x = wrapIdx(x, (int)ow, wrapX);
         y = wrapIdx(y, (int)oh, wrapY);
         return (size_t)y * ow + x;
     };
+    static const float k3[3] = {0.25f, 0.5f, 0.25f};
+    auto sharpen = [&](const std::vector<float>& col, int x, int y, bool alphaWeighted, float v[3]) {
+        const size_t i = (size_t)y * ow + x;
+        float blur[3] = {}, bw = 0;
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const size_t j = cidx(x + dx, y + dy);
+                const float wgt = k3[dy + 1] * k3[dx + 1] * (alphaWeighted ? cw[j] : 1.0f);
+                bw += wgt;
+                for (int c = 0; c < 3; ++c)
+                    blur[c] += wgt * col[j * 3 + c];
+            }
+        for (int c = 0; c < 3; ++c)
+            v[c] = col[i * 3 + c] + (bw > 0.0f ? amount * (col[i * 3 + c] - blur[c] / bw) : 0.0f);
+    };
     for (int y = 0; y < (int)oh; ++y)
         for (int x = 0; x < (int)ow; ++x) {
             const size_t i = (size_t)y * ow + x;
+            const float k = cw[i];
+            float vw[3] = {}, vs[3] = {};
+            if (k > 0.0f)
+                sharpen(wcol, x, y, true, vw);
+            if (k < 1.0f)
+                sharpen(scol, x, y, false, vs);
             uint32_t o = 0;
             for (int c = 0; c < 3; ++c) {
-                float blur = 0;
-                static const float k3[3] = {0.25f, 0.5f, 0.25f};
-                for (int dy = -1; dy <= 1; ++dy)
-                    for (int dx = -1; dx <= 1; ++dx)
-                        blur += k3[dy + 1] * k3[dx + 1] * col[cidx(x + dx, y + dy) * 3 + c];
-                float v = col[i * 3 + c] + amount * (col[i * 3 + c] - blur);
-                v = std::clamp(v, 0.0f, 255.0f);
+                const float v = std::clamp(vw[c] * k + vs[c] * (1.0f - k), 0.0f, 255.0f);
                 o |= (uint32_t)(v + 0.5f) << (8 * c);
             }
             const uint32_t a = (uint32_t)std::clamp(al[i] * aMax + 0.5f, 0.0f, (float)maxA);

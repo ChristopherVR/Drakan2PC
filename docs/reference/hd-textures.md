@@ -142,6 +142,27 @@ Options: `--iso`, `--work` (default build\hdpack), `--out`, `--exe`, `--scale` (
   of the Flame night sky ramp behind the Ruined Village sea, `docs/journal/2026-11-15/ootf-distant-sea.md`; palette and
   32-bit art with stripes or sparkles reaches that too, so it is not tested there).
 
+## 8b. Live smooth filter: colour under low alpha (2026-11-16)
+`smoothUpscale` (`gs_texup.cpp`, the live filter for photographic textures when there is no HD image) filters
+alpha-premultiplied colour and divides by the filtered alpha. Where that alpha was near 0 the colour came out black
+(`inv = 0`), which is right for an alpha-blended texture but wrong for one the game draws without its alpha: the
+terrain splat pass draws Proc Texture 621 (brown rock, 43 % of its texels alpha 0) that way, so OotF Ruined Village and
+Drakan 2's Inquisitor's Lair showed black ground patches with HD textures off. Now:
+* the filter also carries the plain (unweighted) bicubic colour; below `kStraightRamp` (6/128 of the texture's largest
+  alpha) the output colour blends from the alpha-weighted colour to the plain one, so texels under alpha 0 keep their
+  own colour, while every visible texel (alpha above the ramp) is still purely alpha weighted (no fringe from the
+  colour under transparent texels);
+* the un-premultiply divides by the unclamped filtered alpha (the clamped one made the bicubic overshoot inside an
+  opaque cut-out edge brighten it by up to 33 levels) and is clamped to the colour range of the alpha-bearing texels of
+  the 4x4 footprint, widened by the plain colour (where the bicubic lobes leave little alpha it rang far outside it);
+* the unsharp mask runs on each colour separately, and the alpha-weighted one blurs only neighbours that carry alpha,
+  so a cut-out edge is no longer sharpened against the colour under its transparent texels;
+* xBRZ's `gradient` keeps the colour (alpha 0) when both blended texels are transparent, instead of black.
+Opaque textures and alpha are unchanged (bit-identical on the disc textures tried). Tests in `gsr_test_texup`
+(colour under alpha 0 against the same image made opaque, no halo at a cut-out disc over white, green or black). With
+it the converter's opaque copies of 621 / 535 for OotF packs (`DRAKAN_TERRAIN_NATIVE_OPAQUE`) become optional for the
+live filter (not yet checked in game). Details: `docs/journal/2026-11-16/live-upscale-alpha.md`.
+
 ## 9. Palette-animated and palette-swapped textures: HD index maps (2026-10-22)
 Gap 1 left every volatile texture at native resolution (`setupUpscale` returns early for volatile slots unless the exact
 step is in the pack), because each palette step has a new content hash. Indexed volatile slots now take a second look
