@@ -388,6 +388,7 @@ struct WgpuBackend::Impl {
     hud::StartupTitle startupTitle{cfg.forcedAspect, cfg.stretchToWindow};
     int nativeMenuScreen = -1;
     float hudSize = 1.0f;
+    hud::PauseHudScale pauseHud; // hudScale on a pause open / resume the host has not seen yet (hud_page.h)
     struct HudBox {
         float x0, y0, x1, y1;
     };
@@ -635,6 +636,7 @@ struct WgpuBackend::Impl {
     void flushTexCaches();
     void changeScale(uint32_t ns);
     void applyLive(const LiveSettings& ls);
+    void syncPauseHudScale(const char* why); // pauseHud against sceneCamera.guiScreen (gs_backend_api.inl)
     void reset();
 
     uint32_t hudEmptyFrames = 0;

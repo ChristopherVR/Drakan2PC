@@ -154,6 +154,26 @@ void GSR_BACKEND::noteVuUpload(uint32_t a, uint32_t n, const float* rows) {
     m_impl->noteVuUpload(a, n, rows);
 }
 
+// hudScale for the pause transitions the host's poll has not caught up with (hud_page.h PauseHudScale). Called when a
+// camera packet changes the frame's screen and when the host's menu / HUD settings land. GSR_PAUSE_HUD_LOG=1 logs
+// every change.
+void GSR_IMPL::syncPauseHudScale(const char* why) {
+    const bool wasActive = pauseHud.active;
+    const float before = hudScale;
+    pauseHud.sync(hudScale, sceneCamera.guiScreen, nativeMenu);
+    static const bool log = [] {
+        const char* e = std::getenv("GSR_PAUSE_HUD_LOG");
+        return e && e[0] == '1';
+    }();
+    if (log && (wasActive != pauseHud.active || before != hudScale))
+        std::fprintf(stderr,
+                     "[pause-hud] frame %llu (%s): camera screen %d, host menu %d screen %d: hud scale %.3f -> %.3f "
+                     "(%s; host %.3f, pause page %.3f)\n",
+                     (unsigned long long)frame, why, sceneCamera.guiScreen, nativeMenu ? 1 : 0, nativeMenuScreen,
+                     (double)before, (double)hudScale, pauseHud.active ? "override" : "host",
+                     (double)(pauseHud.active ? pauseHud.saved : hudScale), (double)pauseHud.menu);
+}
+
 // The scene-camera packets of the host (SceneGuideCamera): private phase markers (water pass, item grid, subtitles,
 // world begin / end) and the camera of a world or GUI phase.
 void GSR_BACKEND::noteSceneCamera(const SceneGuideCamera& camera) {
@@ -240,7 +260,10 @@ void GSR_BACKEND::noteSceneCamera(const SceneGuideCamera& camera) {
         (camera.sourcePc == 0x43e4c8u && camera.guiScreen == 8))
         s.engineWorldOpen = false;
     s.nativeSubtitleOpen = false;
+    const int previousScreen = s.sceneCamera.guiScreen;
     s.sceneCamera = camera;
+    if (camera.guiScreen != previousScreen)
+        s.syncPauseHudScale("camera");
     if ((camera.flags & (SceneGuideCamera::Valid | SceneGuideCamera::World)) ==
         (SceneGuideCamera::Valid | SceneGuideCamera::World))
         s.waterWorldCamera = camera;

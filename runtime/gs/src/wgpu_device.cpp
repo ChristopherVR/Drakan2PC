@@ -303,7 +303,11 @@ void WgpuBackend::Impl::applyLive(const LiveSettings& ls) {
         nativeMenuScreen = ls.nativeMenuScreen;
     }
     if (ls.mask & L::F_HUD)
-        hudScale = ls.hudScale;
+        pauseHud.hostPush(hudScale, ls.hudScale);
+    if (ls.mask & L::F_PAUSE_HUD)
+        pauseHud.menu = ls.pauseMenuHudScale;
+    if (ls.mask & (L::F_NATIVE_MENU | L::F_HUD | L::F_PAUSE_HUD))
+        syncPauseHudScale("host");
     if (ls.mask & L::F_HUDSIZE)
         hudSize = ls.hudSize;
     if ((ls.mask & L::F_HLSMOOTH) && ls.hlSmooth != smoothHL) {

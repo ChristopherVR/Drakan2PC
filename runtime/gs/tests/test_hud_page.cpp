@@ -100,6 +100,39 @@ static bool nativeMenuSourceChecks() {
 
 int main() {
     {
+        // A quick Esc: the frame names the pause before the host's poll does. A gameplay camera while the host still
+        // reports the pause keeps the host's scale (OotF draws inside the page box under a gameplay camera after a
+        // close).
+        static_assert(pauseTransitionHudScale(kPauseScreen, false, 0.75f) == 0.75f, "open before the poll");
+        static_assert(pauseTransitionHudScale(-1, true, 0.75f) == 0.0f, "close: the host's scale stands");
+        static_assert(pauseTransitionHudScale(kPauseScreen, true, 0.75f) == 0.0f, "host agrees (or a pause child)");
+        static_assert(pauseTransitionHudScale(-1, false, 0.75f) == 0.0f, "gameplay, host agrees");
+        static_assert(pauseTransitionHudScale(0x15, false, 0.75f) == 0.0f, "inventory keeps its own");
+        static_assert(pauseTransitionHudScale(kPauseScreen, false, 0.0f) == 0.0f, "unknown scale");
+        PauseHudScale p;
+        p.menu = 0.75f;
+        float hud = 1.0f;
+        // Open: the frame's camera says pause, the host still gameplay.
+        if (!p.sync(hud, kPauseScreen, false) || hud != 0.75f || !p.active)
+            return 60;
+        // The host's push lands (menu scale, pause screen): the override ends on the same value.
+        p.hostPush(hud, 0.75f);
+        if (hud != 0.75f || p.sync(hud, kPauseScreen, true) || p.active || hud != 0.75f)
+            return 61;
+        // Close: the gameplay camera arrives first; nothing changes until the host's gameplay push.
+        if (p.sync(hud, -1, true) || hud != 0.75f)
+            return 62;
+        p.hostPush(hud, 1.0f);
+        if (p.sync(hud, -1, false) || hud != 1.0f || p.active)
+            return 63;
+        // A reopen races the poll again and another host push arrives meanwhile: kept aside, restored after.
+        p.sync(hud, kPauseScreen, false);
+        p.hostPush(hud, 0.9f);
+        if (hud != 0.75f || !p.sync(hud, -1, false) || hud != 0.9f)
+            return 64;
+        std::printf("PASS pause transition hud scale: open before the host's poll, close unchanged, push kept\n");
+    }
+    {
         // Cold movie -> title: no title handler packet or host menu flag yet.
         // Only exact title content can establish the configured first canvas.
         if (!titleArtwork(0xb3cdb49737930d6dull) || !titleArtwork(0xce000a7fd2216f1cull) ||

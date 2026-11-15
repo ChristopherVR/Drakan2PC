@@ -86,6 +86,7 @@ bool g_pushedMenu = false;
 int g_pushedMenuScreen = -1;
 bool g_pushedValid = false, g_pushedWide = false, g_pushedStretch = false;
 float g_pushedAspect = 0.0f, g_pushedHud = 0.0f, g_pushedSize = 0.0f;
+float g_pushedPauseMenuHud = -1.0f;
 detail::WorldPolicy g_worldPolicy;
 
 float parseAspectValue(const std::string& str, Mode& mode, float def) {
@@ -525,6 +526,7 @@ void attachRenderer(gsr::Renderer* gs, void* hwnd) {
     g_gs = gs;
     g_hwnd = hwnd;
     g_pushedValid = false;
+    g_pushedPauseMenuHud = -1.0f;
 }
 
 void noteWorldFrame() {
@@ -673,6 +675,10 @@ void hostTick() {
     }
     const float proj = layout.projection;
     const float hudScale = layout.foregroundScale;
+    // The native pause page's scale, whatever is active: the renderer uses it for a frame whose camera packet names the
+    // pause before this poll has seen it (gsr::hud::pauseTransitionHudScale).
+    const float pauseMenuHud =
+        detail::layoutPolicy(0x17, g_stateWide, mode != Mode::Native, target, hud).foregroundScale;
     g_inventoryHudScale.store(hudScale, std::memory_order_relaxed);
     // HUD size: only while a world page is shown (title menu / FMV / loading stay as they are). auto: follows the
     // output height (the HUD is laid out for a 512 line picture; at 1080 lines or more it would otherwise look zoomed
@@ -691,6 +697,15 @@ void hostTick() {
     g_projAspect.store(proj, std::memory_order_relaxed);
     g_wide.store(proj > 1.4f);
     const int menuScreen = layout.menu ? layoutScr : -1; // picks the wide backdrop before the screen's own draw packet
+#ifdef PS2X_HAVE_GSR
+    // Before setHudScaleX below: a frame boundary that applies both sees the new value with the new host scale.
+    if (std::fabs(pauseMenuHud - g_pushedPauseMenuHud) > 1e-4f) {
+        gs->setPauseHudScale(pauseMenuHud);
+        g_pushedPauseMenuHud = pauseMenuHud;
+        if (g_wsLog.load() > 0)
+            std::fprintf(stderr, "[ws] push: pause page hud scale %.3f\n", pauseMenuHud);
+    }
+#endif
     if (!g_pushedValid || layout.menu != g_pushedMenu || menuScreen != g_pushedMenuScreen || wide != g_pushedWide ||
         present != g_pushedAspect || stretch != g_pushedStretch || std::fabs(hudScale - g_pushedHud) > 1e-4f ||
         std::fabs(hudSize - g_pushedSize) > 1e-3f) {

@@ -48,6 +48,14 @@ the game. Small final-blit rounding differences were at most two color levels.
   startup policy retains the original configured aspect while the logo movie temporarily uses 4:3; if the host has
   already selected the title, its newer live settings win. Scenic menu tiles, movie frames and small off-screen targets
   cannot trigger it. The wide `screen8` image is loaded/drawn before the native artwork can become visible.
+* The native pause page (0x17) on a quick Esc (2026-11-15): the host's `setHudScaleX` follows its once-per-frame poll of
+  the active screen, so the first pause frame could still be drawn with the gameplay scale (1 without
+  `hud_aspect_correct`), and the 4:3 page was stretched across the wide picture. This happened on about a third of the
+  openings while spamming Esc. The host now also pushes the pause page's scale at all times (`setPauseHudScale`). A frame
+  whose camera packet names the pause while the host still reports gameplay uses that scale
+  (`hud::pauseTransitionHudScale`). The close keeps the host's scale: Order of the Flame levels draw inside the page box
+  under a gameplay camera after a close, and forcing the gameplay scale there stretched them. Aids: `GSR_PAUSE_HUD=0` (off) and `GSR_PAUSE_HUD_LOG=1`. Journal
+  `2026-11-15/esc-menu-stretch.md`.
 
 ## Wide menu backdrops
 

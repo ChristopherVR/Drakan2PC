@@ -1003,6 +1003,22 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     if (menuPageDraw && hud::pauseHudDraw(hud::pauseScreen(sceneCamera.guiScreen, nativeMenu, nativeMenuScreen), minx,
                                           miny, maxx, maxy, (float)rt->w, (float)std::min(rt->h, 512u)))
         menuPageDraw = false;
+    if (menuPageDraw && hud::pauseScreen(sceneCamera.guiScreen, nativeMenu, nativeMenuScreen)) {
+        // GSR_PAUSE_HUD_LOG=1: the scale each frame's first pause page draw gets (hud_page.h pauseTransitionHudScale).
+        static const bool pauseLog = [] {
+            const char* e = std::getenv("GSR_PAUSE_HUD_LOG");
+            return e && e[0] == '1';
+        }();
+        static uint64_t pauseLogFrame = ~uint64_t{0};
+        if (pauseLog && pauseLogFrame != frame) {
+            pauseLogFrame = frame;
+            std::fprintf(
+                stderr,
+                "[pause-hud] frame %llu: pause page drawn at hud scale %.3f (camera %d, host menu %d screen %d%s)\n",
+                (unsigned long long)frame, (double)hudScale, sceneCamera.guiScreen, nativeMenu ? 1 : 0,
+                nativeMenuScreen, pauseHud.active ? ", override" : "");
+        }
+    }
     const bool cornerHudDraw = !menuPageDraw && !perspectiveTriangle &&
                                hud::gameplayCornerSubmission(engineWorldOpen, inventoryPageDraw, rt->w, rt->h);
     const float cornerFrameW = (float)rt->w;

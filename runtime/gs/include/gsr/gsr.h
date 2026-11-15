@@ -326,6 +326,10 @@ public:
     // saw when it decided the canvas (-1 = unknown); it picks the wide backdrop until the screen's own draw packet
     // arrives.
     void setNativeMenu(bool enabled, int screen = -1);
+    // The de-stretch of the native pause page, whichever screen is active now. A frame whose own camera packet names
+    // the pause while the host still reports gameplay uses it instead of setHudScaleX's value, so a quick Esc never
+    // draws the 4:3 page stretched. 0 = unknown.
+    void setPauseHudScale(float menu);
     // HUD size (hud_scale): UI clusters (groups of overlapping / touching UI sprites, found from the previous frame's
     // sprites) are resized by `s` in both axes about their nearest screen edge / corner (centre for clusters in the
     // middle), together with the x de-stretch of setHudScaleX, so the orbs and their frames stay one piece and stay on

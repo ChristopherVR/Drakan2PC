@@ -42,6 +42,48 @@ constexpr bool pauseScreen(int cameraScreen, bool hostMenu, int hostMenuScreen) 
     return cameraScreen == kPauseScreen || (hostMenu && hostMenuScreen == kPauseScreen);
 }
 
+// The x de-stretch (hudScale) the host pushes follows its once-per-presented-frame poll of the active screen, and a
+// queued push lands only at a frame boundary. On a quick Esc the game draws its pause page in a frame whose camera
+// packet already names the pause while the host's scale is still the gameplay one (1 without hud_aspect_correct): the
+// 4:3 page was drawn stretched across the wide picture for a frame (journal 2026-11-15/esc-menu-stretch.md). The host
+// also pushes the pause page's scale (`menu`) at all times; such a frame takes it. The reverse (a gameplay camera while
+// the host still reports the pause) keeps the host's scale: in Order of the Flame levels draws inside the pause page
+// box follow the close under a gameplay camera, and forcing the gameplay scale on them drew them stretched. 0 = no
+// override (the host's scale stands).
+constexpr float pauseTransitionHudScale(int cameraScreen, bool hostMenu, float menu) {
+    return cameraScreen == kPauseScreen && !hostMenu && menu > 0.0f ? menu : 0.0f;
+}
+
+// Holds the host's scale while a pause transition override is in effect and restores it after.
+struct PauseHudScale {
+    float menu = 0.0f; // pushed by the host (Renderer::setPauseHudScale); 0 = unknown
+    bool active = false;
+    float saved = 1.0f;
+    // A host push of hudScale: kept aside while an override is in effect.
+    void hostPush(float& hudScale, float value) {
+        if (active)
+            saved = value;
+        else
+            hudScale = value;
+    }
+    // Re-evaluated whenever the frame's camera screen or the host's menu state changes. True when hudScale changed.
+    bool sync(float& hudScale, int cameraScreen, bool hostMenu) {
+        const float want = pauseTransitionHudScale(cameraScreen, hostMenu, menu);
+        const float before = hudScale;
+        if (want > 0.0f) {
+            if (!active) {
+                saved = hudScale;
+                active = true;
+            }
+            hudScale = want;
+        } else if (active) {
+            hudScale = saved;
+            active = false;
+        }
+        return hudScale != before;
+    }
+};
+
 // The game holds the world still behind the level-exit save prompt (2), its pause menu and the pages opened
 // from it (Load 4, Save 5, Options 9, Controller 10, Audio 13) but submits it
 // again every frame. A moving sub-pixel jitter then makes the temporal

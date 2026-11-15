@@ -2515,6 +2515,19 @@ void Renderer::setHudScaleX(float x) {
         p.hudScale = (x > 0.2f && x <= 1.0f) ? x : 1.0f;
     });
 }
+void Renderer::setPauseHudScale(float menu) {
+    // GSR_PAUSE_HUD=0: no override (the host's polled scale alone, as before; A/B test aid).
+    static const bool off = [] {
+        const char* e = std::getenv("GSR_PAUSE_HUD");
+        return e && e[0] == '0';
+    }();
+    if (off)
+        menu = 0.0f;
+    m_impl->queue([&](LiveSettings& p) {
+        p.mask |= LiveSettings::F_PAUSE_HUD;
+        p.pauseMenuHudScale = (menu > 0.2f && menu <= 1.0f) ? menu : 0.0f;
+    });
+}
 void Renderer::setHudSize(float s) {
     m_impl->queue([&](LiveSettings& p) {
         p.mask |= LiveSettings::F_HUDSIZE;

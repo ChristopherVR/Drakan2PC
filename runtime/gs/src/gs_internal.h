@@ -148,6 +148,7 @@ struct LiveSettings {
         F_NEURAL_RES = 1u << 21,
         F_TERRAIN = 1u << 22,
         F_MATERIAL = 1u << 23,
+        F_PAUSE_HUD = 1u << 24,
     };
     uint32_t mask = 0;
     bool terrainDetail = false, terrainCliffs = false;
@@ -160,6 +161,7 @@ struct LiveSettings {
     bool flicker = false, sharp = true, mipAuto = true, replace = true, dump = false, vsync = true;
     float mipBias = 0.0f;
     float hudScale = 1.0f;
+    float pauseMenuHudScale = 0.0f; // F_PAUSE_HUD
     float hudSize = 1.0f;
     bool hlSmooth = false;
     bool nativeMenu = false;
