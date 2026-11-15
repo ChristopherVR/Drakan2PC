@@ -89,8 +89,11 @@ below):
 | Camera cell, 0 to 32 cells (committed) | 116 to 119 | the gap behind the bridge filled, the hazy hills past 32 cells left out (`ev/reach_a1.jpg` rows: off, 30, 35, 77 cells; `ev/final_a1.jpg`); Islands +5 % at 30 cells |
 
 From the air the camera sees most of a level within the view distance, which is the closure's kind of list again, so
-the reach is held to the PC fog's end: past 32 cells the PS2 haze (26 to 75 cells) covers most of what is left out, and
-what filled the owner's gap is 12 to 31 cells away.
+the reach is held to the PC fog's end. That fills the hole the owner showed (the layers are 12 to 31 cells away), but
+**land in sight 32 to 75 cells away is still not drawn**: the haze is only about a tenth at 32 cells and under half at
+50, so far hills on the horizon stay missing (`ev/reach_a1.jpg`, the 77-cell row has hills the 30 and 35 rows lack)
+and a cut edge can still show elsewhere past 32 cells. `DRAKAN_FAR_LAND_REACH=0` (env only, no ini key) draws the
+whole view distance at the cost measured below.
 
 Calibration of the line of sight (offline, the TypeScript version over the converted Ruined Village, observers over
 the layer): of the pairs the PC lists itself at 20 to 40 cells, 85 % pass (93 % with an eye at 15,000, 96 % at 30,000);
@@ -111,14 +114,19 @@ folder; dist pack (`mods_before`, the same file as `dist/DrakanPC/mods/ootf-leve
   `ev/walk_final.jpg`; the same with the camera-point version in `runs/walk_on`): no sky gaps; looked at as a sheet,
   so pop-in at cell changes was not judged frame by frame.
 * Islands on Arokh at (340000, 70000, 610000) with the 77-cell version (`ev/islands_off_on.jpg`, left off, right on):
-  far islands and the castle stand in the sea; at 32 cells most of that stays in the haze as before.
-* Volcanic loads and runs (`runs/volc_on`, 77-cell version). No `[texbudget]` misses, no VU1 reports, no fatal line
-  in any run with the runtime version.
+  far islands and the castle stand in the sea. No 32-cell frame was shot there; most of those islands are further than
+  32 cells and stay as before.
+* Volcanic loads and runs (`runs/volc_on`, 77-cell version; not run with the final exe).
+* No `[texbudget]` misses, no VU1 reports, no fatal line in any run with the runtime version, including the six
+  `bench5` runs of each scene and `walk_final` with the final exe.
+* The first frame of `walk_final` (taken just after the placement) has the camera inside the rock, with the sky through
+  an opening; the next frames are normal. Not looked into.
 
 ## Frame time
 
 `scene_ab_bench.py`, interleaved pairs, `DRAKAN_TEX_CACHE_KB=16384` on both so only far land differs. Ruined Village
-runs had another agent's game running most of the time (noisy); the Islands runs were quiet.
+runs had another agent's game running most of the time (noisy); `bench3` and `bench4` over the Islands were quiet,
+`bench5` was not.
 
 | Scene, version | World fps off / on | Frame ms off / on (median) | VU1 ms off / on | GS ms off / on |
 | --- | --- | --- | --- | --- |

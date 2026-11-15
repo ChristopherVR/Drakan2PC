@@ -423,7 +423,8 @@ const std::vector<Field>& fields() {
         {"video", "far_scenery", false, GETB(video.farScenery), SETB(video.farScenery),
          "1 = with view_distance above 1 the world also draws the hills, islands and sea the level only shows "
          "from nearer places, so it does not end in a straight edge; in the Order of the Flame levels it also "
-         "draws the far hills in sight at view_distance 1; 0 = only what the level lists for each place"},
+         "draws the hills and banks in sight that their lists leave out at view_distance 1; 0 = only what the level "
+         "lists for each place"},
         {"video", "terrain_detail", false, GETB(video.terrainDetail), SETB(video.terrainDetail),
          "1 = fine detail and large-scale variation on the ground and mountains, 0 = the terrain as before"},
         {"video", "terrain_detail_strength", false, GETF(video.terrainDetailStrength, "%.2f"),
