@@ -95,14 +95,14 @@ and [final check](../journal/2026-11-15/ootf-final-check.md).
 
 **November 16 character model upgrade:** the Order of the Flame humans that keep their PC model (no Drakan 2 counterpart:
 Delon, Julian, the villagers, the mine slaves, the farmer, the warrior, Tuiri, Rimril, the hider, Shillah, the succubi
-and a few props, 24 models) are refined at convert time from the player's data (formats `ootfskinupgrade.ts`): one
+and a few props: 18 models in the 23 converted levels) are refined at convert time from the player's data (formats `ootfskinupgrade.ts`): one
 curved subdivision step that keeps the original vertices (Delon 526 to 2,104 triangles, the density of the Drakan 2
 humans), skin weights carried over, alpha cards kept flat. Delon and Julian also get a jaw joint, and converted scenes
 start a jaw clip made from each of their lines (they are class 17 scene props, which cannot bind the engine's lip-sync
 tracks). Seen in the Ruined Village opening: rounder bodies and heads, no tears, Delon's and Julian's mouths open with
 their lines. A first build froze the opening (the jaw joint's child and sibling ends written as -1 instead of 0); fixed.
-The other speakers' jaws are built only with `DRAKAN_MODEL_UPGRADE=<regex>` (not looked at in game); `off` turns the
-whole stage off (`--model-upgrade 0`). Not seen in game outside Ruined Village. Needs a regenerated pack. See
+The other speakers' jaws are added with `DRAKAN_MODEL_UPGRADE=<regex of PC model names>` (not looked at in game); `off`
+turns the whole stage off (`--model-upgrade 0`). No LOD; frame rate in the opening shows no clear cost (runs vary by 30 %, all above 60 flips per second uncapped). Needs a regenerated pack. See
 [model upgrade](../journal/2026-11-16/ootf-model-upgrade.md).
 
 **November 15 PS2-style remakes (round 8):** props with no Drakan 2 model get new drawings built at convert time from

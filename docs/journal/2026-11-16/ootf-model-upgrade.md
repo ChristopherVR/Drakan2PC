@@ -6,11 +6,11 @@ tracked). Nothing from either game is quoted here, only model, class and field n
 
 ## Summary
 
-* New convert-time stage (formats `src/ootfskinupgrade.ts`, hook in `OotfAssetBuilder.addModel`): the 24 PC human
-  models of `DEFAULT_SKIN_UPGRADES` get one interpolating curved subdivision step (526 to 2,104 triangles for Delon, about
+* New convert-time stage (formats `src/ootfskinupgrade.ts`, hook in `OotfAssetBuilder.addModel`): the PC human models of
+  `DEFAULT_SKIN_UPGRADES` (24 rows; 18 of them are used by the 23 converted levels) get one interpolating curved subdivision step (526 to 2,104 triangles for Delon, about
   the 1,900 to 2,300 of the disc's humans at LOD 0) with their skin weights carried over; Delon and Julian also get a
-  synthetic jaw joint. The other scene speakers' jaws are built only on request (`DRAKAN_MODEL_UPGRADE=<regex>`): their
-  placement was not looked at in game.
+  synthetic jaw joint. The other scene speakers' jaws are added on request (`DRAKAN_MODEL_UPGRADE=<regex of PC model
+  names>`, the rest of the default stays): their placement was not looked at in game.
 * Converted scenes start a jaw clip, made from the line's own samples, on the jaw channel with each line a speaker with
   such a jaw says (`SequenceMaps.jawForActor`, formats `src/ootfseq.ts`). This is not the engine's lip sync (see the jaw
   section): the scene Delon is a class 17 prop that has no `Jaw Channel`.
@@ -18,6 +18,8 @@ tracked). Nothing from either game is quoted here, only model, class and field n
   jaw opens and closes while he speaks (first proved with an exaggerated test clip).
 * Switch: `DRAKAN_MODEL_UPGRADE=off` (or `--model-upgrade 0`, or `OotfPipelineOptions.modelUpgrade: false`) converts
   every character as before.
+* This is not the engine's lip sync: the lip-sync bit (0x20) and the 0x0305 binding stay player-only; the converter
+  writes the jaw motion as clips.
 
 ## 1. Inventory
 
@@ -31,16 +33,16 @@ the level's scenes (`tools/speakers.ts`); triangles are LOD 0 (`tools/skinstats.
 | 2 | `julian (h)` | Julian, Ruined Village 1.3 | 8 | 456 -> 1,824 | yes |
 | 3 | `farmer` | the magic farmer, Wartok Canyons | 19 | 504 -> 2,016 | on request (35 vertices) |
 | 4 | `warrior2` | the warrior, Wartok Canyons | 4 | 500 -> 2,000 | on request (32) |
-| 5 | `tuiri (h)`, `tuiri(h)` | Tuiri, Alwarren | 12 | 493 / 547 -> 1,972 / 2,188 | on request (22) |
+| 5 | `tuiri (h)`, `tuiri(h)` (the second unused) | Tuiri, Alwarren | 12 | 493 / 547 -> 1,972 / 2,188 | on request (22) |
 | 6 | `Rimril` | Rimril, Islands, Islands Night | 20 | 503 -> 2,012 | on request (8) |
 | 7 | `hider` | the hiding slave, Grimstone Mines | 7 | 496 -> 1,984 | on request (18) |
 | 8 | `the queen(shaun)` | Shillah, Succubus Lair, Volcanic | 13 | 433 -> 1,732 | on request (24) |
 | 9 | `Succubus` | the succubi, Islands, Volcanic | about 88 | 506 -> 2,024 | on request (15) |
 | 10 | `mvillager`, `mvillage2`, `fvillager`, `fvillage2` | villagers, Ruined Village scenes | 0 | 496 / 489 -> 1,984 / 1,956 | no |
-| 11 | `slaveM (h)`, `slaveM 02 (h)`, `slaveM 03 (h)`, `slaveM (brown shirt ...` | mine slaves | 0 | 496 -> 1,984 | no |
-| 12 | `VillageDude`, `VillageChick` | Wartok Canyons villagers | 0 | 310 -> 1,240 | no |
+| 11 | `slaveM (h)`, `slaveM 02 (h)`, `slaveM 03 (h)`, `slaveM (brown shirt ...` (unused) | mine slaves | 0 | 496 -> 1,984 | no |
+| 12 | `VillageDude`, `VillageChick` | Wartok Canyons villagers (no converted class uses them) | 0 | 310 -> 1,240 | no |
 | 13 | `rackboy` | Grimstone Mines | 5 | 496 -> 1,984 | no (see below) |
-| 14 | `wounded wizard`, `rackvictim`, `TGyroVictim01` | props | 0 | 503 / 290 / 290 -> x4 | no |
+| 14 | `wounded wizard`, `rackvictim`, `TGyroVictim01` | props (only the wizard is used) | 0 | 503 / 290 / 290 -> x4 | no |
 | - | `Dr Evil` (`drevil(h)`, has jaw joints), death mages, war giants, goblin, Ebon / Crimson Knight, enemy dragons, harpy-like fliers, owl, ticks, range beasts | creatures | few | 181 to 557 | not in the table |
 
 Comparable disc models (NPCS.MOD, LOD 0): villagers `MediumGuy` 2,048, `SkinnyGuy01` 2,046, `BigBlueGuy` 1,928, `ThinChick`
@@ -113,11 +115,13 @@ times; the watchdog line of `stdout.log` marks a frozen guest).
 ### A freeze, and its cause
 
 With the jaw joint written as `firstChild = nextSibling = -1`, the opening froze: frame counter stopped, sound running,
-`[watchdog]` after 8 s, at scene times 26.5, 18.2, 0, 0, 29.4 and 0 s (full table 3 of 3, Delon + Julian 3 of 4; the off
-pack 0 of 4; Delon alone 0 of 4). The live thread sat in `0x104678`, a recursive walk over the joint tree that samples each
-joint's keys. The data ends child and sibling lists with 0 (no joint links to the root), never -1, so the engine walked
-into joint -1, whatever lies before the joint table. Written with 0 (`addJaw`), `fin2` (Delon + Julian) and `all2` (every
-row, jaws included) ran the opening 3 of 3 each with no watchdog, and the full opening below.
+`[watchdog]` after 8 s. With Julian's jaw in the pack it froze in 6 of 8 runs (full table `upg3_a`, `upg3_b`, `upg5`;
+Delon + Julian `fin1` and 2 of 3 repeats; Delon + Julian `upg4j` ran through), at scene times 0 to 29 s; the off pack
+ran 4 of 4, Delon alone (also -1) 6 of 6. The live thread sat in `0x104678`, a recursive walk over the joint tree that
+samples each joint's keys. The data ends child and sibling lists with 0 (no joint links to the root) and never uses -1;
+that the walk follows -1 into memory before the joint table is inferred (its handling of -1 was not read in the
+decompile), but written with 0 (`addJaw`) the freeze is gone: 0 of 8 runs (`fin2` and `all2`, every row with its jaw,
+3 each; `full_fin3`; the 23-level pack through the Intro into Ruined Village).
 
 ### Frames
 
@@ -138,19 +142,33 @@ Shipped jaw clips read back from the pack (`tools/packmodel.ts`): Delon's two li
 to 5.8 s, 39 to 144 jaw keys each, peak 14 degrees (7.5 on Julian's quietest line), every clip with the model's own
 track count (38, 31) and channel count. The bounding spheres of both models are identical to the off pack's.
 
+### Frame rate
+
+Flips per second while each scene runs (`[frame-uncapped]` lines of `stdout.log`, uncapped, no screenshots, two runs
+each, `runs/fps_*`):
+
+| Pack | 1.1 | 1.2a (village, crowd) | 1.3 |
+| --- | --- | --- | --- |
+| `fin3` (upgrade) | 70.3 / 86.1 | 61.5 / 72.7 | 121.3 / 106.6 |
+| `off6` | 100.3 / 71.1 | 94.6 / 66.0 | 77.6 / 81.9 |
+
+Runs of one pack differ by up to 30 %, so this shows no clear cost; 1.2a, where most upgraded characters are in view,
+is the scene to watch (means 67 against 80). Every run stayed above 60 flips per second.
+
 ## Limits
 
 * Class 17 scene speakers move their jaw only in converted scenes; outside scenes (barks, gameplay) the mouth stays still.
   Converted characters with an engine class that has a `Jaw Channel` would need it rewritten to the new joint before the
   lip-sync bit is set (template inheritance, as with the trog claw); none of the table is such a class today.
-* No LOD: the upgraded model draws at full detail at every distance.
+* No LOD: the upgraded model draws at full detail at every distance (frame rate above).
 * The scene orcs (Drakan 2 orc rig, `lowjaw` joint, class 17) and the Wartok scene speakers do not get jaw clips (their
   clips come from the disc rig, `tockOf`).
 * Jaws of the other speakers are built on request only: their placement was not looked at in game. `rackboy` and the death
   mages are left without one: the geometric rule placed their face on the other side (lying or bent bind poses).
-* Not seen in game outside Ruined Village: the upgraded meshes of Wartok Canyons, Alwarren, Grimstone Mines, Islands,
-  Succubus Lair and Volcanic characters (the stage is the same code; the display-list fallback covers a mesh that does not
-  build).
+* Outside Ruined Village the upgraded characters were only loaded, not looked at: direct starts of Wartok Canyons,
+  Grimstone Mines, Islands, Alwarren and Succubus Lair on the 23-level private pack (`packs/full`, 18 models upgraded, no
+  upgrade warning) ran 60 s each with no watchdog (`runs/lvl_03` ... `lvl_10`). Volcanic and Islands Night were not
+  started.
 * Graded alpha of hair fringes stays cut at 50 % (skinned textures, since the Intro owl).
 
 ## Files
