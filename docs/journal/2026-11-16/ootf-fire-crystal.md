@@ -34,19 +34,22 @@ converted power-ups came out as (decoded from `new/RESOURES.ODB` of the shipped 
 | Fireball Power Up (2 records) | 0 / 0 | 13322 "!! FireBall 3 !!" / 10724 "!! FlameBreath !!" |
 | Ice Powerup, Ice Quickening Powerup | 0 / 18244 | 13604 "!! Ice Burst !!" / 18244 |
 | Magma Quickening Power up | 0 / 0 | 13322 / 10724 |
-| Multi Fire / Magma / Ice PwrUp, QOD Standard Weapon (arenas) | 0 ... | same stand-ins |
+| Multi Fire / Magma / Ice PwrUp, QOD Standard Weapon (arenas) | 0 ... | unchanged (see below) |
 | Lightning, Poison Gas (both kinds) | 10735 / 10736, 18299 / 0 | unchanged (already carried) |
 
 The fire power-up is the one that gives Arokh his breath for the rest of the campaign (Ruined Village), so with both
 fields empty the breath key did nothing on any input. It was not an input binding: Attack (left mouse / Square) reaches
 the dragon's attack as before.
 
-Fix (formats `720240a`, `ootfbreath.ts`, hooked into `relocateClassDefaultReferences` as `standIn`): when a Dragon
+Fix (formats `720240a` and `938e188`, `ootfbreath.ts`, hooked into `relocateClassDefaultReferences` as `standIn`): when a Dragon
 Power-up's `Weapon` or `Alt. Weapon` points at a PC breath with no PS2 class, it takes the same field of Drakan 2's own
 power-up of that element, `#1 Fireball Power Up` for fire ball / breath stream / magma (Drakan 2 has no magma breath;
 fire is the nearest) and `#3 Ice Power Up` for the ice projectile. The value is copied only inside the power-up's own
 ODB (RESOURES), so the native reference keeps its meaning. The convert log names each stand-in ("PC breath ... has no
-PS2 class; the Weapon of Drakan 2's ... stands in").
+PS2 class; the Weapon of Drakan 2's ... stands in"). Arena power-ups ("Multi ... PwrUp", "QOD ...", any class of a
+multiplayer ODB; they are placed in the air and QOD arenas) are left as they were (`isArenaPowerUp`): the converted
+arenas breathe through the host (`drakan_pvp.cpp`) and a native breath on top of it was never played. Checked on a
+re-conversion (`packs/b3`): the campaign power-ups carry the stand-ins, the arena ones are still empty.
 
 ### Evidence
 
@@ -71,8 +74,10 @@ Tests: `vitest run` 737 passed (71 files) and `tsc --noEmit` on the committed tr
 
 The converter clones Magic Crystal 91 (no PS2 class) from the mana power-up 171 (`PS2_SUBSTITUTES`). The clone keeps
 the PC icon, quantity and sounds but has no `Effect` field, so the PC effect is dropped; `Mana Boost` stays at the
-template's 100 (Fire, Ice) or 50 (Lightning). Using the crystal consumes one and fills Rynn's mana, which a campaign
-with `campaign_spells = false` neither shows nor uses: "nothing happens". The same holds for all three crystals in all
+template's 100 (Fire, Ice) or 50 (Lightning). By the class data, using the crystal consumes one and fills Rynn's mana,
+which a campaign with `campaign_spells = false` neither shows nor uses: "nothing happens". (Inferred from the class and
+the mana power-up's handler; a scripted use was tried twice, `runs/wc-use1`, `wc-use2`, and did not get to the item: the
+first stopped at the Equipment help box, the second opened the modern screen but its grid showed no items to steer to.) The same holds for all three crystals in all
 levels (Fire Crystal in Ruined Village, Wartok Canyons, Islands, Mines, Alwarren, Rift Crystal, Succubus Lair; Ice and
 Lightning Crystals where placed).
 
@@ -84,8 +89,10 @@ charged bolt) has no PS2 class.
 
 Probe: the shared item field `Powerup Object` (unused by every PS2 and PC class) was pointed at FX #3079 in a private
 pack (`packs/b2`, `tools/patchpack.py`). Result (`runs/wc-pick`, `wc-use1`, Wartok Canyons): the engine spawns that
-object at the item **while it lies in the world** (a class `0x1005a` ring at the crystal's spot from the level start)
-and removes it when Rynn picks the crystal up. It is the item's world appearance, not a use effect, so it is no fix.
+object at the item at level load (a class `0x1005a` ring at the crystal's exact spot from the start, before Rynn is near
+it); it was gone about 3.5 s after Rynn was placed on the crystal (a pickup, or the ring's own 1.5 s life once it woke;
+not told apart). Either way it is spawned with the item lying in the world, not when the crystal is used, so it is no
+fix.
 
 What a fix needs (engine code, not done in this round):
 
@@ -97,7 +104,19 @@ What a fix needs (engine code, not done in this round):
    dispatcher thread, as `drakan_arena.cpp` does for its effects but with Rynn as the owner so the ring spares her.
 3. A private exe build to verify: ring drawn, an enemy's hit points drop, Rynn's do not.
 
+## Other consumables
+
+Decoded from the re-converted pack against the PC classes: Lesser / Greater Life Crystal (engine 10) keep Health Boost 5 /
+10, Potion of Speed (89) FX Type 2 for 5 s, Ring of Invisibility FX 0 for 30 s, Rune of Invulnerability FX 1 for 20 s,
+the Dragon health power-ups (138) 50 / 100; the health potions map to the native PS2 potions. Only the Magic Crystals
+(91) lose their effect.
+
+## Not played
+
+The Ruined Village route to the mount (the fire power-up there), the Wartok poison pickup, the ice stand-in (13604) and
+Volcano with its four linked power-ups; only Rift World's fire was fired in game.
+
 ## Rebuilds
 
-* Breath: pack only. Re-convert `ootf-levels.zip` with formats `720240a` or later; the exe is unchanged.
+* Breath: pack only. Re-convert `ootf-levels.zip` with formats `938e188` or later; the exe is unchanged.
 * Crystals: unchanged (still a hidden mana refill).
