@@ -2,7 +2,7 @@
 //
 //   node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts \
 //        --ootf <OotF install dir> --ps2 <dir with the extracted PS2 LEVEL*.LVL and *.ODB> \
-//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-terrain 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--list] <pc level paths...>
+//        --template LEVEL1NA --out build/ootf-pack.zip [--id ootf-levels] [--prefix "OotF - "] [--splats <dir with LEVEL1TS.DB and .TXD, default --ps2>] [--campaign 1 [--treasure 1]] [--cover <png>] [--previews <dir of <safe map name>.png>] [--background <png>] [--player <dir with SYSTEM.MOD and .ADB, default <ps2>/../player>] [--hd [--hd-out <textures dir>]] [--ps2-textures 0|1] [--ps2-terrain 0|1] [--ps2-texture-map <json>] [--ps2-models 0|1] [--model-upgrade 0|1] [--enemy-animations drakan2|ootf] [--ps2-model-map <json>] [--subtitles <json>[;<corrected json>]] [--class-sounds 0] [--class-sounds-clear 1] [--class-sound-clears <json>] [--pc-voices 1] [--wartok-idle off] [--iso <disc image>] [--list] <pc level paths...>
 //
 // Level paths are relative to the install dir, e.g. "Multiplayer/Ground/Relic/Relic.lvl". Without paths every level.
 //
@@ -232,6 +232,8 @@ const res = await convertOotfLevels(
         singletons: !only || only.has('singletons'),
         maxNewClasses: opt['max-classes'] ? Number(opt['max-classes']) : undefined,
         skinned: opt['skinned'] !== '0',
+        // --model-upgrade 0 (or DRAKAN_MODEL_UPGRADE=off): OotF characters keep their PC mesh, no jaw (formats ootfskinupgrade.ts)
+        ...(opt['model-upgrade'] !== undefined ? { modelUpgrade: opt['model-upgrade'] !== '0' } : {}),
         retarget: opt['retarget'] !== '0',
         preferCreatures: opt['creatures-first'] === '1',
         texts: !only || only.has('texts'),
@@ -269,6 +271,7 @@ for (const s of res.stages) if (!s.ok) console.warn(`STAGE FAILED ${s.stage}: ${
 if (res.source) console.log(`source: ${res.source.language.language} install (${res.source.language.evidence})`);
 if (res.assets) {
     const a = res.assets;
+    for (const u of a.upgraded ?? []) console.log(`upgraded ${u.key} ${u.name}: ${u.triangles} triangles${u.jaw ? ', jaw' : ''}`);
     for (const c of a.creatures) console.log(`creature ${c.key}: ${c.joints} joints, ${c.groups} groups, ${c.anims} clips (${c.animsSkipped} skipped)`);
     console.log(`assets: ${a.models.converted} models, ${a.textures.converted} textures (${a.textures.bytes} bytes), ${a.skipped.size} skipped`);
 }

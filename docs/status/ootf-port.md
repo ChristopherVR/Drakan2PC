@@ -87,11 +87,23 @@ the air), trees floating over the ground all round are lowered onto it (6 in 3 l
 template attachments a PC class lacks are cleared (the trog claw on the miners' shoulders, 8 inherited armour parts on
 the Volcanic Ebon Knight, not seen), and Rynn leaves Arokh 2 s before Intro 3 ends so the level Timer cannot leave her
 hair simulation off. Not changed: the half-buried villager (a corpse lying on a steep slope), Delon's low-poly model and
-still mouth (as on the PC). The ponytail no longer lifts level when walking (16 November, runtime, also
+still mouth (as on the PC; refined on 16 November, see below). The ponytail no longer lifts level when walking (16 November, runtime, also
 Drakan 2: [ponytail lift](../journal/2026-11-16/ponytail-lift.md)). Subtitles spell Arokh, Rynn,
 Hider and Rift Crystal. Needs a regenerated pack and a new game. See [opening scenes](../journal/2026-11-15/ootf-opening-scenes.md),
 [ground placement](../journal/2026-11-15/ootf-ground-placement.md), [character models](../journal/2026-11-15/ootf-character-models.md)
 and [final check](../journal/2026-11-15/ootf-final-check.md).
+
+**November 16 character model upgrade:** the Order of the Flame humans that keep their PC model (no Drakan 2 counterpart:
+Delon, Julian, the villagers, the mine slaves, the farmer, the warrior, Tuiri, Rimril, the hider, Shillah, the succubi
+and a few props, 24 models) are refined at convert time from the player's data (formats `ootfskinupgrade.ts`): one
+curved subdivision step that keeps the original vertices (Delon 526 to 2,104 triangles, the density of the Drakan 2
+humans), skin weights carried over, alpha cards kept flat. Delon and Julian also get a jaw joint, and converted scenes
+start a jaw clip made from each of their lines (they are class 17 scene props, which cannot bind the engine's lip-sync
+tracks). Seen in the Ruined Village opening: rounder bodies and heads, no tears, Delon's and Julian's mouths open with
+their lines. A first build froze the opening (the jaw joint's child and sibling ends written as -1 instead of 0); fixed.
+The other speakers' jaws are built only with `DRAKAN_MODEL_UPGRADE=<regex>` (not looked at in game); `off` turns the
+whole stage off (`--model-upgrade 0`). Not seen in game outside Ruined Village. Needs a regenerated pack. See
+[model upgrade](../journal/2026-11-16/ootf-model-upgrade.md).
 
 **November 15 PS2-style remakes (round 8):** props with no Drakan 2 model get new drawings built at convert time from
 their OotF mesh, each a row of the Drakan 2 model table and off by default: talon torches and Succubus pillars (Loop
