@@ -396,7 +396,10 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
     const auto trackSegment = [&](uint32_t first, uint32_t n, std::vector<motion::Previous>& output) {
         motion::Key key{objectScope.objectId, objectScope.generation, objectScope.meshId,
                         objectScope.partId,   objectScope.passKey,    0};
-        key.batch = motionOrdinals[key]++;
+        // A key without object or mesh is refused below whatever its ordinal, and an ordinal counts only its own key:
+        // with motionTrackFused such a draw (most scenery) skips the map.
+        if (!motionTrackFused || (key.object && key.mesh))
+            key.batch = motionOrdinals[key]++;
         const uint32_t required = ObjectMotionScope::Valid | ObjectMotionScope::TopologyStable;
         const uint32_t rejected = ObjectMotionScope::Reset | ObjectMotionScope::Clipped | ObjectMotionScope::Ambiguous |
                                   ObjectMotionScope::Rejected;
