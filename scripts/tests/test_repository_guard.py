@@ -26,6 +26,7 @@ class SourceGuardTests(unittest.TestCase):
             "configs/drakan.toml",
             "ps2recomp/ps2xRecomp/src/lib/ps2_recompiler.cpp",
             "analysis/functions.csv",
+            ".claude/skills/ootf-model-dump/SKILL.md",
         ]:
             with self.subTest(path=path):
                 self.assertIsNone(guard.reason(path, b"authored source\n"))
@@ -48,6 +49,9 @@ class SourceGuardTests(unittest.TestCase):
             "analysis/textures/texture.dds",
             "docs/capture.png",
             "runtime/movie.pss",
+            ".claude/settings.local.json",
+            ".claude/worktrees/agent-a/README.md",
+            ".claude/skills/x/tool.py",
         ]:
             with self.subTest(path=path):
                 self.assertIsNotNone(guard.reason(path, b"synthetic\n"))

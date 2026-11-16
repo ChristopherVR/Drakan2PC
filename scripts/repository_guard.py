@@ -175,7 +175,10 @@ def reason(name: str, content: bytes | None = None) -> str | None:
         return None
     if len(parts) == 1 and name not in ROOT_FILES:
         return "not a reviewed root source file"
-    if len(parts) > 1 and parts[0] not in SOURCE_ROOTS:
+    if parts[0] == ".claude":  # agent worktrees and settings stay local; only project skills (Markdown) are tracked
+        if len(parts) < 4 or parts[1] != "skills" or p.suffix != ".md":
+            return "local agent state; only .claude/skills/<name>/*.md is tracked"
+    elif len(parts) > 1 and parts[0] not in SOURCE_ROOTS:
         return "local dependency, generated output, save or game directory"
     if any(s.lower() in {"mc0", "mc1", "node_modules", "__pycache__", ".git"} for s in parts):
         return "local state directory"
