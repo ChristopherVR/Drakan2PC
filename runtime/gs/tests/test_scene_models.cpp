@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <iostream>
+#include <iterator>
 #include <limits>
 int main(int argc, char** argv) {
     using namespace drakan_scene_models;
@@ -263,6 +264,49 @@ int main(int argc, char** argv) {
                         staticMesh = instance.mesh;
             }
             assert(staticMesh != ~size_t(0));
+            {
+                // The posed character in one pass (Capture::posedFused, the default) against the first
+                // implementation, and the built-in verification: new poses, positions just inside and outside the
+                // range, NaN and infinities in one corner (the template is dropped and rebuilt by the full build).
+                Capture fusedPose, firstPose, verifiedPose;
+                firstPose.posedFused = false;
+                verifiedPose.posedVerify = true;
+                assert(fusedPose.posedFused && verifiedPose.posedFused);
+                fusedPose.capture(ram.data(), uint32_t(ram.size()), 7);
+                firstPose.capture(ram.data(), uint32_t(ram.size()), 7);
+                verifiedPose.capture(ram.data(), uint32_t(ram.size()), 7);
+                const float special[] = {1e7f,
+                                         -1e7f,
+                                         1.0000001e7f,
+                                         std::numeric_limits<float>::quiet_NaN(),
+                                         std::numeric_limits<float>::infinity(),
+                                         -std::numeric_limits<float>::infinity(),
+                                         -0.f};
+                unsigned rejected = 0;
+                for (unsigned frame = 0; frame < 64; ++frame) {
+                    for (unsigned v = 0; v < 4; ++v)
+                        for (unsigned c = 0; c < 3; ++c)
+                            put(pose + v * 12 + c * 4, float(frame * 7 + v * 3 + c) * 0.25f);
+                    if (frame % 3 == 1) {
+                        const float value = special[(frame / 3) % std::size(special)];
+                        put(pose + (frame % 4) * 12 + (frame % 3) * 4, value);
+                        rejected += !(std::abs(value) <= 1e7f);
+                    }
+                    const auto a = fusedPose.capture(ram.data(), uint32_t(ram.size()), 7);
+                    const auto b = firstPose.capture(ram.data(), uint32_t(ram.size()), 7);
+                    const auto c = verifiedPose.capture(ram.data(), uint32_t(ram.size()), 7);
+                    assert(equal(*a, *b) && equal(*c, *b));
+                    for (size_t m = 0; m < a->meshes.size(); ++m)
+                        assert(!std::memcmp(a->meshes[m]->triangles.data(), b->meshes[m]->triangles.data(),
+                                            a->meshes[m]->triangles.size() * sizeof(gsr::SceneModelTriangle)));
+                }
+                assert(rejected > 0);
+                assert(verifiedPose.posedVerifyChecked > 32 && verifiedPose.posedVerifyDiffer == 0);
+                std::cout << "Posed capture in one pass equals the first implementation ("
+                          << verifiedPose.posedVerifyChecked << " poses verified, " << rejected
+                          << " with a position out of range)\n";
+                put(pose, 3.f);
+            }
             {
                 // Motion-only capture (no ray effect reads the snapshot) against the full one: the model-motion
                 // consumer must produce the same vertices from both, world after world, while the static model stands

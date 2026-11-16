@@ -395,6 +395,9 @@ struct D3D11Backend::Impl {
     // when one of its segments matched (otherwise it is the default entry throughout and written straight into the
     // upload, only when its pass is drawn). Taken at a world's start (GSR_DLSS_PATH_TOGGLE switches it).
     bool motionPrepareFast = true;
+    // GSR_MOTION_TRACK_FUSED (default on): History::track converts, checks and keeps a segment in one pass from the
+    // draw's own vertices. Taken at a world's start (GSR_DLSS_CANYON_TOGGLE switches it).
+    bool motionTrackFused = true;
     std::vector<motion::Previous> motionPrepareReference; // GSR_MOTION_PREPARE_VERIFY: the stream built as before
     uint64_t motionPrepareChecked = 0, motionPrepareDiffer = 0;
     // Scope notes of the batch being drawn (BackendApi::setMotionNotes), null once prepareObjectMotion walked them.

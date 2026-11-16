@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <vector>
 using namespace gsr::motion;
 int main() {
     unsigned checks = 0, failures = 0;
@@ -150,6 +151,115 @@ int main() {
         check(verified.verifyChecked() > compared && verified.verifyDiffer() == 0,
               "built-in verification finds no difference");
         std::printf("motion history random: %llu batches, %llu matched, %llu differ, verified %llu / %llu\n",
+                    (unsigned long long)compared, (unsigned long long)matched, (unsigned long long)differ,
+                    (unsigned long long)verified.verifyChecked(), (unsigned long long)verified.verifyDiffer());
+    }
+    // The fused form (History::track from the draw's own vertices) against converting first, as the renderer did, and
+    // tracking with the first implementation: random draws of 11-float vertices (DrawVertex: x y z fog r g b a s t q),
+    // perspective and texel coordinates, q of 0, non-finite q and positions, moving, clipped and broken batches.
+    {
+        uint64_t seed = 0x2545f4914f6cdd1dull;
+        auto next = [&]() {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            return seed;
+        };
+        auto unit = [&]() { return float(next() % 100000) / 100000.0f; };
+        constexpr uint32_t kStride = 11, kObjects = 24;
+        History fused, reference, verified;
+        reference.setFast(false);
+        verified.setVerify(true);
+        std::vector<std::vector<float>> shapes(kObjects);
+        std::vector<bool> fixed(kObjects);
+        for (uint32_t o = 0; o < kObjects; ++o) {
+            fixed[o] = o % 4 == 0;
+            shapes[o].resize(size_t(1 + next() % 400) * kStride);
+            for (size_t i = 0; i < shapes[o].size(); i += kStride) {
+                float* v = &shapes[o][i];
+                v[0] = unit() * 640;
+                v[1] = unit() * 448;
+                v[2] = 1 + unit() * 60000;
+                for (int c = 3; c < 8; ++c)
+                    v[c] = unit() * 255;
+                v[10] = fixed[o] ? 1.0f : 0.25f + unit() * 4;
+                v[8] = fixed[o] ? unit() * 256 : unit() * v[10];
+                v[9] = fixed[o] ? unit() * 256 : unit() * v[10];
+            }
+        }
+        uint64_t compared = 0, matched = 0, differ = 0, converted = 0;
+        std::vector<Previous> a, b, c;
+        std::vector<Vertex> now, viaConvert;
+        for (uint64_t epoch = 1; epoch <= 300; ++epoch) {
+            const bool cut = next() % 97 == 0;
+            fused.beginFrame(epoch, cut);
+            reference.beginFrame(epoch, cut);
+            verified.beginFrame(epoch, cut);
+            for (uint32_t o = 0; o < kObjects; ++o) {
+                std::vector<float> draw = shapes[o];
+                const uint32_t n0 = uint32_t(draw.size() / kStride);
+                for (uint32_t i = 0; i < n0; ++i) {
+                    draw[i * kStride] += (unit() - 0.5f) * 8;
+                    draw[i * kStride + 1] += (unit() - 0.5f) * 8;
+                    draw[i * kStride + 2] *= 0.9f + unit() * 0.2f;
+                }
+                const uint64_t r = next() % 100;
+                const uint32_t at = uint32_t(next() % n0) * kStride;
+                if (r < 5)
+                    draw[at + 8] += 0.5f; // clipped or reordered
+                else if (r < 7)
+                    draw[at + 10] = 0; // q of 0: u, v = 0
+                else if (r < 9)
+                    draw[at + 10] = std::numeric_limits<float>::quiet_NaN();
+                else if (r < 11)
+                    draw[at] = std::numeric_limits<float>::infinity();
+                else if (r < 13)
+                    draw[at + 2] = -1;
+                else if (r < 15)
+                    draw[at] += 5000;
+                else if (r < 17 && n0 > 1)
+                    draw.resize(draw.size() - kStride);
+                const uint32_t n = uint32_t(draw.size() / kStride);
+                const Source source{draw.data(), kStride, 0, 1, 2, 8, 9, 10, fixed[o]};
+                now.resize(n);
+                for (uint32_t i = 0; i < n; ++i) { // the renderer's conversion before the fused form
+                    const float* v = &draw[size_t(i) * kStride];
+                    const float iq = fixed[o] ? 1.0f : (v[10] != 0 ? 1.0f / v[10] : 0);
+                    now[i] = {v[0], v[1], v[2], v[8] * iq, v[9] * iq};
+                }
+                viaConvert.resize(n);
+                convert(source, n, viaConvert.data());
+                converted += std::memcmp(viaConvert.data(), now.data(), n * sizeof(Vertex)) != 0;
+                const Key id{o + 1, 1, 7, 0, 0, uint32_t(next() % 8 == 0)};
+                const bool known = next() % 23 != 0;
+                const uint64_t topology = next() % 31 == 0 ? 2 : 1;
+                const float sx = o % 5 == 0 ? 2.5f : 3.0f, sy = 3.0f;
+                a.assign(n, Previous{7, 7, 7, 7}); // overwritten in full
+                c.assign(n, Previous{7, 7, 7, 7});
+                const Result ra = fused.track(id, topology, source, n, sx, sy, known, a.data());
+                const Result rb = reference.track(id, topology, now.data(), n, sx, sy, known, b);
+                const Result rc = verified.track(id, topology, source, n, sx, sy, known, c.data());
+                ++compared;
+                matched += rb.matched;
+                differ +=
+                    !(ra.matched == rb.matched && ra.vertices == rb.vertices && rc.matched == rb.matched &&
+                      b.size() == n && std::memcmp(a.data(), b.data(), n * sizeof(Previous)) == 0 &&
+                      std::memcmp(c.data(), b.data(), n * sizeof(Previous)) == 0 && fused.bytes() == reference.bytes());
+                if (r >= 17 && next() % 3)
+                    shapes[o] = draw;   // the next world moves on from here
+                if (next() % 41 == 0) { // a repeated identity in this world: ambiguous from here on
+                    fused.track(id, topology, source, n, sx, sy, known, a.data());
+                    reference.track(id, topology, now.data(), n, sx, sy, known, b);
+                    verified.track(id, topology, source, n, sx, sy, known, c.data());
+                }
+            }
+        }
+        check(converted == 0, "convert() equals the renderer's conversion");
+        check(differ == 0, "fused track equals converting first and the first implementation");
+        check(matched > compared / 4, "random draws match often enough to compare entries");
+        check(verified.verifyChecked() > compared && verified.verifyDiffer() == 0,
+              "built-in verification of the fused form finds no difference");
+        std::printf("motion history fused: %llu batches, %llu matched, %llu differ, verified %llu / %llu\n",
                     (unsigned long long)compared, (unsigned long long)matched, (unsigned long long)differ,
                     (unsigned long long)verified.verifyChecked(), (unsigned long long)verified.verifyDiffer());
     }

@@ -1,5 +1,7 @@
 #pragma once
 #include "runtime/object_motion_tracker.h"
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 
 namespace drakan_object_motion {
@@ -25,27 +27,40 @@ inline uint64_t captureHash(uint64_t h, const void* ptr, size_t bytes) {
 }
 // Equality-only content hash for large buffers (identities are compared within one process run, never stored): four
 // independent multiply/xorshift lanes over 32-byte blocks, about 10x the speed of the byte-serial captureHash.
-inline uint64_t captureHashWide(uint64_t seed, const void* ptr, size_t bytes) {
-    constexpr uint64_t kMul = 0x9ddfea08eb382d69ull;
-    const auto* p = static_cast<const uint8_t*>(ptr);
-    uint64_t lane[4] = {seed, seed ^ 0x9e3779b97f4a7c15ull, seed ^ 0xc2b2ae3d27d4eb4full, seed ^ 0x165667b19e3779f9ull};
-    size_t i = 0;
-    for (; i + 32 <= bytes; i += 32) {
+// captureHashWide fed block by block: block() takes the next 32 bytes, finish() the remaining tail and the total
+// length. Hashing a buffer as blocks then its tail gives exactly captureHashWide of the buffer.
+struct WideHash {
+    static constexpr uint64_t kMul = 0x9ddfea08eb382d69ull;
+    uint64_t lane[4];
+    explicit WideHash(uint64_t seed)
+        : lane{seed, seed ^ 0x9e3779b97f4a7c15ull, seed ^ 0xc2b2ae3d27d4eb4full, seed ^ 0x165667b19e3779f9ull} {}
+    void block(const void* p) {
         uint64_t w[4];
-        std::memcpy(w, p + i, 32);
+        std::memcpy(w, p, 32);
         for (unsigned l = 0; l < 4; ++l) {
             lane[l] = (lane[l] ^ w[l]) * kMul;
             lane[l] ^= lane[l] >> 29;
         }
     }
-    uint64_t h = lane[0] ^ (lane[1] * 31) ^ (lane[2] * 131) ^ (lane[3] * 1031);
-    for (; i < bytes; ++i) {
-        h ^= p[i];
-        h *= 1099511628211ull;
+    uint64_t finish(const void* tail, size_t tailBytes, size_t totalBytes) const {
+        const auto* p = static_cast<const uint8_t*>(tail);
+        uint64_t h = lane[0] ^ (lane[1] * 31) ^ (lane[2] * 131) ^ (lane[3] * 1031);
+        for (size_t i = 0; i < tailBytes; ++i) {
+            h ^= p[i];
+            h *= 1099511628211ull;
+        }
+        h ^= totalBytes;
+        h *= kMul;
+        return h ^ (h >> 32);
     }
-    h ^= bytes;
-    h *= kMul;
-    return h ^ (h >> 32);
+};
+inline uint64_t captureHashWide(uint64_t seed, const void* ptr, size_t bytes) {
+    const auto* p = static_cast<const uint8_t*>(ptr);
+    WideHash hash(seed);
+    size_t i = 0;
+    for (; i + 32 <= bytes; i += 32)
+        hash.block(p + i);
+    return hash.finish(p + i, bytes - i, bytes);
 }
 struct PoseSource {
     uint32_t address = 0, count = 0, controller = 0;

@@ -510,13 +510,13 @@ class Capture {
     // DRAKAN_SCENE_CAPTURE_PROFILE=1: EE time of the capture's parts, one [scene-capture] line every 256 captures.
     struct Profile {
         using Clock = std::chrono::steady_clock;
-        enum Part { Lights, Textures, Resources, Live, Objects, Signature, Posed, Mesh, Count };
+        enum Part { Lights, Textures, Resources, Live, Objects, Signature, Posed, Mesh, PosedFirst, Count };
         bool on = [] {
             const char* value = std::getenv("DRAKAN_SCENE_CAPTURE_PROFILE");
             return value && value[0] == '1';
         }();
         std::array<double, Count> ms{};
-        uint64_t captures = 0, posed = 0, signatures = 0;
+        uint64_t captures = 0, posed = 0, signatures = 0, posedFirst = 0; // posedFirst: posed with posedFused off
         Clock::time_point mark{};
         void begin() {
             if (on)
@@ -541,14 +541,17 @@ class Capture {
         void report() {
             if (!on || ++captures % 256)
                 return;
-            static constexpr const char* names[] = {"lights",  "textures",  "resources", "live",
-                                                    "objects", "signature", "posed",     "mesh"};
+            static constexpr const char* names[] = {"lights",    "textures", "resources", "live",      "objects",
+                                                    "signature", "posed",    "mesh",      "posedFirst"};
             std::fprintf(stderr, "[scene-capture] %llu captures, ms each:", (unsigned long long)captures);
             for (unsigned i = 0; i < Count; ++i)
                 std::fprintf(stderr, " %s=%.4f", names[i], ms[i] / 256);
-            std::fprintf(stderr, " posed=%.1f signatures=%.1f\n", posed / 256.0, signatures / 256.0);
+            // per posed character: microseconds in one pass (posedFused) and the first way
+            std::fprintf(stderr, " posed=%.1f signatures=%.1f posed_us=%.2f posed_first_us=%.2f\n",
+                         (posed + posedFirst) / 256.0, signatures / 256.0, posed ? ms[Posed] * 1000.0 / posed : 0.0,
+                         posedFirst ? ms[PosedFirst] * 1000.0 / posedFirst : 0.0);
             ms = {};
-            posed = signatures = 0;
+            posed = signatures = posedFirst = 0;
         }
     } profile;
     std::vector<LiveObject> liveList;
@@ -900,24 +903,24 @@ class Capture {
                 out->nativeId = t.base->nativeId;
                 out->topology = t.base->topology;
                 out->triangles = t.base->triangles;
-                bool valid = true;
-                for (size_t i = 0; valid && i < out->triangles.size(); ++i) {
-                    auto& triangle = out->triangles[i];
-                    for (unsigned j = 0; valid && j < 3; ++j) {
-                        const uint32_t at = positions + t.corners.indices[i][j] * 12u;
-                        for (unsigned c = 0; c < 3; ++c) {
-                            const float v = r.f(at + c * 4);
-                            if (!std::isfinite(v) || std::abs(v) > 1e7) {
-                                valid = false;
-                                break;
-                            }
-                            triangle.position[j][c] = v;
-                        }
+                if (posedFused) {
+                    const bool valid = posePositions(r, t, positions, id, *out);
+                    if (posedVerify) {
+                        gsr::SceneModelMesh reference = *out;
+                        reference.triangles = t.base->triangles;
+                        const bool referenceValid = posePositionsReference(r, t, positions, id, reference);
+                        ++posedVerifyChecked;
+                        posedVerifyDiffer +=
+                            !(valid == referenceValid &&
+                              (!valid || (reference.identity == out->identity &&
+                                          std::memcmp(reference.triangles.data(), out->triangles.data(),
+                                                      out->triangles.size() * sizeof(gsr::SceneModelTriangle)) == 0)));
                     }
-                }
-                if (valid) {
-                    out->identity = hashBytes(hashBytes(14695981039346656037ull, &id, 4), out->triangles.data(),
-                                              out->triangles.size() * sizeof(gsr::SceneModelTriangle));
+                    if (valid) {
+                        untextured = t.untextured;
+                        return out;
+                    }
+                } else if (posePositionsReference(r, t, positions, id, *out)) {
                     untextured = t.untextured; // a pose changes positions only
                     return out;
                 }
@@ -931,6 +934,61 @@ class Capture {
         else
             templates.erase(templateKey);
         return out;
+    }
+    // The first implementation of a pose from its template: corner by corner, leaving at the first position out of
+    // range, then the identity over the finished triangles. `out` holds the template's triangles.
+    static bool posePositionsReference(const Reader& r, const PosedTemplate& t, uint32_t positions, uint32_t id,
+                                       gsr::SceneModelMesh& out) {
+        bool valid = true;
+        for (size_t i = 0; valid && i < out.triangles.size(); ++i) {
+            auto& triangle = out.triangles[i];
+            for (unsigned j = 0; valid && j < 3; ++j) {
+                const uint32_t at = positions + t.corners.indices[i][j] * 12u;
+                for (unsigned c = 0; c < 3; ++c) {
+                    const float v = r.f(at + c * 4);
+                    if (!std::isfinite(v) || std::abs(v) > 1e7) {
+                        valid = false;
+                        break;
+                    }
+                    triangle.position[j][c] = v;
+                }
+            }
+        }
+        if (valid)
+            out.identity = hashBytes(hashBytes(14695981039346656037ull, &id, 4), out.triangles.data(),
+                                     out.triangles.size() * sizeof(gsr::SceneModelTriangle));
+        return valid;
+    }
+    // The same in one pass without branches (DRAKAN_SCENE_POSED_FUSED, default on): each triangle's corners are
+    // gathered and range-checked (|v| <= 1e7 is false for NaN and both infinities: the test above) and its 64 bytes go
+    // into the identity hash while they are in cache (captureHashWide in streaming form, the same value). The pose is
+    // decided after the loop; a rejected one leaves `out` to be thrown away, as before.
+    static bool posePositions(const Reader& r, const PosedTemplate& t, uint32_t positions, uint32_t id,
+                              gsr::SceneModelMesh& out) {
+        static_assert(sizeof(gsr::SceneModelTriangle) == 64, "two hash blocks per triangle");
+        drakan_object_motion::WideHash hash(hashBytes(14695981039346656037ull, &id, 4));
+        const uint8_t* const base = r.ram + positions;
+        const auto* indices = t.corners.indices.data();
+        uint32_t inRange = 1;
+        const size_t count = out.triangles.size();
+        auto* triangles = out.triangles.data();
+        for (size_t i = 0; i < count; ++i) {
+            auto& triangle = triangles[i];
+            for (unsigned j = 0; j < 3; ++j) {
+                float p[3];
+                std::memcpy(p, base + indices[i][j] * 12u, 12);
+                for (unsigned c = 0; c < 3; ++c) {
+                    inRange &= uint32_t(std::abs(p[c]) <= 1e7f);
+                    triangle.position[j][c] = p[c];
+                }
+            }
+            hash.block(&triangle);
+            hash.block(reinterpret_cast<const uint8_t*>(&triangle) + 32);
+        }
+        if (!inRange)
+            return false;
+        out.identity = hash.finish(nullptr, 0, count * sizeof(gsr::SceneModelTriangle));
+        return true;
     }
 
 public:
@@ -946,6 +1004,23 @@ public:
     // source is checked or their mesh looked up; one that starts to move brings its previous transform along
     // (SceneModelInstance::hasPreviousTransform). Needs `fast` (the flat live list carries the state).
     bool motionOnly = false;
+    // A posed character's positions from its template in one pass (posePositions; DRAKAN_SCENE_POSED_FUSED=0 = the
+    // first implementation). The caller may switch it before each capture (GSR_DLSS_CANYON_TOGGLE).
+    bool posedFused = posedFusedDefault();
+    // DRAKAN_SCENE_POSED_VERIFY=1: every fused pose is built the first way too and its triangles, identity and
+    // acceptance compared; a [scene-posed] line every 256 captures.
+    bool posedVerify = [] {
+        const char* value = std::getenv("DRAKAN_SCENE_POSED_VERIFY");
+        return value && value[0] == '1';
+    }();
+    uint64_t posedVerifyChecked = 0, posedVerifyDiffer = 0;
+    static bool posedFusedDefault() {
+        static const bool on = [] {
+            const char* value = std::getenv("DRAKAN_SCENE_POSED_FUSED");
+            return !(value && value[0] == '0');
+        }();
+        return on;
+    }
     void reset() {
         level = ~0ull;
         ticks = 0;
@@ -1240,8 +1315,8 @@ public:
             std::shared_ptr<const gsr::SceneModelMesh> geometry;
             uint32_t untextured = 0;
             if (positions) {
-                Profile::Inner timed{profile, Profile::Posed};
-                ++profile.posed;
+                Profile::Inner timed{profile, posedFused ? Profile::Posed : Profile::PosedFirst};
+                ++(posedFused ? profile.posed : profile.posedFirst);
                 geometry =
                     posedMesh(r, it->second, it->first, positions, slot, templateKey, source->second, untextured);
             } else if (auto found = meshes.find(cacheKey); found != meshes.end()) {
@@ -1283,6 +1358,9 @@ public:
         }
         profile.stage(Profile::Objects); // includes signature, posed and mesh
         profile.report();
+        if (posedVerify && captures % 256 == 0)
+            std::fprintf(stderr, "[scene-posed] %u captures: fused poses checked %llu, differ %llu\n", captures,
+                         (unsigned long long)posedVerifyChecked, (unsigned long long)posedVerifyDiffer);
         return out;
     }
 };

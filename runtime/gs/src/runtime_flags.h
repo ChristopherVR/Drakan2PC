@@ -130,7 +130,8 @@ struct RuntimeFlags {
         false; // GSR_VELOCITY_SKIP_DEBUG=1: leave out every invalid-only pass (wrong on purpose)
     bool motionPrepareFast =
         true; // GSR_MOTION_PREPARE_FAST: first character '0' = the per-draw motion stream as before
-    bool motionPrepareVerify = false;     // GSR_MOTION_PREPARE_VERIFY=1: build the old stream too and compare
+    bool motionPrepareVerify = false; // GSR_MOTION_PREPARE_VERIFY=1: build the old stream too and compare
+    bool motionTrackFused = true;     // GSR_MOTION_TRACK_FUSED: '0' = convert a segment, then track it (before 17 Nov)
     std::optional<float> terrainStrength; // GSR_TERRAIN_STRENGTH: atof
     uint32_t terrainDebug = 0;            // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
     bool terrainAudit = false;            // GSR_TERRAIN_AUDIT: log what the classification matched

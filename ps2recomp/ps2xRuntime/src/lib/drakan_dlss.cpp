@@ -189,6 +189,7 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                     return !value || value[0] != '0';
                 }();
                 capture.motionOnly = motionOnlyAllowed && lease->gs->sceneModelsMotionOnly();
+                capture.posedFused = drakan_scene_models::Capture::posedFusedDefault() && !gsr::dlssCanyonToggledOff();
                 auto models = capture.capture(runtime.memory().getRDRAM(), runtime.memory().guestRamInUse(), identity,
                                               includeSkyForComparison);
                 shadowFrame.begin(models);

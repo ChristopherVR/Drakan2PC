@@ -36,6 +36,16 @@ struct Result {
     bool matched = false;
     uint32_t vertices = 0;
 };
+// A draw's vertices as the renderer holds them, `stride` floats apart, each with position x, y, z and texture s, t, q
+// at the given float offsets. The tracked vertex is {x, y, z, s * iq, t * iq} with iq = 1 when `fixed` (texel
+// coordinates, FST), else 1 / q (0 when q is 0): what the renderer converted into a Vertex before each track().
+struct Source {
+    const float* data = nullptr;
+    uint32_t stride = 0, x = 0, y = 0, z = 0, s = 0, t = 0, q = 0;
+    bool fixed = false;
+};
+// The conversion above, one vertex at a time (the renderer's loop before the fused track(); verification and tests).
+void convert(const Source&, uint32_t count, Vertex* out);
 class History {
 public:
     explicit History(uint64_t budgetBytes = 64ull * 1024 * 1024, bool manualReference = false)
@@ -51,6 +61,12 @@ public:
                  bool correspondenceKnown, std::vector<Previous>& output);
     // The same into the caller's `count` entries, every one written (all default when not matched).
     Result track(const Key&, uint64_t topology, const Vertex*, uint32_t count, float rasterX, float rasterY,
+                 bool correspondenceKnown, Previous* output);
+    // The same from the draw's own vertices: the conversion to Vertex, the checks, the entries and the copy kept for
+    // the next world in one pass over the batch, the converted vertices written straight into the kept entry
+    // (GSR_MOTION_TRACK_FUSED, default on). Same result, entries and history as converting first and calling the
+    // pointer form; with setVerify() also compared with that, conversion included.
+    Result track(const Key&, uint64_t topology, const Source&, uint32_t count, float rasterX, float rasterY,
                  bool correspondenceKnown, Previous* output);
     void reset();
     void commitFrame(); // manual mode: advance only after the temporal consumer accepted this world
@@ -69,12 +85,17 @@ private:
                           bool correspondenceKnown, std::vector<Previous>& output);
     Result trackFast(const Key&, uint64_t topology, const Vertex*, uint32_t count, float rasterX, float rasterY,
                      bool correspondenceKnown, Previous* output);
+    Result trackFused(const Key&, uint64_t topology, const Source&, uint32_t count, float rasterX, float rasterY,
+                      bool correspondenceKnown, Previous* output);
     void store(const Key&, uint64_t topology, const Vertex*, uint32_t count);
+    void storeStaged(const Key&, uint64_t topology, uint32_t count); // staged_'s first `count` vertices, moved
     void compare(const Result&, const Previous*, const Key&, uint64_t topology, const Vertex*, uint32_t count,
                  float rasterX, float rasterY, bool correspondenceKnown);
     bool fast_ = true;
     History* shadow_ = nullptr;
     std::vector<Previous> shadowOutput_;
+    // trackFused: the batch's converted vertices, kept by moving the vector into the entry; then refilled from pool_.
+    std::vector<Vertex> staged_, verifyConverted_;
     uint64_t verifyChecked_ = 0, verifyDiffer_ = 0;
     struct Entry {
         uint64_t epoch = 0, topology = 0;

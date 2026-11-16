@@ -1,5 +1,6 @@
 // Temporal/neural world passes: world entry and resolve, depth stretch, object motion, upscaler setup.
 #include "d3d11_backend_impl.h"
+#include <cstddef>
 
 namespace gsr {
 
@@ -338,6 +339,7 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
             velocitySkip = on;
         }
         motionPrepareFast = runtimeFlags().motionPrepareFast && !dlssPathToggledOff();
+        motionTrackFused = motionPrepareFast && runtimeFlags().motionTrackFused && !dlssCanyonToggledOff();
         motionHistory.setFast(motionPrepareFast);
         motionHistory.setVerify(runtimeFlags().motionPrepareVerify);
         clearMotionTarget(rt);
@@ -409,22 +411,36 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
             ++motionRejectedBatches;
             return false;
         }
-        motionVertices.resize(n);
-        for (uint32_t i = 0; i < n; ++i) {
-            const auto& v = vertices[first + i];
-            const float iq = (s.flags & DF_FST) ? 1.0f : (v.q != 0 ? 1.0f / v.q : 0);
-            motionVertices[i] = {v.x, v.y, v.z, v.s * iq, v.t * iq};
-        }
         uint64_t topology = objectScope.topologyHash;
         for (uint64_t value : {uint64_t(n), s.tex0, s.alpha, uint64_t(s.flags), s.test})
             topology = (topology ^ value) * 1099511628211ull;
+        // Fused (fast path, GSR_MOTION_TRACK_FUSED): History::track reads the draw's vertices itself, converting
+        // each with the expressions below, in the same pass as its checks and the copy it keeps.
+        const bool fused = fast && motionTrackFused;
+        if (!fused) {
+            motionVertices.resize(n);
+            for (uint32_t i = 0; i < n; ++i) {
+                const auto& v = vertices[first + i];
+                const float iq = (s.flags & DF_FST) ? 1.0f : (v.q != 0 ? 1.0f / v.q : 0);
+                motionVertices[i] = {v.x, v.y, v.z, v.s * iq, v.t * iq};
+            }
+        }
         motion::Result result;
         if (!fast)
             result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known, output);
         else {
             std::fill(motionPrevious.begin() + filled, motionPrevious.begin() + first, motion::Previous{});
-            result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known,
-                                         motionPrevious.data() + first);
+            if (fused) {
+                static_assert(offsetof(DrawVertex, x) == 0 && offsetof(DrawVertex, y) == 4 &&
+                                  offsetof(DrawVertex, z) == 8 && offsetof(DrawVertex, s) == 32 &&
+                                  offsetof(DrawVertex, t) == 36 && offsetof(DrawVertex, q) == 40,
+                              "motion::Source offsets");
+                const motion::Source source{
+                    &vertices[first].x, sizeof(DrawVertex) / sizeof(float), 0, 1, 2, 8, 9, 10, (s.flags & DF_FST) != 0};
+                result = motionHistory.track(key, topology, source, n, sx, sy, known, motionPrevious.data() + first);
+            } else
+                result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known,
+                                             motionPrevious.data() + first);
             filled = first + n;
             if (verify)
                 motionPrepareReference.insert(motionPrepareReference.end(), motionPrevious.begin() + first,

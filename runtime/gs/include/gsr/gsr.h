@@ -480,5 +480,8 @@ bool readImage(const char* path, Image& img);
 // run as before, so both are measured in one run. Logs "[dlss-path] now old|new at <us>" at each switch. False
 // without the variable.
 bool dlssPathToggledOff();
+// GSR_DLSS_CANYON_TOGGLE=<s> (test only): the same for the changes of 17 November 2026 (the renderer's fused motion
+// tracking, the EE's posed-character capture in one pass); logs "[dlss-canyon] now old|new at <us>".
+bool dlssCanyonToggledOff();
 
 } // namespace gsr
