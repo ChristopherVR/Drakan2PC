@@ -4,6 +4,22 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## Object-motion work on the GS worker and the EE, 16 November 2026
+
+- With DLSS on, the GS worker tracks every world draw's vertices for object motion (`prepareObjectMotion`,
+  `motion::History::track`) and the EE captures the moving models every world. The stream of previous positions is
+  now written in place and built only when a segment matched (`GSR_MOTION_PREPARE_FAST`, default on), `track` runs
+  without per-vertex early exits, and the end-of-world model snapshot is sent again only when a ray pass needs the
+  native shadow's ownership (`DRAKAN_SCENE_SHADOW_RESEND`); that resend made the renderer prepare the model motion a
+  second time and wait for it.
+- Same inputs: `GSR_MOTION_PREPARE_VERIFY=1` (old stream and a shadow history beside the new ones) found 0 differences
+  in 3.5 M streams and 411 k tracked batches; the two model-motion preparations of a resent world hash equal in 3,946
+  worlds.
+- Wartok Canyons, DLSS quality, same-run toggle (`GSR_DLSS_PATH_TOGGLE`): frame time -3 to -6 % in 3 of 3 runs, GS
+  worker `draw` 5.28 to 4.49 ms per world. Surdana is bound by the VU1 worker and does not change. DLSS quality still
+  costs about 1.3 ms per frame over off in the canyon (GS worker and EE both near full). See
+  [the journal](../journal/2026-11-16/perf-dlss-path.md).
+
 ## Velocity passes that change nothing are left out, 15 November 2026
 
 - With DLSS on every world draw used to be followed by a velocity pass into the object-motion target. A draw with no

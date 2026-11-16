@@ -783,6 +783,17 @@ Flame scenes, -2 % Surdana, -7 % Ravenshold. Measured with `GSR_VELOCITY_SKIP_TO
 interleaved runs on the shared machine swung by up to 18 % with DLSS off, where the setting cannot act. See
 [the journal](../journal/2026-11-14/gpu-dlss-finish.md).
 
+## DLSS object-motion work (2026-11-16)
+
+At the owner's settings (water off) DLSS quality adds per world about 0.9 to 1.8 ms on the GS worker (object-motion
+tracking `drawObjectMotion`, the guides and model motion in `temporalResolve`), 0.4 to 0.5 ms on the EE (the model
+capture, `PS2X_SCENE_PACING` `capture=`) and 2.1 ms of GPU work (evaluate 1.3, compose, display, depth entry), which
+does not bound the frame. `GSR_MOTION_PREPARE_FAST` (stream built only for matched segments, `History::track` without
+early exits) and no end-of-world snapshot resend cut the GS worker's DLSS share by 0.4 to 0.8 ms per world with the
+same uploaded bytes (`GSR_MOTION_PREPARE_VERIFY`); Wartok Canyons -3 to -6 % frame time with DLSS quality in a
+same-run toggle (`GSR_DLSS_PATH_TOGGLE`), Surdana unchanged (VU1 worker bound). Details and what remains:
+[journal](../journal/2026-11-16/perf-dlss-path.md).
+
 ## CPU use, jitter and the GPU vertex path at 4K (2026-11-16)
 
 At the owner's settings (3840x2160, scale 8, vsync off, uncapped) CPU time per world frame is the same at any frame
