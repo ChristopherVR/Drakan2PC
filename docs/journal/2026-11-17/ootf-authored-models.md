@@ -65,3 +65,40 @@ Bugs found on the way, all fixed and covered by `test/ootfauthored.test.ts`:
   checked frame by frame.
 * Not checked with the owner's own `drakan.ini`.
 * The editor's in-browser converter does not load authored models yet (the CLI and the build do).
+
+## Second round: the rest of the cast (six builders in parallel)
+
+Owner: continue with the characters that have only PC models. Six subagents, each with one body type and the lessons
+above; previews only, the lead ran the game. Results judged on `preview_authored.sh` comparisons (1999 top, new bottom).
+
+| Model(s) | Script | Verdict | Where |
+| --- | --- | --- | --- |
+| Goblin (`goblin(h)`, 120 placed) | `goblin_model.py` | clear gain: hunched muscular body, teeth, horn crest, clawed feet, belted loincloth | `kit/models` |
+| Giant Tick | `tick_model.py` | clear gain: segmented spined body, the plate pattern on the plates | `kit/models` |
+| Drone | `drone_model.py` | modest gain (body); the wings keep the 1999 card shapes | `kit/models` |
+| Julian, the farmer, Rimril and the wounded wizard, the wounded warrior, the rack victim, the two male villagers, the three mine slaves | `human_kit.py`, `humans_model.py` | modest gains: rounder forms, modelled belts, cuffs, boot and greave tops on matching paint; Julian about even (a few texture teeth on the robe) | `kit/models` |
+| the two female villagers | `female_model.py` | modest gain (puffed sleeves, cuffs, figure); the bell skirt can open at the centre front and back when the legs part | `kit/models` |
+| Crimson and Ebon Knights | `knight_model.py` | better armour silhouette, noisier texture (smears on the greaves and skirt, stray band colour on the pauldrons) | `kit/models-draft` |
+| Succubus, Queen Shillah | `succubus_model.py` | better legs, feet and wing panels, blotchier netting and chest | `kit/models-draft` |
+| Death Mage (and shaman, ghost) | `deathmage_model.py` | worse: the robe loses the 1999 separate ribbons | `kit/models-draft` |
+| Dr. Evil | `drevil_model.py` | mixed: horns and jaw, but the eyes are lost and the head texture smears | `kit/models-draft` |
+| Tuiri | `female_model.py` | about even (leg pattern noisier) | `kit/models-draft` |
+
+`kit/models-draft` is not loaded by the converter; a draft moves to `kit/models` when it beats the 1999 model. The scripts
+write to `kit/models` by default, so a rerun of a draft's script puts it back in the shipped set.
+
+In game (full 23-level conversion: 18 authored models used, none skipped or dropped):
+* `gob-alw` (Alwarren, goblins pulled): goblins burn and fall in their death clips with the new body and loincloth
+  bending cleanly, no torn polygons.
+* `hum-rv` (Intro + Ruined Village opening, scenes played): the new villagers at the cart, a kneeling villager, the female
+  villager in her dress and Julian pinned by the spear all animate with their 1999 faces.
+
+### What limits the rest
+
+The silhouette is always better; the surface is limited by the method. Each new triangle takes the 1999 texture of the
+nearest 1999 triangle, so a denser, differently shaped surface shows the low-resolution 1999 paint stretched, split at its
+seams (teeth along colour borders) or smeared where several 1999 parts meet (knights' greaves, Death Mage robe, Succubus
+netting). The builders also noted: radial head projection paints the face on a hood's inner wall (Death Mage), a slot
+cannot be limited to the 1999 triangles of given joints (Succubus wing bones took skin from the feet), and transferred
+weights cannot blend a skirt across both thighs. Lifting the drafts needs the models' own UVs and textures (painted or
+baked in Blender: original art, committed like the kit pictures) rather than the 1999 paint.

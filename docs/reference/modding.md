@@ -1005,6 +1005,9 @@ channels and the synthetic jaw keep working:
 * **Weights** are the barycentric mix of the closest PC surface point, capped at 4 joints, unless the file carries its own.
 * `keepPcJoints`: the PC part of those joints stays (smoothed once) in place of the authored triangles: Delon keeps his
   1999 head and face texture on the new body.
+* `kit/models` holds the models the build uses (Delon, the Boss Blade and Ebon Dragons, the goblin, tick, drone and the
+  human villagers, slaves and scene characters); `kit/models-draft` holds models that do not yet beat the 1999 ones and
+  is not loaded (knights, Succubus, Queen Shillah, Death Mages, Dr. Evil, Tuiri). See the 2026-11-17 journal.
 * Off with the model upgrade (`--model-upgrade 0`). CLI `--authored <dir>`; the build passes the kit folder and converts
   again when a file changes. Preview without the game: `dump-pc-model.ts ... --authored <json>`.
 
