@@ -12,6 +12,7 @@
 // GSR_VP_WARP=1: the software adapter; GSR_VP_ADAPTER=<n>; GSR_VP_ARITHMETIC=doubles|limbs.
 #include "program_motion.h"
 #include "vertex_program_draw.h"
+#include "vertex_program_dump.h"
 #include "vertex_program_hlsl.h"
 #include "vertex_batch_cases.h"
 #include "vertex_program_cases.h"
@@ -477,6 +478,100 @@ int main() {
                     "strip", (unsigned long long)gameBounded, (unsigned long long)gameExactly,
                     gameBounded ? gameSeconds * 1e9 / (double)gameBounded : 0.0);
         bad += differ;
+    }
+    if (const char* path = std::getenv("GSR_VP_BOUNDS_BATCHES")) {
+        // Strip batches the game drew (GSR_VP_BOUNDS_DUMP, vertex_program_dump.h; private data): stripBounds against
+        // vp::evaluate of every vertex the triangles use, and its time per batch (the shortest of GSR_VP_BOUNDS_REPEATS
+        // calls, default 5).
+        std::FILE* f = std::fopen(path, "rb");
+        if (!f) {
+            std::printf("[FAIL] GSR_VP_BOUNDS_BATCHES: cannot open %s\n", path);
+            return 1;
+        }
+        const char* repeatText = std::getenv("GSR_VP_BOUNDS_REPEATS");
+        const int repeats = std::max(1, repeatText ? std::atoi(repeatText) : 5);
+        program_draw::BoundsScratch scratch;
+        program_dump::Batch d;
+        uint64_t batches = 0, differ = 0, vertices = 0, records = 0, exactly = 0, flagWrong = 0, flagged = 0;
+        uint64_t differLooked = 0; // the same batches with every record's allDrawn cleared (the index lookup)
+        double seconds = 0;
+        std::vector<uint8_t> used;
+        std::vector<VertexProgramRecord> unflagged;
+        while (program_dump::read(f, d)) {
+            const VertexProgramBatch b = d.view();
+            program_draw::Bounds got;
+            double best = 1e30;
+            for (int rep = 0; rep < repeats; ++rep) {
+                const auto r0 = std::chrono::steady_clock::now();
+                got = program_draw::stripBounds(b, d.offsetX, d.offsetY, scratch);
+                best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - r0).count());
+            }
+            used.assign(b.vertexCount, 0);
+            for (uint32_t i = 0; i < b.indexCount; ++i)
+                if (b.indices[i] < b.vertexCount)
+                    used[b.indices[i]] = 1;
+            // VertexProgramRecord::allDrawn as the core set it: true only when every vertex of the record is used
+            for (const VertexProgramRecord& r : d.records) {
+                bool all = true;
+                for (uint32_t i = 0; i < r.vertexCount; ++i)
+                    all = all && used[r.firstVertex + i];
+                if (r.allDrawn && !all) {
+                    if (flagWrong < 4)
+                        std::printf("  [FAIL] dumped strip batch %llu: a record says every vertex is drawn\n",
+                                    (unsigned long long)batches);
+                    ++flagWrong;
+                }
+                flagged += r.allDrawn;
+            }
+            int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
+            for (uint32_t i = 0; i < b.vertexCount; ++i) {
+                if (!used[i])
+                    continue;
+                const VertexProgramVertex& v = b.vertices[i];
+                const vp::Output o = vp::evaluate(v.program, b.constants[v.constants], v.in);
+                want[0] = std::min(want[0], (int32_t)o.x);
+                want[1] = std::min(want[1], (int32_t)o.y);
+                want[2] = std::max(want[2], (int32_t)o.x);
+                want[3] = std::max(want[3], (int32_t)o.y);
+            }
+            const bool any = want[0] != INT32_MAX;
+            const int32_t ox = d.offsetX, oy = d.offsetY;
+            const bool same =
+                got.any == any &&
+                (!any || (got.x0 == (want[0] - ox) * (1.0f / 16.0f) && got.y0 == (want[1] - oy) * (1.0f / 16.0f) &&
+                          got.x1 == (want[2] - ox) * (1.0f / 16.0f) && got.y1 == (want[3] - oy) * (1.0f / 16.0f)));
+            if (!same && differ < 4)
+                std::printf("  [FAIL] dumped strip batch %llu: got %g %g %g %g, want %g %g %g %g\n",
+                            (unsigned long long)batches, got.x0, got.y0, got.x1, got.y1, (want[0] - ox) / 16.0,
+                            (want[1] - oy) / 16.0, (want[2] - ox) / 16.0, (want[3] - oy) / 16.0);
+            differ += !same;
+            unflagged.assign(d.records.begin(), d.records.end());
+            for (VertexProgramRecord& r : unflagged)
+                r.allDrawn = false;
+            VertexProgramBatch looked = b;
+            looked.records = unflagged.data();
+            const program_draw::Bounds other = program_draw::stripBounds(looked, ox, oy, scratch);
+            differLooked += !(other.any == got.any && other.x0 == got.x0 && other.y0 == got.y0 && other.x1 == got.x1 &&
+                              other.y1 == got.y1);
+            ++batches;
+            vertices += b.vertexCount;
+            records += b.recordCount;
+            exactly += got.exact;
+            seconds += best;
+        }
+        std::fclose(f);
+        std::printf("dumped strip batches: %llu (%llu records, %llu of them all drawn, %llu wrongly; %llu vertices, "
+                    "%llu evaluated exactly), %llu differ, %llu differ with the index lookup; %.2f us per batch, %.1f "
+                    "ns per vertex\n",
+                    (unsigned long long)batches, (unsigned long long)records, (unsigned long long)flagged,
+                    (unsigned long long)flagWrong, (unsigned long long)vertices, (unsigned long long)exactly,
+                    (unsigned long long)differ, (unsigned long long)differLooked,
+                    batches ? seconds * 1e6 / (double)batches : 0.0, vertices ? seconds * 1e9 / (double)vertices : 0.0);
+        if (!batches) {
+            std::printf("[FAIL] GSR_VP_BOUNDS_BATCHES: no batch in %s\n", path);
+            ++bad;
+        }
+        bad += differ + differLooked + flagWrong;
     }
     // The batch path: every vertex of the batch cases (and of GSR_VB_RECORDS).
     const vbcases::Cases batchCases = vbcases::standardCases();

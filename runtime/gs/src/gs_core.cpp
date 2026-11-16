@@ -550,9 +550,13 @@ struct Renderer::Impl {
             r.constants = constants;
             r.program = h.program;
             uint64_t shape = 1469598103934665603ull ^ h.program;
-            for (uint32_t s = 0; s < h.stripCount; ++s)
+            bool allDrawn = true;
+            for (uint32_t s = 0; s < h.stripCount; ++s) {
                 shape = (shape ^ rec.strips[s]) * 1099511628211ull;
+                allDrawn = allDrawn && rec.strips[s] >= 3;
+            }
             r.shape = shape;
+            r.allDrawn = allDrawn;
             programRecords.push_back(r);
         }
         const vp::Vertex* v = rec.vertices;

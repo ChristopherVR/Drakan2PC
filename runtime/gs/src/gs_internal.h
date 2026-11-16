@@ -41,6 +41,9 @@ struct VertexProgramRecord {
     uint32_t program = 0;
     uint64_t shape = 0;     // hash of the program and the strip lengths (batch path: also indices and pass kinds)
     uint32_t passCount = 0; // batch path: its passes
+    // Strips: every vertex of the record is in a triangle of the index list (no strip of fewer than three vertices);
+    // the bounds then need not look the vertices up in the index list (program_draw::stripBounds).
+    bool allDrawn = false;
 };
 struct VertexProgramBatch {
     const vp::Constants* constants = nullptr;

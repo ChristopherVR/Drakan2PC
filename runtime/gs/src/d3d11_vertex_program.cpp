@@ -18,6 +18,7 @@
 // GSR_VERTEX_PROGRAM_WAIT=1 (wait for the compile at the first record of a kind instead of drawing on the CPU
 // meanwhile: for replays and tests that count shader-drawn vertices; never set in play).
 #include "d3d11_backend_impl.h"
+#include "vertex_program_dump.h"
 #include "vertex_program_hlsl.h"
 
 #include <string>
@@ -82,11 +83,47 @@ struct D3D11Backend::Impl::ProgramGpu {
     bool motionTracked = false;
     uint64_t batches_ = 0, velocityBatches = 0;
 
+    // GSR_VP_BOUNDS_DUMP=<file>: the first strip batches drawn, for the bounds tests (vertex_program_dump.h)
+    std::FILE* dumpFile = nullptr;
+    uint32_t dumpLeft = [] {
+        const char* e = std::getenv("GSR_VP_BOUNDS_DUMP");
+        const char* n = std::getenv("GSR_VP_BOUNDS_DUMP_COUNT");
+        return e && *e ? (n ? (uint32_t)std::strtoul(n, nullptr, 10) : 2000u) : 0u;
+    }();
+    uint32_t dumpSkip = [] { // GSR_VP_BOUNDS_DUMP_SKIP: batches drawn before the first one written
+        const char* n = std::getenv("GSR_VP_BOUNDS_DUMP_SKIP");
+        return n ? (uint32_t)std::strtoul(n, nullptr, 10) : 0u;
+    }();
+    void dump(const VertexProgramBatch& batch, int32_t offsetX, int32_t offsetY) {
+        if (batch.batchPath)
+            return;
+        if (dumpSkip) {
+            --dumpSkip;
+            return;
+        }
+        if (!dumpFile && (dumpFile = std::fopen(std::getenv("GSR_VP_BOUNDS_DUMP"), "wb")) == nullptr) {
+            dumpLeft = 0;
+            return;
+        }
+        program_dump::write(dumpFile, batch, offsetX, offsetY);
+        if (--dumpLeft == 0) {
+            std::fclose(dumpFile);
+            dumpFile = nullptr;
+            std::fprintf(stderr, "[gsr] vertex programs: bounds dump written\n");
+        }
+    }
+
     Shaders& of(bool batchPath) { return batchPath ? batches : strips; }
     ~ProgramGpu() {
+        if (dumpFile)
+            std::fclose(dumpFile);
         if (boundsVertices && std::getenv("DRAKAN_VERTEX_LOG"))
-            std::fprintf(stderr, "[gsr] vertex programs: bounds over %llu vertices, %llu evaluated exactly\n",
-                         (unsigned long long)boundsVertices, (unsigned long long)boundsExact);
+            std::fprintf(stderr,
+                         "[gsr] vertex programs: bounds over %llu vertices, %llu evaluated exactly; pieces of strip "
+                         "records skipped by their box %llu, estimated %llu\n",
+                         (unsigned long long)boundsVertices, (unsigned long long)boundsExact,
+                         (unsigned long long)boundsScratch.piecesSkipped,
+                         (unsigned long long)boundsScratch.piecesEstimated);
     }
 };
 
@@ -764,6 +801,8 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
     program_draw::standIns(st, standIns);
     {
         // The exact bounds of the batch: the stand-ins span them instead of the scissor (program_draw::programBounds)
+        if (g.dumpLeft) // GSR_VP_BOUNDS_DUMP (vertex_program_dump.h)
+            g.dump(batch, (int32_t)(st.xyoffset & 0xFFFF), (int32_t)((st.xyoffset >> 32) & 0xFFFF));
         CpuProfile::Scope profile(i.cpuProfile, CpuProfile::ProgramBounds);
         const program_draw::Bounds bounds = program_draw::programBounds(
             batch, (int32_t)(st.xyoffset & 0xFFFF), (int32_t)((st.xyoffset >> 32) & 0xFFFF), g.boundsScratch);

@@ -30,7 +30,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <vector>
+
+// The strip bounds' box pass uses SSE2 where the target has it (x64 always); elsewhere (WebAssembly without the SSE
+// headers) the scalar loop, which finds the same box.
+#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#include <emmintrin.h>
+#define GSR_BOUNDS_SSE2 1
+#else
+#define GSR_BOUNDS_SSE2 0
+#endif
 
 namespace gsr::program_draw {
 
@@ -558,6 +568,59 @@ inline Bounds boundsOf(const Extremes& e, int32_t offsetX, int32_t offsetY) {
     out.y1 = (e.exact[3] - offsetY) * (1.0f / 16.0f);
     return out;
 }
+// The box of the raw positions of the drawn vertices first..last - 1 of a strip batch (as floats: the conversion to
+// double is exact and keeps the order, so these are the extremes in doubles too). False when a drawn vertex has other
+// constants than the record or a lane that is not an ordinary float (the estimate cannot take it); `any`: some vertex
+// is drawn. `used` null: every vertex is drawn.
+inline bool pieceBox(const VertexProgramVertex* vertices, const uint8_t* used, uint32_t first, uint32_t last,
+                     uint32_t constants, float lo[4], float hi[4], bool& any) {
+    any = false;
+#if GSR_BOUNDS_SSE2
+    __m128 vlo = _mm_set1_ps(std::numeric_limits<float>::infinity()), vhi = _mm_sub_ps(_mm_setzero_ps(), vlo);
+    const __m128i magMask = _mm_set1_epi32(0x7FFFFFFF), smallest = _mm_set1_epi32(0x007FFFFF),
+                  infinity = _mm_set1_epi32(0x7F800000);
+    for (uint32_t i = first; i < last; ++i) {
+        if (used && !used[i])
+            continue;
+        if (vertices[i].constants != constants)
+            return false;
+        const __m128i bits = _mm_loadu_si128(reinterpret_cast<const __m128i*>(vertices[i].in.pos));
+        const __m128i mag = _mm_and_si128(bits, magMask); // non-negative as a signed word
+        const __m128i ok = _mm_or_si128(_mm_cmpeq_epi32(mag, _mm_setzero_si128()),
+                                        _mm_and_si128(_mm_cmpgt_epi32(mag, smallest), _mm_cmplt_epi32(mag, infinity)));
+        if (_mm_movemask_ps(_mm_castsi128_ps(ok)) != 0xF)
+            return false;
+        const __m128 v = _mm_castsi128_ps(bits);
+        vlo = _mm_min_ps(vlo, v);
+        vhi = _mm_max_ps(vhi, v);
+        any = true;
+    }
+    _mm_storeu_ps(lo, vlo);
+    _mm_storeu_ps(hi, vhi);
+    return true;
+#else
+    for (int c = 0; c < 4; ++c) {
+        lo[c] = std::numeric_limits<float>::infinity();
+        hi[c] = -std::numeric_limits<float>::infinity();
+    }
+    for (uint32_t i = first; i < last; ++i) {
+        if (used && !used[i])
+            continue;
+        const uint32_t* raw = vertices[i].in.pos;
+        if (vertices[i].constants != constants || !ordinary(raw[0]) || !ordinary(raw[1]) || !ordinary(raw[2]) ||
+            !ordinary(raw[3]))
+            return false;
+        float v[4];
+        std::memcpy(v, raw, sizeof(v));
+        for (int c = 0; c < 4; ++c) {
+            lo[c] = v[c] < lo[c] ? v[c] : lo[c];
+            hi[c] = v[c] > hi[c] ? v[c] : hi[c];
+        }
+        any = true;
+    }
+    return true;
+#endif
+}
 } // namespace batchdetail
 
 // Working storage of batchBounds (kept by the caller across draws: no allocation per draw).
@@ -568,14 +631,17 @@ struct BoundsScratch {
         double x, y, error;
     };
     std::vector<Estimate> estimates;
-    // stripBounds: per record, whether its box could be bounded and the conservative place range; the record order.
-    struct RecordBox {
-        bool ok = false, any = false;
+    // stripBounds: per piece of a record (kBoundsPiece vertices), whether its box could be bounded and the
+    // conservative place range; the order of the pieces; each record's prepared transform.
+    struct Piece {
+        uint32_t record = 0, first = 0, end = 0;
+        bool ok = false;
         double range[4] = {};
     };
-    std::vector<RecordBox> boxes;
+    std::vector<Piece> pieces;
     std::vector<uint32_t> order;
-    uint64_t recordsSkipped = 0, recordsEstimated = 0;
+    std::vector<batchdetail::FastTransform> transforms;
+    uint64_t piecesSkipped = 0, piecesEstimated = 0;
 };
 
 inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
@@ -647,67 +713,78 @@ inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
 // The exact bounds of a batch of strip records, by the same method as batchBounds: per vertex the estimate of the
 // strip stage's place from the record's constants (one prepared transform per record), then the vertices that can
 // be an extreme evaluated exactly (the place lanes of vp::evaluate alone).
+//
+// Before any vertex is estimated, the raw positions of each piece of a record (kBoundsPiece vertices in a row) become a
+// box, and every place the piece can reach is bounded (estimateBoxFast). A piece whose range lies strictly inside the
+// limits the extremes are already known to reach cannot hold an extreme: its vertices are neither estimated nor
+// evaluated. The pieces without a range go first, then those with the outermost ranges, so the limits are tight early;
+// the extremes do not depend on the order. Pieces rather than whole records: a record of the game has about 150
+// vertices, and only the part of an outer record near the edge reaches past the limits.
+inline constexpr uint32_t kBoundsPiece = 32; // 16 and 64 measured within a few per cent of it on Surdana's batches
 inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
     if (b.batchPath || !b.indexCount)
         return {};
-    scratch.used.assign(b.vertexCount, 0);
-    for (uint32_t i = 0; i < b.indexCount; ++i)
-        if (b.indices[i] < b.vertexCount)
-            scratch.used[b.indices[i]] = 1;
+    // The vertices the triangles use: all of them when every record says so (the core's records), else looked up.
+    bool everyDrawn = true;
+    for (uint32_t r = 0; r < b.recordCount && everyDrawn; ++r)
+        everyDrawn = b.records[r].allDrawn;
+    const uint8_t* used = nullptr;
+    if (!everyDrawn) {
+        scratch.used.assign(b.vertexCount, 0);
+        for (uint32_t i = 0; i < b.indexCount; ++i)
+            if (b.indices[i] < b.vertexCount)
+                scratch.used[b.indices[i]] = 1;
+        used = scratch.used.data();
+    }
     scratch.estimates.clear();
     batchdetail::Extremes e;
-    batchdetail::PreparedPass prepared;
-    batchdetail::FastTransform fast;
     const auto evaluate = [&](uint32_t i) {
         int32_t x, y;
         batchdetail::exactStripPlace(b.constants[b.vertices[i].constants], b.vertices[i].in, x, y);
         e.add(x, y);
     };
-    // Each record's raw positions as a box, and every place it can reach (estimateBoxFast). A record whose range lies
-    // strictly inside the limits the extremes are already known to reach cannot hold an extreme: its vertices are
-    // neither estimated nor evaluated. The records with the outermost ranges (and those without a range) go first so
-    // the limits are tight early; the extremes do not depend on the order.
-    scratch.boxes.assign(b.recordCount, {});
+    // The prepared transform of every record (once), and the pieces with their boxes.
+    scratch.transforms.resize(b.recordCount);
+    scratch.pieces.clear();
     scratch.order.clear();
+    batchdetail::PreparedPass prepared;
     uint32_t outer[4] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
     for (uint32_t r = 0; r < b.recordCount; ++r) {
         const VertexProgramRecord& record = b.records[r];
         if (record.constants >= b.constantCount || record.firstVertex + record.vertexCount > b.vertexCount)
             continue;
-        auto& box = scratch.boxes[r];
-        double lo[4] = {1e300, 1e300, 1e300, 1e300}, hi[4] = {-1e300, -1e300, -1e300, -1e300};
-        bool ordinaryAll = true;
-        for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
-            if (!scratch.used[i])
+        batchdetail::FastTransform& fast = scratch.transforms[r];
+        batchdetail::prepareStrip(b.constants[record.constants], prepared);
+        batchdetail::prepareFast(prepared, fast);
+        const uint32_t end = record.firstVertex + record.vertexCount;
+        for (uint32_t first = record.firstVertex; first < end; first += kBoundsPiece) {
+            const uint32_t last = std::min(end, first + kBoundsPiece);
+            BoundsScratch::Piece piece;
+            piece.record = r;
+            piece.first = first;
+            piece.end = last;
+            float lo[4], hi[4];
+            bool any = false;
+            const bool ordinaryAll =
+                fast.usable && batchdetail::pieceBox(b.vertices, used, first, last, record.constants, lo, hi, any);
+            if (ordinaryAll && !any)
+                continue; // no vertex of the piece is drawn
+            if (ordinaryAll) {
+                // The float extremes are the double extremes (the conversion is exact and keeps the order).
+                const double dlo[4] = {lo[0], lo[1], lo[2], lo[3]}, dhi[4] = {hi[0], hi[1], hi[2], hi[3]};
+                piece.ok = batchdetail::estimateBoxFast(fast, dlo, dhi, piece.range);
+            }
+            const uint32_t at = (uint32_t)scratch.pieces.size();
+            scratch.pieces.push_back(piece);
+            if (!piece.ok) {
+                scratch.order.push_back(at);
                 continue;
-            box.any = true;
-            const uint32_t* raw = b.vertices[i].in.pos;
-            if (b.vertices[i].constants != record.constants || !batchdetail::ordinary(raw[0]) ||
-                !batchdetail::ordinary(raw[1]) || !batchdetail::ordinary(raw[2]) || !batchdetail::ordinary(raw[3])) {
-                ordinaryAll = false;
-                break;
             }
-            for (int c = 0; c < 4; ++c) {
-                const double v = batchdetail::asDouble(raw[c]);
-                lo[c] = std::min(lo[c], v);
-                hi[c] = std::max(hi[c], v);
-            }
+            for (int d = 0; d < 4; ++d)
+                if (outer[d] == UINT32_MAX || (d < 2 ? piece.range[d] < scratch.pieces[outer[d]].range[d]
+                                                     : piece.range[d] > scratch.pieces[outer[d]].range[d]))
+                    outer[d] = at;
         }
-        if (!box.any)
-            continue; // no vertex of the record is drawn
-        if (ordinaryAll) {
-            batchdetail::prepareStrip(b.constants[record.constants], prepared);
-            batchdetail::prepareFast(prepared, fast);
-            box.ok = batchdetail::estimateBoxFast(fast, lo, hi, box.range);
-        }
-        if (!box.ok) {
-            scratch.order.push_back(r);
-            continue;
-        }
-        for (int d = 0; d < 4; ++d)
-            if (outer[d] == UINT32_MAX || (d < 2 ? box.range[d] < scratch.boxes[outer[d]].range[d]
-                                                 : box.range[d] > scratch.boxes[outer[d]].range[d]))
-                outer[d] = r;
     }
     for (int d = 0; d < 4; ++d) {
         bool listed = outer[d] == UINT32_MAX;
@@ -717,23 +794,21 @@ inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
             scratch.order.push_back(outer[d]);
     }
     const size_t firstOthers = scratch.order.size();
-    for (uint32_t r = 0; r < b.recordCount; ++r)
-        if (scratch.boxes[r].ok && r != outer[0] && r != outer[1] && r != outer[2] && r != outer[3])
-            scratch.order.push_back(r);
+    for (uint32_t p = 0; p < (uint32_t)scratch.pieces.size(); ++p)
+        if (scratch.pieces[p].ok && p != outer[0] && p != outer[1] && p != outer[2] && p != outer[3])
+            scratch.order.push_back(p);
     for (size_t at = 0; at < scratch.order.size(); ++at) {
-        const uint32_t r = scratch.order[at];
-        const VertexProgramRecord& record = b.records[r];
-        const auto& box = scratch.boxes[r];
-        if (at >= firstOthers && box.ok && box.range[0] > e.lowX && box.range[1] > e.lowY && box.range[2] < e.highX &&
-            box.range[3] < e.highY) {
-            ++scratch.recordsSkipped;
+        const BoundsScratch::Piece& piece = scratch.pieces[scratch.order[at]];
+        if (at >= firstOthers && piece.range[0] > e.lowX && piece.range[1] > e.lowY && piece.range[2] < e.highX &&
+            piece.range[3] < e.highY) {
+            ++scratch.piecesSkipped;
             continue;
         }
-        ++scratch.recordsEstimated;
-        batchdetail::prepareStrip(b.constants[record.constants], prepared);
-        batchdetail::prepareFast(prepared, fast);
-        for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
-            if (!scratch.used[i])
+        ++scratch.piecesEstimated;
+        const VertexProgramRecord& record = b.records[piece.record];
+        const batchdetail::FastTransform& fast = scratch.transforms[piece.record];
+        for (uint32_t i = piece.first; i < piece.end; ++i) {
+            if (used && !used[i])
                 continue;
             double place[2], error = 0;
             if (b.vertices[i].constants != record.constants ||
@@ -742,7 +817,7 @@ inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
                 continue;
             }
             if (e.estimate(place[0], place[1], error))
-                scratch.estimates.push_back({i, 0, r, place[0], place[1], error});
+                scratch.estimates.push_back({i, 0, piece.record, place[0], place[1], error});
         }
     }
     batchdetail::finishExtremes(e, scratch.estimates, [&](const BoundsScratch::Estimate& k) { evaluate(k.vertex); });
