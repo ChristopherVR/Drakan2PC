@@ -136,11 +136,15 @@ struct Host final : CommonSettingsHost {
             else
                 ClearWindowState(FLAG_VSYNC_HINT);
         }
-        g_limit.store(std::max(0, n.frameLimit));
+        // frame_limit = auto: the monitor refresh while vsync is off, no cap with vsync on.
+        const int limit = n.frameLimit != dsettings::kFrameLimitAuto ? std::max(0, n.frameLimit)
+                          : n.vsync                                  ? 0
+                                    : std::max(0, GetMonitorRefreshRate(GetCurrentMonitor()));
+        g_limit.store(limit);
         g_sharp = n.sharpPresent;
         gs_cpu::setFlickerFilter(n.flickerFilter);
         applyCommonVideo(n, p);
-        SetTargetFPS(std::max(0, n.frameLimit));
+        SetTargetFPS(limit);
         return {};
     }
     void reloadBindings(const std::string& path) override { drakanPortableReloadControls(path); }

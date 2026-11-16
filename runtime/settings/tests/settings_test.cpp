@@ -272,7 +272,7 @@ static void testWorldRate() {
     CHECK_EQ(st.defaults().video.worldRate, 0);
     CHECK(HostCaps{}.restartKeys.count("video.world_rate") == 1);
     CHECK_EQ(settingLabel("video.world_rate"), "World frame rate");
-    CHECK_EQ(settingLabel("video.frame_limit"), "Presentation limiter");
+    CHECK_EQ(settingLabel("video.frame_limit"), "Frame rate limit");
     auto rateText = [](int rate) { return rate == 0 ? std::string("uncapped") : std::to_string(rate); };
     for (int rate : {30, 60, 0}) {
         const std::string text =

@@ -2,8 +2,8 @@
 #include <atomic>
 #include <cstdint>
 
-// Refresh period of the display while presentation is vsync-locked, 0 otherwise. Written by the GS bridge's host loop
-// (gs_gsr_bridge.cpp), read by the engine tick hook (drakan_frame_rate.h).
+// Refresh period of the display while presentation is vsync-locked or paced to it by frame_limit = auto, 0 otherwise.
+// Written by the GS bridge's host loop (gs_gsr_bridge.cpp), read by the engine tick hook (drakan_frame_rate.h).
 namespace drakan_present_clock {
 inline std::atomic<double> g_lockedRefresh{0.0};
 // Advanced once per guest frame by the input boundary (drakan_input_glue.cpp); the stall detector in ps2_runtime.cpp

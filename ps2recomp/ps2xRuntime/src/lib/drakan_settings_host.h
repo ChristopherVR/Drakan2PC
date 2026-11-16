@@ -50,7 +50,7 @@ bool isOpen();      // thread safe; true while the overlay is shown (game thread
 void requestOpen(); // thread safe; opens the overlay at the next present
 // Thread safe; opens the overlay at the next present on its Controls page (the modern pause menu's Key Bindings).
 void requestOpenControls();
-int frameLimit(); // fps cap for the host loop, 0 = off
+int frameLimit(); // fps cap for the host loop, 0 = off, -1 = auto (the display refresh while vsync is off)
 // Bind the current game's title art now (thread safe). The game thread calls it right after a game is chosen, so the
 // native title never draws a frame with the previous game's art before the overlay's per-present sync.
 void syncTitleBackdropNow();

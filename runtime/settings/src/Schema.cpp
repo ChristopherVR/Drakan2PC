@@ -239,15 +239,24 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
              "Takes effect after a restart.",
              {{"uncapped", "Uncapped (default)"}, {"60", "Capped (up to 60 FPS)"}, {"30", "Original (30 FPS)"}}, true);
     b.toggle("video.vsync", "VSync",
-             "Synchronise presentation with the monitor refresh. Off gives the lowest latency but can tear.");
+             "Shows each frame in step with the monitor refresh: even motion, no tearing and less processor time "
+             "(recommended). Off shows frames as soon as they are ready, slightly sooner, but the picture can tear.");
     {
-        SettingRow& r = b.row("video.frame_limit", SettingKind::Choice, "Presentation limiter",
-                              "Caps presented frames per second (useful with VSync off). Off means no presentation "
-                              "cap. This does not raise the world update rate; use World frame rate to change it.",
+        const std::string display =
+            mon.refreshHz > 0 ? fmtc("Match the display (%d Hz)", mon.refreshHz) : std::string("Match the display");
+        SettingRow& r = b.row("video.frame_limit", SettingKind::Choice, "Frame rate limit",
+                              "The most frames shown per second. Match the display (recommended) shows at most one "
+                              "frame per monitor refresh while VSync is off, for even motion and much less processor "
+                              "time; with VSync on, VSync already does this. Off lets the game draw as fast as it can, "
+                              "which keeps the processor busy and shows uneven, torn frames on most monitors. This "
+                              "does not change the speed of the game.",
                               false, caps.frameLimiter);
+        r.choices.push_back({"auto", display, true});
         for (int f : {0, 30, 50, 60, 72, 90, 100, 120, 144, 165, 240})
             r.choices.push_back({std::to_string(f), f == 0 ? std::string("Off") : fmtc("%d fps", f), true});
-        r.currentLabel = v.frameLimit == 0 ? std::string("Off") : fmtc("%d fps", v.frameLimit);
+        r.currentLabel = v.frameLimit == kFrameLimitAuto ? display
+                         : v.frameLimit == 0             ? std::string("Off")
+                                                         : fmtc("%d fps", v.frameLimit);
         Builder::select(r);
     }
     {

@@ -23,6 +23,9 @@ enum class PauseMenu { Native, Modern };             // ini [general] pause_menu
 enum class SaveMenu { Native, Modern };              // ini [general] save_menu = native | modern
 enum class TitleMenu { Native, Modern };             // ini [general] title_menu = native | modern
 
+// [video] frame_limit = auto: VideoSettings::frameLimit holds this value.
+inline constexpr int kFrameLimitAuto = -1;
+
 struct VideoSettings {
     // ---- keys that exist in drakan.ini today ----
     WindowMode windowMode = WindowMode::Windowed; // fullscreen=0/1 (+ window_mode, see README)
@@ -39,9 +42,11 @@ struct VideoSettings {
     // ---- new keys (added to drakan.ini by this library; the runtime owner / gs owner consumes them) ----
     int worldRate = 0;               // world_rate: 0 = uncapped (default), 30 original, 60 capped (restart required)
     std::string renderer = "webgpu"; // renderer: webgpu (default) | vulkan | d3d11 (Windows) | sw (restart required)
-    int frameLimit = 0;              // frame_limit: presentation fps cap, 0 = off; does not raise world update rate
-    int anisotropic = 16;            // anisotropic: 1 (off) 2 4 8 16
-    int textureUpscale = 0;          // texture_upscale: 0 (auto) 1 (off) 2 4
+    // frame_limit: presentation fps cap, 0 = off, kFrameLimitAuto (ini "auto", the default) = the display refresh while
+    // vsync is off and no cap with vsync on; does not raise the world update rate
+    int frameLimit = kFrameLimitAuto;
+    int anisotropic = 16;                         // anisotropic: 1 (off) 2 4 8 16
+    int textureUpscale = 0;                       // texture_upscale: 0 (auto) 1 (off) 2 4
     std::string textureUpscaleFilter = "default"; // texture_upscale_filter: names come from HostCaps
     float mipBias = 0.0f;                         // mip_bias: numeric override, -2..+2 in the menu
     bool mipBiasAuto = true;                      // mip_bias = auto: renderer follows the internal resolution

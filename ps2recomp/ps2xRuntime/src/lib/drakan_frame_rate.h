@@ -517,7 +517,8 @@ inline void install(PS2Runtime& rt) {
         layerSpeedOriginal = rt.lookupFunction(0x450cf0u);
         rt.replaceFunction(0x450cf0u, layerSpeedHook);
     }
-    // Smooth tick time unless DRAKAN_TICK_SNAP=0 (any cadence: snapping only acts while presents are vsync-locked).
+    // Smooth tick time unless DRAKAN_TICK_SNAP=0 (any cadence: snapping only acts while presents are vsync-locked or
+    // paced by frame_limit = auto).
     if (drakan_cfg::getBool("video", "tick_snap", "DRAKAN_TICK_SNAP", true) && rt.hasFunction(0x1c3028u)) {
         tickTimeOriginal = rt.lookupFunction(0x1c3028u);
         rt.replaceFunction(0x1c3028u, tickTimeHook);

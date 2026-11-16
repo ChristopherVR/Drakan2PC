@@ -29,6 +29,7 @@
 #include "drakan_tab_preview_policy.h"
 #include "drakan_map_preview_policy.h"
 #include "drakan_title_picture_policy.h"
+#include "gs/gs_frame_limit.h"
 
 #include <gsr/gsr.h>
 #include <spu2/AudioOutput.h>
@@ -100,6 +101,7 @@ std::atomic<bool> g_openMods{false};     // the next open shows the Mods page (t
 std::atomic<bool> g_modsNotice{false};   // the title shows the new packs card in this run (sticky)
 bool g_modsNoticeDone = false;           // it was shown and answered / closed (overlay thread)
 std::atomic<int> g_frameLimit{0};
+static_assert(dsettings::kFrameLimitAuto == drakan_pacing::kFrameLimitAuto, "frame_limit = auto has one value");
 std::atomic<spu2::AudioOutput*> g_audio{nullptr};
 gsr::Renderer* g_gs = nullptr;
 void* g_parent = nullptr; // the game window (drakan_window)
@@ -2956,7 +2958,7 @@ struct DrakanSettingsHost final : CommonSettingsHost {
             return r;
         if (n.vsync != p.vsync)
             g_gs->setVsync(n.vsync);
-        g_frameLimit.store(std::max(0, n.frameLimit));
+        g_frameLimit.store(n.frameLimit == dsettings::kFrameLimitAuto ? n.frameLimit : std::max(0, n.frameLimit));
         if (n.windowMode != p.windowMode && g_ops.requestFullscreen)
             g_ops.requestFullscreen(g_ops.ctx, n.windowMode != WindowMode::Windowed);
         if (n.windowMode == WindowMode::Windowed &&
@@ -3418,7 +3420,13 @@ void attachRenderer(gsr::Renderer* gs, void* parentHwnd, const WindowOps& ops) {
                           drakan_cfg::getBool("video", "ray_gi", "GSR_RAY_GI", false));
     g_parent = parentHwnd;
     g_ops = ops;
-    g_frameLimit.store(std::max(0, drakan_cfg::getInt("video", "frame_limit", "DRAKAN_FRAME_LIMIT", 0)));
+    {
+        // auto (the default) = the display refresh while vsync is off; 0 = off; a number = that many fps.
+        const std::string fl = drakan_cfg::getString("video", "frame_limit", "DRAKAN_FRAME_LIMIT", nullptr);
+        g_frameLimit.store(fl.empty() || drakan_cfg::compareNoCase(fl.c_str(), "auto") == 0
+                               ? dsettings::kFrameLimitAuto
+                               : std::max(0, std::atoi(fl.c_str())));
+    }
     gs->setOverlayCallback(&overlayCallback);
 }
 

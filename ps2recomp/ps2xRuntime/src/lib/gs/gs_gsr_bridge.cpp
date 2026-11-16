@@ -17,6 +17,7 @@
 #include "gs_vblank_handoff.h"
 #include "gs_frame_activity.h"
 #include "gs_precise_sleep.h"
+#include "gs_frame_limit.h"
 #define GSR_BATCH_DEFINE 1
 #include "gs_gsr_batch.h"
 
@@ -1519,12 +1520,15 @@ void GsrBridge::hostTick() {
     }
     // Pace outside renderer locks: a wait under them would starve GIF processing for most of each refresh interval
     // (Renderer::waitForPresent releases the renderer lock while it waits). Present honors the requested vsync setting.
-    const int limit = drakan_settings_host::frameLimit();
     s.vsync = s.gs->vsyncEnabled();
+    // frame_limit: 0 = off, a rate, or auto (the display refresh while vsync is off; nothing with vsync on).
+    const auto limitPeriod =
+        drakan_pacing::limiterPeriod(drakan_settings_host::frameLimit(), s.vsync, s.refreshSeconds);
+    const bool limited = limitPeriod.count() > 0;
     const auto dbgT0 = std::chrono::steady_clock::now();
     if (drakan_pacing::wakeOnNeuralLatch(s.completionDriven.load(std::memory_order_acquire) ||
                                              drakan_dlss::neuralRequested(),
-                                         drakan_settings_host::isOpen(), limit)) {
+                                         drakan_settings_host::isOpen(), limited ? 1 : 0)) {
         // Native completions and neural handoffs wake the host. Do not add an
         // unconditional timer interval after a completed frame: wake on its
         // publication, outside renderer locks. Timeout keeps messages pumping.
@@ -1533,7 +1537,8 @@ void GsrBridge::hostTick() {
                              [&] { return s.latchProgress.pending() || s.stopPresentHandoff.load(); });
         s.nextFrame = std::chrono::steady_clock::now();
     } else {
-        s.nextFrame += std::chrono::microseconds(limit > 0 ? 1000000 / std::max(limit, 1) : 16667);
+        s.nextFrame += limited ? std::chrono::duration_cast<std::chrono::steady_clock::duration>(limitPeriod)
+                               : std::chrono::steady_clock::duration(std::chrono::microseconds(16667));
         const auto now = std::chrono::steady_clock::now();
         if (s.nextFrame < now)
             s.nextFrame = now;
@@ -1544,7 +1549,7 @@ void GsrBridge::hostTick() {
     // Once the cap deadline has passed, wake on the next completed image.
     // Polling only at cap intervals rounds a slightly late frame up to another
     // whole interval while its producer waits for our acknowledgement.
-    if (limit > 0 && !drakan_settings_host::isOpen() &&
+    if (limited && !drakan_settings_host::isOpen() &&
         (s.completionDriven.load(std::memory_order_acquire) || drakan_dlss::neuralRequested())) {
         std::unique_lock<std::mutex> lock = s.lockProducer();
         s.presentCv.wait_for(lock, std::chrono::microseconds(16667),
@@ -1564,8 +1569,14 @@ void GsrBridge::hostTick() {
             std::fprintf(stderr, "[gsr] display refresh %.4f Hz\n", refresh > 0 ? 1.0 / refresh : 0.0);
         s.refreshSeconds = refresh;
     }
-    // Shown frames last whole refreshes: the engine tick hook (drakan_frame_rate.h) advances the world to match.
-    drakan_present_clock::g_lockedRefresh.store(vsyncLocked ? s.refreshSeconds : 0.0, std::memory_order_relaxed);
+    // Shown frames last whole refreshes: the engine tick hook (drakan_frame_rate.h) advances the world to match. The
+    // same holds for frame_limit = auto with vsync off, which presents once per refresh period of its own clock.
+    const bool autoPaced =
+        !vsyncLocked && limited && drakan_settings_host::frameLimit() == drakan_pacing::kFrameLimitAuto;
+    drakan_present_clock::g_lockedRefresh.store(vsyncLocked ? s.refreshSeconds
+                                                : autoPaced ? std::chrono::duration<double>(limitPeriod).count()
+                                                            : 0.0,
+                                                std::memory_order_relaxed);
     const auto dbgT1 = std::chrono::steady_clock::now();
     s.tickWindow();
     if (frameTraceEnabled())

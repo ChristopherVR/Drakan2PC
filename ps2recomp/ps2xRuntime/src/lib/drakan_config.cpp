@@ -132,7 +132,10 @@ const Entry kEntries[] = {
     {"video", "window_height", "960", ""},
     {"video", "fullscreen", "0",
      "1 = start in borderless fullscreen; Alt+Enter or F11 toggles at runtime (env DRAKAN_FULLSCREEN)"},
-    {"video", "vsync", "1", "1 = synchronise presentation with the display refresh (env DRAKAN_VSYNC)"},
+    {"video", "vsync", "1",
+     "1 = show each frame in step with the display refresh (even motion, no tearing, low processor use; with "
+     "tick_snap the world moves by whole refreshes); 0 = show frames as soon as they are ready (can tear; see "
+     "frame_limit) (env DRAKAN_VSYNC)"},
     {"video", "filter", "game",
      "texture filtering: game = as the TEX1 register of each draw asks, point = force nearest, bilinear = force linear "
      "(env DRAKAN_FILTER)"},
@@ -150,14 +153,16 @@ const Entry kEntries[] = {
      "load, GPU); F2 cycles it in game (env DRAKAN_SHOW_FPS)"},
     {"video", "fps_position", "top-left",
      "corner of the FPS counter: top-left | top-right | bottom-left | bottom-right (env DRAKAN_FPS_POSITION)"},
-    {"video", "frame_limit", "0",
-     "cap of the presented frame rate in fps, 0 = off (the game runs at its own pace; only useful with vsync off)"},
+    {"video", "frame_limit", "auto",
+     "most frames shown per second: auto = one per display refresh while vsync is off, nothing more with vsync on "
+     "(even motion, low processor use) | 0 = off (the game draws as fast as it can: high processor use, uneven torn "
+     "frames with vsync off) | 30 .. 240 = that many; does not change the game's speed (env DRAKAN_FRAME_LIMIT)"},
     {"video", "world_rate", "uncapped",
      "uncapped = default (no fixed world FPS limit), 60 = up to 60 FPS, 30 = original cadence; CPU optimizations apply "
      "to all modes; restart required (env DRAKAN_WORLD_RATE)"},
     {"video", "tick_snap", "1",
-     "1 = with vsync, advance the world by whole display refreshes per frame (smooth motion; total game time "
-     "unchanged); restart required (env DRAKAN_TICK_SNAP)"},
+     "1 = with vsync or frame_limit = auto, advance the world by whole display refreshes per frame (smooth motion; "
+     "total game time unchanged); restart required (env DRAKAN_TICK_SNAP)"},
     {"video", "frame_queue", "0",
      "experimental: 1 = the game's per-frame picture read-back and its display commits no longer stop the game "
      "thread (steadier frame times; the game sees that small read-back picture one frame late); 0 = original; "

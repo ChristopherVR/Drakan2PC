@@ -381,8 +381,20 @@ const std::vector<Field>& fields() {
          },
          "world updates: uncapped (default, no fixed upper limit), 60 (up to 60 FPS), or 30 (original cadence); "
          "restart required"},
-        {"video", "frame_limit", false, GETI(video.frameLimit), SETI(video.frameLimit),
-         "presentation frame rate cap in fps, 0 = off; does not raise the world update rate"},
+        {"video", "frame_limit", false,
+         [](const Settings& s) {
+             return s.video.frameLimit == kFrameLimitAuto ? std::string("auto") : std::to_string(s.video.frameLimit);
+         },
+         [](Settings& s, const std::string& v) {
+             int n;
+             const std::string u = lower(trim(v));
+             if (u.empty() || u == "auto")
+                 s.video.frameLimit = kFrameLimitAuto;
+             else if (s2i(u, n))
+                 s.video.frameLimit = std::max(0, n);
+         },
+         "presentation frame rate cap: auto = the display refresh while vsync is off (no cap with vsync on), 0 = off, "
+         "or frames per second; does not raise the world update rate"},
         {"video", "anisotropic", false, GETI(video.anisotropic), SETI(video.anisotropic),
          "anisotropic filtering: 1 (off), 2, 4, 8, 16"},
         {"video", "texture_upscale", false,
@@ -880,7 +892,7 @@ std::string settingLabel(const std::string& key) {
         {"video.flicker_filter", "Flicker filter"},
         {"video.sharp_present", "Sharp scaling"},
         {"video.world_rate", "World frame rate"},
-        {"video.frame_limit", "Presentation limiter"},
+        {"video.frame_limit", "Frame rate limit"},
         {"video.show_fps", "FPS counter"},
         {"video.fps_position", "FPS counter position"},
         {"video.anisotropic", "Anisotropic filtering"},
