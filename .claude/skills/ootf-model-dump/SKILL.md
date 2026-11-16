@@ -52,6 +52,23 @@ Format facts the script relies on (all in `src/ootfmodel.ts`, `src/ootfanim.ts`,
 * A texture reference with `db != 0` lives in another container (`resolveContainer` in `ootfassets.ts`). The script
   reports it and skips it.
 
+### Drakan 2 (PS2 disc) models for comparison
+
+`scripts/dump-ps2-model.ts` writes the same files, straight from the ISO:
+
+```sh
+node --experimental-transform-types --no-warnings scripts/dump-ps2-model.ts \
+  --iso "C:/Games/Drakan - The Ancients Gates/Drakan - The Ancients' Gates.iso" --container ENGLISH/COMMON/NPC/NPCS --list
+node --experimental-transform-types --no-warnings scripts/dump-ps2-model.ts --iso <iso> \
+  --container ENGLISH/COMMON/NPC/NPCS --out ../../../build/d2-style/dump MediumGuy 5056   # name, id or ODB class
+```
+
+PS2 humans are about 0.41 units tall; `--height` handles that. Do not flip the PS2 UV v (the script writes v as
+stored). Textures from other containers are found through the MOD's `.DB`. Any new model must match the D2 style:
+see `docs/proposals/ootf-new-models.md` section 2 (about 2,000 to 2,600 triangles, a 450 to 500 triangle head, a
+128x128 face texture plus two 256x256 atlases at 8 bpp with painted shading, and the 57-joint villager rig with
+`Jaw`, `eyelids` and `eyebrows`).
+
 ## 3. Open it in Blender
 
 Blender: `winget install BlenderFoundation.Blender`. The executable is

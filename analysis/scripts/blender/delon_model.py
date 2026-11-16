@@ -176,9 +176,9 @@ def eye_mat():
     cr.elements[0].position = 0.80
     cr.elements[0].color = (0.85, 0.82, 0.78, 1)  # sclera
     cr.elements[1].position = 0.83
-    cr.elements[1].color = (0.20, 0.13, 0.07, 1)  # iris edge
+    cr.elements[1].color = (0.06, 0.12, 0.07, 1)  # iris edge
     e = cr.elements.new(0.92)
-    e.color = (0.38, 0.25, 0.12, 1)  # hazel iris
+    e.color = (0.16, 0.34, 0.16, 1)  # green iris, as the 1999 face texture
     e = cr.elements.new(0.945)
     e.color = (0.02, 0.015, 0.01, 1)  # pupil
     nt.links.new(neg.outputs[0], ramp.inputs["Fac"])
@@ -221,8 +221,8 @@ def build_materials():
     principled_mat("shoe", (0.035, 0.022, 0.015), rough=0.45, spec=0.5, vary=0.12, bump=80)
     principled_mat("belt", (0.065, 0.036, 0.018), rough=0.5, spec=0.5, vary=0.1, bump=80)
     principled_mat("metal", (0.62, 0.42, 0.17), rough=0.35, spec=0.8)
-    principled_mat("hair", (0.045, 0.028, 0.018), rough=0.42, spec=0.6, vary=0.25)
-    principled_mat("brow", (0.04, 0.025, 0.016), rough=0.6)
+    principled_mat("hair", (0.022, 0.015, 0.011), rough=0.45, spec=0.5, vary=0.3)
+    principled_mat("brow", (0.02, 0.014, 0.01), rough=0.6)
     principled_mat("lid", (0.46, 0.27, 0.20), rough=0.5, sss=0.2)
     eye_mat()
     if "Metallic" in MATS["metal"].node_tree.nodes["Principled BSDF"].inputs:
@@ -581,7 +581,7 @@ def cord_curve(name, pts, radius, mat, radii=None):
 # ---------------------------------------------------------------------------- head
 
 HEAD_C = Vector((0.0, 0.010, 1.607))
-HEAD_S = Vector((0.082, 0.102, 0.116))
+HEAD_S = Vector((0.087, 0.102, 0.112))  # broad, short face like the 1999 head
 
 
 def h2w(p):
@@ -595,7 +595,7 @@ def shape_head(u):
         y *= 1.0 + 0.06 * smoothstep(-0.2, 0.6, z)
     # jaw and lower head taper
     t = smoothstep(0.05, -0.95, z)
-    x *= 1.0 - 0.15 * t
+    x *= 1.0 - 0.07 * t
     if y > 0:
         y *= 1.0 - 0.42 * t
     else:
@@ -607,7 +607,7 @@ def shape_head(u):
     d = 0.0
     # nose: bridge to tip, widening at the base
     if -0.42 < z < 0.3:
-        a = 0.015 + 0.14 * smoothstep(0.16, -0.20, z)
+        a = 0.015 + 0.10 * smoothstep(0.16, -0.20, z)
         a *= smoothstep(-0.40, -0.25, z)
         w = 0.075 + 0.07 * smoothstep(0.0, -0.3, z)
         d += a * math.exp(-((x / w) ** 2))
@@ -623,7 +623,9 @@ def shape_head(u):
     d += 0.032 * gauss(p, (0.0, -0.95, -0.50), (0.14, 1, 0.040))  # lower lip
     d -= 0.030 * gauss(p, (0.0, -0.95, -0.452), (0.17, 1, 0.012))  # mouth line
     d -= 0.020 * gauss(p, (0.0, -0.95, -0.335), (0.04, 1, 0.04))  # philtrum
-    d += 0.04 * gauss(p, (0.0, -0.85, -0.74), (0.22, 1, 0.12))  # chin
+    d += 0.045 * gauss(p, (0.0, -0.85, -0.76), (0.32, 1, 0.12))  # broad, square chin
+    for sx in (-1, 1):  # jaw corners
+        x += sx * 0.06 * gauss((x, y, z), (0.72 * sx, -0.1, -0.62), (0.2, 0.35, 0.16))
     y -= d * front
     return Vector((x, y, z))
 
@@ -774,13 +776,13 @@ def build_hair():
         frontness = math.cos(phi)  # 1 at the front
         side = abs(math.sin(phi))
         if frontness > 0.55:  # fringe: swept from a parting on his right, ends at mid-forehead to the brow
-            theta1 = rnd.uniform(0.95, 1.22) - 0.10 * side
+            theta1 = rnd.uniform(1.18, 1.42) - 0.08 * side  # strands hang to the eyes
             dphi = -0.35 * (0.6 + 0.4 * rnd.random()) + 0.15 * math.sin(phi)
         elif frontness > -0.25:  # sides: down over the top half of the ears
-            theta1 = rnd.uniform(1.40, 1.62)
+            theta1 = rnd.uniform(1.80, 2.05)  # over the ears to the jaw
             dphi = rnd.uniform(-0.06, 0.06) - 0.10 * frontness * math.copysign(1, math.sin(phi))
         else:  # back: tapered to the nape
-            theta1 = rnd.uniform(1.85, 2.10)
+            theta1 = rnd.uniform(2.05, 2.30)
             dphi = rnd.uniform(-0.08, 0.08)
         k = 7
         pts, radii = [], []

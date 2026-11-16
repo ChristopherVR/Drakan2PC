@@ -55,3 +55,16 @@ Seen in the renders:
   time, then checked in game against the PC clips (`1_1walktalk`, the walk).
 * **L/R:** the PC `R*` joints sit on +X in the dump. Whether that is the character's right was not checked
   (mirror question).
+
+## Head review, second pass
+
+Owner: the head looks different. Compared at the same camera with the 1999 head (`build/delon-model/ref/pc_face*.png`):
+* Shape: the 1999 face is broad and short with a square jaw and chin. Mine was a long egg with a pointed chin and a
+  large nose.
+* Hair: near-black, hanging to the eyes and over the ears to the jaw. Mine was a short brown cap.
+* Eyes: green.
+* Detail: brows, eyes and lips are painted in a photo-like face texture. Mine were geometry.
+
+The second pass changes the face shape, the hair and the eye colour (`build/delon-model/v2/`). The remaining gap is
+the method: D2 humans are low poly with painted textures. The plan for that, measured on 7 D2 humans, and the
+inventory of OotF models without a D2 equivalent are in `docs/proposals/ootf-new-models.md`.

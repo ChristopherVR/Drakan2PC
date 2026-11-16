@@ -1,13 +1,16 @@
 """Import a model dumped by editor/packages/formats/scripts/dump-pc-model.ts into Blender, rigged and textured.
 
     blender -b --factory-startup -P analysis/scripts/blender/import_pc_model.py -- \
-        build/pcmodels/Delon_h.obj [--height 1.72] [--save out.blend] [--render out_prefix]
+        build/pcmodels/Delon_h.obj [--height 1.72] [--save out.blend] [--render out_prefix] [--face] [--unlit]
 
 Without -b it opens the result in the Blender UI. The OBJ is read directly (not through Blender's OBJ importer) so the
 axis change is explicit: PC game space is Y up, left handed; Blender is Z up, right handed, so (x, y, z) -> (x, z, y).
 The model is scaled so its bind pose is --height metres tall (PC character units are about 1/5 m). If <name>.skeleton.json
 sits next to the OBJ, an armature is built from it (joint names as in the game, bind pose from the inverse bind matrices)
-and the LOD 0 weights become vertex groups. Inputs are game data: keep them and anything saved from them under build/.
+and the LOD 0 weights become vertex groups. --face adds head close-ups (front, three-quarter, side) to --render; --unlit
+renders the textures flat (no scene lighting), to judge what is painted into them. PS2 dumps (dump-ps2-model.ts) open
+the same way: same axes, but PS2 humans are about 0.4 units tall, so keep --height (or 0 for raw units).
+Inputs are game data: keep them and anything saved from them under build/.
 """
 
 import argparse
@@ -27,6 +30,10 @@ def parse_args():
     ap.add_argument("--save", type=Path)
     ap.add_argument("--render", help="render front/side/3-4 views to <prefix>_<view>.png")
     ap.add_argument("--clear", action="store_true", help="start from an empty scene")
+    ap.add_argument(
+        "--face", action="store_true", help="with --render: also render head close-ups (<prefix>_face_<view>.png)"
+    )
+    ap.add_argument("--unlit", action="store_true", help="with --render: flat texture colour, no lighting (Workbench)")
     return ap.parse_args(argv)
 
 
@@ -161,13 +168,18 @@ def build_rig(obj, path, S, nverts):
     return rig
 
 
-def render(prefix, obj):
+def render(prefix, obj, face=False, unlit=False):
     sc = bpy.context.scene
-    sc.render.engine = (
-        "BLENDER_EEVEE"
-        if "BLENDER_EEVEE" in {e.identifier for e in sc.render.bl_rna.properties["engine"].enum_items}
-        else "CYCLES"
-    )
+    if unlit:
+        sc.render.engine = "BLENDER_WORKBENCH"
+        sc.display.shading.light = "FLAT"
+        sc.display.shading.color_type = "TEXTURE"
+    else:
+        sc.render.engine = (
+            "BLENDER_EEVEE"
+            if "BLENDER_EEVEE" in {e.identifier for e in sc.render.bl_rna.properties["engine"].enum_items}
+            else "CYCLES"
+        )
     sc.render.resolution_x, sc.render.resolution_y = 800, 1000
     if not sc.world:
         sc.world = bpy.data.worlds.new("w")
@@ -185,13 +197,23 @@ def render(prefix, obj):
     h = max(v.co.z for v in obj.data.vertices) * obj.matrix_world.to_scale().z
     import math
 
-    for view, az in (("front", 0), ("threequarter", -35), ("side", -90)):
+    views = [("", az, h * 0.5, h * 2.7, h * 0.55) for az in (0, -35, -90)]
+    if face:
+        # head: centre of the vertices in the top 13 % of the bind pose (the T pose arms sit lower)
+        ws = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        top = [p for p in ws if p.z >= h * 0.87]
+        c = sum(top, Vector()) / len(top)
+        views += [("face_", az, c.z, h * 0.42, c.z) for az in (0, -35, -90)]
+    else:
+        c = Vector()
+    names = {0: "front", -35: "threequarter", -90: "side"}
+    for pre, az, aim, d, cz in views:
         a = math.radians(az)
-        d = h * 2.7
-        cam.location = (-d * math.sin(a), -d * math.cos(a), h * 0.55)
-        cam.rotation_euler = (Vector((0, 0, h * 0.5)) - cam.location).to_track_quat("-Z", "Y").to_euler()
+        ox, oy = (c.x, c.y) if pre else (0.0, 0.0)
+        cam.location = (ox - d * math.sin(a), oy - d * math.cos(a), cz)
+        cam.rotation_euler = (Vector((ox, oy, aim)) - cam.location).to_track_quat("-Z", "Y").to_euler()
         cam.data.lens = 70
-        sc.render.filepath = f"{prefix}_{view}.png"
+        sc.render.filepath = f"{prefix}_{pre}{names[az]}.png"
         bpy.ops.render.render(write_still=True)
 
 
@@ -202,4 +224,4 @@ if __name__ == "__main__":
     if a.save:
         bpy.ops.wm.save_as_mainfile(filepath=str(a.save.resolve()))
     if a.render:
-        render(str(Path(a.render).resolve()), o)
+        render(str(Path(a.render).resolve()), o, a.face, a.unlit)
