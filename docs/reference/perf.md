@@ -848,3 +848,17 @@ strip batches give about 78 % of the appended frame triangles in Surdana. Owner'
 frame -21 % (VU1 worker 5.4 to 3.6 ms, GS worker 5.2 to 3.8 ms), better 1 % and 0.1 % lows, but frame time +6 % (8.43
 to 8.90 ms): the frame is GPU-bound and the path adds about 0.5 ms of GPU work (kernel, stream-out pass, BLAS build).
 Off by default. Details and what remains: [journal](../journal/2026-11-17/gpu-water.md).
+
+## Anisotropic filter on the texture unit (2026-11-17)
+
+`hardware_texture_filter` (default 1, live; env `GSR_HW_FILTER`) hands every bilinear lookup of the GS texture filter,
+and so every anisotropic tap, to the texture unit (one `SampleLevel` instead of four `Load`s with the wrap arithmetic).
+Tap count, positions, levels and the trilinear blend stay in the shader; REPEAT is the sampler's wrap, CLAMP and
+REGION_CLAMP are a clamp of the position, REGION_REPEAT keeps the old lookups. Picture: replay of both shaders on the
+same captured frames at scale 8, mean abs 0.004 to 0.010, p99.99 1, ground at grazing angles at most 1 apart; the only
+larger differences are single alpha-test flips in foliage. GPU: a full 5120x4096 oblique ground plane 3.47 to 1.68 ms
+(anisotropic overhead 2.13 to 0.60 ms); in the game, GPU busy per frame at a 60 fps cap 9.19 to 7.80 ms in Surdana and
+15.31 to 13.16 ms in Wartok Canyons (-15 %, -14 %). Paired taps, one-level taps and the hardware anisotropic sampler
+were measured and dropped (no gain, or a different picture). Uncapped frame time could not be measured GPU-bound that
+day (presentation through Remote Desktop and the integrated GPU). Details:
+[journal](../journal/2026-11-17/perf-aniso-filter.md).
