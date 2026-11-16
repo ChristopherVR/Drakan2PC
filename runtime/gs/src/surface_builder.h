@@ -536,6 +536,7 @@ struct PendingDraws {
         uint32_t check = 0; // GSR_VERTEX_SURFACE_VERIFY: first of the CPU evaluation in `checks` (gpu draws)
     };
     std::vector<Draw> draws;
+    std::vector<Draw> carried; // GSR_VERTEX_SURFACE=late: streamed draws of the previous world, waiting for its copy
     std::vector<DrawVertex> vertices, checks, scratch;
     uint64_t streamed = 0, compared = 0, differing = 0, flushes = 0;
     bool empty() const { return draws.empty(); }

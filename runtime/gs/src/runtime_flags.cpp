@@ -48,6 +48,8 @@ RuntimeFlags parse() {
     // modern water / ray tracing
     f.modernWater = setAndNotZero("GSR_MODERN_WATER");
     f.vertexSurfaceStream = setAndNotZero("GSR_VERTEX_SURFACE");
+    if (const char* v = env("GSR_VERTEX_SURFACE"))
+        f.vertexSurfaceLate = std::strcmp(v, "late") == 0;
     f.vertexSurfaceVerify = present("GSR_VERTEX_SURFACE_VERIFY");
     f.rayReflections = setAndNotZero("GSR_RAY_REFLECTIONS");
     f.rayShadows = setAndNotZero("GSR_RAY_SHADOWS");

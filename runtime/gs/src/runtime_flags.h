@@ -37,6 +37,10 @@ struct RuntimeFlags {
     // Surdana at 3840x2160 scale 8 went from 8.4 to 16.2 ms a frame, at scale 2 from 6.6 to 9.1 ms
     // (docs/journal/2026-11-16/perf-cpu-jitter.md). Off: those records stay in the VU1 microprogram.
     bool vertexSurfaceStream = false;
+    // GSR_VERTEX_SURFACE=late (test only, not exact): the stream of a world is copied back at its end and mapped at the
+    // end of the next world, so nothing waits for the GPU; its triangles join the next world's surface list (one world
+    // late for anything that moved).
+    bool vertexSurfaceLate = false;
     // GSR_VERTEX_SURFACE_VERIFY: presence. Every streamed-out surface vertex is also evaluated on the CPU and compared
     // bit for bit (counts in the `[gsr] vertex surfaces` line); the CPU values are submitted.
     bool vertexSurfaceVerify = false;

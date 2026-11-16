@@ -494,7 +494,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     // The reconstructed triangles and the resident material projections are complete once the builder drained.
     {
         CpuProfile::Scope drainStage(cpuProfile, CpuProfile::SurfaceDrain);
-        drainSurfaces(&cpuProfile);
+        drainSurfaces(&cpuProfile, true);
     }
     static const bool surfaceHash = std::getenv("GSR_SURFACE_HASH") != nullptr;
     if (surfaceHash && rt.surface.epoch == motionEpoch) {

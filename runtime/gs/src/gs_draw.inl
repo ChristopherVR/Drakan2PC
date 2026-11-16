@@ -1561,9 +1561,62 @@ void GSR_IMPL::flushSurfaces() {
     p.draws.swap(draws);
 }
 
-void GSR_IMPL::drainSurfaces(CpuProfile* profile) {
+void GSR_IMPL::drainSurfaces(CpuProfile* profile, bool worldEnd) {
+    if constexpr (kCaps.programSurfaces)
+        if (worldEnd && runtimeFlags().vertexSurfaceLate) {
+            flushLateSurfaces();
+            surfaceBuilder->drain(profile);
+            return;
+        }
     flushSurfaces();
     surfaceBuilder->drain(profile);
+}
+
+// GSR_VERTEX_SURFACE=late (test only, not exact): at a world's end the streamed draws of the previous world are
+// submitted from the copy taken then (the GPU finished it a world ago), into this world's list of the same target;
+// this world's ordinary draws are submitted now and its streamed draws wait for the next world, behind a copy taken
+// now. Nothing waits for the GPU. A streamed draw whose target is gone or has no list in this world is dropped.
+void GSR_IMPL::flushLateSurfaces() {
+    if constexpr (kCaps.programSurfaces) {
+        surface::PendingDraws& p = pendingSurfaces;
+        CpuProfile::Scope profile(cpuProfile, CpuProfile::DrawSurface);
+        if (!p.carried.empty()) {
+            const surface::RawVertex* raw = nullptr;
+            uint32_t rawCount = 0;
+            std::vector<DrawVertex> converted;
+            if (mapLateProgramSurfaces(raw, rawCount))
+                for (const auto& d : p.carried) {
+                    RT* owner = nullptr;
+                    for (auto& target : rts)
+                        if (&target->surface == d.in.list)
+                            owner = target.get();
+                    if (!owner || owner->surfaceSubmittedEpoch != motionEpoch || uint64_t(d.first) + d.count > rawCount)
+                        continue;
+                    converted.resize(d.count);
+                    for (uint32_t i = 0; i < d.count; ++i)
+                        converted[i] = surface::drawVertexOf(raw[d.first + i], d.in.s.xyoffset);
+                    if (!(d.in.s.flags & DF_IIP))
+                        surface::flatShade(converted.data(), d.count);
+                    surface::DrawInput in = d.in;
+                    in.epoch = motionEpoch;
+                    in.firstOfEpoch = false;
+                    surface::submitDraw(*surfaceBuilder, in, converted.data(), d.count);
+                }
+            p.carried.clear();
+        }
+        for (const auto& d : p.draws) {
+            if (d.gpu)
+                p.carried.push_back(d); // its range of the stream, copied below
+            else
+                surface::submitDraw(*surfaceBuilder, d.in, p.vertices.data() + d.first, d.count);
+        }
+        if (!p.carried.empty() && !copyLateProgramSurfaces())
+            p.carried.clear();
+        ++p.flushes;
+        p.draws.clear();
+        p.vertices.clear();
+        p.checks.clear();
+    }
 }
 
 } // namespace gsr

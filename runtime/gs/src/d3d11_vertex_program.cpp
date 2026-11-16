@@ -55,6 +55,10 @@ struct D3D11Backend::Impl::ProgramGpu {
     // order reserveProgramSurface handed out their ranges, until readProgramSurfaces copies them back.
     struct SurfaceStream {
         ComPtr<ID3D11Buffer> buffer, staging;
+        // GSR_VERTEX_SURFACE=late: the copy of one world's stream, mapped at the end of the next world.
+        ComPtr<ID3D11Buffer> lateStaging;
+        uint32_t lateCount = 0;
+        bool lateValid = false;
         uint32_t capacity = 0, used = 0; // in vertices
         bool failed = false;
         std::vector<surface::RawVertex> read;
@@ -501,8 +505,9 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
         sd.Usage = D3D11_USAGE_STAGING;
         sd.BindFlags = 0;
         sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        ComPtr<ID3D11Buffer> buffer, staging;
-        if (FAILED(dev->CreateBuffer(&bd, nullptr, &buffer)) || FAILED(dev->CreateBuffer(&sd, nullptr, &staging))) {
+        ComPtr<ID3D11Buffer> buffer, staging, lateStaging;
+        if (FAILED(dev->CreateBuffer(&bd, nullptr, &buffer)) || FAILED(dev->CreateBuffer(&sd, nullptr, &staging)) ||
+            FAILED(dev->CreateBuffer(&sd, nullptr, &lateStaging))) {
             st.failed = true;
             std::fprintf(stderr, "[gsr] vertex programs: no surface stream buffer; the ray surfaces of shader-drawn "
                                  "records are evaluated on the CPU\n");
@@ -510,6 +515,8 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
         }
         st.buffer = std::move(buffer);
         st.staging = std::move(staging);
+        st.lateStaging = std::move(lateStaging);
+        st.lateValid = false; // a copy in the old buffer is lost (its waiting draws are dropped)
         st.capacity = (uint32_t)want;
         st.used = 0;
     }
@@ -543,6 +550,39 @@ bool D3D11Backend::Impl::readProgramSurfaces(const surface::RawVertex*& vertices
     ++st.reads;
     vertices = st.read.data();
     count = used;
+    return true;
+}
+
+bool D3D11Backend::Impl::copyLateProgramSurfaces() {
+    auto& st = programState().surfaceStream;
+    st.lateValid = false;
+    if (!st.buffer || !st.lateStaging || !st.used)
+        return false;
+    D3D11_BOX box{0, 0, 0, st.used * (UINT)sizeof(surface::RawVertex), 1, 1};
+    ctx->CopySubresourceRegion(st.lateStaging.Get(), 0, 0, 0, 0, st.buffer.Get(), 0, &box);
+    st.lateCount = st.used;
+    st.lateValid = true;
+    st.used = 0; // later stream writes follow the copy in the GPU's order
+    return true;
+}
+
+bool D3D11Backend::Impl::mapLateProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count) {
+    auto& st = programState().surfaceStream;
+    vertices = nullptr;
+    count = 0;
+    if (!st.lateValid)
+        return false;
+    st.lateValid = false;
+    CpuProfile::Scope profile(cpuProfile, CpuProfile::ProgramSurfaceRead);
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(map(st.lateStaging.Get(), D3D11_MAP_READ, ms, "vertex program surfaces (late)")) || !ms.pData)
+        return false;
+    st.read.resize(st.lateCount);
+    std::memcpy(st.read.data(), ms.pData, size_t(st.lateCount) * sizeof(surface::RawVertex));
+    ctx.raw()->Unmap(st.lateStaging.Get(), 0);
+    ++st.reads;
+    vertices = st.read.data();
+    count = st.lateCount;
     return true;
 }
 

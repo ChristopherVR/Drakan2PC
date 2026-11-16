@@ -123,7 +123,29 @@ The unnamed busy threads of section 3 now name themselves: `SurfaceBuilder` (27 
 `GSR_SURFACE_HASH` prints a hash of each world's surface list for comparisons between paths; it was added but not yet
 used for a paused toggle comparison.
 
-## 7. Open
+## 7. One world late, for testing (`GSR_VERTEX_SURFACE=late`)
+
+The owner chose to keep the shipped behaviour and to have the one-frame-later variant for testing only. An exactly
+delayed water pass would mean holding whole frames (the water result is written into the frame before the HUD and
+the game's per-frame read-back), so the test variant delays the data instead: at a world's end the streamed draws
+of the previous world are submitted from the copy taken then, into this world's list of the same target (checked to
+be alive and drawn into in this world), and this world's streamed draws wait behind a copy taken now. Static scenery
+is placed the same (each vertex is un-projected with its own frame's camera); water near moving shader-drawn
+objects is one world late. Not exact, off unless asked for.
+
+Owner's settings with water on, Surdana, 3 interleaved repeats:
+
+| variant | world fps | frame ms | 1 % low ms | EE | VU1 | GS | all other | EE plus all other |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| cpu | 106.6 (94.7 to 115.9) | 9.00 | 14.4 | 6.98 | 7.39 | 7.74 | 29.80 | 36.8 |
+| gpu, `GSR_VERTEX_SURFACE=late` | 111.7 (105.5 to 113.6) | 8.61 | 12.0 | 5.75 | 4.52 | 6.07 | 21.07 | 26.8 |
+
+Frame time unchanged within the range (late faster in 2 of 3 pairs, median -0.6 %); CPU per world frame -27 %. The
+map of the previous world's copy still waits about 3 ms per world (`programSurfaceRead` 677 ms for 223 calls in 2 s):
+the GPU has not always finished the copy a world later. A queue of two or three copies with `D3D11_MAP_FLAG_DO_NOT_WAIT`
+would remove that wait.
+
+## 8. Open
 
 * The GPU vertex path under modern water without a same-frame wait (section 6): the ray and water passes one frame
   later, or the surface reconstruction on the GPU. Stream output itself is done and exact.
