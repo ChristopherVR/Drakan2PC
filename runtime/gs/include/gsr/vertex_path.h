@@ -46,8 +46,11 @@ enum Stage : uint32_t {
 inline constexpr uint32_t kStageCount = 9;
 // The stage families `gpu` hands over unless DRAKAN_VERTEX_STAGES names others: those whose shader draw is exact and
 // also measured not to make the frame slower. The batch families are exact on Direct3D 11 but their hand-over costs
-// the GS worker more than the VU1 worker saves (docs/journal/2026-11-13/gpu-vertex-batch-draw.md, section 3), so they
-// stay in the microprogram by default until that cost is brought down.
+// the GS worker more than the VU1 worker saves (docs/journal/2026-11-13/gpu-vertex-batch-draw.md, section 3); after
+// the cuts of 16 November they break even in Surdana and still cost about 1 ms of CPU and 0.3 ms of GPU per frame in
+// the Order of the Flame Ruined Village (docs/journal/2026-11-16/perf-vertex-batch-families.md), so they stay in the
+// microprogram by default. They only make sense together: a partial set builds records from rows the microprogram
+// already processed, which the renderer then evaluates on the CPU.
 inline constexpr uint32_t kGpuDefaultStages = kStrips;
 inline constexpr const char* kStageNames[kStageCount] = {"strips", "fade",  "texmatrix", "grid",      "point",
                                                          "light",  "prims", "texgen",    "clipinside"};

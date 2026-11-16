@@ -804,3 +804,14 @@ with manual bilinear fetches at 5120x4096). With modern water on it is GPU-bound
 rise under gpu of an earlier run was run-to-run variation: switched live inside one run the EE costs the same (3.29
 against 3.25 ms). `GSR_PRESENT_OVERLAP=1` (opt-in) lets the GS worker go on during the present: -1.4 % with cpu, nothing
 with gpu, +15 % with water, so off. Details: [journal](../journal/2026-11-16/perf-frame-limiter.md).
+
+## GPU vertex path batch families measured again (2026-11-16)
+
+The batch families of the GPU vertex path (terrain grid, lighting, texture generation, fade, texture matrix, index
+lists; `DRAKAN_VERTEX_STAGES=all`) stay out of the default stage set. After the cuts of 16 November (bounds four
+vertices at a time, 9.6 to 7.0 us per draw in Surdana; tracker trims on the VU1 worker) they break even in Surdana
+and still cost about 1 ms of CPU and 0.15 to 0.3 ms of GPU per world frame in the Order of the Flame Ruined
+Village, where about 650 shader draws a frame of a few dozen vertices each make the fixed cost per draw dominate.
+The VU1 worker saves little: the batch tracker costs about what the microprogram saved. A partial stage set is worse
+than either (records built from rows the microprogram already processed are evaluated on the CPU). Details:
+[journal](../journal/2026-11-16/perf-vertex-batch-families.md).
