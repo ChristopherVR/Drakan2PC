@@ -366,6 +366,15 @@ int main(int argc, char** argv) {
         c.cameraPosition[0] = 0; // 50000 from the base again: rebased back to the camera
         assert(water.render(color.Get(), depth.Get(), output.Get(), c, all.subspan(3), 1, true));
         assert(read() == on);
+        // Further rebases build into the buffers of the rebuild before (GSR_RAY_REBASE_REUSE) once the GPU is done
+        // with them; the picture stays the same every time.
+        for (unsigned round = 0; round < 3; ++round) {
+            c.cameraPosition[0] = 50000;
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, all.subspan(3), 1, true));
+            c.cameraPosition[0] = 0;
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, all.subspan(3), 1, true));
+            assert(read() == on);
+        }
         water.setStaticWorld(all.first(5), 3, 3); // water triangle in the static part as well
         assert(water.render(color.Get(), depth.Get(), output.Get(), c, all.subspan(5), 1, true));
         assert(read() == on);

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -70,6 +71,7 @@ RuntimeFlags parse() {
         f.rayCpuCacheCheck = e[0] == '1';
     f.rayWorldCache = firstCharNotZeroDefaultOn("GSR_RAY_WORLD_CACHE");
     f.rayPackedTextures = firstCharNotZeroDefaultOn("GSR_RAY_PACKED_TEXTURES");
+    f.rayStableUpload = firstCharNotZeroDefaultOn("GSR_RAY_STABLE_UPLOAD");
     if (const char* e = env("GSR_WATER_COVERAGE_DEBUG"))
         f.waterCoverageDebug = uint32_t(std::atoi(e));
     if (const char* e = env("GSR_WATER_TIME"))
@@ -84,10 +86,17 @@ RuntimeFlags parse() {
     }
     f.waterLog = present("GSR_WATER_LOG");
     f.rayWarmStart = unsetOrNotZero("GSR_RAY_WARM_START");
+    if (const char* e = env("GSR_RAY_REBASE_REUSE"))
+        f.rayRebaseReuse = uint32_t(std::atoi(e));
     if (const char* e = env("GSR_RAY_WATCHDOG_MS"))
         f.rayWatchdogMs = uint32_t(std::atoi(e));
     if (const char* e = env("GSR_RAY_TEST_DROP_SIGNAL"))
         f.rayTestDropSignal = std::strtoull(e, nullptr, 10);
+    if (const char* e = env("GSR_RAY_REBASE_DISTANCE")) {
+        const float value = std::strtof(e, nullptr);
+        if (std::isfinite(value) && value > 0)
+            f.rayRebaseDistance = value;
+    }
 
     // temporal upscaler / DLSS
     if (const char* e = env("GSR_UPSCALE"))

@@ -62,8 +62,12 @@ struct RuntimeFlags {
     bool surfaceOverlap = true;         // GSR_SURFACE_OVERLAP: share pending work at the geometry join
     bool rayWorldCache = true;          // GSR_RAY_WORLD_CACHE: first-char != '0'; default on
     bool rayPackedTextures = true;      // GSR_RAY_PACKED_TEXTURES: first-char != '0'; default on
-    uint32_t waterCoverageDebug = 0;    // GSR_WATER_COVERAGE_DEBUG: atoi; default 0
-    std::optional<float> waterTime;     // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
+    // GSR_RAY_STABLE_UPLOAD: first-char != '0'; default on. Ray pass dynamic attributes laid out models first, frame
+    // triangles last, and compared with what the GPU holds even when their count changed; 0 = the old layout and a
+    // full upload whenever the count changed.
+    bool rayStableUpload = true;
+    uint32_t waterCoverageDebug = 0;         // GSR_WATER_COVERAGE_DEBUG: atoi; default 0
+    std::optional<float> waterTime;          // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
     std::optional<std::string> raySceneDump; // GSR_RAY_SCENE_DUMP: string; dump at raySceneDumpEpoch
     // GSR_RAY_WARM_START: unset or not-"0". The first ray pass of a new level is not waited for (the plain raster is
     // drawn for the ~0.2 s it takes) instead of stopping that frame; 0 = wait as before.
@@ -73,6 +77,13 @@ struct RuntimeFlags {
                                    // abandoned and the shared fences released; 0 = report stalls but never abandon
     std::optional<uint64_t> rayTestDropSignal; // GSR_RAY_TEST_DROP_SIGNAL: strtoull; test hook: the pass with this
                                                // consumer fence value never signals D3D11 (a lost cross-API signal)
+    // GSR_RAY_REBASE_DISTANCE: strtof, > 0; measurement hook: the static ray world is rebuilt around the camera when it
+    // moves this far from the last base (default 16384, the shipped value); smaller values make rebases frequent.
+    float rayRebaseDistance = 16384.f;
+    // GSR_RAY_REBASE_REUSE: atoi; default 1. A static ray world rebuild (rebase) writes its positions in one pass and
+    // reuses the upload buffer and the BLAS buffers of the rebuild before instead of allocating them; 0 = as before,
+    // 2 = alternate between the two on every rebuild (interleaved measurement in one run).
+    uint32_t rayRebaseReuse = 1;
 
     // ---- temporal upscaler / DLSS (d3d11_backend, temporal, dlss_ngx) --------------------------------------------
     std::optional<uint32_t> upscaleMode;   // GSR_UPSCALE: dlaa=1 quality=2 balanced=3 performance=4, anything else 0

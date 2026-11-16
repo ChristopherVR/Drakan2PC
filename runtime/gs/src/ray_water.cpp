@@ -84,8 +84,7 @@ struct UploadBuffer {
 // used only by that thread, except while it is idle (finish()).
 struct RayWater::Impl {
     static constexpr unsigned kFrames = 3;
-    static constexpr unsigned kQueuedJobs = 2;        // render() blocks while this many passes are waiting or running
-    static constexpr float kRebaseDistance = 16384.f; // static BLAS coordinates stay this close to the camera
+    static constexpr unsigned kQueuedJobs = 2; // render() blocks while this many passes are waiting or running
     static constexpr uint32_t kTriangleBudget = 500000;
     static constexpr uint32_t kTextureBudget = 768;
     static constexpr UINT64 kTracedPasses = 3; // the first passes of each interop are logged step by step
@@ -131,6 +130,7 @@ struct RayWater::Impl {
         UINT64 produced = 0, consumed = 0;
         bool consumedSignaled = false;
         bool cpuCache = false, checkCache = false, worldCache = false, packedTextures = false, modelReuse = true;
+        bool stableUpload = true;
         uint32_t coverageDebug = 0;
     };
     CpuProfile cpuProfile;    // renderer thread
@@ -255,6 +255,8 @@ struct RayWater::Impl {
     }
     void run(Job& job) {
         const auto started = Clock::now();
+        passStats = {};
+        passStats.mark = started;
         passJob = job.consumed;
         setStage(kPacking);
         if (!faulted) {
@@ -280,6 +282,21 @@ struct RayWater::Impl {
                 lastSlowLog = Clock::now();
             logLine("pass %llu %s in %.1f ms on the pass thread%s: %s", (unsigned long long)job.consumed,
                     faulted ? "failed" : "submitted", ms, slow ? " (slow)" : "", currentStatus().c_str());
+        }
+        if (runtimeFlags().waterLog) {
+            const auto& p = passStats;
+            std::fprintf(
+                stderr,
+                "[ray-pass] t=%lld pass=%llu ms=%.2f static=%.2f frame=%.2f models=%.2f wait=%.2f "
+                "upload=%.2f record=%.2f rebase=%d allocs=%u alloc_ms=%.2f alloc_kb=%llu blas=%u refits=%u "
+                "attrs=%u staging_kb=%llu textures=%zu warm=%d\n",
+                (long long)std::chrono::duration_cast<std::chrono::microseconds>(Clock::now().time_since_epoch())
+                    .count(),
+                (unsigned long long)job.consumed, ms, p.ms[PassStats::kStatic], p.ms[PassStats::kFrame],
+                p.ms[PassStats::kModels], p.ms[PassStats::kWait], p.ms[PassStats::kUpload], p.ms[PassStats::kRecord],
+                int(p.rebase), p.allocations, p.allocationMs, (unsigned long long)(p.allocationBytes / 1024),
+                p.blasBuilds, p.blasRefits, p.attributeBuilds, (unsigned long long)(p.stagingBytes / 1024),
+                job.textureUploads.size(), int(job.warm));
         }
     }
     // Hands the consumer value to the D3D12 queue (after the pass's GPU work, or alone after a failure).
@@ -384,6 +401,22 @@ struct RayWater::Impl {
         }
     }
     Clock::time_point lastSlowLog{}; // pass thread
+    // GSR_WATER_LOG: where one pass spent its time on the pass thread (one `[ray-pass]` line per pass).
+    struct PassStats {
+        enum Step : unsigned { kStatic, kFrame, kModels, kWait, kUpload, kRecord, kSteps };
+        double ms[kSteps]{};
+        Clock::time_point mark{};
+        uint32_t allocations = 0, blasBuilds = 0, blasRefits = 0, attributeBuilds = 0;
+        double allocationMs = 0;
+        uint64_t allocationBytes = 0, stagingBytes = 0;
+        int rebase = 0; // 1 = static world rebuilt, 2 = rebuilt with GSR_RAY_REBASE_REUSE
+        void step(Step s) {
+            const auto now = Clock::now();
+            ms[s] += std::chrono::duration<double, std::milli>(now - mark).count();
+            mark = now;
+        }
+    };
+    PassStats passStats; // pass thread
     void execute(Job& job);
     // ---- pass thread
     RayWorldCache worldCache;
@@ -433,6 +466,7 @@ struct RayWater::Impl {
     uint64_t modelPass = 0, modelRefits = 0;
     std::vector<Point> cpuPositions;
     std::vector<Attribute> cpuMaterials;
+    std::vector<Attribute> cpuFrameMaterials; // the frame triangles' part of cpuMaterials (GSR_RAY_STABLE_UPLOAD)
     // Exact bytes most recently submitted to the single queue-ordered GPU material buffer.
     std::vector<Attribute> uploadedDynamicAttributes;
     uint32_t uploadedDynamicBase = ~0u;
@@ -456,8 +490,16 @@ struct RayWater::Impl {
     // differ, and only their slot ranges are uploaded.
     std::shared_ptr<const std::vector<Triangle>> staticPacked;
     std::vector<std::pair<uint32_t, uint32_t>> staticDirty;
+    uint32_t staticSlotFirst[3]{}, staticSlotCount[3]{}; // each instance group's slot range in staticSlot
+    std::vector<Point> staticPositionData;               // camera-relative positions of the last rebuild (kept)
     UploadBuffer staticVertices;
+    uint64_t staticVerticesFence = 0; // completion value of the pass that last built from staticVertices
     ComPtr<ID3D12Resource> staticBlas[3];
+    // GSR_RAY_REBASE_REUSE: the static BLAS a rebuild replaced, kept for the next rebuild once staticSpareFence passed.
+    ComPtr<ID3D12Resource> staticSpareBlas[3];
+    uint64_t staticSpareFence = 0;
+    bool rebaseReuse = false; // GSR_RAY_REBASE_REUSE for the current rebuild
+    uint64_t rebaseCount = 0;
     ~Impl() {
         stop();
         try {
@@ -527,6 +569,11 @@ struct RayWater::Impl {
         bytes = (bytes + 255) & ~255ull;
         if (out && out->GetDesc().Width >= bytes)
             return;
+        // A buffer that grows (frame triangles, staging, model positions, TLAS, scratch) keeps growing by small steps
+        // while the scene fills in; with GSR_RAY_STABLE_UPLOAD it gets a quarter more room, so it is not allocated
+        // again for every few hundred triangles. Only the capacity changes, never what is written or read.
+        if (out && runtimeFlags().rayStableUpload)
+            bytes = (bytes + bytes / 4 + 65535) & ~65535ull;
         if (out)
             retired.push_back(out);
         out.Reset();
@@ -540,8 +587,12 @@ struct RayWater::Impl {
         d.SampleDesc.Count = 1;
         d.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         d.Flags = flags;
+        const auto started = Clock::now();
         check(device->CreateCommittedResource(&h, D3D12_HEAP_FLAG_NONE, &d, state, nullptr, IID_PPV_ARGS(&out)),
               "DXR buffer allocation");
+        ++passStats.allocations;
+        passStats.allocationMs += msSince(started);
+        passStats.allocationBytes += d.Width;
     }
     void ensureUpload(UploadBuffer& out, uint64_t bytes, std::vector<ComPtr<ID3D12Resource>>& retired) {
         ID3D12Resource* before = out.resource.Get();
@@ -934,6 +985,7 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         job->checkCache = runtimeFlags().rayCpuCacheCheck;
         job->worldCache = runtimeFlags().rayWorldCache;
         job->packedTextures = runtimeFlags().rayPackedTextures;
+        job->stableUpload = runtimeFlags().rayStableUpload;
         job->coverageDebug = runtimeFlags().waterCoverageDebug;
         // D3D11 side, in this frame's order: the inputs are copied before the D3D12 queue reads them, and later
         // D3D11 work waits on the GPU for the pass result before the output is copied back.
@@ -1034,8 +1086,8 @@ void RayWater::Impl::execute(Job& job) {
         const bool rebuildStatic =
             !staticTriangles.empty() &&
             (s.staticGeometry != staticGeometryInput || (!s.staticBlas[0] && !s.staticBlas[1] && !s.staticBlas[2]) ||
-             length(offset) > Impl::kRebaseDistance);
-        std::vector<Point> staticPositions;
+             length(offset) > runtimeFlags().rayRebaseDistance);
+        std::span<const Point> staticPositions; // set when the static BLAS are rebuilt this pass
         if (staticTriangles.empty()) {
             s.staticCounts[0] = s.staticCounts[1] = s.staticCounts[2] = 0;
             s.staticTextured = 0;
@@ -1055,24 +1107,74 @@ void RayWater::Impl::execute(Job& job) {
                     s.staticNormals);
                 s.staticSlot.assign(staticTriangles.size(), 0);
                 uint32_t slot = 0;
-                for (unsigned g = 0; g < 3; ++g)
+                for (unsigned g = 0; g < 3; ++g) {
+                    const uint32_t first = slot;
                     for (size_t i = 0; i < staticTriangles.size(); ++i)
                         if (group(staticTriangles[i]) == g)
                             s.staticSlot[i] = slot++;
+                    s.staticSlotFirst[g] = first;
+                    s.staticSlotCount[g] = slot - first;
+                }
                 s.staticPacked.reset();
                 s.staticAttributes = ~0ull; // group order may have changed
             }
-            s.staticBase = origin;
-            staticPositions.reserve(staticTriangles.size() * 3);
-            for (unsigned g = 0; g < 3; ++g) {
-                s.staticCounts[g] = 0;
-                for (const auto& tri : staticTriangles)
-                    if (group(tri) == g) {
-                        for (const auto& p : tri.p)
-                            staticPositions.push_back(sub(p, origin));
-                        ++s.staticCounts[g];
-                    }
+            {
+                const uint32_t mode = runtimeFlags().rayRebaseReuse;
+                s.rebaseReuse = mode == 1 || (mode == 2 && (++s.rebaseCount & 1));
             }
+            s.staticBase = origin;
+            // Camera-relative positions in instance group order. The slot table already holds that order, so one
+            // pass writes each triangle where the three group passes below would put it (same values, same order);
+            // they only run when a triangle's group no longer matches its slot.
+            auto& positionData = s.staticPositionData;
+            bool slotted = s.rebaseReuse && s.staticSlot.size() == staticTriangles.size();
+            if (slotted) {
+                positionData.resize(staticTriangles.size() * 3);
+                uint32_t counts[3]{};
+                for (size_t i = 0; i < staticTriangles.size(); ++i) {
+                    const Triangle& tri = staticTriangles[i];
+                    const unsigned g = group(tri);
+                    const uint32_t slot = s.staticSlot[i];
+                    if (slot - s.staticSlotFirst[g] >= s.staticSlotCount[g]) {
+                        slotted = false;
+                        break;
+                    }
+                    Point* out = &positionData[size_t(slot) * 3];
+                    for (unsigned j = 0; j < 3; ++j)
+                        out[j] = sub(tri.p[j], origin);
+                    ++counts[g];
+                }
+                if (slotted)
+                    for (unsigned g = 0; g < 3; ++g)
+                        s.staticCounts[g] = counts[g];
+            }
+            const auto groupPass = [&](std::vector<Point>& out, uint32_t(&outCounts)[3]) {
+                out.clear();
+                out.reserve(staticTriangles.size() * 3);
+                for (unsigned g = 0; g < 3; ++g) {
+                    outCounts[g] = 0;
+                    for (const auto& tri : staticTriangles)
+                        if (group(tri) == g) {
+                            for (const auto& p : tri.p)
+                                out.push_back(sub(p, origin));
+                            ++outCounts[g];
+                        }
+                }
+            };
+            if (!slotted) {
+                if (!s.rebaseReuse)
+                    std::vector<Point>().swap(positionData); // as before: fresh memory for every rebuild
+                groupPass(positionData, s.staticCounts);
+            } else if (checkCache) {
+                std::vector<Point> reference;
+                uint32_t referenceCounts[3];
+                groupPass(reference, referenceCounts);
+                if (std::memcmp(referenceCounts, s.staticCounts, sizeof(referenceCounts)) ||
+                    reference.size() != positionData.size() ||
+                    std::memcmp(reference.data(), positionData.data(), reference.size() * sizeof(Point)))
+                    throw std::runtime_error("DXR static rebase positions differ from the group passes");
+            }
+            staticPositions = std::span<const Point>(positionData);
             s.staticGeometry = staticGeometryInput;
         }
         if (!staticTriangles.empty() &&
@@ -1146,13 +1248,22 @@ void RayWater::Impl::execute(Job& job) {
             }
         }
         const uint32_t staticTotal = s.staticCounts[0] + s.staticCounts[1] + s.staticCounts[2];
+        s.passStats.rebase = rebuildStatic ? (s.rebaseReuse ? 2 : 1) : 0;
+        s.passStats.step(PassStats::kStatic);
         // Per-frame (dynamic) triangles, camera relative.
         std::vector<Point> temporaryPositions;
         std::vector<Attribute> temporaryColors;
         auto& positions = cpuCache ? s.cpuPositions : temporaryPositions;
         auto& colors = cpuCache ? s.cpuMaterials : temporaryColors;
+        // GSR_RAY_STABLE_UPLOAD: the dynamic attributes are laid out [native models][frame triangles] instead of
+        // [frame triangles][native models], so a change of the frame's triangle count no longer moves (and re-uploads)
+        // the ~12 MB of model attributes; the shader finds every triangle's attributes through its instance ID.
+        const bool stableUpload = job.stableUpload;
+        std::vector<Attribute> temporaryFrameColors;
+        auto& frameColors = !stableUpload ? colors : cpuCache ? s.cpuFrameMaterials : temporaryFrameColors;
         positions.clear();
         colors.clear();
+        frameColors.clear();
         positions.reserve(triangles.size() * 3);
         colors.reserve((totalTriangles - staticTriangles.size()) * kTriangleAttributes);
         const auto alphaCoverage = s.modelAlphaCoverage.update(models);
@@ -1190,21 +1301,22 @@ void RayWater::Impl::execute(Job& job) {
         };
         const bool worldCache = job.worldCache;
         if (worldCache) {
-            texturedTriangles = s.worldCache.append(triangles, origin, textureCount, positions, colors, counts);
+            texturedTriangles = s.worldCache.append(triangles, origin, textureCount, positions, frameColors, counts);
             if (checkCache) {
                 std::vector<Point> referencePositions;
                 std::vector<Attribute> referenceColors;
                 uint32_t referenceCounts[3]{};
                 const auto referenceTextured = originalPack(referencePositions, referenceColors, referenceCounts);
                 if (referenceTextured != texturedTriangles || std::memcmp(counts, referenceCounts, sizeof(counts)) ||
-                    referencePositions.size() != positions.size() || referenceColors.size() != colors.size() ||
+                    referencePositions.size() != positions.size() || referenceColors.size() != frameColors.size() ||
                     std::memcmp(referencePositions.data(), positions.data(), positions.size() * sizeof(Point)) ||
-                    std::memcmp(referenceColors.data(), colors.data(), colors.size() * sizeof(colors[0])))
+                    std::memcmp(referenceColors.data(), frameColors.data(), frameColors.size() * sizeof(colors[0])))
                     throw std::runtime_error("DXR world cache differs from original packing");
             }
         } else
-            texturedTriangles = originalPack(positions, colors, counts);
+            texturedTriangles = originalPack(positions, frameColors, counts);
         packing.reset();
+        s.passStats.step(PassStats::kFrame);
         packing.emplace(s.threadProfile, CpuProfile::RayModelAttributes);
         std::vector<uint32_t> modelOffsets;
         std::set<uint64_t> usedMeshes, usedTopologies;
@@ -1243,6 +1355,7 @@ void RayWater::Impl::execute(Job& job) {
                         cached.attributes.clear();
                         cached.attributes.reserve(model->triangles.size() * kTriangleAttributes);
                         cached.texturedTriangles = buildAttributes(cached.attributes);
+                        ++s.passStats.attributeBuilds;
                         cached.attributeSource = model;
                         cached.attributeGeneration = s.materialGeneration;
                         cached.attributeBase = nativeTextureBase;
@@ -1265,6 +1378,34 @@ void RayWater::Impl::execute(Job& job) {
                 } else
                     texturedTriangles += buildAttributes(colors);
             }
+        // Attribute slot of the first frame triangle: after the models with GSR_RAY_STABLE_UPLOAD, else after the
+        // static world (the models follow the frame triangles).
+        const uint32_t frameBase =
+            stableUpload ? staticTotal + uint32_t(colors.size() / kTriangleAttributes) : staticTotal;
+        if (stableUpload)
+            colors.insert(colors.end(), frameColors.begin(), frameColors.end());
+        if (checkCache) {
+            // The shader reads a triangle's attributes at its instance ID plus its primitive index: every frame
+            // triangle and every model mesh must find exactly its own attributes there, in either layout.
+            const auto at = [&](uint32_t slot) {
+                return colors.data() + size_t(slot - staticTotal) * kTriangleAttributes;
+            };
+            const size_t frameAttributes = size_t(counts[0] + counts[1] + counts[2]) * kTriangleAttributes;
+            bool same = frameBase >= staticTotal &&
+                        size_t(frameBase - staticTotal) * kTriangleAttributes + frameAttributes <= colors.size();
+            if (same && stableUpload)
+                same = std::memcmp(at(frameBase), frameColors.data(), frameAttributes * sizeof(Attribute)) == 0;
+            if (same && models && cpuCache)
+                for (size_t m = 0; m < models->meshes.size() && same; ++m) {
+                    const auto& attributes = s.nativeMeshes[models->meshes[m]->identity].attributes;
+                    same = size_t(modelOffsets[m] - staticTotal) * kTriangleAttributes + attributes.size() <=
+                               colors.size() &&
+                           (attributes.empty() || std::memcmp(at(modelOffsets[m]), attributes.data(),
+                                                              attributes.size() * sizeof(Attribute)) == 0);
+                }
+            if (!same)
+                throw std::runtime_error("DXR dynamic attribute layout does not match the instance IDs");
+        }
         if (cpuCache && checkCache && (++s.checkedFrames == 1 || s.checkedFrames % 60 == 0))
             std::fprintf(stderr,
                          "[ray-cpu-cache] frames=%llu world/materials compared byte-for-byte, zero mismatches; world "
@@ -1277,16 +1418,19 @@ void RayWater::Impl::execute(Job& job) {
         packing.reset();
         // render() bypassed passes without water or shadows before queuing them.
         stage.reset();
+        s.passStats.step(PassStats::kModels);
         stage.emplace(s.threadProfile, CpuProfile::RayWait);
         s.setStage(kWaitingSlot);
         auto& frame = s.acquire();
+        s.passStats.step(PassStats::kWait);
         for (auto& resource : s.retiredModelResources)
             frame.retired.push_back(std::move(resource));
         s.retiredModelResources.clear();
         stage.reset();
         stage.emplace(s.threadProfile, CpuProfile::RayUpload);
         s.setStage(kUploading);
-        // Materials live in GPU memory. Layout: [static world][frame triangles][native models] attributes, then
+        // Materials live in GPU memory. Layout: [static world][native models][frame triangles] attributes (frame
+        // triangles before the models without GSR_RAY_STABLE_UPLOAD), then
         // texture texels at a fixed offset. Only changed ranges are copied from this frame's upload buffer.
         constexpr uint32_t texelOffset = Impl::kTriangleBudget * kTriangleAttributes;
         const bool packedTextures = job.packedTextures;
@@ -1320,13 +1464,15 @@ void RayWater::Impl::execute(Job& job) {
         std::vector<std::pair<size_t, size_t>> dynamicDirty;
         if (!colors.empty()) {
             if (!uploadCache || s.uploadedDynamicBase != staticTotal ||
-                s.uploadedDynamicAttributes.size() != colors.size())
+                (!stableUpload && s.uploadedDynamicAttributes.size() != colors.size()))
                 dynamicDirty.emplace_back(0, colors.size());
             else {
-                // Preserve triangle boundaries, and coalesce adjacent changed blocks into one DMA copy.
+                // Preserve triangle boundaries, and coalesce adjacent changed blocks into one DMA copy. The GPU holds
+                // the mirror's bytes at the same offsets: compare where both exist, upload what lies beyond the mirror.
                 constexpr size_t kBlockAttributes = 128 * kTriangleAttributes;
-                for (size_t first = 0; first < colors.size(); first += kBlockAttributes) {
-                    const size_t end = std::min(first + kBlockAttributes, colors.size());
+                const size_t common = std::min(colors.size(), s.uploadedDynamicAttributes.size());
+                for (size_t first = 0; first < common; first += kBlockAttributes) {
+                    const size_t end = std::min(first + kBlockAttributes, common);
                     if (std::memcmp(colors.data() + first, s.uploadedDynamicAttributes.data() + first,
                                     (end - first) * sizeof(Attribute)) != 0) {
                         if (!dynamicDirty.empty() && dynamicDirty.back().second == first)
@@ -1334,6 +1480,12 @@ void RayWater::Impl::execute(Job& job) {
                         else
                             dynamicDirty.emplace_back(first, end);
                     }
+                }
+                if (colors.size() > common) {
+                    if (!dynamicDirty.empty() && dynamicDirty.back().second == common)
+                        dynamicDirty.back().second = colors.size();
+                    else
+                        dynamicDirty.emplace_back(common, colors.size());
                 }
             }
         }
@@ -1380,6 +1532,10 @@ void RayWater::Impl::execute(Job& job) {
                 std::memcpy(s.uploadedDynamicAttributes.data() + first, colors.data() + first,
                             (end - first) * sizeof(Attribute));
             s.uploadedDynamicBase = staticTotal;
+            // The mirror is what the GPU buffer holds after this pass's copies: it must equal every attribute.
+            if (checkCache &&
+                std::memcmp(s.uploadedDynamicAttributes.data(), colors.data(), colors.size() * sizeof(Attribute)))
+                throw std::runtime_error("DXR dynamic attribute upload missed a changed range");
         }
         if (uploadStatic)
             s.staticUploaded = true;
@@ -1387,10 +1543,17 @@ void RayWater::Impl::execute(Job& job) {
         if (!positions.empty())
             s.upload(frame.vertices, positions.data(), positions.size() * sizeof(Point), frame.retired);
         if (!staticPositions.empty()) {
-            if (s.staticVertices.resource)
-                frame.retired.push_back(s.staticVertices.resource);
-            s.staticVertices = {};
+            // Only the static BLAS builds read this buffer. Once the pass that last built from it has completed on
+            // the GPU, a rebase writes the new positions into it instead of allocating another 5 MB upload buffer.
+            const bool reuse =
+                s.rebaseReuse && s.staticVertices.resource && s.fence->GetCompletedValue() >= s.staticVerticesFence;
+            if (!reuse) {
+                if (s.staticVertices.resource)
+                    frame.retired.push_back(s.staticVertices.resource);
+                s.staticVertices = {};
+            }
             s.upload(s.staticVertices, staticPositions.data(), staticPositions.size() * sizeof(Point), frame.retired);
+            s.staticVerticesFence = s.serial + 1; // this pass's completion value (submitted() below)
         }
         Parameters params{};
         std::copy(camera.currentViewToClip, camera.currentViewToClip + 16, params.projection);
@@ -1531,6 +1694,8 @@ void RayWater::Impl::execute(Job& job) {
             }
         s.upload(frame.constants, &params, sizeof(params), frame.retired);
         stage.reset();
+        s.passStats.stagingBytes = stagingBytes;
+        s.passStats.step(PassStats::kUpload);
         stage.emplace(s.threadProfile, CpuProfile::RayBuild);
         s.setStage(kRecording);
         s.interop->wait12(s.queue.Get(), job.produced); // the D3D11 input copies precede this pass on the GPU
@@ -1562,9 +1727,18 @@ void RayWater::Impl::execute(Job& job) {
             s.list->ResourceBarrier(1, &ready);
         }
         if (!staticPositions.empty()) {
+            // Earlier passes may still trace the current static BLAS, so a rebuild goes into another buffer. With
+            // GSR_RAY_REBASE_REUSE that is the one the rebuild before replaced, once every pass that traced it has
+            // completed on the GPU (a full build overwrites the whole structure), instead of a new allocation.
+            const bool spareReady = s.rebaseReuse && s.fence->GetCompletedValue() >= s.staticSpareFence;
             uint64_t offset = 0;
             for (unsigned g = 0; g < 3; ++g) {
-                if (s.staticCounts[g])
+                if (s.staticCounts[g] && spareReady) {
+                    std::swap(s.staticBlas[g], s.staticSpareBlas[g]);
+                    s.buildBlas(
+                        s.staticBlas[g], s.staticVertices->GetGPUVirtualAddress() + offset, s.staticCounts[g] * 3,
+                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, false);
+                } else if (s.staticCounts[g])
                     s.buildBlas(
                         s.staticBlas[g], s.staticVertices->GetGPUVirtualAddress() + offset, s.staticCounts[g] * 3,
                         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, true);
@@ -1574,6 +1748,8 @@ void RayWater::Impl::execute(Job& job) {
                 }
                 offset += uint64_t(s.staticCounts[g]) * 3 * sizeof(Point);
             }
+            if (spareReady) // the replaced structures: earlier passes, at most up to this one, may still trace them
+                s.staticSpareFence = s.serial + 1;
         }
         {
             uint64_t offset = 0;
@@ -1607,6 +1783,7 @@ void RayWater::Impl::execute(Job& job) {
                 }
                 materialBase += s.staticCounts[g];
             }
+            materialBase = frameBase;
             for (unsigned g = 0; g < 3; ++g) {
                 if (counts[g]) {
                     D3D12_RAYTRACING_INSTANCE_DESC i{};
@@ -1671,6 +1848,7 @@ void RayWater::Impl::execute(Job& job) {
                                     true);
                         b.mesh->blasSource = b.source;
                         b.mesh->built = true;
+                        ++s.passStats.blasBuilds;
                         continue;
                     }
                     Deformable& d = *b.slot;
@@ -1680,6 +1858,7 @@ void RayWater::Impl::execute(Job& job) {
                                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE,
                                 frame.retired, false, refit);
                     d.updates = refit ? d.updates + 1 : 0;
+                    ++(refit ? s.passStats.blasRefits : s.passStats.blasBuilds);
                     s.modelRefits += refit;
                     b.mesh->blas = d.blas;
                     b.mesh->blasSource = b.source;
@@ -1823,6 +2002,7 @@ void RayWater::Impl::execute(Job& job) {
         s.queue->ExecuteCommandLists(1, lists);
         s.setStage(kSubmitted);
         s.submitted(frame);
+        s.passStats.step(PassStats::kRecord);
         if (gpuTiming) {
             frame.timedPass = job.consumed;
             frame.timedWidth = uint32_t(d.Width);
@@ -1833,7 +2013,7 @@ void RayWater::Impl::execute(Job& job) {
             frame.timedDynamicBytes = 0;
             for (const auto& [first, end] : dynamicDirty)
                 frame.timedDynamicBytes += (end - first) * sizeof(Attribute);
-            frame.timedDynamicTotal = colors.size() * sizeof(Attribute);
+            frame.timedDynamicTotal = colors.size() * sizeof(Attribute); // models and frame triangles
         }
         // The D3D11 context waits for this value on the GPU before it copies the output; the CPU continues.
         s.signalConsumed(job);
