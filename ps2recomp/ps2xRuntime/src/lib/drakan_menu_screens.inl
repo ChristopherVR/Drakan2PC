@@ -803,11 +803,13 @@ bool titleBound() {
 void titleScanSaves(gameui::TitleState& st) {
     namespace fs = std::filesystem;
     st.continueSlot = 0;
+    st.continueQuick = false;
     st.continueLocation.clear();
     st.continueTime = {};
     const auto& io = PS2Runtime::getIoPaths();
     const fs::path root = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
     fs::file_time_type best{};
+    // The newest save of any kind: the manual slots and, while Load Game lists it, the quicksave (issue 10).
     for (int n = 1; n <= drakan_menus::policy::kQuickSlot; ++n) {
         if (!drakan_menus::policy::continueConsiders(n, drakan_menus::pageCount(), drakan_menus::quickInLoad()))
             continue;
@@ -818,10 +820,12 @@ void titleScanSaves(gameui::TitleState& st) {
                 continue;
             std::error_code tec;
             const fs::file_time_type t = fs::last_write_time(it->path(), tec);
-            if (tec || (st.continueSlot && t <= best))
+            if (tec || !drakan_menus::policy::newerSave(n, t, st.continueSlot, best, drakan_menus::pageCount(),
+                                                        drakan_menus::quickInLoad()))
                 continue;
             best = t;
             st.continueSlot = n;
+            st.continueQuick = n == drakan_menus::policy::kQuickSlot;
             st.continueLocation = drakan_tab::levelDisplayName(it->path().filename().string());
 #if defined(_WIN32)
             const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
@@ -1117,12 +1121,13 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         if (!g_title.scanned) {
             titleScanSaves(g_title.saves);
             g_title.scanned = true;
-            menuLog("title: newest save slot %d (%s)", g_title.saves.continueSlot,
-                    g_title.saves.continueLocation.c_str());
+            menuLog("title: newest save slot %d%s (%s)", g_title.saves.continueSlot,
+                    g_title.saves.continueQuick ? " (quicksave)" : "", g_title.saves.continueLocation.c_str());
         }
         st.canLoad = pauseRowEnabled(g, g_title.screen, static_cast<uint16_t>(titleui::kWidgetLoad));
         if (st.canLoad) {
             st.continueSlot = g_title.saves.continueSlot;
+            st.continueQuick = g_title.saves.continueQuick;
             st.continueLocation = g_title.saves.continueLocation;
             st.continueTime = g_title.saves.continueTime;
         }

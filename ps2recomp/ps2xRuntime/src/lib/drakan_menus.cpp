@@ -349,15 +349,17 @@ bool quickSaveNewest() {
         }
         return found;
     };
-    fs::file_time_type quick{};
-    if (!newest(policy::kQuickSlot, quick))
-        return false;
-    for (int n = 1; n <= g_pages * 4; ++n) {
+    // The same rule as the title's Continue (policy::newerSave): on equal times a manual save wins.
+    int best = 0;
+    fs::file_time_type bestT{};
+    for (int n = 1; n <= policy::kQuickSlot; ++n) {
         fs::file_time_type t{};
-        if (newest(n, t) && t >= quick)
-            return false;
+        if (newest(n, t) && policy::newerSave(n, t, best, bestT, g_pages, g_quickInLoad)) {
+            best = n;
+            bestT = t;
+        }
     }
-    return true;
+    return best == policy::kQuickSlot;
 }
 
 void showFolderPage(IGuest& g, uint32_t screen, int p, uint32_t sound) {

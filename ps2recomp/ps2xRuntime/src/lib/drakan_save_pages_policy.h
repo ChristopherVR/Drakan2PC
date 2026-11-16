@@ -56,4 +56,16 @@ inline bool continueConsiders(int slot, int pages, bool quickInLoad) {
     return listsSlot(slot, pages, quickInLoad);
 }
 
+// Whether a save (slot, write time) beats the newest one found so far (bestSlot 0 = none yet) for Continue and for
+// "Load Game opens on the quicksave page": the later write time wins, on equal times the lower slot (a manual save
+// before the quicksave). Saves that a list with these pages does not show never count.
+template <class Time>
+inline bool newerSave(int slot, Time t, int bestSlot, Time bestT, int pages, bool quickInLoad) {
+    if (!continueConsiders(slot, pages, quickInLoad))
+        return false;
+    if (bestSlot == 0 || t > bestT)
+        return true;
+    return t == bestT && slot < bestSlot;
+}
+
 } // namespace drakan_menus::policy

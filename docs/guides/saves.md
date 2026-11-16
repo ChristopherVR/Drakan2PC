@@ -20,7 +20,10 @@ With the game closed, copy the whole `mc0` folder, any `mc1` folder and your `*.
 - A new quicksave replaces the previous quicksave without an overwrite prompt.
 - Quickload discards unsaved progress without a confirmation.
 - If no quicksave exists, quickload does not fall back to a manual save.
-- The title's Continue action selects the newest manual save; F8 selects the quicksave.
+- The title's **Continue** loads your newest save of any kind, manual or quicksave, by the time it was saved. When that is the quicksave, the Continue row says "Quicksave" next to the level name.
+- **Load Game** lists the quicksave as its own page, titled "Quicksave", after the numbered pages (PgUp/PgDn or L1/R1 to reach it). It opens on that page when the quicksave is your newest save. Save Game never shows it, so a manual save cannot overwrite it.
+- `[general] quicksave_in_load = 0` in `drakan.ini` hides the quicksave from Load Game and Continue again; F8 still loads it.
+- Builds older than 15 November 2026 (for example `bacb3ea`) do not have the Quicksave page yet: there Continue takes the newest manual save and only F8 loads the quicksave.
 - Quickload from a death dialog is not currently supported.
 
 <!-- media:quicksave -->

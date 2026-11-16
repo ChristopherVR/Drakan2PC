@@ -35,6 +35,12 @@ box is up), and Continue considers the quicksave too. Load Game opens on the qui
 the newest save on the card. With one page in all, PgUp / PgDn / L1 / R1 keep their native meaning. Folder pages vs pager pages and the step order are in
 `ps2xRuntime/src/lib/drakan_save_pages_policy.h` (tests `save_pages_policy_tests.cpp`, gameui `testQuickPage`).
 Notes: `docs/journal/2026-11-15/issue6-save-cam.md`.
+
+Continue and "opens on the quicksave page" share one rule (`policy::newerSave`, issue 10): the `.rsg` with the latest
+write time among the manual slots 1..`save_pages * 4` and, while `quicksave_in_load` is on, Slot33 wins; on equal times
+the manual save wins. When the quicksave wins, the title's Continue row reads "Quicksave: <level>" and its
+description "Quicksave: <level>, <date> <time>." (instead of "Your newest save: ..."). With `quicksave_in_load = 0` Continue ignores the quicksave and only F8
+loads it. Notes: `docs/journal/2026-11-16/issue10-continue-quicksave.md`.
 Validation notes: `docs/journal/2026-10-25/quick-save-load.md`.
 
 Known issue: one player report of a freeze at F5 (guest stops inside the slot scan, log ends after `flags 9`) is not

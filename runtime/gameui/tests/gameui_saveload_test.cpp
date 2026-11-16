@@ -701,6 +701,21 @@ void testTitleRows() {
     CHECK(titleFocused(scr, TitleRow::Continue));
     CHECK(hasText(o.draw, "Continue") && hasText(o.draw, "Load Game") && hasText(o.draw, "PC Settings"));
     CHECK(hasText(o.draw, "Your newest save: Surdana, 25 Oct 2026 16:23."));
+    CHECK(!hasText(o.draw, "Quicksave: Surdana") && !hasText(o.draw, "Quicksave: Surdana, 25 Oct 2026 16:23."));
+    // Issue 10: Continue on the quicksave says so, on the row and in its description, and still loads slot 33.
+    {
+        TitleScreen qs;
+        qs.open();
+        TitleState q = titleState();
+        q.continueSlot = 33;
+        q.continueQuick = true;
+        TitleFrameOutput qo = qs.frame(q, {}, kVp);
+        CHECK(hasText(qo.draw, "Quicksave: Surdana"));
+        CHECK(hasText(qo.draw, "Quicksave: Surdana, 25 Oct 2026 16:23."));
+        qo = qs.frame(q, keys({UiKey::Confirm}), kVp);
+        CHECK(!qo.actions.empty() && qo.actions.front().kind == TitleActionKind::Continue &&
+              qo.actions.front().value == 33);
+    }
     // No save: no Continue, Load Game disabled, focus on New Game.
     TitleScreen t2;
     t2.open();

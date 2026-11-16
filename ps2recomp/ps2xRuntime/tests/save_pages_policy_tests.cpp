@@ -40,6 +40,28 @@ int main() {
     check(listsSlot(16, 4, false) && !listsSlot(17, 4, false) && !listsSlot(33, 4, false), "manual slots");
     check(listsSlot(33, 4, true) && !listsSlot(34, 4, true), "the quicksave, not its neighbours");
     check(continueConsiders(33, 4, true) && !continueConsiders(33, 4, false), "Continue and the switch");
+
+    // Continue: the newest save of any kind (issue 10), by write time.
+    const auto newest = [](const int(*saves)[2], int n, int pages, bool quickInLoad) {
+        int best = 0, bestT = 0;
+        for (int i = 0; i < n; ++i)
+            if (newerSave(saves[i][0], saves[i][1], best, bestT, pages, quickInLoad)) {
+                best = saves[i][0];
+                bestT = saves[i][1];
+            }
+        return best;
+    };
+    const int quickNewer[][2] = {{1, 100}, {4, 200}, {33, 300}};
+    check(newest(quickNewer, 3, 4, true) == 33, "a newer quicksave wins Continue");
+    check(newest(quickNewer, 3, 4, false) == 4, "quicksave_in_load = 0: the newest manual save");
+    const int manualNewer[][2] = {{33, 300}, {2, 400}};
+    check(newest(manualNewer, 2, 4, true) == 2, "a newer manual save wins over the quicksave");
+    const int tie[][2] = {{33, 300}, {3, 300}};
+    check(newest(tie, 2, 4, true) == 3, "equal times: the manual save");
+    const int onlyQuick[][2] = {{33, 50}};
+    check(newest(onlyQuick, 1, 4, true) == 33, "only a quicksave on the card");
+    const int offPage[][2] = {{20, 900}, {33, 300}};
+    check(newest(offPage, 2, 4, true) == 33, "a slot beyond save_pages does not count");
     std::printf("save_pages_policy: %u checks passed\n", checks);
     return 0;
 }

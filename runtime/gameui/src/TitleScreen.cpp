@@ -49,6 +49,8 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
     switch (r) {
         case TitleRow::Continue: {
             std::string s = menuText("Your newest save");
+            if (st.continueQuick) // the quicksave (F5) is newer than every manual save: say so (issue 10)
+                s = menuText("Quicksave");
             if (!st.continueLocation.empty())
                 s += ": " + st.continueLocation;
             const std::string d = formatSaveDate(st.continueTime, st.dateOrder);
@@ -1069,9 +1071,15 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         const bool foc = !card && focus_ == id, hov = !card && hover_ == id && en;
         const Rect rd = rowRect(i, n);
         p.button(d, rd, titleRowLabel(r), foc, hov, en, TextAlign::Center);
-        if (r == TitleRow::Continue && !st.continueLocation.empty())
-            p.text(d, {rd.x + 32, rd.y, rd.w - 64, rd.h}, st.continueLocation, FontRole::Small,
-                   foc ? th.text : th.textMuted, TextAlign::Right);
+        if (r == TitleRow::Continue && (st.continueQuick || !st.continueLocation.empty())) {
+            // "Quicksave: Surdana" when Continue loads the quicksave, else the location alone
+            std::string where = st.continueQuick ? std::string(menuText("Quicksave")) : std::string();
+            if (!where.empty() && !st.continueLocation.empty())
+                where += ": ";
+            where += st.continueLocation;
+            p.text(d, {rd.x + 32, rd.y, rd.w - 64, rd.h}, where, FontRole::Small, foc ? th.text : th.textMuted,
+                   TextAlign::Right);
+        }
         if (foc)
             focusedRow = r;
     }

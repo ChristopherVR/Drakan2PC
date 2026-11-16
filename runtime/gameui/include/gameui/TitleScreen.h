@@ -95,6 +95,7 @@ private:
 struct TitleState {
     bool canLoad = true;          // Load Game enabled (native 0x2302 enabled: 37e810(0) == 1, a save exists)
     int continueSlot = 0;         // the newest save's slot number; 0 = no Continue row
+    bool continueQuick = false;   // that save is the quicksave (F5): the row says so
     std::string continueLocation; // its location ("Surdana")
     SaveTimestamp continueTime;   // and when it was saved
     bool canQuit = true;          // [general] title_quit
