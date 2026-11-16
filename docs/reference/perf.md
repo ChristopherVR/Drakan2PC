@@ -189,6 +189,16 @@ changed. Existing graphics preferences are preserved by normal launch.
 
 Validation evidence: `docs/journal/2026-10-18/data/default-performance-20261018.json`.
 
+### Paced presentation by default (2026-11-16)
+
+The uncapped world rate draws as fast as the machine allows, and with vsync off and no limit process CPU scales with
+it (about 3.6 logical processors at 118 fps at 4K with modern water, against about 1.65 when paced). Defaults now
+pace to the display: `vsync = 1` and `tick_snap = 1` (as before) and `frame_limit = auto` (new): with vsync off the
+host loop presents at most once per display refresh (exact rational rate) and the engine tick is snapped to that
+period like under vsync; with vsync on it does nothing. `frame_limit = 0` or a number behave as before (a number does
+not snap the tick, so the world steps 15 to 18 ms per 16.67 ms frame there). Measurements and what is not proven
+(tearing on the panel, latency, VRR): `docs/journal/2026-11-16/frame-pacing-default.md`.
+
 ### World-rate velocity correction (2026-10-23)
 
 `FUN_00325d30` turns a tick's displacement into units per second with a multiplier capped at 30

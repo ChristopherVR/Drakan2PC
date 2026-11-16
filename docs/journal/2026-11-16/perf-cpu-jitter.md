@@ -152,6 +152,7 @@ would remove that wait.
 * A paused toggle comparison of the surface lists (`GSR_SURFACE_HASH`, `DRAKAN_VERTEX_TOGGLE`) with the stream on:
   batch boundaries of the shader path and the packet path could split a draw's minimum vertex alpha differently.
 * Whether the shipped defaults should pace to the display (vsync on, or a frame limit at the refresh) is the
-  owner's decision; `tearing is the jitter` is inferred, not measured on the panel.
+  owner's decision; `tearing is the jitter` is inferred, not measured on the panel. Follow-up: `frame_limit = auto`
+  is now the default (`frame-pacing-default.md`); the owner's explicit `vsync = 0`, `frame_limit = 0` are unchanged.
 * Only the Surdana start was measured; the owner's session ran at about twice its rate, and no scene with the
   per-frame read-back (FINISH polls) was benchmarked.
