@@ -445,12 +445,19 @@ struct RayWater::Impl {
         uint64_t attributeGeneration = 0;
         uint32_t attributeBase = 0; // nativeTextureBase of attributes
         uint32_t texturedTriangles = 0;
+        // Welded normals of attributeSource's geometry (GSR_RAY_STABLE_UPLOAD), from the welds of normalWelds.
+        std::vector<Point> normals;
+        std::vector<float> packedNormals;
+        uint64_t normalWelds = 0;
+        bool normalsValid = false, normalsPacked = false;
     };
     std::unordered_map<uint64_t, NativeMesh> nativeMeshes;
     std::optional<uint64_t> modelLevel;
     std::vector<ComPtr<ID3D12Resource>> retiredModelResources;
     // Vertex-normal welds by mesh topology: each pose of an animated model is a new mesh with the same welds.
     std::unordered_map<uint64_t, CornerWelds> modelWelds;
+    std::unordered_map<uint64_t, uint64_t> modelWeldVersions; // topology -> weldSerial of its last weldCorners
+    uint64_t weldSerial = 0;
     // Animated models get a new mesh identity for every pose but keep their topology. Each pose reuses a BLAS of the
     // same topology that no current mesh uses and refits it in place (passes run in order on one queue), instead of
     // allocating and building a new one; a full rebuild every kRefits updates bounds the loss of trace quality.
@@ -1327,7 +1334,10 @@ void RayWater::Impl::execute(Job& job) {
                 modelOffsets.push_back(staticTotal + uint32_t(colors.size() / kTriangleAttributes));
                 usedMeshes.insert(model->identity);
                 usedTopologies.insert(model->topology);
-                const auto buildAttributes = [&](std::vector<Attribute>& target) {
+                // cache: the mesh's entry when its geometry is unchanged since its attributes were last built. Its
+                // welded normals depend only on the geometry and the welds (not on materials), so a material generation
+                // change (GSR_RAY_STABLE_UPLOAD) reuses them instead of welding and smoothing again.
+                const auto buildAttributes = [&](std::vector<Attribute>& target, NativeMesh* cache = nullptr) {
                     const auto corners = [&](size_t i, Point(&p)[3]) {
                         for (unsigned j = 0; j < 3; ++j) {
                             const auto& v = model->triangles[i].position[j];
@@ -1336,13 +1346,32 @@ void RayWater::Impl::execute(Job& job) {
                     };
                     CornerWelds unshared;
                     auto& welds = model->topology ? s.modelWelds[model->topology] : unshared;
-                    if (welds.corners.size() != model->triangles.size() * 3 || welds.collapsed)
+                    uint64_t weldVersion = 0; // which welds the normals come from (0: this mesh's own corners)
+                    if (welds.corners.size() != model->triangles.size() * 3 || welds.collapsed) {
                         weldCorners(model->triangles.size(), corners, welds);
-                    std::vector<Point> normals;
-                    smoothNormals(model->triangles.size(), corners, welds, normals);
-                    std::vector<float> packedNormals;
-                    if (job.modelReuse)
-                        packCornerNormals(welds, normals, packedNormals);
+                        if (model->topology)
+                            s.modelWeldVersions[model->topology] = ++s.weldSerial;
+                    }
+                    if (model->topology)
+                        weldVersion = s.modelWeldVersions[model->topology];
+                    const bool reuse = cache && cache->normalsValid && cache->normalWelds == weldVersion &&
+                                       cache->normalsPacked == job.modelReuse && !welds.collapsed;
+                    std::vector<Point> ownNormals;
+                    std::vector<float> ownPacked;
+                    auto& normals = cache ? cache->normals : ownNormals;
+                    auto& packedNormals = cache ? cache->packedNormals : ownPacked;
+                    if (!reuse) {
+                        normals.clear();
+                        packedNormals.clear();
+                        smoothNormals(model->triangles.size(), corners, welds, normals);
+                        if (job.modelReuse)
+                            packCornerNormals(welds, normals, packedNormals);
+                        if (cache) {
+                            cache->normalsValid = true;
+                            cache->normalWelds = weldVersion;
+                            cache->normalsPacked = job.modelReuse;
+                        }
+                    }
                     return packModelAttributes(*model, *models, nativeTextureBase, normals, target, packedNormals,
                                                alphaCoverage);
                 };
@@ -1354,7 +1383,10 @@ void RayWater::Impl::execute(Job& job) {
                     if (!unchanged || cached.attributeGeneration != s.materialGeneration) {
                         cached.attributes.clear();
                         cached.attributes.reserve(model->triangles.size() * kTriangleAttributes);
-                        cached.texturedTriangles = buildAttributes(cached.attributes);
+                        if (!unchanged)
+                            cached.normalsValid = false;
+                        cached.texturedTriangles =
+                            buildAttributes(cached.attributes, job.stableUpload ? &cached : nullptr);
                         ++s.passStats.attributeBuilds;
                         cached.attributeSource = model;
                         cached.attributeGeneration = s.materialGeneration;
@@ -2043,6 +2075,7 @@ void RayWater::Impl::execute(Job& job) {
             } else
                 ++it;
         std::erase_if(s.modelWelds, [&](const auto& welds) { return !usedTopologies.contains(welds.first); });
+        std::erase_if(s.modelWeldVersions, [&](const auto& entry) { return !usedTopologies.contains(entry.first); });
         for (auto it = s.deformables.begin(); it != s.deformables.end();) {
             auto& slots = it->second;
             for (auto d = slots.begin(); d != slots.end();)
