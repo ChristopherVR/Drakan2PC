@@ -26,6 +26,7 @@
 //   kCaps.readbackVerify     verifyRTBlocks
 #include "gs_solid_mirror.h"
 
+#include <chrono>
 #include <cstdlib>
 
 #ifndef GSR_IMPL
@@ -589,55 +590,23 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         rt->w >= surfaceSource.frameWidth && rt->h >= surfaceSource.frameHeight &&
         (nativeWaterPass || (zte && ztst >= 2)) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && count % 3 == 0) {
         CpuProfile::Scope surfaceProfile(cpuProfile, CpuProfile::DrawSurface);
-        // Same camera cache key as before the builder: every draw reaching this point may reconfigure it.
-        if (surfaceBuilder->needsConfigure(surfaceSource.serial, s.xyoffset))
-            surfaceBuilder->stageCamera(pendingTemporalEnd ? rt->neuralCamera : surfaceSource, s.xyoffset);
-        // Eligibility is proved against native layer geometry, independent
-        // of level, texture format, palette animation or vertex tint.
-        const bool waterState =
-            nativeWaterPass || (residentScene.waterCount && zmsk && haveTex && !tb.isRT && (s.flags & DF_ABE));
-        bool constantAlphaPass = false;
-        const uint32_t alphaTest = uint32_t(bitsOf(s.test, 1, 3)), alphaRef = uint32_t(bitsOf(s.test, 4, 8));
-        float vertexAlpha = 255;
-        for (uint32_t i = 0; i < count; ++i)
-            vertexAlpha = std::min(vertexAlpha, v[i].a);
-        const bool textureAlpha = haveTex && bitsOf(s.tex0, 34, 1) != 0;
-        if ((!textureAlpha || (bitsOf(s.tex0, 35, 2) == 0 && vertexAlpha >= 128)) &&
-            ((alphaTest == 5 && (textureAlpha ? tb.minimumAlpha : vertexAlpha) >= alphaRef) ||
-             (alphaTest == 6 && (textureAlpha ? tb.minimumAlpha : vertexAlpha) > alphaRef)))
-            constantAlphaPass = true;
-        // A passing alpha test does not make a blended terrain/detail
-        // layer opaque. Only a fully replacing GS blend may occlude rays.
-        const bool opaqueBlend =
-            !(s.flags & DF_ABE) || (s.alpha == 0x44 && vertexAlpha >= 128 &&
-                                    (!textureAlpha || (bitsOf(s.tex0, 35, 2) == 0 && tb.minimumAlpha >= 128)));
-        const bool opaqueEligible = !zmsk && opaqueBlend && (!(s.test & 1) || alphaTest == 1 || constantAlphaPass);
-        const bool materialEligible =
-            haveTex && !tb.isRT && (!(s.flags & DF_ABE) || s.alpha == 0x44) && (!(s.test & 1) || alphaTest != 0);
-        const bool eligible = opaqueEligible || materialEligible || waterState;
-        if (eligible || rt->surfaceSubmittedEpoch != motionEpoch) {
-            // Conversion to world space, the resident match/observe and the append run on the builder (in
-            // submission order); readers of the results drain it first. A job without vertices only starts the
-            // target's list for this world, like the clear the inline loop did at every draw reaching it.
-            rt->surfaceSubmittedEpoch = motionEpoch;
-            auto job = surfaceBuilder->makeJob(&rt->surface, motionEpoch);
-            auto& d = job.params;
-            d.waterState = waterState;
-            d.nativeWaterPass = nativeWaterPass;
-            d.opaqueEligible = opaqueEligible;
-            d.materialEligible = materialEligible;
-            d.transparent = (s.flags & DF_ABE) != 0 && !opaqueBlend;
-            d.textureAlpha = textureAlpha;
-            d.fst = (s.flags & DF_FST) != 0;
-            d.alphaTest = (s.test & 1) ? alphaTest : 1;
-            d.alphaReference = float(alphaRef);
-            d.textureFunction = uint32_t(bitsOf(s.tex0, 35, 2));
-            if (haveTex && !tb.isRT)
-                d.texture = tb.reflectionTexture;
-            d.texWidth = float(1u << bitsOf(s.tex0, 26, 4));
-            d.texHeight = float(1u << bitsOf(s.tex0, 30, 4));
-            surfaceBuilder->submit(std::move(job), v, eligible ? count : 0);
-        }
+        surface::DrawInput in;
+        in.list = &rt->surface;
+        in.epoch = motionEpoch;
+        in.firstOfEpoch = rt->surfaceSubmittedEpoch != motionEpoch;
+        in.camera = pendingTemporalEnd ? rt->neuralCamera : surfaceSource;
+        in.cameraSerial = surfaceSource.serial;
+        in.s = s;
+        in.nativeWaterPass = nativeWaterPass;
+        in.haveTex = haveTex;
+        in.texIsRT = tb.isRT;
+        in.residentWater = residentScene.waterCount != 0;
+        in.texMinimumAlpha = tb.minimumAlpha;
+        in.reflectionTexture = tb.reflectionTexture;
+        // From here the target's list belongs to this world, whether or not this draw is eligible (the submission
+        // starts it at the first draw that reaches it).
+        rt->surfaceSubmittedEpoch = motionEpoch;
+        submitSurface(in, v, count);
     }
     // --- temporal upscaler: is this a 3D world draw (rendered into the reduced render rectangle) or a full
     // resolution one?
@@ -1458,6 +1427,143 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             }
         }
     }
+}
+
+// ---- ray-surface submissions (surface_builder.h) ----
+//
+// A draw of ordinary vertices goes to the builder at once, unless a vertex-program batch before it is still waiting for
+// its vertices on the GPU: then it waits behind it, so the builder takes the draws in their order (its camera, its
+// lists and the resident material updates depend on that order). flushSurfaces hands the waiting draws over; every
+// reader of the builder's results calls drainSurfaces, which flushes first.
+
+void GSR_IMPL::submitSurface(const surface::DrawInput& in, const DrawVertex* v, uint32_t count) {
+    if constexpr (kCaps.vertexPrograms)
+        if (programBatch) {
+            submitProgramSurface(in, *programBatch); // the three stand-ins are no geometry: the batch's own vertices
+            return;
+        }
+    submitOrHoldSurface(in, v, count);
+}
+
+void GSR_IMPL::submitOrHoldSurface(const surface::DrawInput& in, const DrawVertex* v, uint32_t count) {
+    surface::PendingDraws& p = pendingSurfaces;
+    if (p.empty()) {
+        surface::submitDraw(*surfaceBuilder, in, v, count);
+        return;
+    }
+    surface::PendingDraws::Draw d;
+    d.in = in;
+    d.first = (uint32_t)p.vertices.size();
+    d.count = count;
+    p.vertices.insert(p.vertices.end(), v, v + count);
+    p.draws.push_back(d);
+}
+
+void GSR_IMPL::submitProgramSurface(const surface::DrawInput& in, const VertexProgramBatch& batch) {
+    surface::PendingDraws& p = pendingSurfaces;
+    if (batch.batchPath) {
+        // Not offered while a ray effect is on (vertexPathCapability: strips only); the list still starts.
+        if (in.firstOfEpoch)
+            submitOrHoldSurface(in, nullptr, 0);
+        return;
+    }
+    uint32_t first = 0;
+    bool streamed = false;
+    if constexpr (kCaps.programSurfaces)
+        streamed = reserveProgramSurface(batch.indexCount, first);
+    if (!streamed) {
+        // No stream (no backend support or a failed buffer): the same vertices on the CPU, exactly.
+        p.scratch.clear();
+        surface::evaluateBatch(batch, in.s, p.scratch);
+        submitOrHoldSurface(in, p.scratch.data(), (uint32_t)p.scratch.size());
+        return;
+    }
+    surface::PendingDraws::Draw d;
+    d.in = in;
+    d.first = first;
+    d.count = batch.indexCount;
+    d.gpu = true;
+    if (runtimeFlags().vertexSurfaceVerify) {
+        d.check = (uint32_t)p.checks.size();
+        surface::evaluateBatch(batch, in.s, p.checks);
+    }
+    p.draws.push_back(d);
+    ++p.streamed;
+}
+
+void GSR_IMPL::flushSurfaces() {
+    surface::PendingDraws& p = pendingSurfaces;
+    if (p.empty())
+        return;
+    CpuProfile::Scope profile(cpuProfile, CpuProfile::DrawSurface);
+    const bool verify = runtimeFlags().vertexSurfaceVerify;
+    const surface::RawVertex* raw = nullptr;
+    uint32_t rawCount = 0;
+    bool streamed = false;
+    for (const auto& d : p.draws)
+        streamed |= d.gpu;
+    bool read = false;
+    if constexpr (kCaps.programSurfaces)
+        if (streamed)
+            read = readProgramSurfaces(raw, rawCount);
+    ++p.flushes;
+    // The draws are taken out first: a submission below must not see them as waiting.
+    std::vector<surface::PendingDraws::Draw> draws;
+    draws.swap(p.draws);
+    std::vector<DrawVertex> vertices, checks, converted;
+    vertices.swap(p.vertices);
+    checks.swap(p.checks);
+    for (const auto& d : draws) {
+        if (!d.gpu) {
+            surface::submitDraw(*surfaceBuilder, d.in, vertices.data() + d.first, d.count);
+            continue;
+        }
+        converted.resize(d.count);
+        const bool have = read && uint64_t(d.first) + d.count <= rawCount;
+        if (have) {
+            for (uint32_t i = 0; i < d.count; ++i)
+                converted[i] = surface::drawVertexOf(raw[d.first + i], d.in.s.xyoffset);
+            if (!(d.in.s.flags & DF_IIP))
+                surface::flatShade(converted.data(), d.count);
+        }
+        if (verify) {
+            const DrawVertex* want = checks.data() + d.check;
+            p.compared += d.count;
+            for (uint32_t i = 0; i < d.count; ++i)
+                if (!have || std::memcmp(&converted[i], &want[i], sizeof(DrawVertex)) != 0)
+                    ++p.differing;
+            surface::submitDraw(*surfaceBuilder, d.in, want, d.count); // the reference values
+        } else if (have) {
+            surface::submitDraw(*surfaceBuilder, d.in, converted.data(), d.count);
+        } else if (d.in.firstOfEpoch) {
+            surface::submitDraw(*surfaceBuilder, d.in, nullptr, 0); // the read failed: the list still starts
+        }
+    }
+    static const bool log = verify || std::getenv("DRAKAN_VERTEX_LOG") != nullptr;
+    if (log) {
+        static auto last = std::chrono::steady_clock::now();
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last >= std::chrono::seconds(5)) {
+            last = now;
+            std::fprintf(stderr,
+                         "[gsr] vertex surfaces: %llu batches streamed, %llu flushes; verify: %llu vertices compared, "
+                         "%llu differ%s\n",
+                         (unsigned long long)p.streamed, (unsigned long long)p.flushes, (unsigned long long)p.compared,
+                         (unsigned long long)p.differing, verify ? "" : " (GSR_VERTEX_SURFACE_VERIFY off)");
+        }
+    }
+    // Keep the storage for the next frame.
+    vertices.clear();
+    checks.clear();
+    p.vertices.swap(vertices);
+    p.checks.swap(checks);
+    draws.clear();
+    p.draws.swap(draws);
+}
+
+void GSR_IMPL::drainSurfaces(CpuProfile* profile) {
+    flushSurfaces();
+    surfaceBuilder->drain(profile);
 }
 
 } // namespace gsr

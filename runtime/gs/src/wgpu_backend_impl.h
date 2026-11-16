@@ -378,6 +378,17 @@ struct WgpuBackend::Impl {
     // Declared after rts and residentScene: destroyed (and joined) before the targets and scene its jobs use.
     std::unique_ptr<surface::SurfaceBuilder> surfaceBuilder = std::make_unique<surface::SurfaceBuilder>(
         residentScene, runtimeFlags().surfaceAsync, runtimeFlags().surfaceOverlap);
+    // Ray-surface submissions (gs_draw.inl): drainSurfaces replaces surfaceBuilder->drain for every reader.
+    surface::PendingDraws pendingSurfaces;
+    void submitSurface(const surface::DrawInput& in, const DrawVertex* v, uint32_t count);
+    void submitOrHoldSurface(const surface::DrawInput& in, const DrawVertex* v, uint32_t count);
+    void submitProgramSurface(const surface::DrawInput& in, const VertexProgramBatch& batch);
+    void flushSurfaces();
+    void drainSurfaces(CpuProfile* profile = nullptr);
+    // kCaps.programSurfaces: room in the stream for `count` vertices of the batch being drawn (its first index), and
+    // the streamed vertices since the last flush, read back.
+    bool reserveProgramSurface(uint32_t count, uint32_t& first);
+    bool readProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count);
     std::vector<std::unique_ptr<DepthBuf>> depths;
     std::unordered_map<TexKey, TexEntry, TexKeyHash> texCache;
     uint64_t texBytes = 0;

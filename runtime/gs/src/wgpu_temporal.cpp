@@ -255,7 +255,7 @@ void WgpuBackend::Impl::finalizeNeuralWorld(RT& rt) {
 // Modern water, reflections and ray-traced shadows over the closed world (wgpu_ray.cpp), written back into the target
 // before the HUD. The D3D11 renderer runs the same scene through DXR (finalizeNeuralWorld in d3d11_world.cpp).
 void WgpuBackend::Impl::traceWorld(RT& rt, bool jittered) {
-    surfaceBuilder->drain(); // the reconstructed triangles and resident material projections are complete
+    drainSurfaces(); // the reconstructed triangles and resident material projections are complete
     const bool current = rt.surface.epoch == motionEpoch;
     const bool wantWater =
         modernWater && current &&

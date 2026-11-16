@@ -597,7 +597,7 @@ void D3D11Backend::Impl::changeScale(uint32_t ns) {
     camPrevValid = false;
     worldFrames = 0;
     lastWorldFrame = 0;
-    surfaceBuilder->drain();
+    drainSurfaces();
     rts.clear();
     depths.clear();
     neuralReset = true;
@@ -722,7 +722,7 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
         if (newlyEnabled)
             flushTexCaches();
         // Disabling does not leave stale AS triangles or an enhanced epoch.
-        surfaceBuilder->drain();
+        drainSurfaces();
         for (auto& target : rts) {
             target->surface.triangles.clear();
             target->surface.epoch = target->surfaceSubmittedEpoch = 0;
@@ -795,7 +795,7 @@ void D3D11Backend::Impl::reset() {
     worldFrames = 0;
     lastWorldFrame = 0;
     curJx = curJy = 0;
-    surfaceBuilder->drain();
+    drainSurfaces();
     rts.clear();
     depths.clear();
     texCache.clear();

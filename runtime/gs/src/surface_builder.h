@@ -8,12 +8,14 @@
 #include "gs_internal.h"
 #include "resident_scene.h"
 #include "surface_geometry.h"
+#include "thread_name.h"
 
 #include <algorithm>
 #include <array>
 #include <cfenv>
 #include <condition_variable>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <mutex>
@@ -124,7 +126,10 @@ public:
     SurfaceBuilder(ResidentScene& scene, bool async, bool assist = true)
         : scene_(scene), async_(async), assist_(assist) {
         if (async_)
-            thread_ = std::thread([this] { run(); });
+            thread_ = std::thread([this] {
+                nameCurrentThread(L"SurfaceBuilder");
+                run();
+            });
     }
     ~SurfaceBuilder() {
         if (thread_.joinable()) {
@@ -356,5 +361,188 @@ private:
     uint64_t submitted_ = 0, completed_ = 0, drainWaits_ = 0;
     bool stop_ = false, workerBusy_ = false, producerJoining_ = false;
     std::thread thread_;
+};
+
+// What the ray-surface submission of one draw reads, taken at the draw (gs_draw.inl). The draw's vertices are passed
+// separately: a draw whose vertices only the GPU computed (a vertex-program batch, streamed out) is submitted once they
+// are read back, and so is every later draw meanwhile, so the builder sees the draws in their order either way.
+struct DrawInput {
+    SurfaceList* list = nullptr;
+    uint64_t epoch = 0;
+    bool firstOfEpoch = false; // the target's first draw reaching the builder in this world: its job starts the list
+    SceneGuideCamera camera;   // staged when the builder's camera key differs
+    uint64_t cameraSerial = 0;
+    GsDrawState s{};
+    bool nativeWaterPass = false, haveTex = false, texIsRT = false, residentWater = false;
+    uint8_t texMinimumAlpha = 0;
+    uint32_t reflectionTexture = ~0u;
+};
+
+// The eligibility of one draw for the ray scene and its job (the former body of the surface block in Impl::draw).
+inline void submitDraw(SurfaceBuilder& builder, const DrawInput& in, const DrawVertex* v, uint32_t count) {
+    const GsDrawState& s = in.s;
+    // Same camera cache key as before the builder: every draw reaching this point may reconfigure it.
+    if (builder.needsConfigure(in.cameraSerial, s.xyoffset))
+        builder.stageCamera(in.camera, s.xyoffset);
+    const bool zmsk = (s.zbuf >> 32) & 1;
+    // Eligibility is proved against native layer geometry, independent
+    // of level, texture format, palette animation or vertex tint.
+    const bool waterState =
+        in.nativeWaterPass || (in.residentWater && zmsk && in.haveTex && !in.texIsRT && (s.flags & DF_ABE));
+    bool constantAlphaPass = false;
+    const uint32_t alphaTest = uint32_t(bitsOf(s.test, 1, 3)), alphaRef = uint32_t(bitsOf(s.test, 4, 8));
+    float vertexAlpha = 255;
+    for (uint32_t i = 0; i < count; ++i)
+        vertexAlpha = std::min(vertexAlpha, v[i].a);
+    const bool textureAlpha = in.haveTex && bitsOf(s.tex0, 34, 1) != 0;
+    if ((!textureAlpha || (bitsOf(s.tex0, 35, 2) == 0 && vertexAlpha >= 128)) &&
+        ((alphaTest == 5 && (textureAlpha ? in.texMinimumAlpha : vertexAlpha) >= alphaRef) ||
+         (alphaTest == 6 && (textureAlpha ? in.texMinimumAlpha : vertexAlpha) > alphaRef)))
+        constantAlphaPass = true;
+    // A passing alpha test does not make a blended terrain/detail
+    // layer opaque. Only a fully replacing GS blend may occlude rays.
+    const bool opaqueBlend =
+        !(s.flags & DF_ABE) || (s.alpha == 0x44 && vertexAlpha >= 128 &&
+                                (!textureAlpha || (bitsOf(s.tex0, 35, 2) == 0 && in.texMinimumAlpha >= 128)));
+    const bool opaqueEligible = !zmsk && opaqueBlend && (!(s.test & 1) || alphaTest == 1 || constantAlphaPass);
+    const bool materialEligible =
+        in.haveTex && !in.texIsRT && (!(s.flags & DF_ABE) || s.alpha == 0x44) && (!(s.test & 1) || alphaTest != 0);
+    const bool eligible = opaqueEligible || materialEligible || waterState;
+    if (!eligible && !in.firstOfEpoch)
+        return;
+    // Conversion to world space, the resident match/observe and the append run on the builder (in submission order);
+    // readers of the results drain it first. A job without vertices only starts the target's list for this world,
+    // like the clear the inline loop did at every draw reaching it.
+    auto job = builder.makeJob(in.list, in.epoch);
+    auto& d = job.params;
+    d.waterState = waterState;
+    d.nativeWaterPass = in.nativeWaterPass;
+    d.opaqueEligible = opaqueEligible;
+    d.materialEligible = materialEligible;
+    d.transparent = (s.flags & DF_ABE) != 0 && !opaqueBlend;
+    d.textureAlpha = textureAlpha;
+    d.fst = (s.flags & DF_FST) != 0;
+    d.alphaTest = (s.test & 1) ? alphaTest : 1;
+    d.alphaReference = float(alphaRef);
+    d.textureFunction = uint32_t(bitsOf(s.tex0, 35, 2));
+    if (in.haveTex && !in.texIsRT)
+        d.texture = in.reflectionTexture;
+    d.texWidth = float(1u << bitsOf(s.tex0, 26, 4));
+    d.texHeight = float(1u << bitsOf(s.tex0, 30, 4));
+    builder.submit(std::move(job), v, eligible ? count : 0);
+}
+
+// GSR_SURFACE_HASH: one value for a world's reconstructed triangles, every field in list order (no padding bytes), so
+// two vertex paths can be compared on the same paused scene.
+inline uint64_t listHash(const std::vector<Triangle>& list) {
+    uint64_t h = 1469598103934665603ull;
+    const auto word = [&h](uint32_t v) { h = (h ^ v) * 1099511628211ull; };
+    const auto real = [&word](float f) {
+        uint32_t v;
+        std::memcpy(&v, &f, 4);
+        word(v);
+    };
+    for (const Triangle& t : list) {
+        for (const Point& q : t.p) {
+            real(q.x);
+            real(q.y);
+            real(q.z);
+        }
+        for (float f : t.color)
+            real(f);
+        for (const auto& row : t.lighting)
+            for (float f : row)
+                real(f);
+        for (const auto& row : t.uv)
+            for (float f : row)
+                real(f);
+        for (float f : t.opacity)
+            real(f);
+        word(t.texture);
+        word(t.alphaTest);
+        word(t.textureFunction);
+        real(t.alphaReference);
+        real(t.roughness);
+        real(t.reflectance);
+        word(uint32_t(t.water) | uint32_t(t.vertexLit) << 1 | uint32_t(t.textureAlpha) << 2 |
+             uint32_t(t.transparent) << 3 | uint32_t(t.shadowGeometry) << 4);
+    }
+    return h;
+}
+
+// One vertex of a vertex-program draw as the exact shader computes it (VSProgramRaw, VP_RAW_ONLY), streamed out.
+struct RawVertex {
+    uint32_t place[4];  // x, y (12.4 fixed point, low 16 bits), z, fog lane (bits 4..11 fog)
+    uint32_t colour[4]; // r g b a, 0..255
+    uint32_t stq[4];    // float bits of s, t, q; the fourth word is unused
+};
+static_assert(sizeof(RawVertex) == 48, "the stream-out layout");
+
+// One triangle list vertex as GsCore::kick and toDV make it from the same values (ST/Q, no FST: program_draw::
+// stateTakes declines FST records).
+inline DrawVertex drawVertexOf(uint32_t x, uint32_t y, uint32_t z, uint32_t fog, const uint32_t colour[4],
+                               const uint32_t stq[3], uint64_t xyoffset) {
+    const int ofx = (int)(xyoffset & 0xFFFF), ofy = (int)((xyoffset >> 32) & 0xFFFF);
+    DrawVertex d;
+    d.x = ((int)(x & 0xFFFF) - ofx) * (1.0f / 16.0f);
+    d.y = ((int)(y & 0xFFFF) - ofy) * (1.0f / 16.0f);
+    d.z = (float)z;
+    d.fog = (float)(fog & 0xFFu);
+    d.r = (float)(colour[0] & 0xFFu);
+    d.g = (float)(colour[1] & 0xFFu);
+    d.b = (float)(colour[2] & 0xFFu);
+    d.a = (float)(colour[3] & 0xFFu);
+    std::memcpy(&d.s, &stq[0], 4);
+    std::memcpy(&d.t, &stq[1], 4);
+    std::memcpy(&d.q, &stq[2], 4);
+    return d;
+}
+inline DrawVertex drawVertexOf(const RawVertex& r, uint64_t xyoffset) {
+    return drawVertexOf(r.place[0], r.place[1], r.place[2], r.place[3] >> 4, r.colour, r.stq, xyoffset);
+}
+// emitTri without IIP: every vertex of a triangle takes the colour of its last one.
+inline void flatShade(DrawVertex* v, uint32_t count) {
+    for (uint32_t i = 0; i + 2 < count; i += 3)
+        for (uint32_t j = 0; j < 2; ++j) {
+            v[i + j].r = v[i + 2].r;
+            v[i + j].g = v[i + 2].g;
+            v[i + j].b = v[i + 2].b;
+            v[i + j].a = v[i + 2].a;
+        }
+}
+
+// The triangle list vertices of a strip batch (not the batch path) evaluated on the CPU with the VU's arithmetic, in
+// index order: what the core's kick would have queued for the same records. Appended to `out`.
+inline void evaluateBatch(const VertexProgramBatch& batch, const GsDrawState& s, std::vector<DrawVertex>& out) {
+    const size_t first = out.size();
+    out.reserve(first + batch.indexCount);
+    for (uint32_t k = 0; k < batch.indexCount; ++k) {
+        const VertexProgramVertex& pv = batch.vertices[batch.indices[k]];
+        const vp::Output o = vp::evaluate(pv.program, batch.constants[pv.constants], pv.in);
+        const uint32_t colour[4] = {o.r, o.g, o.b, o.a};
+        const uint32_t stq[3] = {o.s, o.t, o.q};
+        out.push_back(drawVertexOf(o.x, o.y, o.z, o.fog, colour, stq, s.xyoffset));
+    }
+    if (!(s.flags & DF_IIP))
+        flatShade(out.data() + first, batch.indexCount);
+}
+
+// Surface submissions held back behind a draw whose vertices are still on the GPU (gs_draw.inl, flushSurfaces).
+struct PendingDraws {
+    struct Draw {
+        DrawInput in;
+        uint32_t first = 0, count = 0; // in `vertices` (CPU draws), or in the backend's stream (gpu)
+        bool gpu = false;
+        uint32_t check = 0; // GSR_VERTEX_SURFACE_VERIFY: first of the CPU evaluation in `checks` (gpu draws)
+    };
+    std::vector<Draw> draws;
+    std::vector<DrawVertex> vertices, checks, scratch;
+    uint64_t streamed = 0, compared = 0, differing = 0, flushes = 0;
+    bool empty() const { return draws.empty(); }
+    void clear() {
+        draws.clear();
+        vertices.clear();
+        checks.clear();
+    }
 };
 } // namespace gsr::surface

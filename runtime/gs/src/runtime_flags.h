@@ -30,7 +30,14 @@ struct RuntimeFlags {
     uint64_t raySceneDumpEpoch = 200;         // GSR_RAY_SCENE_DUMP_EPOCH: positive integer; default 200
 
     // ---- modern water / ray tracing (d3d11_backend, ray_water) -------------------------------------------------
-    bool modernWater = false;           // GSR_MODERN_WATER: not-"0"; default off
+    bool modernWater = false; // GSR_MODERN_WATER: not-"0"; default off
+    // GSR_VERTEX_SURFACE: unset or not-"0". Off: while modern water or a ray effect is on, vertex-program records stay
+    // in the VU1 microprogram (as before 2026-11-16) instead of being drawn by the shader and streamed out for the ray
+    // surface reconstruction (Direct3D 11).
+    bool vertexSurfaceStream = true;
+    // GSR_VERTEX_SURFACE_VERIFY: presence. Every streamed-out surface vertex is also evaluated on the CPU and compared
+    // bit for bit (counts in the `[gsr] vertex surfaces` line); the CPU values are submitted.
+    bool vertexSurfaceVerify = false;
     bool rayReflections = false;        // GSR_RAY_REFLECTIONS: not-"0"; default off
     bool rayGlobalIllumination = false; // GSR_RAY_GI: not-"0"; default off
     bool rayGpuTiming = false;          // GSR_RAY_GPU_TIMING: presence; delayed DXR stage timestamps

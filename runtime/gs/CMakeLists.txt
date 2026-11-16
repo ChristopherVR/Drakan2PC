@@ -186,6 +186,7 @@ add_library(gsr_core STATIC
   src/gs_core.cpp
   src/image_io.cpp
   src/runtime_flags.cpp src/runtime_flags.h
+  src/thread_name.cpp src/thread_name.h
   src/motion_history.cpp src/motion_history.h
   src/guide_camera.cpp src/guide_camera.h
   src/ray_scene.cpp src/ray_scene.h src/ray_bvh.cpp src/ray_bvh.h src/ray_normals.h src/surface_geometry.h src/surface_builder.h src/resident_scene.h

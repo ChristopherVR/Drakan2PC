@@ -1,4 +1,5 @@
 #include "ray_water.h"
+#include "thread_name.h"
 #ifdef GSR_HAVE_DXR_WATER
 #include "ray_water_bytecode.h"
 #include "ray_sky_bytecode.h"
@@ -200,7 +201,10 @@ struct RayWater::Impl {
     // False when the watchdog has abandoned the pass: the job is dropped and nothing will signal its fence values.
     bool enqueue(std::unique_ptr<Job> job, std::vector<Triangle>& recycled) {
         if (!worker.joinable())
-            worker = std::thread([this] { loop(); });
+            worker = std::thread([this] {
+                nameCurrentThread(L"RayWater");
+                loop();
+            });
         std::unique_lock lock(queueMutex);
         idle.wait(lock, [&] { return jobs.size() < kQueuedJobs || abandoned; });
         if (abandoned)

@@ -33,6 +33,11 @@ struct D3D11Backend::Impl::ProgramGpu {
         std::thread worker;
         ComPtr<ID3D11VertexShader> vs, vsMotion;
         ComPtr<ID3D11InputLayout> layout, motionLayout;
+        // Strips only: the raw outputs of the same evaluation (VSProgramRaw), streamed out for the ray surfaces.
+        ComPtr<ID3D11VertexShader> vsRaw;
+        ComPtr<ID3D11GeometryShader> soRaw;
+        ComPtr<ID3D11InputLayout> rawLayout;
+        bool rawReady = false;
         ~Shaders() {
             if (worker.joinable())
                 worker.join();
@@ -46,6 +51,18 @@ struct D3D11Backend::Impl::ProgramGpu {
         ComPtr<ID3D11Buffer> buffer;
         uint32_t capacity = 0, offset = 0, drawOffset = 0;
     } vb, ib, previousVb, constants;
+    // The ray-surface stream (kCaps.programSurfaces): the vertices of the batches whose surfaces wait for them, in the
+    // order reserveProgramSurface handed out their ranges, until readProgramSurfaces copies them back.
+    struct SurfaceStream {
+        ComPtr<ID3D11Buffer> buffer, staging;
+        uint32_t capacity = 0, used = 0; // in vertices
+        bool failed = false;
+        std::vector<surface::RawVertex> read;
+        // The batch being drawn: its range, and whether drawProgramVertices streamed it yet.
+        bool pending = false, streamed = false;
+        uint32_t first = 0, count = 0;
+        uint64_t batches = 0, vertices = 0, cpuFallbacks = 0, reads = 0;
+    } surfaceStream;
     ComPtr<ID3D11ShaderResourceView> constantsSrv;
     ComPtr<ID3D11Buffer> cb, cbMotion;
     bool constantsAppend = false; // the device maps a shader-resource buffer with NO_OVERWRITE (Direct3D 11.1)
@@ -136,6 +153,32 @@ bool buildProgramShaders(ID3D11Device* dev, vp::Arithmetic arithmetic, bool batc
     }
     return true;
 }
+
+// VSProgramRaw of the strip programs with a stream-out stage: per vertex the place, colour and ST/Q words the colour
+// shader turns into its outputs (surface::RawVertex). Nothing is rasterised.
+bool buildRawProgramShader(ID3D11Device* dev, vp::Arithmetic arithmetic, ComPtr<ID3D11VertexShader>& vs,
+                           ComPtr<ID3D11GeometryShader>& so, ComPtr<ID3D11InputLayout>& layout, std::string& error) {
+    const std::string source = vertexProgramHlsl(arithmetic, vp::gameStages(), false);
+    static const D3D_SHADER_MACRO kRawMacros[] = {{"VP_RAW_ONLY", "1"}, {nullptr, nullptr}};
+    ComPtr<ID3DBlob> blob, err;
+    if (FAILED(shader_compile::compile(source.c_str(), source.size(), "gs_vertex_program_raw", kRawMacros,
+                                       "VSProgramRaw", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &blob, &err)) ||
+        !blob) {
+        error = err ? std::string((const char*)err->GetBufferPointer(), err->GetBufferSize()) : "compile";
+        return false;
+    }
+    static const D3D11_SO_DECLARATION_ENTRY kOut[] = {
+        {0, "RAWPLACE", 0, 0, 4, 0}, {0, "RAWCOLOUR", 0, 0, 4, 0}, {0, "RAWSTQ", 0, 0, 4, 0}};
+    const UINT stride = sizeof(surface::RawVertex);
+    if (FAILED(dev->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &vs)) ||
+        FAILED(dev->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(), kOut, 3,
+                                                         &stride, 1, D3D11_SO_NO_RASTERIZED_STREAM, nullptr, &so)) ||
+        FAILED(dev->CreateInputLayout(kProgramLayout, 4, blob->GetBufferPointer(), blob->GetBufferSize(), &layout))) {
+        error = "the device refused the stream-out shader";
+        return false;
+    }
+    return true;
+}
 } // namespace
 
 D3D11Backend::Impl::ProgramGpu& D3D11Backend::Impl::programState() {
@@ -186,6 +229,16 @@ bool D3D11Backend::Impl::programTakes(vpath::Fallback* why, bool batchPath) {
             std::string error;
             const bool built = buildProgramShaders(device.Get(), arithmetic, batchPath, target->vs, target->layout,
                                                    target->vsMotion, target->motionLayout, error);
+            if (built && !batchPath) {
+                std::string rawError;
+                target->rawReady = buildRawProgramShader(device.Get(), arithmetic, target->vsRaw, target->soRaw,
+                                                         target->rawLayout, rawError);
+                if (!target->rawReady)
+                    std::fprintf(stderr,
+                                 "[gsr] vertex programs: the surface stream-out shader failed (%s); the ray surfaces "
+                                 "of shader-drawn records are evaluated on the CPU\n",
+                                 rawError.c_str());
+            }
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             const char* kind = batchPath ? "batch path" : "strips";
             if (built)
@@ -210,13 +263,19 @@ bool D3D11Backend::Impl::programTakes(vpath::Fallback* why, bool batchPath) {
     b.worldOpen = engineWorldOpen;
     b.hudMapped = hudScale < 0.999f || std::fabs(hudSize - 1.0f) > 0.001f || sceneCamera.guiScreen == 14 ||
                   inventoryHudFrame.applies(false, 640) || nativeSubtitleOpen;
-    fillVertexReaders(b);
-    vertexReaders.store(program_draw::cpuReadsVertices(b), std::memory_order_relaxed);
+    publishVertexReaders(b);
     return program_draw::backendTakes(b, why);
 }
 
 void D3D11Backend::Impl::fillVertexReaders(program_draw::BackendState& b) const {
-    b.rayEffects = modernWater || rayShadows || rayReflections || rayGlobalIllumination;
+    // The ray surfaces read every draw's vertices; with the surface stream (kCaps.programSurfaces) a shader-drawn
+    // strip batch streams them out instead, so a ray effect refuses no record while the stream works.
+    const bool rays = modernWater || rayShadows || rayReflections || rayGlobalIllumination;
+    const ProgramGpu* g = programGpu.get();
+    const bool streamFailed =
+        g && (g->surfaceStream.failed ||
+              (g->strips.state.load(std::memory_order_acquire) == ProgramGpu::Ready && !g->strips.rawReady));
+    b.rayEffects = rays && (!runtimeFlags().vertexSurfaceStream || streamFailed);
     // Terrain detail and the debug view shade per pixel from the camera and depth (prepareTerrain); the cliff side
     // projection and the audit read the first triangles of the draw on the CPU.
     b.terrainDetail = terrainCfg.cliffs || runtimeFlags().terrainAudit;
@@ -227,7 +286,13 @@ void D3D11Backend::Impl::fillVertexReaders(program_draw::BackendState& b) const 
 void D3D11Backend::Impl::publishVertexReaders() {
     program_draw::BackendState b;
     fillVertexReaders(b);
+    publishVertexReaders(b);
+}
+
+void D3D11Backend::Impl::publishVertexReaders(const program_draw::BackendState& b) {
     vertexReaders.store(program_draw::cpuReadsVertices(b), std::memory_order_relaxed);
+    raySurfaceStream.store(!b.rayEffects && (modernWater || rayShadows || rayReflections || rayGlobalIllumination),
+                           std::memory_order_relaxed);
 }
 
 namespace {
@@ -385,10 +450,100 @@ void D3D11Backend::Impl::bindProgramDraw(const GsDrawState& s, const VertexProgr
 
 void D3D11Backend::Impl::drawProgramVertices(const VertexProgramBatch& batch) {
     ProgramGpu& g = programState();
-    if (g.of(batch.batchPath).state.load(std::memory_order_relaxed) != ProgramGpu::Ready ||
-        g.lost.load(std::memory_order_relaxed))
+    ProgramGpu::Shaders& sh = g.of(batch.batchPath);
+    if (sh.state.load(std::memory_order_relaxed) != ProgramGpu::Ready || g.lost.load(std::memory_order_relaxed))
         return;
+    auto& st = g.surfaceStream;
+    if (st.pending && !st.streamed && !batch.batchPath && sh.rawReady && st.buffer) {
+        // The ray surfaces of this batch (submitProgramSurface reserved the range): the same vertices and indices
+        // through the raw entry point into the stream, once, before its first colour pass. In index order, so the
+        // stream holds the triangle list the CPU path would have queued.
+        ctx->IASetInputLayout(sh.rawLayout.Get());
+        ctx->VSSetShader(sh.vsRaw.Get(), nullptr, 0);
+        ctx->GSSetShader(sh.soRaw.Get(), nullptr, 0);
+        const UINT offset = st.first * (UINT)sizeof(surface::RawVertex);
+        ctx->SOSetTargets(1, st.buffer.GetAddressOf(), &offset);
+        ctx->DrawIndexed(batch.indexCount, g.ib.drawOffset / (uint32_t)sizeof(uint32_t), 0);
+        ID3D11Buffer* none = nullptr;
+        const UINT zero = 0;
+        ctx->SOSetTargets(1, &none, &zero);
+        ctx->GSSetShader(nullptr, nullptr, 0);
+        ctx->VSSetShader(sh.vs.Get(), nullptr, 0);
+        ctx->IASetInputLayout(sh.layout.Get());
+        st.streamed = true;
+        ++st.batches;
+        st.vertices += batch.indexCount;
+    }
     ctx->DrawIndexed(batch.indexCount, g.ib.drawOffset / (uint32_t)sizeof(uint32_t), 0);
+}
+
+bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) {
+    ProgramGpu& g = programState();
+    auto& st = g.surfaceStream;
+    if (st.failed || !g.strips.rawReady || g.strips.state.load(std::memory_order_acquire) != ProgramGpu::Ready ||
+        g.lost.load(std::memory_order_acquire) || !count)
+        return false;
+    if (st.buffer && st.used + uint64_t(count) > st.capacity)
+        flushSurfaces(); // the stream is full: hand the waiting draws over now (reads the stream back)
+    if (!st.buffer || count > st.capacity) {
+        const uint64_t want = std::max<uint64_t>(uint64_t(count) * 2u, 1u << 18); // 262,144 vertices = 12 MiB
+        if (want * sizeof(surface::RawVertex) > (256ull << 20)) {
+            st.failed = true;
+            return false;
+        }
+        if (st.used)
+            flushSurfaces();
+        D3D11_BUFFER_DESC bd{};
+        bd.ByteWidth = (UINT)(want * sizeof(surface::RawVertex));
+        bd.Usage = D3D11_USAGE_DEFAULT;
+        bd.BindFlags = D3D11_BIND_STREAM_OUTPUT;
+        D3D11_BUFFER_DESC sd = bd;
+        sd.Usage = D3D11_USAGE_STAGING;
+        sd.BindFlags = 0;
+        sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Buffer> buffer, staging;
+        if (FAILED(dev->CreateBuffer(&bd, nullptr, &buffer)) || FAILED(dev->CreateBuffer(&sd, nullptr, &staging))) {
+            st.failed = true;
+            std::fprintf(stderr, "[gsr] vertex programs: no surface stream buffer; the ray surfaces of shader-drawn "
+                                 "records are evaluated on the CPU\n");
+            return false;
+        }
+        st.buffer = std::move(buffer);
+        st.staging = std::move(staging);
+        st.capacity = (uint32_t)want;
+        st.used = 0;
+    }
+    first = st.used;
+    st.used += count;
+    st.pending = true;
+    st.streamed = false;
+    st.first = first;
+    st.count = count;
+    return true;
+}
+
+bool D3D11Backend::Impl::readProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count) {
+    ProgramGpu& g = programState();
+    auto& st = g.surfaceStream;
+    vertices = nullptr;
+    count = 0;
+    if (!st.buffer || !st.used)
+        return false;
+    CpuProfile::Scope profile(cpuProfile, CpuProfile::ProgramSurfaceRead);
+    const uint32_t used = st.used;
+    st.used = 0;
+    D3D11_BOX box{0, 0, 0, used * (UINT)sizeof(surface::RawVertex), 1, 1};
+    ctx->CopySubresourceRegion(st.staging.Get(), 0, 0, 0, 0, st.buffer.Get(), 0, &box);
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (FAILED(map(st.staging.Get(), D3D11_MAP_READ, ms, "vertex program surfaces")) || !ms.pData)
+        return false;
+    st.read.resize(used);
+    std::memcpy(st.read.data(), ms.pData, size_t(used) * sizeof(surface::RawVertex));
+    ctx.raw()->Unmap(st.staging.Get(), 0);
+    ++st.reads;
+    vertices = st.read.data();
+    count = used;
+    return true;
 }
 
 // The velocity pass of the colour pass just drawn (compare drawVelocity in d3d11_draw.cpp): the same targets, depth
@@ -465,6 +620,8 @@ vpath::Capability D3D11Backend::vertexPathCapability() const {
     c.cpuVertexReaders = m_impl->vertexReaders.load(std::memory_order_relaxed);
     if (c.cpuVertexReaders)
         c.shaderStages = 0;
+    else if (m_impl->raySurfaceStream.load(std::memory_order_relaxed))
+        c.shaderStages &= vpath::kStrips; // the surface stream carries strip batches only (surface::evaluateBatch)
     return c;
 }
 
@@ -583,6 +740,23 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
     i.pendingMotionCount = 3;
     i.draw(st, clut, standIns, 3);
     i.programBatch = nullptr;
+    auto& stream = g.surfaceStream;
+    if (stream.pending && !stream.streamed) {
+        // The draw reserved its surfaces but ended before a colour pass (a skipped or empty draw): its range of the
+        // stream stays unwritten, so the waiting draw takes the same vertices evaluated on the CPU.
+        auto& pending = i.pendingSurfaces;
+        for (size_t k = pending.draws.size(); k-- > 0;) {
+            auto& d = pending.draws[k];
+            if (!d.gpu || d.first != stream.first)
+                continue;
+            d.gpu = false;
+            d.first = (uint32_t)pending.vertices.size();
+            surface::evaluateBatch(batch, st, pending.vertices);
+            ++stream.cpuFallbacks;
+            break;
+        }
+    }
+    stream.pending = stream.streamed = false;
     // Notes the draw did not walk (no temporal world, a skipped draw): the scope still advances.
     if (!g.motionTracked)
         applyNotes();

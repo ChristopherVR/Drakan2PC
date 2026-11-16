@@ -35,7 +35,7 @@ WgpuBackend::Impl::~Impl() {
     // GPU objects before the device that created them, then the surface, then the context.
     texCache.clear();
     upCache.clear();
-    surfaceBuilder->drain(); // its jobs hold target pointers
+    drainSurfaces(); // its jobs hold target pointers
     rts.clear();
     depths.clear();
     wideBackdrops.clear();
@@ -241,7 +241,7 @@ void WgpuBackend::Impl::changeScale(uint32_t ns) {
     discardTemporalWorlds();
     finalizeAllWorlds();
     flushAll();
-    surfaceBuilder->drain(); // its jobs hold target pointers
+    drainSurfaces(); // its jobs hold target pointers
     rts.clear();
     depths.clear();
     motionHistory.reset();
@@ -339,7 +339,7 @@ void WgpuBackend::Impl::applyLive(const LiveSettings& ls) {
         lastPresentedWater = lastPresentedRay = false;
         if (newlyEnabled)
             flushTexCaches(); // capture the material texels of the textures already cached
-        surfaceBuilder->drain();
+        drainSurfaces();
         for (auto& target : rts) {
             target->surface.triangles.clear();
             target->surface.epoch = target->surfaceSubmittedEpoch = 0;
@@ -368,7 +368,7 @@ void WgpuBackend::Impl::reset() {
     motionHistory.reset();
     motionWorldOpen = false;
     objectScope = {};
-    surfaceBuilder->drain(); // its jobs hold target pointers
+    drainSurfaces(); // its jobs hold target pointers
     rts.clear();
     depths.clear();
     texCache.clear();

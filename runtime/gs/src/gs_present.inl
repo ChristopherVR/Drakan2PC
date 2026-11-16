@@ -399,7 +399,7 @@ void GSR_IMPL::endFrame() {
             } else
                 ++it;
     }
-    surfaceBuilder->drain(); // jobs hold target pointers
+    drainSurfaces(); // jobs hold target pointers
     for (size_t i = 0; i < rts.size();)
         if (!rts[i]->dirty && frame - rts[i]->lastUse > 600)
             rts.erase(rts.begin() + i);

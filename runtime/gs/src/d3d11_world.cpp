@@ -494,7 +494,16 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     // The reconstructed triangles and the resident material projections are complete once the builder drained.
     {
         CpuProfile::Scope drainStage(cpuProfile, CpuProfile::SurfaceDrain);
-        surfaceBuilder->drain(&cpuProfile);
+        drainSurfaces(&cpuProfile);
+    }
+    static const bool surfaceHash = std::getenv("GSR_SURFACE_HASH") != nullptr;
+    if (surfaceHash && rt.surface.epoch == motionEpoch) {
+        uint32_t water = 0;
+        for (const auto& t : rt.surface.triangles)
+            water += t.water ? 1u : 0u;
+        std::fprintf(stderr, "[surface-hash] epoch=%llu path=%s triangles=%zu water=%u hash=%016llx\n",
+                     (unsigned long long)motionEpoch, vpath::evalName(vpath::evalOf(vpath::controlWord())),
+                     rt.surface.triangles.size(), water, (unsigned long long)surface::listHash(rt.surface.triangles));
     }
     const bool wantWater =
         modernWater && rt.surface.epoch == motionEpoch &&
