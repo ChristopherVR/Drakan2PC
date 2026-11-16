@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include <tuple>
+#include <utility>
 
 namespace gsr::motion {
 bool Key::operator<(const Key& b) const {
