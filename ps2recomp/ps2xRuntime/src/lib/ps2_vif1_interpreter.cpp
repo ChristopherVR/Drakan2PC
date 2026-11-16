@@ -654,19 +654,23 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
             // The mask and mode the fast path is about to use (difference mode changes ROW, never these).
             const uint32_t unpackMask = vif1_regs.mask, unpackMode = vif1_regs.mode;
             // The vertex path follows VU memory lane by lane (vu/ps2_vu1_gpu_live.h); off: this one flag test. While
-            // it follows, the time of the unpack and of the report are counted apart (DRAKAN_VERTEX_LOG).
+            // it follows under DRAKAN_VERTEX_LOG, the time of the unpack and of the report are counted apart.
             const bool vertexPathFollows = vu1gpu::live::following();
-            const uint64_t unpackStart = vertexPathFollows ? vu1gpu::live::ticks() : 0u;
+            const bool vertexPathTimed = vertexPathFollows && vu1gpu::live::timesUnpacks();
+            const uint64_t unpackStart = vertexPathTimed ? vu1gpu::live::ticks() : 0u;
             if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes && fastUnpack && !vu1check::recording() &&
                 (!vu1batch::captureActive || !vu1batch::trackVif(this)) &&
                 vif_unpack::fast(m_vu1Data, data + pos, vuAddr, writeVectorCount, cl, wl, vn, vl, zeroExtend,
                                  maskEnable, vif1_regs.mode, cameraFirst, cameraEnd, vif1_regs.mask, vif1_regs.row,
                                  vif1_regs.col)) {
-                if (vertexPathFollows) {
+                if (vertexPathTimed) {
                     const uint64_t written = vu1gpu::live::ticks();
                     vu1gpu::live::noteUnpack(m_vu1Data, vuAddr, writeVectorCount, cl, wl, vn, maskEnable, unpackMask,
                                              unpackMode);
                     vu1gpu::live::unpackTimes(written - unpackStart, vu1gpu::live::ticks() - written, false);
+                } else if (vertexPathFollows) {
+                    vu1gpu::live::noteUnpack(m_vu1Data, vuAddr, writeVectorCount, cl, wl, vn, maskEnable, unpackMask,
+                                             unpackMode);
                 }
             } else if (m_vu1Data && totalBytes > 0 && pos + totalBytes <= sizeBytes) {
                 const uint8_t* srcBase = data + pos;
@@ -859,7 +863,7 @@ void PS2Memory::processVIF1Data(const uint8_t* data, uint32_t sizeBytes, uint32_
                     if (vu1batch::captureActive)
                         vu1batch::memoryWrite(this, destOff, writtenLanes);
                 }
-                if (vertexPathFollows) // the slow path reports quadword by quadword: one time for both
+                if (vertexPathTimed) // the slow path reports quadword by quadword: one time for both
                     vu1gpu::live::unpackTimes(vu1gpu::live::ticks() - unpackStart, 0u, true);
             }
             if (auto hook = drakan_vu1::g_uploadHook.load(std::memory_order_acquire); hook && cameraEnd > cameraFirst)

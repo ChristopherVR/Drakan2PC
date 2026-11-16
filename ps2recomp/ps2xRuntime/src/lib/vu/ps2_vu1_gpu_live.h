@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #if defined(_M_X64) || defined(_M_IX86)
 #include <intrin.h>
 #elif defined(__x86_64__) || defined(__i386__)
@@ -78,6 +79,12 @@ inline uint64_t ticks() {
 #endif
 }
 void unpackTimes(uint64_t unpackTicks, uint64_t reportTicks, bool slow);
+// Whether the VIF takes those times: only with DRAKAN_VERTEX_LOG, the one place they are printed (three clock reads an
+// UNPACK otherwise, a few hundred thousand a second in a converted Order of the Flame level).
+inline bool timesUnpacks() {
+    static const bool timed = std::getenv("DRAKAN_VERTEX_LOG") != nullptr;
+    return timed;
+}
 // The EE reads or writes VU1 data memory through its address space (the VU1 worker is idle: PS2Memory waits for it).
 void directAccess(uint8_t* memory);
 void directWrite(const uint8_t* memory, uint32_t offset, uint32_t bytes);
