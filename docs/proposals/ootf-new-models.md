@@ -21,10 +21,10 @@ these counts (distinct models shown by placed objects):
 
 ### Fixes that need no new model
 
-* **Dragons the disc already has.** Crimson Dragon (disc model 3671), Blade Dragon and its boss (3252), and Ice Dragon
-  (5146) keep their PC meshes only because the class names differ ("Crimson Dragon (Bat)", "Blade Dragon (Crow)",
-  "Ice Dragon 1"). Add aliases or enemies rows in the model table, as the Skeleton Dragon and Primitive Giant already
-  have.
+* **Dragons the disc already has: done 2026-11-17** ([journal](../journal/2026-11-17/ootf-dragon-swap.md)). The Crimson,
+  Blade and Ice Dragons are played by the disc's `Crimson Dragon (Bat)`, `Blade Dragon (Crow)` and `Ice Dragon 1` with
+  their own clips, keeping the Order of the Flame hit points. The **Boss Blade Dragon** is the Blade Dragon mesh with a
+  green skin, so it stays the PC model until the disc model can be recoloured (with the Ebon Dragon below).
 * **Ebon Dragon:** it belongs to the D2 bat dragon family. A recoloured disc model may be enough.
 * **Lava** is mostly terrain, which already draws D2's "Lava (Base)". The meshes are only the Volcanic lava lake
   (Volcano #3817, 1,485 polygons), the Magma Pit, three Magma Shards, a Lava Vent and the Islands lava mechanism. That
@@ -122,7 +122,7 @@ but not for Delon, Julian or Tuiri.
 
 ## 5. Suggested order
 
-1. Dragon aliases and the Ebon Dragon recolour (table rows, no art).
+1. Dragon aliases (done 2026-11-17); the Ebon Dragon and Boss Blade Dragon recolours remain.
 2. Build the D2 human kit with Delon as the first character: a base mesh on the D2 rig, the UV layout, the bake and
    palette pass, the face from his PC texture, in game in Ruined Village 1.1.
 3. Reuse the kit for Julian, Tuiri, Rimril, the farmer, the warrior and the villager and slave sets.

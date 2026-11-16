@@ -962,6 +962,7 @@ skeleton, clips and HD textures) instead of the converted PC one (formats `ootfp
 | Enemies | Heuge Purple, Heuge Yellow (cut-scene orcs, engine class 17, the models of the two gameplay orcs) | Purple Orc Center, Yellow Orc : Center | on by default, rows marked `scene`: the scene orc is the disc model and rig, PC scene clips retargeted, channels remapped by joint; turn the row off to keep the PC model. Scene Sailors and Death Mages stay PC models (the disc rigs share under half of their joints) |
 | Enemies | Spider | Spider | same creature, same 37 joints |
 | Enemies | Scavenger | Scavenger | on by default: the converted PC model could not be hit by melee; plays as the Drakan 2 class (its health and attacks), turn the row off to keep the PC model |
+| Enemies | Crimson Dragon, Blade Dragon, Ice Dragon | Crimson Dragon (Bat), Blade Dragon (Crow), Ice Dragon 1 | the disc's remakes, with the disc clips and breath; each keeps its Order of the Flame hit points (`pcFields`), the Ice Dragon also its sight range and field of view. Their AnimWay Points use the disc clips too. The Boss Blade Dragon (own green skin) and the Ebon Dragon stay PC models |
 | Weapons | Short Sword, Long Sword, 2-Handed, Scimitar, Speed Scimitar | Steel Short Sword, Steel Longsword, Steel Two Handed Sword, Steel Scimitar, Iron Scimitar | plain blades |
 | Weapons | Mace, Battle Axe, Battle Hammer, club, Goblin Club, Troll Axe | Steel Mace, Steel Axe, Steel Hammer, club, Wood Club, Leathertock Axe - Lev [1] | plain blunt weapons and the Wartok axe |
 | Weapons | Long Bow, Heavy Bow, Speed Bow (one PC model), Arrows | Wood Bow: Long, Wood Bow - Arrow Short (the plain quiver) | |
@@ -969,6 +970,9 @@ skeleton, clips and HD textures) instead of the converted PC one (formats `ootfp
 * Enemies are played by the Drakan 2 class (they already were: `PC_CLASS_ALIASES`). By default they keep the disc's own clips;
   `enemyAnimations: 'ootf'` (CLI `--enemy-animations ootf`, editor "Order of the Flame animations on the Drakan 2 model") retargets
   the PC clips onto the disc rig as the converter did before. A row turned off converts the PC model with its own skeleton.
+  A row's `pcFields` names plain value fields (hit points, sight) each placed creature takes from its OotF object or class
+  as object parameters; the rest stays the disc class's. A class that shares the disc model of such an enemy (a way point)
+  maps its clips by name instead of retargeting PC clips over the disc ones.
 * Weapons keep their PC class data (damage, reach, effects, the cloned template); only the model becomes the disc weapon's, a
   model of the host's own `RESOURES.MOD`, named in place (`OotfAssetBuilder.useNativeModel`). One PC model shared by several
   classes takes the first row's model. Magic, elemental and quest weapons (Runeblade, Atimar Blade, Flame Sword ...) are not in
