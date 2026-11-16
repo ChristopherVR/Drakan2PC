@@ -794,3 +794,13 @@ terrain cliffs or a vertex diagnosis reads the vertices on the CPU, so the runs 
 off the GPU path pays at 4K (-13 % frame time, VU1 worker 7.2 to 5.1 ms). An exact stream-out of the shader's vertices
 for the ray surfaces exists (`GSR_VERTEX_SURFACE=1`, off) but its same-frame read-back serialises CPU and GPU (+94 %
 frame time at scale 8, +38 % at scale 2). Details: [journal](../journal/2026-11-16/perf-cpu-jitter.md).
+
+## What limits the frame at the owner's 4K settings (2026-11-16)
+
+With the GPU vertex path and modern water off the Surdana frame sits at 5.26 to 5.33 ms at scale 8: the GPU (92 to 100 %
+busy; scale 4 or 2 gives about 4.3 ms; `anisotropic = 1` gives 4.39 ms, -17 %, the shader's up to 16 anisotropic taps
+with manual bilinear fetches at 5120x4096). With modern water on it is GPU-bound at 8.44 ms. The CPU sees it as
+`Present` blocking (0.5 to 2 ms per call) and the GS worker waiting for that present after each display commit. The EE
+rise under gpu of an earlier run was run-to-run variation: switched live inside one run the EE costs the same (3.29
+against 3.25 ms). `GSR_PRESENT_OVERLAP=1` (opt-in) lets the GS worker go on during the present: -1.4 % with cpu, nothing
+with gpu, +15 % with water, so off. Details: [journal](../journal/2026-11-16/perf-frame-limiter.md).
