@@ -1,5 +1,6 @@
 #include "ray_water.h"
 #include "ray_world_cache.h"
+#include "surface_gpu.h"
 #include <d3d11.h>
 #include <d3d12.h>
 #include <d3d12sdklayers.h>
@@ -318,6 +319,53 @@ int main(int argc, char** argv) {
     auto off = read();
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true));
     auto on = read();
+    {
+        // GSR_VERTEX_SURFACE=gpu: the dry frame triangles handed over as GPU-built slots (the shared texture written
+        // here with the CPU packing, with inactive NaN slots between them) give the picture of the same triangles in
+        // the frame list. Frame triangles of draws are no shadow geometry, in both runs.
+        using namespace gsr::surface;
+        std::vector<Triangle> list = triangles, keep, moved;
+        for (auto& t : list)
+            if (!t.water)
+                t.shadowGeometry = false;
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, list, 1, true));
+        const auto reference = read();
+        for (const auto& t : list)
+            (t.water ? keep : moved).push_back(t);
+        assert(!moved.empty() && !keep.empty());
+        GpuFrameTriangles gpu;
+        gpu.slots = uint32_t(moved.size() * 2 + 1);
+        unsigned writes = 0;
+        gpu.write = [&](ID3D11UnorderedAccessView*, ID3D11Texture2D* texture, Point origin, uint32_t textures) {
+            const GpuSurfaceLayout layout{gpu.slots};
+            std::vector<uint32_t> words(size_t(layout.rows()) * GpuSurfaceLayout::kRowWords, 0);
+            for (uint32_t slot = 0; slot < gpu.slots; ++slot) {
+                float positions[9];
+                Attribute attributes[kTriangleAttributes]{};
+                if (slot % 2) {
+                    packFrameTriangle(moved[slot / 2], origin, textures, positions, attributes);
+                } else
+                    std::fill(positions, positions + 9, std::nanf(""));
+                std::memcpy(words.data() + size_t(slot) * 9, positions, sizeof(positions));
+                std::memcpy(words.data() + layout.attributeOffset() / 4 + size_t(slot) * kTriangleAttributes * 4,
+                            attributes, sizeof(attributes));
+            }
+            D3D11_BOX box{0, 0, 0, GpuSurfaceLayout::kRowWords, layout.rows(), 1};
+            context->UpdateSubresource(texture, 0, &box, words.data(), GpuSurfaceLayout::kRowWords * 4, 0);
+            ++writes;
+            return true;
+        };
+        for (unsigned round = 0; round < 3; ++round) { // the two shared textures in turn, and again
+            auto frame = keep;
+            assert(water.submit(color.Get(), depth.Get(), output.Get(), c, frame, 1, true, {}, nullptr, {}, &gpu));
+            water.finish();
+            assert(read() == reference);
+        }
+        assert(writes == 3);
+        assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true));
+        assert(read() == on);
+        std::cout << "GPU-built frame triangles (shared texture, inactive slots) give the frame list's picture\n";
+    }
     // Queue consecutive writes without readback synchronization. Each next
     // render must fence uploads/allocator reuse, and teardown must drain work.
     for (unsigned frame = 0; frame < 32; ++frame) {

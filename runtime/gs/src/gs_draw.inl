@@ -1459,14 +1459,28 @@ void GSR_IMPL::submitOrHoldSurface(const surface::DrawInput& in, const DrawVerte
     p.draws.push_back(d);
 }
 
-void GSR_IMPL::submitProgramSurface(const surface::DrawInput& in, const VertexProgramBatch& batch) {
+void GSR_IMPL::submitProgramSurface(const surface::DrawInput& drawInput, const VertexProgramBatch& batch) {
     surface::PendingDraws& p = pendingSurfaces;
+    surface::DrawInput in = drawInput;
+    in.streamed = true;
     if (batch.batchPath) {
         // Not offered while a ray effect is on (vertexPathCapability: strips only); the list still starts.
         if (in.firstOfEpoch)
             submitOrHoldSurface(in, nullptr, 0);
         return;
     }
+    if constexpr (kCaps.gpuSurfaces)
+        if (gpuSurfacesOn()) {
+            // GSR_VERTEX_SURFACE=gpu: the world's ray pass builds this draw's triangles on the GPU. Not taken (a
+            // resident-water state, no room in the stream): the same vertices on the CPU, exactly.
+            if (!submitGpuSurface(in, batch)) {
+                p.scratch.clear();
+                surface::evaluateBatch(batch, in.s, p.scratch);
+                submitOrHoldSurface(in, p.scratch.data(), (uint32_t)p.scratch.size());
+                ++gpuSurfaces.cpuDraws;
+            }
+            return;
+        }
     uint32_t first = 0;
     bool streamed = false;
     if constexpr (kCaps.programSurfaces)
@@ -1570,6 +1584,8 @@ void GSR_IMPL::drainSurfaces(CpuProfile* profile, bool worldEnd) {
         }
     flushSurfaces();
     surfaceBuilder->drain(profile);
+    if (worldEnd)
+        surface::logSurfaceStats();
 }
 
 // GSR_VERTEX_SURFACE=late (test only, not exact): at a world's end the streamed draws of the previous world are

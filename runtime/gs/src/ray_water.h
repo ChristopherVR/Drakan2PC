@@ -1,11 +1,23 @@
 #pragma once
 #include "nr_guides.h"
 #include "ray_scene.h"
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
 
 namespace gsr::surface {
+// GSR_VERTEX_SURFACE=gpu (surface_gpu.h): frame triangles that a compute pass builds on the GPU into a buffer the ray
+// pass shares, so their vertices never come back to the CPU. `write` runs on the D3D11 thread inside submit(), before
+// the pass's inputs are produced: it fills `out` (an R32_UINT view of the shared `texture`, laid out as
+// GpuSurfaceLayout{slots}) for this pass, with the pass's camera origin and texture count. False: the pass goes on
+// without them.
+struct GpuFrameTriangles {
+    uint32_t slots = 0;
+    std::function<bool(ID3D11UnorderedAccessView* out, ID3D11Texture2D* texture, Point origin, uint32_t textures)>
+        write;
+};
+
 // DXR 1.1 rays intersect resident pre-cull terrain plus submitted object geometry.
 // Object/alpha-tested coverage remains partial; water visibility comes from
 // the current native water draws rather than unculling distant water into view.
@@ -35,7 +47,7 @@ public:
     bool submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Texture2D* output,
                 const nr::guides::FrameConstants&, std::vector<Triangle>& triangles, float seconds, bool reflections,
                 std::span<const Texture> textures, std::shared_ptr<const SceneModels> models,
-                const RayOptions& options = {});
+                const RayOptions& options = {}, const GpuFrameTriangles* gpu = nullptr);
     // Synchronous convenience form: copies the triangles and returns after the pass has been submitted.
     bool render(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Texture2D* output,
                 const nr::guides::FrameConstants&, std::span<const Triangle>, float seconds, bool reflections,

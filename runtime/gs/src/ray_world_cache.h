@@ -6,6 +6,35 @@
 #include <type_traits>
 
 namespace gsr::surface {
+// The kTriangleAttributes attributes of one per-frame (reconstructed) triangle: unwelded, so face normals.
+inline void packFrameAttributes(const Triangle& tri, size_t textures, std::array<float, 4>* attributes) {
+    size_t attribute = 0;
+    for (unsigned j = 0; j < 3; ++j)
+        attributes[attribute++] = {tri.vertexLit ? tri.lighting[j][0] : tri.color[0],
+                                   tri.vertexLit ? tri.lighting[j][1] : tri.color[1],
+                                   tri.vertexLit ? tri.lighting[j][2] : tri.color[2], tri.opacity[j]};
+    attributes[attribute++] = {tri.uv[0][0], tri.uv[0][1], tri.uv[1][0], tri.uv[1][1]};
+    auto normal = cross(sub(tri.p[1], tri.p[0]), sub(tri.p[2], tri.p[0]));
+    float len = length(normal);
+    if (len > 0) {
+        normal.x /= len;
+        normal.y /= len;
+        normal.z /= len;
+    }
+    attributes[attribute++] = {tri.uv[2][0], tri.uv[2][1], normal.x, normal.y};
+    const uint32_t flags = tri.alphaTest | (uint32_t(tri.transparent) << 3) | (uint32_t(tri.textureAlpha) << 4) |
+                           (tri.textureFunction << 5) | (tri.shadowGeometry ? 0u : 256u);
+    attributes[attribute++] = {normal.z, tri.texture < textures ? float(tri.texture) : -1.f, float(flags),
+                               tri.alphaReference};
+    const float packed = packNormal(normal);
+    attributes[attribute++] = {packed, packed, packed, packRayMaterial(tri.roughness, tri.reflectance)};
+}
+inline void packFrameAttributes(const Triangle& tri, size_t textures, std::vector<std::array<float, 4>>& out) {
+    const size_t at = out.size();
+    out.resize(at + kTriangleAttributes);
+    packFrameAttributes(tri, textures, out.data() + at);
+}
+
 // Cache world-space attributes in small blocks. Camera motion still transforms
 // every vertex; any geometry, lighting, opacity or material-table change rebuilds
 // the affected block. Byte comparison may miss on padding, never falsely hit.
@@ -60,29 +89,8 @@ public:
                             block.minimumTextures = (std::max)(block.minimumTextures, size_t(tri.texture) + 1);
                         else
                             block.maximumTextures = (std::min)(block.maximumTextures, size_t(tri.texture));
-                        for (unsigned j = 0; j < 3; ++j)
-                            attributes[attribute++] = {tri.vertexLit ? tri.lighting[j][0] : tri.color[0],
-                                                       tri.vertexLit ? tri.lighting[j][1] : tri.color[1],
-                                                       tri.vertexLit ? tri.lighting[j][2] : tri.color[2],
-                                                       tri.opacity[j]};
-                        attributes[attribute++] = {tri.uv[0][0], tri.uv[0][1], tri.uv[1][0], tri.uv[1][1]};
-                        auto normal = cross(sub(tri.p[1], tri.p[0]), sub(tri.p[2], tri.p[0]));
-                        float len = length(normal);
-                        if (len > 0) {
-                            normal.x /= len;
-                            normal.y /= len;
-                            normal.z /= len;
-                        }
-                        attributes[attribute++] = {tri.uv[2][0], tri.uv[2][1], normal.x, normal.y};
-                        const uint32_t flags = tri.alphaTest | (uint32_t(tri.transparent) << 3) |
-                                               (uint32_t(tri.textureAlpha) << 4) | (tri.textureFunction << 5) |
-                                               (tri.shadowGeometry ? 0u : 256u);
-                        attributes[attribute++] = {normal.z, tri.texture < textures ? float(tri.texture) : -1.f,
-                                                   float(flags), tri.alphaReference};
-                        // Per-frame draws are not welded (their blocks are cached independently): face normals.
-                        const float packed = packNormal(normal);
-                        attributes[attribute++] = {packed, packed, packed,
-                                                   packRayMaterial(tri.roughness, tri.reflectance)};
+                        packFrameAttributes(tri, textures, attributes.data() + attribute);
+                        attribute += kTriangleAttributes;
                     }
             }
             textured += block.textured;

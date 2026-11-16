@@ -126,6 +126,15 @@ void D3D11Backend::Impl::verifyVelocitySkip(RT& rt, uint32_t x0, uint32_t y0, ui
 }
 
 // Opt-in, single-frame pipeline evidence. Never read back during normal play.
+bool D3D11Backend::Impl::temporalDumpSelected() const {
+    const char* directory = cstr(runtimeFlags().temporalDumpDir);
+    static const char* const series = std::getenv("GSR_TEMPORAL_DUMP_EPOCHS");
+    unsigned long long first = 0, step = 1, count = 1;
+    return directory && *directory && series && *series &&
+           std::sscanf(series, "%llu:%llu:%llu", &first, &step, &count) >= 1 && step && motionEpoch >= first &&
+           (motionEpoch - first) % step == 0 && (motionEpoch - first) / step < count;
+}
+
 void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* texture) {
     const char* directory = cstr(runtimeFlags().temporalDumpDir);
     const char* requested = cstr(runtimeFlags().temporalDumpFrame);
@@ -164,6 +173,14 @@ void D3D11Backend::Impl::dumpTemporalStage(const char* stage, ID3D11Texture2D* t
         if (frame != selected)
             return;
     }
+    writeStage(stage, texture);
+}
+
+// One stage picture as f<frame>-s<serial>-<stage>.raw in GSR_TEMPORAL_DUMP_DIR, whatever world this is.
+void D3D11Backend::Impl::writeStage(const char* stage, ID3D11Texture2D* texture) {
+    const char* directory = cstr(runtimeFlags().temporalDumpDir);
+    if (!directory || !*directory || !texture)
+        return;
     D3D11_TEXTURE2D_DESC desc{};
     texture->GetDesc(&desc);
     unsigned bytes = 0;

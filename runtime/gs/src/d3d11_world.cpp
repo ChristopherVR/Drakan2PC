@@ -725,6 +725,37 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                 success = neuralGuides->prepare(guide);
             }
         }
+        // GSR_VERTEX_SURFACE=gpu: this world's streamed draws, built into frame triangles on the GPU by the pass.
+        surface::GpuFrameTriangles gpuTriangles;
+        const bool gpuBuilt = gpuSurfacesOn() && gpuSurfaceTriangles(rt, gpuTriangles);
+        // GSR_SURFACE_GPU_COMPARE=<n>[:<every>[:<from>]] (with GSR_SURFACE_GPU_VERIFY and GSR_TEMPORAL_DUMP_DIR): in
+        // n worlds with GPU-built draws (every `every`th, default 60, from the `from`th, default 30), the same pass
+        // first with the streamed draws reconstructed on the CPU appended to the frame list (the CPU path's
+        // triangles), written as "water-cpu"; the pass with the GPU-built triangles follows ("water-gpu"). Same frame,
+        // camera, inputs and water clock.
+        static const std::array<unsigned, 3> compareSpec = [] {
+            std::array<unsigned, 3> v{0, 60, 30};
+            if (const char* e = std::getenv("GSR_SURFACE_GPU_COMPARE"))
+                std::sscanf(e, "%u:%u:%u", &v[0], &v[1], &v[2]);
+            v[1] = std::max(v[1], 1u);
+            return v;
+        }();
+        const uint64_t built = gpuSurfaces.worlds;
+        const bool compareGpu = gpuBuilt && runtimeFlags().surfaceGpuVerify && compareSpec[0] > 0 &&
+                                gpuSurfaceCompared < compareSpec[0] && built >= compareSpec[2] &&
+                                (built - compareSpec[2]) % compareSpec[1] == 0 && waterRenderer->ready();
+        if (compareGpu) {
+            std::vector<surface::Triangle> cpuScene(rayScene.begin(), rayScene.end());
+            appendGpuSurfaceReference(cpuScene);
+            if (waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture,
+                                      constants, cpuScene, waterSeconds, rayReflections, reflectionTextures,
+                                      nativeModels,
+                                      surface::RayOptions{wantWater, wantShadows, nullptr, true, rayGlobalIllumination,
+                                                          rayReflections})) {
+                ctx->OMSetRenderTargets(0, nullptr, nullptr);
+                writeStage("water-cpu", textures.output.texture);
+            }
+        }
         if (waterRenderer->ready() &&
             waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture, constants,
                                   rayScene, waterSeconds, rayReflections, reflectionTextures, nativeModels,
@@ -732,7 +763,8 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                                                       motionEpoch == runtimeFlags().raySceneDumpEpoch
                                                           ? cstr(runtimeFlags().raySceneDump)
                                                           : nullptr,
-                                                      true, rayGlobalIllumination, rayReflections})) {
+                                                      true, rayGlobalIllumination, rayReflections},
+                                  gpuBuilt ? &gpuTriangles : nullptr)) {
             ctx->OMSetRenderTargets(0, nullptr, nullptr);
             ctx->CopyResource(textures.color.texture, textures.output.texture);
             waterEvaluated = wantWater;
@@ -741,6 +773,12 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                 std::fprintf(stderr, "[modern-water] epoch=%llu %s\n", (unsigned long long)motionEpoch,
                              waterRenderer->status().c_str());
             dumpTemporalStage("water-color", textures.color.texture);
+            if (compareGpu) {
+                writeStage("water-gpu", textures.color.texture);
+                ++gpuSurfaceCompared;
+                std::fprintf(stderr, "[gsr] gpu surfaces: compare %u written (epoch %llu)\n", gpuSurfaceCompared,
+                             (unsigned long long)motionEpoch);
+            }
         } else {
             static bool warned = false;
             if (!warned) {
@@ -749,6 +787,8 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
             }
         }
     }
+    if (runtimeFlags().vertexSurfaceGpu)
+        endGpuSurfaceWorld(rt);
     if (success && (wantNR || wantSR) && nativeModels) {
         gpuPasses.mark(gpupass::Pass::ModelMotion);
         CpuProfile::Scope stage(cpuProfile, CpuProfile::ModelGuides);

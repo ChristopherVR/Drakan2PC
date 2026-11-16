@@ -12,6 +12,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cfenv>
 #include <condition_variable>
 #include <cstdint>
@@ -49,26 +53,78 @@ struct DrawSurfaceParams {
     float alphaReference = 0;
     uint32_t texture = ~0u;
     float texWidth = 1, texHeight = 1; // FST texel -> normalized divisors
+    bool streamed = false;             // the vertices came from the GPU vertex path's stream (GSR_SURFACE_STATS)
+};
+
+// GSR_SURFACE_STATS: what the reconstruction did with the triangles of the draws, split by where their vertices came
+// from (0 = the CPU, 1 = the GPU vertex path's stream). Diagnosis only; counted on the builder thread.
+struct SurfaceStats {
+    enum Kind : unsigned { Draws, WaterDraws, Triangles, Invalid, Water, Observed, Emitted, Skipped, kKinds };
+    std::atomic<uint64_t> count[2][kKinds]{};
+    static SurfaceStats& get() {
+        static SurfaceStats s;
+        return s;
+    }
+    static bool enabled() {
+        static const bool on = std::getenv("GSR_SURFACE_STATS") != nullptr;
+        return on;
+    }
+    void add(bool streamed, Kind k, uint64_t n = 1) { count[streamed][k].fetch_add(n, std::memory_order_relaxed); }
 };
 
 inline constexpr size_t kMaxSurfaceTriangles = 250000;
 
 // Appends the eligible triangles of one draw to out (the former inline loop of Backend::Impl::draw).
+// A reference run of reconstructDraw (surface_gpu.h verification and tests): the scene is only read, and which input
+// triangles were appended is recorded.
+struct ReconstructProbe {
+    std::vector<uint32_t>* appended = nullptr; // the draw-relative triangle index of every appended triangle
+    uint64_t observes = 0;                     // observe() calls that were skipped
+    uint64_t changing = 0;                     // of them, calls that would have replaced a stored projection
+    struct Observed {
+        uint32_t triangle = 0; // draw-relative triangle index
+        int index = -1;        // the resident triangle
+        Triangle tri;          // what observe() would have read
+    };
+    std::vector<Observed>* observed = nullptr; // every skipped observe() call, in order
+};
+
 inline void reconstructDraw(const DrawSurfaceParams& d, const DrawVertex* v, uint32_t count,
-                            CachedRasterToWorld& camera, ResidentScene& scene, std::vector<Triangle>& out) {
+                            CachedRasterToWorld& camera, ResidentScene& scene, std::vector<Triangle>& out,
+                            ReconstructProbe* probe = nullptr) {
+    SurfaceStats* stats = SurfaceStats::enabled() ? &SurfaceStats::get() : nullptr;
+    if (stats && count) {
+        stats->add(d.streamed, SurfaceStats::Draws);
+        if (d.waterState)
+            stats->add(d.streamed, SurfaceStats::WaterDraws);
+        stats->add(d.streamed, SurfaceStats::Triangles, count / 3);
+    }
     for (uint32_t i = 0; i < count && out.size() < kMaxSurfaceTriangles; i += 3) {
         Triangle tri;
         bool valid = true;
         for (unsigned j = 0; j < 3 && valid; ++j)
             valid = v[i + j].z > 0 && camera.point(v[i + j].x, v[i + j].y, v[i + j].z, tri.p[j]);
-        if (!valid || length(sub(tri.p[1], tri.p[0])) > 2000000)
+        if (!valid || length(sub(tri.p[1], tri.p[0])) > 2000000) {
+            if (stats)
+                stats->add(d.streamed, SurfaceStats::Invalid);
             continue;
+        }
         // A resident water match found here is also the water-layer match used below.
         const int waterMatch = d.waterState && !d.nativeWaterPass ? scene.match(tri, true) : -1;
         tri.water = d.waterState && (d.nativeWaterPass || waterMatch >= 0);
         const int resident = waterMatch >= 0 ? waterMatch : scene.match(tri, tri.water);
         const bool emit = tri.water || (resident < 0 && (d.opaqueEligible || d.materialEligible));
         const bool observe = resident >= 0 && (d.opaqueEligible || tri.water) && d.texture != ~0u;
+        if (stats) {
+            if (tri.water)
+                stats->add(d.streamed, SurfaceStats::Water);
+            if (observe)
+                stats->add(d.streamed, SurfaceStats::Observed);
+            if (emit)
+                stats->add(d.streamed, SurfaceStats::Emitted);
+            else if (!observe)
+                stats->add(d.streamed, SurfaceStats::Skipped);
+        }
         if (!emit && !observe)
             continue;
         tri.texture = d.texture;
@@ -83,8 +139,15 @@ inline void reconstructDraw(const DrawSurfaceParams& d, const DrawVertex* v, uin
                 }
             }
         }
-        if (observe)
-            scene.observe(tri, resident);
+        if (observe) {
+            if (probe) {
+                ++probe->observes;
+                probe->changing += scene.observeWouldChange(tri, resident) ? 1 : 0;
+                if (probe->observed)
+                    probe->observed->push_back({i / 3, resident, tri});
+            } else
+                scene.observe(tri, resident);
+        }
         if (!emit)
             continue;
         // A matched resident surface consumes its texture projection only. Build ray shading
@@ -105,6 +168,8 @@ inline void reconstructDraw(const DrawSurfaceParams& d, const DrawVertex* v, uin
             tri.lighting[j][1] = v[i + j].g / 128.f;
             tri.lighting[j][2] = v[i + j].b / 128.f;
         }
+        if (probe && probe->appended)
+            probe->appended->push_back(i / 3);
         out.push_back(tri);
     }
 }
@@ -158,7 +223,13 @@ public:
         staged_ = true;
         stagedCamera_ = camera;
         stagedXY_ = xyoffset;
+        ++stages_;
     }
+    // The camera the builder converts the next draw with (the latest staged one), and how many were staged so far
+    // (0: none, the builder's camera is still unconfigured). Producer side (surface_gpu.h).
+    uint64_t stages() const { return stages_; }
+    const SceneGuideCamera& latestCamera() const { return stagedCamera_; }
+    uint64_t latestXY() const { return stagedXY_; }
 
     // A job for the list's world epoch with an empty vertex vector whose capacity is reused.
     Job makeJob(SurfaceList* list, uint64_t epoch) {
@@ -349,6 +420,7 @@ private:
     CachedRasterToWorld camera_; // builder side (or worker side in synchronous mode)
     uint64_t cameraSerial_ = ~0ull, cameraXY_ = 0;
     bool staged_ = false;
+    uint64_t stages_ = 0;
     SceneGuideCamera stagedCamera_;
     uint64_t stagedXY_ = 0;
     std::function<void()> independentTask_; // producer-owned, never accessed by the worker
@@ -376,14 +448,13 @@ struct DrawInput {
     bool nativeWaterPass = false, haveTex = false, texIsRT = false, residentWater = false;
     uint8_t texMinimumAlpha = 0;
     uint32_t reflectionTexture = ~0u;
+    bool streamed = false; // a vertex-program batch (GSR_SURFACE_STATS)
 };
 
-// The eligibility of one draw for the ray scene and its job (the former body of the surface block in Impl::draw).
-inline void submitDraw(SurfaceBuilder& builder, const DrawInput& in, const DrawVertex* v, uint32_t count) {
+// The eligibility terms of one draw for the ray scene (the former body of the surface block in Impl::draw): fills `d`
+// and returns whether the draw is eligible at all.
+inline bool drawParams(const DrawInput& in, const DrawVertex* v, uint32_t count, DrawSurfaceParams& d) {
     const GsDrawState& s = in.s;
-    // Same camera cache key as before the builder: every draw reaching this point may reconfigure it.
-    if (builder.needsConfigure(in.cameraSerial, s.xyoffset))
-        builder.stageCamera(in.camera, s.xyoffset);
     const bool zmsk = (s.zbuf >> 32) & 1;
     // Eligibility is proved against native layer geometry, independent
     // of level, texture format, palette animation or vertex tint.
@@ -407,14 +478,7 @@ inline void submitDraw(SurfaceBuilder& builder, const DrawInput& in, const DrawV
     const bool opaqueEligible = !zmsk && opaqueBlend && (!(s.test & 1) || alphaTest == 1 || constantAlphaPass);
     const bool materialEligible =
         in.haveTex && !in.texIsRT && (!(s.flags & DF_ABE) || s.alpha == 0x44) && (!(s.test & 1) || alphaTest != 0);
-    const bool eligible = opaqueEligible || materialEligible || waterState;
-    if (!eligible && !in.firstOfEpoch)
-        return;
-    // Conversion to world space, the resident match/observe and the append run on the builder (in submission order);
-    // readers of the results drain it first. A job without vertices only starts the target's list for this world,
-    // like the clear the inline loop did at every draw reaching it.
-    auto job = builder.makeJob(in.list, in.epoch);
-    auto& d = job.params;
+    d = DrawSurfaceParams{};
     d.waterState = waterState;
     d.nativeWaterPass = in.nativeWaterPass;
     d.opaqueEligible = opaqueEligible;
@@ -429,7 +493,45 @@ inline void submitDraw(SurfaceBuilder& builder, const DrawInput& in, const DrawV
         d.texture = in.reflectionTexture;
     d.texWidth = float(1u << bitsOf(s.tex0, 26, 4));
     d.texHeight = float(1u << bitsOf(s.tex0, 30, 4));
+    d.streamed = in.streamed;
+    return opaqueEligible || materialEligible || waterState;
+}
+
+// The eligibility of one draw for the ray scene and its job.
+inline void submitDraw(SurfaceBuilder& builder, const DrawInput& in, const DrawVertex* v, uint32_t count) {
+    // Same camera cache key as before the builder: every draw reaching this point may reconfigure it.
+    if (builder.needsConfigure(in.cameraSerial, in.s.xyoffset))
+        builder.stageCamera(in.camera, in.s.xyoffset);
+    DrawSurfaceParams params;
+    const bool eligible = drawParams(in, v, count, params);
+    if (!eligible && !in.firstOfEpoch)
+        return;
+    // Conversion to world space, the resident match/observe and the append run on the builder (in submission order);
+    // readers of the results drain it first. A job without vertices only starts the target's list for this world,
+    // like the clear the inline loop did at every draw reaching it.
+    auto job = builder.makeJob(in.list, in.epoch);
+    job.params = params;
     builder.submit(std::move(job), v, eligible ? count : 0);
+}
+
+// GSR_SURFACE_STATS: one line of the counters, at most every five seconds.
+inline void logSurfaceStats() {
+    if (!SurfaceStats::enabled())
+        return;
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::seconds(5))
+        return;
+    last = now;
+    auto& c = SurfaceStats::get().count;
+    for (unsigned k = 0; k < 2; ++k)
+        std::fprintf(stderr,
+                     "[surface-stats] %s draws=%llu water_draws=%llu triangles=%llu invalid=%llu water=%llu "
+                     "observed=%llu emitted=%llu skipped=%llu\n",
+                     k ? "program" : "other", (unsigned long long)c[k][0].load(), (unsigned long long)c[k][1].load(),
+                     (unsigned long long)c[k][2].load(), (unsigned long long)c[k][3].load(),
+                     (unsigned long long)c[k][4].load(), (unsigned long long)c[k][5].load(),
+                     (unsigned long long)c[k][6].load(), (unsigned long long)c[k][7].load());
 }
 
 // GSR_SURFACE_HASH: one value for a world's reconstructed triangles, every field in list order (no padding bytes), so

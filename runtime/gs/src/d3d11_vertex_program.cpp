@@ -73,6 +73,11 @@ struct D3D11Backend::Impl::ProgramGpu {
         bool lateValid = false;
         uint32_t capacity = 0, used = 0; // in vertices
         bool failed = false;
+        // GSR_VERTEX_SURFACE=gpu: the stream as the kernel reads it, and its growth after a world that did not fit.
+        ComPtr<ID3D11ShaderResourceView> srv;
+        uint32_t minimum = 1u << 18;
+        bool grow = false;
+        uint64_t overflows = 0;
         std::vector<surface::RawVertex> read;
         // The batch being drawn: its range, and whether drawProgramVertices streamed it yet.
         bool pending = false, streamed = false;
@@ -595,10 +600,24 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
     if (st.failed || !g.strips.rawReady || g.strips.state.load(std::memory_order_acquire) != ProgramGpu::Ready ||
         g.lost.load(std::memory_order_acquire) || !count)
         return false;
-    if (st.buffer && st.used + uint64_t(count) > st.capacity)
+    // GSR_VERTEX_SURFACE=gpu keeps a whole world in the stream: a draw that does not fit takes the CPU path, and the
+    // next world gets a larger stream (resetGpuSurfaceStream).
+    const bool keepWorld = runtimeFlags().vertexSurfaceGpu;
+    if (st.buffer && st.used + uint64_t(count) > st.capacity) {
+        if (keepWorld) {
+            ++st.overflows;
+            st.grow = true;
+            return false;
+        }
         flushSurfaces(); // the stream is full: hand the waiting draws over now (reads the stream back)
+    }
     if (!st.buffer || count > st.capacity) {
-        const uint64_t want = std::max<uint64_t>(uint64_t(count) * 2u, 1u << 18); // 262,144 vertices = 12 MiB
+        if (keepWorld && st.used) {
+            ++st.overflows;
+            st.grow = true;
+            return false;
+        }
+        const uint64_t want = std::max<uint64_t>(uint64_t(count) * 2u, st.minimum); // 262,144 vertices = 12 MiB
         if (want * sizeof(surface::RawVertex) > (256ull << 20)) {
             st.failed = true;
             return false;
@@ -608,7 +627,7 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
         D3D11_BUFFER_DESC bd{};
         bd.ByteWidth = (UINT)(want * sizeof(surface::RawVertex));
         bd.Usage = D3D11_USAGE_DEFAULT;
-        bd.BindFlags = D3D11_BIND_STREAM_OUTPUT;
+        bd.BindFlags = D3D11_BIND_STREAM_OUTPUT | D3D11_BIND_SHADER_RESOURCE;
         D3D11_BUFFER_DESC sd = bd;
         sd.Usage = D3D11_USAGE_STAGING;
         sd.BindFlags = 0;
@@ -621,6 +640,13 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
                                  "records are evaluated on the CPU\n");
             return false;
         }
+        D3D11_SHADER_RESOURCE_VIEW_DESC view{};
+        view.Format = DXGI_FORMAT_R32_UINT;
+        view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+        view.Buffer.NumElements = UINT(want * (sizeof(surface::RawVertex) / 4));
+        st.srv.Reset();
+        if (FAILED(dev->CreateShaderResourceView(buffer.Get(), &view, &st.srv)))
+            st.srv.Reset(); // GSR_VERTEX_SURFACE=gpu then takes the CPU path (gpuSurfacesOn)
         st.buffer = std::move(buffer);
         st.staging = std::move(staging);
         st.lateStaging = std::move(lateStaging);
@@ -635,6 +661,276 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
     st.first = first;
     st.count = count;
     return true;
+}
+
+// ---- GSR_VERTEX_SURFACE=gpu: the ray surfaces of streamed draws built on the GPU (surface_gpu.h) ----
+
+bool D3D11Backend::Impl::gpuSurfacesOn() {
+    if (!runtimeFlags().vertexSurfaceGpu)
+        return false;
+    if (!surfaceKernel.init(dev.Get())) {
+        static bool warned = false;
+        if (!warned)
+            std::fprintf(stderr, "[gsr] gpu surfaces: off, %s; the streamed draws are read back instead\n",
+                         surfaceKernel.why().c_str());
+        warned = true;
+        return false;
+    }
+    const auto& st = programState().surfaceStream;
+    return !st.failed && (!st.buffer || st.srv);
+}
+
+void D3D11Backend::Impl::resetGpuSurfaceStream() {
+    auto& st = programState().surfaceStream;
+    st.used = 0;
+    if (st.grow && st.capacity) {
+        // A world did not fit: the next one gets twice the room (the buffers are made again at the next reservation).
+        st.minimum = std::min<uint32_t>(st.capacity * 2u, uint32_t((256ull << 20) / sizeof(surface::RawVertex)));
+        st.buffer.Reset();
+        st.srv.Reset();
+        st.grow = false;
+    }
+}
+
+// A streamed strip batch of the current draw: its range of the stream and what the kernel needs, waiting for the
+// world's ray pass. False: the caller takes the CPU path (a resident-water state, whose water flag decides on the CPU
+// whether the pass runs, or no room in the stream).
+bool D3D11Backend::Impl::submitGpuSurface(const surface::DrawInput& in, const VertexProgramBatch& batch) {
+    auto& G = gpuSurfaces;
+    surface::GpuDraw g;
+    bool water = false;
+    if (!surface::gpuDrawOf(in, g, water))
+        return false;
+    // A new world: what no ray pass took from the previous one is dropped (the CPU path's lists of it are unread).
+    if (!G.records.empty() && G.records.front().epoch != in.epoch) {
+        G.droppedRecords += G.records.size();
+        G.clear();
+        resetGpuSurfaceStream();
+    } else if (G.records.empty() && programState().surfaceStream.used)
+        resetGpuSurfaceStream();
+    uint32_t first = 0;
+    if (!reserveProgramSurface(batch.indexCount, first))
+        return false;
+    // The builder sees this draw as the CPU path would have shown it: the job that starts the target's list for this
+    // world, and the camera it would have staged. The draw converts with the latest staged camera.
+    if (in.firstOfEpoch)
+        surface::submitDraw(*surfaceBuilder, in, nullptr, 0);
+    else if (surfaceBuilder->needsConfigure(in.cameraSerial, in.s.xyoffset))
+        surfaceBuilder->stageCamera(in.camera, in.s.xyoffset);
+    if (G.cameras.empty() || G.cameraStage != surfaceBuilder->stages()) {
+        surface::RasterToWorld t;
+        if (surfaceBuilder->stages())
+            t.configure(surfaceBuilder->latestCamera(), surfaceBuilder->latestXY());
+        G.cameras.push_back(surface::gpuCameraOf(t));
+        G.cameraTransforms.push_back(t);
+        G.cameraStage = surfaceBuilder->stages();
+    }
+    g.first = first;
+    g.count = batch.indexCount;
+    g.camera = uint32_t(G.cameras.size() - 1);
+    surface::GpuSurfaceDraws::Record r;
+    r.list = in.list;
+    r.epoch = in.epoch;
+    r.draw = g;
+    r.in = in;
+    r.in.firstOfEpoch = false;
+    if (runtimeFlags().surfaceGpuVerify) {
+        r.reference = uint32_t(G.references.size());
+        surface::evaluateBatch(batch, in.s, G.references);
+    }
+    G.records.push_back(r);
+    ++G.draws;
+    G.triangles += batch.indexCount / 3;
+    return true;
+}
+
+// The batch reserved its range but ended before a colour pass (a skipped or empty draw): the stream holds nothing for
+// it, so its surfaces take the same vertices evaluated on the CPU.
+void D3D11Backend::Impl::gpuSurfaceUnstreamed(const VertexProgramBatch& batch, const GsDrawState& st) {
+    auto& G = gpuSurfaces;
+    const uint32_t first = programState().surfaceStream.first;
+    for (size_t k = G.records.size(); k-- > 0;) {
+        if (G.records[k].draw.first != first || G.records[k].draw.count != batch.indexCount)
+            continue;
+        const surface::DrawInput in = G.records[k].in;
+        G.records.erase(G.records.begin() + std::ptrdiff_t(k));
+        auto& p = pendingSurfaces;
+        p.scratch.clear();
+        surface::evaluateBatch(batch, st, p.scratch);
+        submitOrHoldSurface(in, p.scratch.data(), (uint32_t)p.scratch.size());
+        ++G.cpuDraws;
+        return;
+    }
+}
+
+// The streamed draws of `rt` in this world, for its ray pass: their slot count and the writer the pass calls.
+bool D3D11Backend::Impl::gpuSurfaceTriangles(RT& rt, surface::GpuFrameTriangles& out) {
+    auto& G = gpuSurfaces;
+    gpuSurfaceBatch.clear();
+    gpuSurfaceSelected.clear();
+    uint32_t slots = 0;
+    for (size_t k = 0; k < G.records.size(); ++k) {
+        const auto& r = G.records[k];
+        if (r.list != &rt.surface || r.epoch != motionEpoch)
+            continue;
+        surface::GpuDraw g = r.draw;
+        g.slot = slots;
+        slots += g.count / 3;
+        gpuSurfaceBatch.push_back(g);
+        gpuSurfaceSelected.push_back(k);
+    }
+    if (!slots || gpuSurfaceBatch.size() > 65535)
+        return false;
+    // The resident match candidates, again whenever the level geometry or the floating-point mode changed.
+#if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
+    const unsigned mode = _mm_getcsr() & 0xe040u;
+#else
+    const unsigned mode = 0;
+#endif
+    if (G.match.serial == 0 || G.match.geometryVersion != residentScene.geometryVersion || G.match.mathMode != mode) {
+        surface::buildMatchTable(residentScene, G.match);
+        G.match.geometryVersion = residentScene.geometryVersion;
+        G.match.mathMode = mode;
+        ++G.match.serial;
+    }
+    out.slots = slots;
+    out.write = [this](ID3D11UnorderedAccessView* view, ID3D11Texture2D* texture, surface::Point origin,
+                       uint32_t textures) { return writeGpuSurfaces(view, texture, origin, textures); };
+    return true;
+}
+
+bool D3D11Backend::Impl::writeGpuSurfaces(ID3D11UnorderedAccessView* view, ID3D11Texture2D* texture,
+                                          surface::Point origin, uint32_t textures) {
+    auto& G = gpuSurfaces;
+    auto& st = programState().surfaceStream;
+    if (!st.srv || gpuSurfaceBatch.empty())
+        return false;
+    CpuProfile::Scope profile(cpuProfile, CpuProfile::DrawSurface);
+    uint32_t slots = 0;
+    for (const auto& g : gpuSurfaceBatch)
+        slots = std::max(slots, g.slot + g.count / 3);
+    const surface::GpuSurfaceLayout layout{slots};
+    static const float packedMaterial = surface::packRayMaterial(.75f, .04f);
+    if (!surfaceKernel.dispatch(dev.Get(), ctx.raw(), st.srv.Get(), gpuSurfaceBatch, G.cameras, G.match, view, layout,
+                                origin, textures, packedMaterial))
+        return false;
+    ++G.worlds;
+    uint32_t lost = 0, emitted = 0, overflow = 0;
+    std::vector<surface::GpuObserve> observed;
+    if (runtimeFlags().surfaceGpuVerify) {
+        std::vector<uint32_t> words;
+        std::vector<std::vector<surface::Triangle>> lists;
+        std::vector<const surface::Triangle*> expected;
+        const uint64_t observes = gpuSurfaceReference(lists, expected, slots);
+        std::string first;
+        uint64_t active = 0;
+        if (surface::readWordsNow(dev.Get(), ctx.raw(), texture, layout.bytes() / 4, words) &&
+            surfaceKernel.countersNow(ctx.raw(), lost, emitted, &observed, &overflow)) {
+            const uint64_t differ = surface::compareSlots(words, layout, expected, origin, textures, &active, &first);
+            G.verifiedSlots += slots;
+            G.verifyActive += active;
+            G.verifyDifferences += differ + (observes != lost ? 1 : 0) + (active != emitted ? 1 : 0);
+            ++G.verifyWorlds;
+            if (differ && G.verifyDifferences == differ)
+                std::fprintf(stderr, "[gsr] gpu surfaces: verify: first difference in epoch %llu: %s\n",
+                             (unsigned long long)motionEpoch, first.c_str());
+        } else
+            ++G.verifyDifferences;
+    } else
+        surfaceKernel.countersLate(ctx.raw(), lost, emitted, &observed, &overflow);
+    // The resident observes of streamed triangles (material projections of the static world), applied in the CPU
+    // path's order on the builder, a few worlds after their world (the largest observed area wins, so the
+    // projections end the same; only the worlds in between see the older one).
+    G.lateObserves += observed.size();
+    G.lostObserves += overflow;
+    if (!observed.empty())
+        surfaceBuilder->submitTask([this, records = std::move(observed)] {
+            for (const auto& r : records)
+                residentScene.observe(surface::observedTriangle(r), int(r.index));
+        });
+    logGpuSurfaces();
+    return true;
+}
+
+// GSR_SURFACE_GPU_VERIFY: the CPU path's triangles of the draws of the pass being submitted (drawParams,
+// reconstructDraw without observe; the builder is drained, so the resident scene can be read here), per draw, and the
+// one of every slot (null: the CPU path appends none). Returns the observes the CPU path would have made.
+uint64_t D3D11Backend::Impl::gpuSurfaceReference(std::vector<std::vector<surface::Triangle>>& lists,
+                                                 std::vector<const surface::Triangle*>& expected, uint32_t slots) {
+    auto& G = gpuSurfaces;
+    lists.assign(gpuSurfaceBatch.size(), {});
+    expected.assign(slots, nullptr);
+    uint64_t observes = 0;
+    if (!runtimeFlags().surfaceGpuVerify)
+        return 0;
+    for (size_t k = 0; k < gpuSurfaceBatch.size(); ++k) {
+        const auto& g = gpuSurfaceBatch[k];
+        const auto& r = G.records[gpuSurfaceSelected[k]];
+        const DrawVertex* v = G.references.data() + r.reference;
+        surface::DrawSurfaceParams params;
+        if (!surface::drawParams(r.in, v, g.count, params))
+            continue;
+        surface::CachedRasterToWorld camera;
+        camera.transform = G.cameraTransforms[g.camera];
+        std::vector<uint32_t> appended;
+        surface::ReconstructProbe probe{&appended};
+        lists[k].reserve(g.count / 3);
+        surface::reconstructDraw(params, v, g.count, camera, residentScene, lists[k], &probe);
+        observes += probe.observes;
+        G.verifyChanging += probe.changing;
+        for (size_t a = 0; a < appended.size(); ++a)
+            expected[g.slot + appended[a]] = &lists[k][a];
+    }
+    return observes;
+}
+
+// GSR_SURFACE_GPU_COMPARE: the CPU path's triangles of the pass's streamed draws, appended to `out` in draw order.
+void D3D11Backend::Impl::appendGpuSurfaceReference(std::vector<surface::Triangle>& out) {
+    std::vector<std::vector<surface::Triangle>> lists;
+    std::vector<const surface::Triangle*> expected;
+    uint32_t slots = 0;
+    for (const auto& g : gpuSurfaceBatch)
+        slots = std::max(slots, g.slot + g.count / 3);
+    gpuSurfaceReference(lists, expected, slots);
+    for (const auto& list : lists)
+        out.insert(out.end(), list.begin(), list.end());
+}
+
+// After the world's ray pass: its streamed draws are done with; the stream is free again once no draw waits in it.
+void D3D11Backend::Impl::endGpuSurfaceWorld(RT& rt) {
+    auto& G = gpuSurfaces;
+    G.records.erase(std::remove_if(G.records.begin(), G.records.end(),
+                                   [&](const surface::GpuSurfaceDraws::Record& r) {
+                                       return r.list == &rt.surface || r.epoch != motionEpoch;
+                                   }),
+                    G.records.end());
+    if (G.records.empty()) {
+        G.clear();
+        resetGpuSurfaceStream();
+    }
+}
+
+void D3D11Backend::Impl::logGpuSurfaces() {
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::seconds(5))
+        return;
+    last = now;
+    const auto& G = gpuSurfaces;
+    const auto& st = programState().surfaceStream;
+    std::fprintf(stderr,
+                 "[gsr] gpu surfaces: %llu worlds, %llu draws (%llu triangles) built on the GPU, %llu draws on the CPU "
+                 "path, %llu stream overflows, %llu draws dropped, %llu resident observes applied late, %llu left out; "
+                 "verify: %llu "
+                 "worlds, %llu slots (%llu triangles) compared, %llu differ, %llu left-out observes would have "
+                 "changed a projection%s\n",
+                 (unsigned long long)G.worlds, (unsigned long long)G.draws, (unsigned long long)G.triangles,
+                 (unsigned long long)G.cpuDraws, (unsigned long long)st.overflows, (unsigned long long)G.droppedRecords,
+                 (unsigned long long)G.lateObserves, (unsigned long long)G.lostObserves,
+                 (unsigned long long)G.verifyWorlds, (unsigned long long)G.verifiedSlots,
+                 (unsigned long long)G.verifyActive, (unsigned long long)G.verifyDifferences,
+                 (unsigned long long)G.verifyChanging,
+                 runtimeFlags().surfaceGpuVerify ? "" : " (GSR_SURFACE_GPU_VERIFY off)");
 }
 
 bool D3D11Backend::Impl::readProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count) {
@@ -923,6 +1219,8 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
             break;
         }
     }
+    if (stream.pending && !stream.streamed)
+        i.gpuSurfaceUnstreamed(batch, st);
     stream.pending = stream.streamed = false;
     // Notes the draw did not walk (no temporal world, a skipped draw): the scope still advances.
     if (!g.motionTracked)

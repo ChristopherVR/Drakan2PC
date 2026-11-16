@@ -57,6 +57,7 @@
 #include "ray_water.h"
 #include "shader_compile_d3d.h"
 #include "surface_builder.h"
+#include "surface_gpu_d3d11.h"
 #include "runtime_flags.h"
 #include "terrain_detail.h"
 #include "material_detail.h"
@@ -310,6 +311,7 @@ struct D3D11Backend::Impl {
                                        .motionVectors = true,
                                        .vertexPrograms = true,
                                        .programSurfaces = true,
+                                       .gpuSurfaces = true,
                                        .temporalUpscaler = true,
                                        .readbackPrefetch = true,
                                        .cleanRowRefresh = true,
@@ -699,6 +701,24 @@ struct D3D11Backend::Impl {
     bool copyLateProgramSurfaces();
     bool mapLateProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count);
     void flushLateSurfaces();
+    // GSR_VERTEX_SURFACE=gpu (surface_gpu.h, d3d11_vertex_program.cpp): the streamed draws wait in gpuSurfaces for the
+    // world's ray pass, which takes them as GPU-built frame triangles (gpuSurfaceTriangles) instead of the builder.
+    surface::GpuSurfaceDraws gpuSurfaces;
+    surface::SurfaceGpuKernel surfaceKernel;
+    std::vector<surface::GpuDraw> gpuSurfaceBatch; // the draws of the pass being submitted, with their slots
+    std::vector<size_t> gpuSurfaceSelected;        // their records
+    bool gpuSurfacesOn();
+    bool submitGpuSurface(const surface::DrawInput& in, const VertexProgramBatch& batch);
+    void gpuSurfaceUnstreamed(const VertexProgramBatch& batch, const GsDrawState& st);
+    bool gpuSurfaceTriangles(RT& rt, surface::GpuFrameTriangles& out);
+    bool writeGpuSurfaces(ID3D11UnorderedAccessView* out, ID3D11Texture2D* texture, surface::Point origin,
+                          uint32_t textures);
+    uint64_t gpuSurfaceReference(std::vector<std::vector<surface::Triangle>>& lists,
+                                 std::vector<const surface::Triangle*>& expected, uint32_t slots);
+    void appendGpuSurfaceReference(std::vector<surface::Triangle>& out);
+    void endGpuSurfaceWorld(RT& rt);
+    void resetGpuSurfaceStream();
+    void logGpuSurfaces();
     std::vector<std::unique_ptr<DepthBuf>> depths;
     std::unordered_map<TexKey, TexEntry, TexKeyHash> texCache;
     uint64_t texBytes = 0;
@@ -979,6 +999,10 @@ struct D3D11Backend::Impl {
                              float sy);
     void validateObjectMotion(RT& rt, const nr::guides::Frame& guide, const nr::guides::FrameConstants& constants);
     void dumpTemporalStage(const char* stage, ID3D11Texture2D* texture);
+    // Whether this world is one of GSR_TEMPORAL_DUMP_EPOCHS (with GSR_TEMPORAL_DUMP_DIR).
+    bool temporalDumpSelected() const;
+    void writeStage(const char* stage, ID3D11Texture2D* texture);
+    uint32_t gpuSurfaceCompared = 0; // GSR_SURFACE_GPU_COMPARE: worlds compared so far
     void finalizeNeuralWorld(RT& rt);
     void finalizeWorld(RT& rt);
     void finalizeAllWorlds();

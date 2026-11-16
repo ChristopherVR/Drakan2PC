@@ -387,6 +387,8 @@ void D3D11Backend::Impl::startPrewarm() {
         NativeReadback::prewarm(device);
         PartialUploadGpu::prewarm(device);
         TargetUploadGpu::prewarm(device);
+        if (runtimeFlags().vertexSurfaceGpu)
+            surface::SurfaceGpuKernel::prewarm(device);
         prewarmMovieShader(device);
         prewarmBackdropShader(device);
         std::fprintf(stderr, "[gsr-shader] background prewarm done in %.0f ms\n",

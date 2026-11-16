@@ -41,6 +41,12 @@ struct RuntimeFlags {
     // end of the next world, so nothing waits for the GPU; its triangles join the next world's surface list (one world
     // late for anything that moved).
     bool vertexSurfaceLate = false;
+    // GSR_VERTEX_SURFACE=gpu (opt-in, Direct3D 11): the streamed vertices never come back; a compute pass turns them
+    // into the ray pass's frame triangles on the GPU (surface_gpu.h), exactly as the CPU path would.
+    bool vertexSurfaceGpu = false;
+    // GSR_SURFACE_GPU_VERIFY: presence. With GSR_VERTEX_SURFACE=gpu, every streamed draw is also reconstructed on the
+    // CPU and the GPU-built slots are read back (waiting for the GPU) and compared bit for bit; `[gsr] gpu surfaces`.
+    bool surfaceGpuVerify = false;
     // GSR_VERTEX_SURFACE_VERIFY: presence. Every streamed-out surface vertex is also evaluated on the CPU and compared
     // bit for bit (counts in the `[gsr] vertex surfaces` line); the CPU values are submitted.
     bool vertexSurfaceVerify = false;

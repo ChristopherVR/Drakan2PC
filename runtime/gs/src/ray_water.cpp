@@ -9,6 +9,8 @@
 #include "runtime_flags.h"
 #include "ray_world_cache.h"
 #include "ray_normals.h"
+#include "surface_gpu.h"
+#include <d3d11_1.h>
 #include <optional>
 #include <atomic>
 #include <chrono>
@@ -132,7 +134,25 @@ struct RayWater::Impl {
         bool cpuCache = false, checkCache = false, worldCache = false, packedTextures = false, modelReuse = true;
         bool stableUpload = true;
         uint32_t coverageDebug = 0;
+        // GSR_VERTEX_SURFACE=gpu: the frame triangles the GPU built (surface_gpu.h layout, in the shared texture's
+        // rows) and their slot count.
+        ComPtr<ID3D12Resource> gpuSurfaces;
+        uint32_t gpuSlots = 0;
     };
+    // The textures the D3D11 kernel writes the GPU-built frame triangles into (two, used in turn; Direct3D 11 and 12
+    // share textures, not buffers), and on the pass thread the buffer their rows are copied into (the acceleration
+    // structure's vertices, the attributes' copy source) and the acceleration structure.
+    struct SharedSurfaces {
+        ComPtr<ID3D11Texture2D> texture;
+        ComPtr<ID3D11UnorderedAccessView> view;
+        ComPtr<ID3D12Resource> resource;
+        uint32_t rows = 0;
+    };
+    std::array<SharedSurfaces, 2> gpuShared;
+    unsigned gpuSharedNext = 0;
+    bool gpuSharedFailed = false;
+    ComPtr<ID3D12Resource> gpuLinear, gpuBlas; // pass thread
+    bool sharedSurfaces(SharedSurfaces& target, uint32_t rows);
     CpuProfile cpuProfile;    // renderer thread
     CpuProfile threadProfile; // pass thread
     mutable std::mutex statusMutex;
@@ -811,6 +831,43 @@ void RayWater::shareStaticWorld(std::shared_ptr<const std::vector<Triangle>> tri
     s.staticPublishedAttributes = attributeVersion;
     s.staticPublishedValid = true;
 }
+// An R32_UINT texture of at least `rows` rows of GpuSurfaceLayout::kRowWords, created on the renderer's D3D11 device
+// as a shared resource (as NrInterop's textures) and opened on the D3D12 device.
+bool RayWater::Impl::sharedSurfaces(SharedSurfaces& target, uint32_t rows) {
+    if (target.view && target.rows >= rows)
+        return true;
+    target = {};
+    rows = std::min<uint32_t>(rows + rows / 4 + 8, D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION);
+    HANDLE handle = nullptr;
+    ComPtr<IDXGIResource1> resource;
+    bool ok = true;
+    {
+        D3D11_TEXTURE2D_DESC d{};
+        d.Width = GpuSurfaceLayout::kRowWords;
+        d.Height = rows;
+        d.MipLevels = d.ArraySize = d.SampleDesc.Count = 1;
+        d.Format = DXGI_FORMAT_R32_UINT;
+        d.Usage = D3D11_USAGE_DEFAULT;
+        d.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
+        d.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+        ok = ok && SUCCEEDED(d11->CreateTexture2D(&d, nullptr, &target.texture)) &&
+             SUCCEEDED(d11->CreateUnorderedAccessView(target.texture.Get(), nullptr, &target.view)) &&
+             SUCCEEDED(target.texture.As(&resource)) &&
+             SUCCEEDED(resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+                                                    nullptr, &handle)) &&
+             SUCCEEDED(device->OpenSharedHandle(handle, IID_PPV_ARGS(&target.resource)));
+    }
+    if (handle)
+        CloseHandle(handle);
+    if (!ok) {
+        target = {};
+        gpuSharedFailed = true;
+        logLine("GPU-built frame triangles: no texture shared between Direct3D 11 and 12; they are left out");
+        return false;
+    }
+    target.rows = rows;
+    return true;
+}
 bool RayWater::render(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Texture2D* output,
                       const nr::guides::FrameConstants& camera, std::span<const Triangle> triangles, float seconds,
                       bool reflections, std::span<const Texture> textures, const SceneModels* models,
@@ -827,7 +884,7 @@ bool RayWater::render(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
 bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Texture2D* output,
                       const nr::guides::FrameConstants& camera, std::vector<Triangle>& triangles, float seconds,
                       bool reflections, std::span<const Texture> textures, std::shared_ptr<const SceneModels> models,
-                      const RayOptions& options) {
+                      const RayOptions& options, const GpuFrameTriangles* gpu) {
     auto& s = *impl;
     if (!ready())
         return false;
@@ -996,6 +1053,26 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         job->coverageDebug = runtimeFlags().waterCoverageDebug;
         // D3D11 side, in this frame's order: the inputs are copied before the D3D12 queue reads them, and later
         // D3D11 work waits on the GPU for the pass result before the output is copied back.
+        // GSR_VERTEX_SURFACE=gpu: the kernel writes this pass's GPU-built frame triangles before the inputs are
+        // produced (the D3D12 queue waits for that signal before it reads them).
+        if (gpu && gpu->slots && gpu->write && !s.gpuSharedFailed) {
+            const GpuSurfaceLayout layout{gpu->slots};
+            if (totalTriangles + gpu->slots > Impl::kTriangleBudget) {
+                static bool warned = false;
+                if (!warned)
+                    logLine("GPU-built frame triangles exceed the triangle budget; this pass leaves them out");
+                warned = true;
+            } else {
+                auto& target = s.gpuShared[s.gpuSharedNext];
+                s.gpuSharedNext ^= 1;
+                const Point origin{camera.cameraPosition[0], camera.cameraPosition[1], camera.cameraPosition[2]};
+                if (s.sharedSurfaces(target, layout.rows()) &&
+                    gpu->write(target.view.Get(), target.texture.Get(), origin, uint32_t(allTextures.size()))) {
+                    job->gpuSurfaces = target.resource;
+                    job->gpuSlots = gpu->slots;
+                }
+            }
+        }
         job->produced = s.interop->produce11({color, nullptr, nullptr, depth});
         job->consumed = s.interop->reserve11(output);
         job->triangles.swap(triangles);
@@ -1003,11 +1080,13 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         const UINT64 consumed = job->consumed;
         const bool traced = consumed <= Impl::kTracedPasses || runtimeFlags().waterLog;
         if (traced)
-            logLine("pass %llu queued: %ux%u, %zu frame + %zu resident triangles (%zu total), %zu model instances, "
-                    "%zu material textures (%zu changed), water=%d reflections=%d shadows=%d",
-                    (unsigned long long)consumed, d.Width, d.Height, job->triangles.size(), staticTriangles.size(),
-                    totalTriangles, job->models ? job->models->instances.size() : size_t(0), allTextures.size(),
-                    job->textureUploads.size(), int(options.water), int(reflections), int(options.shadows));
+            logLine(
+                "pass %llu queued: %ux%u, %zu frame (+%u GPU slots) + %zu resident triangles (%zu total), %zu model "
+                "instances, %zu material textures (%zu changed), water=%d reflections=%d shadows=%d",
+                (unsigned long long)consumed, d.Width, d.Height, job->triangles.size(), job->gpuSlots,
+                staticTriangles.size(), totalTriangles, job->models ? job->models->instances.size() : size_t(0),
+                allTextures.size(), job->textureUploads.size(), int(options.water), int(reflections),
+                int(options.shadows));
         s.watchQueued(job->produced, consumed);
         // The pass thread owns the job (and so the signal) before D3D11 waits on it: a driver that waits on the
         // CPU for a shared fence would otherwise block the only thread that can let the signal happen.
@@ -1416,6 +1495,10 @@ void RayWater::Impl::execute(Job& job) {
             stableUpload ? staticTotal + uint32_t(colors.size() / kTriangleAttributes) : staticTotal;
         if (stableUpload)
             colors.insert(colors.end(), frameColors.begin(), frameColors.end());
+        // GSR_VERTEX_SURFACE=gpu: the GPU-built frame triangles' attributes follow all dynamic attributes.
+        const uint32_t gpuBase = staticTotal + uint32_t(colors.size() / kTriangleAttributes);
+        const uint32_t gpuSlots = job.gpuSurfaces && gpuBase + job.gpuSlots <= Impl::kTriangleBudget ? job.gpuSlots : 0;
+        const GpuSurfaceLayout gpuLayout{gpuSlots};
         if (checkCache) {
             // The shader reads a triangle's attributes at its instance ID plus its primitive index: every frame
             // triangle and every model mesh must find exactly its own attributes there, in either layout.
@@ -1753,7 +1836,34 @@ void RayWater::Impl::execute(Job& job) {
                  D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
         for (const auto& c : copies)
             s.list->CopyBufferRegion(s.materials.Get(), c.destination, frame.staging.Get(), c.source, c.bytes);
-        if (!copies.empty()) {
+        if (gpuSlots) {
+            // The shared texture's rows into one buffer (64 KiB rows: the footprint pitch is the row itself, so the
+            // buffer holds the layout's words in order), then the attributes into their slots of the materials.
+            frame.retired.push_back(job.gpuSurfaces);
+            s.buffer(s.gpuLinear, uint64_t(gpuLayout.rows()) * GpuSurfaceLayout::kRowWords * 4, D3D12_HEAP_TYPE_DEFAULT,
+                     D3D12_RESOURCE_STATE_COMMON, frame.retired);
+            D3D12_RESOURCE_BARRIER toCopy[] = {
+                transition(job.gpuSurfaces.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE),
+                transition(s.gpuLinear.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST)};
+            s.list->ResourceBarrier(2, toCopy);
+            D3D12_TEXTURE_COPY_LOCATION destination{}, source{};
+            destination.pResource = s.gpuLinear.Get();
+            destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            destination.PlacedFootprint.Footprint = {DXGI_FORMAT_R32_UINT, GpuSurfaceLayout::kRowWords,
+                                                     gpuLayout.rows(), 1, GpuSurfaceLayout::kRowWords * 4};
+            source.pResource = job.gpuSurfaces.Get();
+            source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            D3D12_BOX box{0, 0, 0, GpuSurfaceLayout::kRowWords, gpuLayout.rows(), 1};
+            s.list->CopyTextureRegion(&destination, 0, 0, 0, &source, &box);
+            D3D12_RESOURCE_BARRIER toRead[] = {
+                transition(job.gpuSurfaces.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON),
+                transition(s.gpuLinear.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                           D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)};
+            s.list->ResourceBarrier(2, toRead);
+            s.list->CopyBufferRegion(s.materials.Get(), uint64_t(gpuBase) * kTriangleAttributes * sizeof(Attribute),
+                                     s.gpuLinear.Get(), gpuLayout.attributeOffset(), gpuLayout.attributeBytes());
+        }
+        if (!copies.empty() || gpuSlots) {
             const auto ready = transition(s.materials.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                                           D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
             s.list->ResourceBarrier(1, &ready);
@@ -1792,6 +1902,11 @@ void RayWater::Impl::execute(Job& job) {
                                 false);
                 offset += uint64_t(counts[g]) * 3 * sizeof(Point);
             }
+            // The GPU-built frame triangles: one slot per streamed triangle, NaN positions for those the CPU path
+            // would not have appended (inactive triangles in DXR).
+            if (gpuSlots)
+                s.buildBlas(s.gpuBlas, s.gpuLinear->GetGPUVirtualAddress(), gpuSlots * 3,
+                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, frame.retired, false);
         }
         std::vector<D3D12_RAYTRACING_INSTANCE_DESC> temporaryInstances;
         auto& instances = cpuCache ? s.cpuInstances : temporaryInstances;
@@ -1920,6 +2035,15 @@ void RayWater::Impl::execute(Job& job) {
                 i.AccelerationStructure = s.nativeMeshes.at(model->identity).blas->GetGPUVirtualAddress();
                 instances.push_back(i);
             }
+        }
+        if (gpuSlots) {
+            // Last, so the instance indices of everything else stay as without it; dry frame triangles (group 0).
+            D3D12_RAYTRACING_INSTANCE_DESC i{};
+            i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
+            i.InstanceID = (31u << 19) | gpuBase;
+            i.InstanceMask = 1u | (validatedFrame ? kDirectShadowMask | kValidatedGeometryMask : 0u);
+            i.AccelerationStructure = s.gpuBlas->GetGPUVirtualAddress();
+            instances.push_back(i);
         }
         const unsigned instanceCount = unsigned(instances.size());
         s.upload(frame.instances, instances.data(), instances.size() * sizeof(instances[0]), frame.retired);
@@ -2125,7 +2249,7 @@ void RayWater::shareStaticWorld(std::shared_ptr<const std::vector<Triangle>>, ui
                                 const std::vector<uint32_t>*) {}
 bool RayWater::submit(ID3D11Texture2D*, ID3D11Texture2D*, ID3D11Texture2D*, const nr::guides::FrameConstants&,
                       std::vector<Triangle>&, float, bool, std::span<const Texture>, std::shared_ptr<const SceneModels>,
-                      const RayOptions&) {
+                      const RayOptions&, const GpuFrameTriangles*) {
     return false;
 }
 bool RayWater::render(ID3D11Texture2D*, ID3D11Texture2D*, ID3D11Texture2D*, const nr::guides::FrameConstants&,

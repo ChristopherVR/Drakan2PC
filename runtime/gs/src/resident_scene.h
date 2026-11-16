@@ -228,6 +228,20 @@ public:
         }
         return -1;
     }
+    // Whether observe(draw, index) would replace a stored projection (a larger area than the cell's or the layer's).
+    bool observeWouldChange(const Triangle& draw, int index) const {
+        if (index < 0 || draw.texture == ~0u)
+            return false;
+        const float ax = draw.p[1].x - draw.p[0].x, az = draw.p[1].z - draw.p[0].z, bx = draw.p[2].x - draw.p[0].x,
+                    bz = draw.p[2].z - draw.p[0].z;
+        const float det = ax * bz - az * bx;
+        if (std::abs(det) < 10000)
+            return false;
+        const auto cell = cellMaterials.find(uint32_t(index));
+        const auto previous = materials.find(layers[index]);
+        return cell == cellMaterials.end() || cell->second.area < std::abs(det) || previous == materials.end() ||
+               previous->second.area < std::abs(det);
+    }
     void observe(const Triangle& draw, int index) {
         if (index < 0 || draw.texture == ~0u)
             return;

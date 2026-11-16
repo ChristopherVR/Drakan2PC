@@ -38,6 +38,8 @@ struct BackendCaps {
     // The vertices of a vertex-program draw can be streamed out and read back for the ray-surface reconstruction
     // (gs_draw.inl, reserveProgramSurface / readProgramSurfaces), so the shader path stays on under modern water.
     bool programSurfaces = false;
+    // GSR_VERTEX_SURFACE=gpu: the streamed vertices become the ray pass's frame triangles on the GPU (surface_gpu.h).
+    bool gpuSurfaces = false;
     // A temporal upscaler that renders the world at a reduced resolution (DLSS); also its diagnostics.
     bool temporalUpscaler = false;
     // Readback prefetch: a staged copy of a scratch target the game stopped drawing, started without waiting.

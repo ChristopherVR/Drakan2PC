@@ -393,6 +393,12 @@ struct WgpuBackend::Impl {
     bool copyLateProgramSurfaces();
     bool mapLateProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count);
     void flushLateSurfaces();
+    // GSR_VERTEX_SURFACE=gpu is Direct3D 11 only (kCaps.gpuSurfaces); these keep gs_draw.inl compiling.
+    struct {
+        uint64_t cpuDraws = 0;
+    } gpuSurfaces;
+    bool gpuSurfacesOn() const { return false; }
+    bool submitGpuSurface(const surface::DrawInput&, const VertexProgramBatch&) { return false; }
     std::vector<std::unique_ptr<DepthBuf>> depths;
     std::unordered_map<TexKey, TexEntry, TexKeyHash> texCache;
     uint64_t texBytes = 0;
