@@ -475,4 +475,10 @@ bool writeBmp(const char* path, const Image& img);
 // Reads a .png (or .dds) into tightly packed RGBA8 (alpha 0..255), e.g. a save's HD preview companion.
 bool readImage(const char* path, Image& img);
 
+// GSR_DLSS_PATH_TOGGLE=<s> (test only): true in every second period of s seconds from the first call, when the
+// DLSS path changes of 16 November 2026 (the renderer's per-draw motion stream, the EE's end-of-world model snapshot)
+// run as before, so both are measured in one run. Logs "[dlss-path] now old|new at <us>" at each switch. False
+// without the variable.
+bool dlssPathToggledOff();
+
 } // namespace gsr

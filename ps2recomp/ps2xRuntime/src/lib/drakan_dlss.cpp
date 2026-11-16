@@ -94,9 +94,20 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
     profile.finish(camera.sourcePc, (camera.flags & gsr::SceneGuideCamera::EndWorld) != 0, before, after);
     // Publish ownership before EndWorld can trigger the modern pass. The initial immutable snapshot was captured
     // before native projector calls; this second snapshot carries only this world's actual projector requests.
+    // Only the ray passes read that ownership (SceneModelInstance::nativeShadow). Without a ray effect, or without a
+    // request, the second snapshot equals the first in everything else, and sending it again only made the renderer
+    // prepare this world's model motion a second time at its end, which the renderer then waited for
+    // (DRAKAN_SCENE_SHADOW_RESEND=1: send it anyway, as before).
+    static const bool alwaysResend = [] {
+        const char* value = std::getenv("DRAKAN_SCENE_SHADOW_RESEND");
+        return value && value[0] == '1';
+    }();
     if ((camera.flags & gsr::SceneGuideCamera::EndWorld) &&
         (camera.sourcePc == 0x147690u || camera.sourcePc == 0x139010u)) {
-        if (auto models = shadowFrame.finish()) {
+        const bool rayReaders = lease->gs && lease->gs->waterRenderingRequested();
+        if (!alwaysResend && !gsr::dlssPathToggledOff() && (!rayReaders || !shadowFrame.owns()))
+            shadowFrame.begin(nullptr);
+        else if (auto models = shadowFrame.finish()) {
             static bool logged = false;
             const auto count = std::count_if(models->instances.begin(), models->instances.end(),
                                              [](const auto& model) { return model.nativeShadow; });
@@ -113,6 +124,11 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
     // World entry precedes camera culling; export resident level layers, not
     // just the current GIF stream. Hash checks avoid reuploading static data.
     if (camera.sourcePc == 0x139010u && !(camera.flags & gsr::SceneGuideCamera::EndWorld)) {
+        struct Timed { // PS2X_SCENE_PACING: the capture's EE time, in the [scene-pacing] line
+            drakan_pacing::SceneSyncProfile& p;
+            std::chrono::steady_clock::time_point begin = p.captureBegin();
+            ~Timed() { p.captureEnd(begin); }
+        } timed{profile};
         shadowFrame.begin(nullptr);
         static uint64_t identity = 0;
         static uint64_t layout = 0;

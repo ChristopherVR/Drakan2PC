@@ -19,6 +19,8 @@ public:
         if (scene && object && generation)
             projected[object] = generation;
     }
+    // finish() would return a snapshot that differs from the one begun with: a projector request was recorded.
+    bool owns() const { return scene && !projected.empty(); }
     std::shared_ptr<const gsr::SceneModels> finish() {
         auto source = std::move(scene);
         if (!source || projected.empty())

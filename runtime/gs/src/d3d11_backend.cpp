@@ -46,9 +46,25 @@ inline void levelHistoryReset(D3D11Backend::Impl& s) {
 inline void sceneModelsNoted(D3D11Backend::Impl& s) {
     // Keep both snapshots alive until this world's motion preparation runs.
     if (s.nativeModels && s.modelMotion.previous() && (s.neuralEnabled || s.combinedSr) && s.surfaceBuilder->async()) {
-        auto prepare = [&s, scene = s.nativeModels, previous = s.modelMotion.previous()] {
+        auto prepare = [&s, scene = s.nativeModels, previous = s.modelMotion.previous(), epoch = s.motionEpoch] {
             auto& pending = s.pendingModels;
             motion::Models::prepareFrom(previous.get(), *scene, false, pending.frame, pending.scratch);
+            if (runtimeFlags().motionPrepareVerify) {
+                // GSR_MOTION_PREPARE_VERIFY: what this preparation gives, per world; with DRAKAN_SCENE_SHADOW_RESEND=1
+                // a world's start and end snapshots both log one, and equal hashes show the second changed nothing.
+                uint64_t hash = 1469598103934665603ull;
+                const auto mix = [&hash](const void* data, size_t bytes) {
+                    const auto* p = static_cast<const uint8_t*>(data);
+                    for (size_t i = 0; i < bytes; ++i)
+                        hash = (hash ^ p[i]) * 1099511628211ull;
+                };
+                mix(pending.frame.vertices.data(), pending.frame.vertices.size() * sizeof(pending.frame.vertices[0]));
+                for (const auto& t : pending.frame.textures)
+                    mix(&t.identity, sizeof t.identity);
+                std::fprintf(stderr, "[model-prepare] epoch=%llu scene=%p vertices=%zu textures=%zu hash=%016llx\n",
+                             (unsigned long long)epoch, (const void*)scene.get(), pending.frame.vertices.size(),
+                             pending.frame.textures.size(), (unsigned long long)hash);
+            }
             pending.scene = scene;
             pending.previous = previous;
             pending.ready = true;

@@ -337,6 +337,9 @@ bool D3D11Backend::Impl::ensureMotionTarget(RT& rt) {
             }
             velocitySkip = on;
         }
+        motionPrepareFast = runtimeFlags().motionPrepareFast && !dlssPathToggledOff();
+        motionHistory.setFast(motionPrepareFast);
+        motionHistory.setVerify(runtimeFlags().motionPrepareVerify);
         clearMotionTarget(rt);
         rt.motionEpoch = motionEpoch;
     }
@@ -374,6 +377,20 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
     // One history entry per run of vertices under one scope: the whole batch, or the segments between the scope
     // notes that arrived while the batch was open (motion_segments.h). A segment is tracked exactly as the separate
     // draw it used to be.
+    // GSR_MOTION_PREPARE_FAST (on by default): a segment that does not match has the default entry (no previous
+    // position) throughout and a matched one a valid entry at every vertex (History::track). The stream is written in
+    // place: History::track writes a tracked segment's entries straight into it, default entries fill the gaps, and a
+    // draw none of whose segments matched is never built at all: it is the default entry throughout and written so
+    // into the upload, only when its pass is drawn. History::track itself runs its vertex loops without early exits.
+    // Same bytes uploaded, same passes left out: GSR_MOTION_PREPARE_VERIFY=1 assembles the stream as before beside it
+    // and keeps a second history with the first track() implementation, and counts every difference.
+    const bool fast = motionPrepareFast;
+    const bool verify = runtimeFlags().motionPrepareVerify;
+    uint32_t filled = 0; // fast: entries of motionPrevious written for this draw
+    if (fast && motionPrevious.size() < count)
+        motionPrevious.resize(count);
+    // Tracks one segment and returns whether it matched. The first implementation (`fast` off) writes the segment's
+    // entries into `output`, defaults included; the fast one into motionPrevious at `first`, tracked segments only.
     const auto trackSegment = [&](uint32_t first, uint32_t n, std::vector<motion::Previous>& output) {
         motion::Key key{objectScope.objectId, objectScope.generation, objectScope.meshId,
                         objectScope.partId,   objectScope.passKey,    0};
@@ -385,9 +402,12 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         motionScopedBatches += known;
         if (!known || !key.object || !key.mesh) {
             // History::track refuses these before it looks at a vertex: no previous position, nothing stored.
-            output.assign(n, {});
+            if (!fast)
+                output.assign(n, {});
+            if (verify)
+                motionPrepareReference.resize(motionPrepareReference.size() + n);
             ++motionRejectedBatches;
-            return;
+            return false;
         }
         motionVertices.resize(n);
         for (uint32_t i = 0; i < n; ++i) {
@@ -398,25 +418,64 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         uint64_t topology = objectScope.topologyHash;
         for (uint64_t value : {uint64_t(n), s.tex0, s.alpha, uint64_t(s.flags), s.test})
             topology = (topology ^ value) * 1099511628211ull;
-        const auto result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known, output);
+        motion::Result result;
+        if (!fast)
+            result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known, output);
+        else {
+            std::fill(motionPrevious.begin() + filled, motionPrevious.begin() + first, motion::Previous{});
+            result = motionHistory.track(key, topology, motionVertices.data(), n, sx, sy, known,
+                                         motionPrevious.data() + first);
+            filled = first + n;
+            if (verify)
+                motionPrepareReference.insert(motionPrepareReference.end(), motionPrevious.begin() + first,
+                                              motionPrevious.begin() + first + n);
+        }
         if (result.matched) {
             ++motionMatchedBatches;
             motionMatchedVertices += n;
         } else
             ++motionRejectedBatches;
+        return result.matched;
     };
+    bool anyMatched = false;
+    if (verify)
+        motionPrepareReference.clear();
     if (pendingMotionNotes && vertices == pendingMotionBase && count == pendingMotionCount) {
-        motionPrevious.clear();
+        if (!fast)
+            motionPrevious.clear();
         motion::forEachSegment(
             pendingMotionNotes, pendingMotionNoteCount, count,
             [&](const ObjectMotionScope& scope) { applyObjectMotion(scope); },
             [&](uint32_t first, uint32_t n) {
-                trackSegment(first, n, motionSegmentPrevious);
-                motionPrevious.insert(motionPrevious.end(), motionSegmentPrevious.begin(), motionSegmentPrevious.end());
+                anyMatched |= trackSegment(first, n, motionSegmentPrevious);
+                if (!fast)
+                    motionPrevious.insert(motionPrevious.end(), motionSegmentPrevious.begin(),
+                                          motionSegmentPrevious.end());
             });
         pendingMotionNotes = nullptr; // consumed
     } else
-        trackSegment(0, count, motionPrevious);
+        anyMatched = trackSegment(0, count, motionPrevious);
+    // The stream: as tracked (first implementation), or in the fast path the tracked entries and defaults up to the
+    // draw's end when a segment matched, else nothing (default throughout, written at the upload).
+    const bool streamBuilt = !fast || anyMatched;
+    if (fast && anyMatched)
+        std::fill(motionPrevious.begin() + filled, motionPrevious.begin() + count, motion::Previous{});
+    if (verify && fast) { // motionPrepareReference: the stream assembled as before
+        bool referenceValid = false;
+        for (const auto& p : motionPrepareReference)
+            referenceValid |= p.valid != 0;
+        bool same = referenceValid == anyMatched && motionPrepareReference.size() == count;
+        if (same && anyMatched)
+            same = std::memcmp(motionPrevious.data(), motionPrepareReference.data(),
+                               count * sizeof(motion::Previous)) == 0;
+        else if (same) {
+            const motion::Previous none{};
+            for (const auto& p : motionPrepareReference)
+                same &= std::memcmp(&p, &none, sizeof none) == 0;
+        }
+        ++motionPrepareChecked;
+        motionPrepareDiffer += !same;
+    }
     // [video] velocity_skip (motion_coverage.h): a draw without a previous position anywhere writes only invalid
     // entries; where none of this world's entries can be valid under it yet, its pass changes nothing the guides read.
     // The box is of the vertices as handed over; the draw code moves vertices afterwards only for HUD and menu
@@ -424,12 +483,15 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
     // inventory font shadow (inside the margin).
     velocityLeftOut = false;
     if (velocitySkip) {
-        bool mayBeValid = false;
-        for (const auto& p : motionPrevious)
-            if (p.valid != 0) {
-                mayBeValid = true;
-                break;
-            }
+        bool mayBeValid = anyMatched;
+        if (!fast) {
+            mayBeValid = false;
+            for (const auto& p : motionPrevious)
+                if (p.valid != 0) {
+                    mayBeValid = true;
+                    break;
+                }
+        }
         const int32_t margin = (int32_t)std::ceil(2.0f * std::max(sx, sy)) + 2;
         const motion_coverage::Rect box = motion_coverage::bounds(
             vertices, count, sx, sy, margin, rt.motionCoverage.width(), rt.motionCoverage.height());
@@ -472,7 +534,11 @@ bool D3D11Backend::Impl::prepareObjectMotion(RT& rt, const GsDrawState& s, const
         return invalidateMotion();
     motionVbDrawOffset = motionVbOffset;
     motionVbOffset += bytes;
-    std::memcpy(static_cast<uint8_t*>(mapped.pData) + motionVbDrawOffset, motionPrevious.data(), bytes);
+    auto* const out = reinterpret_cast<motion::Previous*>(static_cast<uint8_t*>(mapped.pData) + motionVbDrawOffset);
+    if (streamBuilt)
+        std::memcpy(out, motionPrevious.data(), bytes);
+    else
+        std::fill(out, out + count, motion::Previous{});
     ctx.raw()->Unmap(motionVb.Get(), 0);
     return true;
 }

@@ -40,15 +40,42 @@ class History {
 public:
     explicit History(uint64_t budgetBytes = 64ull * 1024 * 1024, bool manualReference = false)
         : budget_(budgetBytes), manual_(manualReference) {}
+    History(const History&) = delete;
+    History& operator=(const History&) = delete;
+    ~History();
     // One epoch per complete engine world, independently of host presents/vsync.
     void beginFrame(uint64_t epoch, bool reset = false);
+    // output: `count` entries (none when count exceeds 1,000,000). An entry without a previous position is the default
+    // Previous{}; a matched batch has a valid entry at every vertex.
     Result track(const Key&, uint64_t topology, const Vertex*, uint32_t count, float rasterX, float rasterY,
                  bool correspondenceKnown, std::vector<Previous>& output);
+    // The same into the caller's `count` entries, every one written (all default when not matched).
+    Result track(const Key&, uint64_t topology, const Vertex*, uint32_t count, float rasterX, float rasterY,
+                 bool correspondenceKnown, Previous* output);
     void reset();
     void commitFrame(); // manual mode: advance only after the temporal consumer accepted this world
     uint64_t bytes() const { return bytes_; }
+    // false: track() takes the first implementation (one vertex at a time with early exits) instead of the loops
+    // without branches. Both give the same entries and keep the same history (GSR_MOTION_PREPARE_FAST).
+    void setFast(bool fast) { fast_ = fast; }
+    // Verification (GSR_MOTION_PREPARE_VERIFY): a second history fed every call with the first implementation;
+    // each track() compares its result and entries with it.
+    void setVerify(bool on);
+    uint64_t verifyChecked() const { return verifyChecked_; }
+    uint64_t verifyDiffer() const { return verifyDiffer_; }
 
 private:
+    Result trackReference(const Key&, uint64_t topology, const Vertex*, uint32_t count, float rasterX, float rasterY,
+                          bool correspondenceKnown, std::vector<Previous>& output);
+    Result trackFast(const Key&, uint64_t topology, const Vertex*, uint32_t count, float rasterX, float rasterY,
+                     bool correspondenceKnown, Previous* output);
+    void store(const Key&, uint64_t topology, const Vertex*, uint32_t count);
+    void compare(const Result&, const Previous*, const Key&, uint64_t topology, const Vertex*, uint32_t count,
+                 float rasterX, float rasterY, bool correspondenceKnown);
+    bool fast_ = true;
+    History* shadow_ = nullptr;
+    std::vector<Previous> shadowOutput_;
+    uint64_t verifyChecked_ = 0, verifyDiffer_ = 0;
     struct Entry {
         uint64_t epoch = 0, topology = 0;
         std::vector<Vertex> vertices;

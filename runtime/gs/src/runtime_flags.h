@@ -128,6 +128,9 @@ struct RuntimeFlags {
     double velocitySkipToggle = 0;   // GSR_VELOCITY_SKIP_TOGGLE=<s>: switch the skip every s seconds (A/B in one run)
     bool velocitySkipIgnoreGrid =
         false; // GSR_VELOCITY_SKIP_DEBUG=1: leave out every invalid-only pass (wrong on purpose)
+    bool motionPrepareFast =
+        true; // GSR_MOTION_PREPARE_FAST: first character '0' = the per-draw motion stream as before
+    bool motionPrepareVerify = false;     // GSR_MOTION_PREPARE_VERIFY=1: build the old stream too and compare
     std::optional<float> terrainStrength; // GSR_TERRAIN_STRENGTH: atof
     uint32_t terrainDebug = 0;            // GSR_TERRAIN_DEBUG: 1 = tint terrain layers
     bool terrainAudit = false;            // GSR_TERRAIN_AUDIT: log what the classification matched

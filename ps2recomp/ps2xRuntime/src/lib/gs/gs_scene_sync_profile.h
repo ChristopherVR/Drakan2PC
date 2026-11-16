@@ -14,6 +14,9 @@ class SceneSyncProfile {
         double transfer = 0, vu = 0, maximum = 0;
     };
     std::array<Row, 6> rows{};
+    // The scene model and resident geometry capture of a world's start (drakan_dlss.cpp sceneSink), timed apart.
+    uint64_t captureCalls = 0;
+    double captureMs = 0, captureMax = 0;
     double seconds = 0;
     Clock::time_point window{}, start{}, middle{};
 
@@ -28,6 +31,16 @@ public:
         }
     }
     bool enabled() const { return seconds > 0; }
+    Clock::time_point captureBegin() const { return seconds ? Clock::now() : Clock::time_point{}; }
+    void captureEnd(Clock::time_point begin) {
+        if (!seconds)
+            return;
+        const double ms = std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
+        ++captureCalls;
+        captureMs += ms;
+        if (ms > captureMax)
+            captureMax = ms;
+    }
     void begin() {
         if (seconds)
             start = Clock::now();
@@ -67,8 +80,12 @@ public:
                              (unsigned long long)x.pendingBefore, (unsigned long long)x.pendingAfter, x.transfer, x.vu,
                              x.maximum);
         }
+        if (captureCalls)
+            std::fprintf(stderr, " capture=%llu/%.3f/%.3f", (unsigned long long)captureCalls, captureMs, captureMax);
         std::fputc('\n', stderr);
         rows = {};
+        captureCalls = 0;
+        captureMs = captureMax = 0;
         window = now;
     }
 };

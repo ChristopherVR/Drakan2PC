@@ -391,6 +391,12 @@ struct D3D11Backend::Impl {
     uint32_t motionValidationSamples = 0;
     std::vector<motion::Vertex> motionVertices;
     std::vector<motion::Previous> motionPrevious, motionSegmentPrevious;
+    // GSR_MOTION_PREPARE_FAST (default on, d3d11_world.cpp prepareObjectMotion): a draw's previous stream is built only
+    // when one of its segments matched (otherwise it is the default entry throughout and written straight into the
+    // upload, only when its pass is drawn). Taken at a world's start (GSR_DLSS_PATH_TOGGLE switches it).
+    bool motionPrepareFast = true;
+    std::vector<motion::Previous> motionPrepareReference; // GSR_MOTION_PREPARE_VERIFY: the stream built as before
+    uint64_t motionPrepareChecked = 0, motionPrepareDiffer = 0;
     // Scope notes of the batch being drawn (BackendApi::setMotionNotes), null once prepareObjectMotion walked them.
     const motion::Note* pendingMotionNotes = nullptr;
     uint32_t pendingMotionNoteCount = 0, pendingMotionCount = 0;

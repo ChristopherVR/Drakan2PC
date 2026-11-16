@@ -2,6 +2,9 @@
 #include "runtime_flags.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <gsr/gsr.h>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -166,6 +169,10 @@ RuntimeFlags parse() {
         f.velocitySkipToggle = std::max(0.0, std::atof(v));
     if (const char* v = env("GSR_VELOCITY_SKIP_DEBUG"))
         f.velocitySkipIgnoreGrid = v[0] == '1';
+    if (const char* v = env("GSR_MOTION_PREPARE_FAST"))
+        f.motionPrepareFast = v[0] != '0';
+    if (const char* v = env("GSR_MOTION_PREPARE_VERIFY"))
+        f.motionPrepareVerify = v[0] == '1';
     if (const char* v = env("GSR_TERRAIN_STRENGTH"))
         f.terrainStrength = (float)std::atof(v);
     if (const char* v = env("GSR_TERRAIN_DEBUG"))
@@ -297,6 +304,24 @@ RuntimeFlags parse() {
 const RuntimeFlags& runtimeFlags() {
     static const RuntimeFlags parsed = parse();
     return parsed;
+}
+
+bool dlssPathToggledOff() {
+    static const double period = [] {
+        const char* v = env("GSR_DLSS_PATH_TOGGLE");
+        return v ? std::max(0.0, std::atof(v)) : 0.0;
+    }();
+    if (period <= 0)
+        return false;
+    static const auto start = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    const long long phase = (long long)(std::chrono::duration<double>(now - start).count() / period);
+    static std::atomic<long long> logged{-1};
+    long long seen = logged.load(std::memory_order_relaxed);
+    if (seen != phase && logged.compare_exchange_strong(seen, phase))
+        std::fprintf(stderr, "[dlss-path] now %s at %lld us\n", phase % 2 ? "old" : "new",
+                     (long long)std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
+    return phase % 2 == 1;
 }
 
 } // namespace gsr

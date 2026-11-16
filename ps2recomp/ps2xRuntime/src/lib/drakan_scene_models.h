@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <set>
@@ -506,6 +507,50 @@ class Capture {
         check.sampled = sampled;
         return full;
     }
+    // DRAKAN_SCENE_CAPTURE_PROFILE=1: EE time of the capture's parts, one [scene-capture] line every 256 captures.
+    struct Profile {
+        using Clock = std::chrono::steady_clock;
+        enum Part { Lights, Textures, Resources, Live, Objects, Signature, Posed, Mesh, Count };
+        bool on = [] {
+            const char* value = std::getenv("DRAKAN_SCENE_CAPTURE_PROFILE");
+            return value && value[0] == '1';
+        }();
+        std::array<double, Count> ms{};
+        uint64_t captures = 0, posed = 0, signatures = 0;
+        Clock::time_point mark{};
+        void begin() {
+            if (on)
+                mark = Clock::now();
+        }
+        void stage(Part part) { // the time since begin() or the previous stage()
+            if (!on)
+                return;
+            const auto now = Clock::now();
+            ms[part] += std::chrono::duration<double, std::milli>(now - mark).count();
+            mark = now;
+        }
+        struct Inner { // a part nested in the object loop
+            Profile& p;
+            Part part;
+            Clock::time_point start = p.on ? Clock::now() : Clock::time_point{};
+            ~Inner() {
+                if (p.on)
+                    p.ms[part] += std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+            }
+        };
+        void report() {
+            if (!on || ++captures % 256)
+                return;
+            static constexpr const char* names[] = {"lights",  "textures",  "resources", "live",
+                                                    "objects", "signature", "posed",     "mesh"};
+            std::fprintf(stderr, "[scene-capture] %llu captures, ms each:", (unsigned long long)captures);
+            for (unsigned i = 0; i < Count; ++i)
+                std::fprintf(stderr, " %s=%.4f", names[i], ms[i] / 256);
+            std::fprintf(stderr, " posed=%.1f signatures=%.1f\n", posed / 256.0, signatures / 256.0);
+            ms = {};
+            posed = signatures = 0;
+        }
+    } profile;
     std::vector<LiveObject> liveList;
     uint64_t liveListEpoch = ~0ull;
     std::unordered_map<uint64_t, SourceCheck> sourceChecks;
@@ -926,6 +971,7 @@ public:
         auto out = std::make_shared<gsr::SceneModels>();
         out->level = scene;
         Reader r{ram, bytes};
+        profile.begin();
         if (!r.span(0x4dae20, 0x220))
             return out;
         if (level != scene)
@@ -1004,6 +1050,7 @@ public:
             }
         }
         lights.apply(selected ? &environment : nullptr, std::move(local), out->lighting);
+        profile.stage(Profile::Lights);
         if (level != scene) {
             reset();
             level = scene;
@@ -1032,7 +1079,9 @@ public:
             refreshTextures(r, true);
         }
         out->textures = textures;
+        profile.stage(Profile::Textures);
         auto resources = r.resources(0x4dae20, 0x51cc98, 0x519a00);
+        profile.stage(Profile::Resources);
         std::unordered_map<uint64_t, uint32_t> used;
         used.reserve(256);
         std::unordered_map<uint64_t, uint64_t> sourceSignatures;
@@ -1061,6 +1110,7 @@ public:
             }
             liveListEpoch = liveEpoch;
         }
+        profile.stage(Profile::Live);
         // Object-to-world, determinant and opacity of an instance: 0 = invalid (rejected), 1 = drawn, 2 = invisible.
         const auto placement = [&r](uint32_t object, gsr::SceneModelInstance& instance) {
             bool valid = true;
@@ -1177,8 +1227,11 @@ public:
             const bool staticPositions = positions == 0;
             sourceKey = hashBytes(sourceKey, &staticPositions, sizeof(staticPositions));
             auto [source, inserted] = sourceSignatures.try_emplace(sourceKey, 0);
-            if (inserted)
+            if (inserted) {
+                Profile::Inner timed{profile, Profile::Signature};
+                ++profile.signatures;
                 source->second = sourceSignature(r, sourceKey, it->second, slot, staticPositions);
+            }
             if (!source->second) {
                 ++out->rejectedInstances;
                 continue;
@@ -1186,13 +1239,16 @@ public:
             cacheKey = hashBytes(cacheKey, &source->second, sizeof(source->second));
             std::shared_ptr<const gsr::SceneModelMesh> geometry;
             uint32_t untextured = 0;
-            if (positions)
+            if (positions) {
+                Profile::Inner timed{profile, Profile::Posed};
+                ++profile.posed;
                 geometry =
                     posedMesh(r, it->second, it->first, positions, slot, templateKey, source->second, untextured);
-            else if (auto found = meshes.find(cacheKey); found != meshes.end()) {
+            } else if (auto found = meshes.find(cacheKey); found != meshes.end()) {
                 geometry = found->second.mesh;
                 untextured = found->second.untextured;
             } else if (!missing.contains(cacheKey)) {
+                Profile::Inner timed{profile, Profile::Mesh};
                 geometry = mesh(r, it->second, it->first, positions, slot);
                 if (geometry) {
                     untextured = countUntextured(*geometry);
@@ -1225,6 +1281,8 @@ public:
             }
             out->instances.push_back(instance);
         }
+        profile.stage(Profile::Objects); // includes signature, posed and mesh
+        profile.report();
         return out;
     }
 };

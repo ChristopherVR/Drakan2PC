@@ -218,6 +218,13 @@ void D3D11Backend::Impl::logDrawState(bool force) {
                      (unsigned long long)velocityPassesLeftOut, (unsigned long long)velocityVerifyWorlds,
                      (unsigned long long)velocityVerifyPixels, (unsigned long long)velocityVerifyValid,
                      (unsigned long long)velocityVerifyDiffer);
+    if (runtimeFlags().motionPrepareVerify)
+        std::fprintf(stderr,
+                     "[motion-prepare] frame %llu: streams checked %llu, differ %llu; tracked batches checked %llu, "
+                     "differ %llu\n",
+                     (unsigned long long)frame, (unsigned long long)motionPrepareChecked,
+                     (unsigned long long)motionPrepareDiffer, (unsigned long long)motionHistory.verifyChecked(),
+                     (unsigned long long)motionHistory.verifyDiffer());
 }
 
 void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW,
