@@ -88,11 +88,47 @@ Fix: the backends publish `program_draw::cpuReadsVertices` of their settings (`v
   The 1 % low improves, the longest frame does not (11 and 28 ms in the two runs).
 * HD textures, texture upscaling and scale 5 against 8 change nothing beyond the run-to-run range.
 
-## 6. Open
+## 6. The GPU vertex path under modern water (stream-out, opt-in)
 
-* Make the GPU vertex path and modern water work together: the surface reconstruction needs the transformed
-  triangles, which the shader path has only on the GPU (stream output or a compute pass that writes them for the
-  surface builder).
+Asked for by the owner. The fix of section 4 holds the records in the microprogram while a ray effect is on; this
+section tries to keep them on the shader instead (commit 0b398179, made opt-in afterwards).
+
+How: the ray surfaces need each draw's screen vertices on the CPU (`surface::reconstructDraw` on the `SurfaceBuilder`
+thread). A shader-drawn strip batch now also runs `VSProgramRaw` (the raw place, colour and ST/Q words of the same exact
+evaluation, already proven bit for bit by the shader tests) through a stream-out stage into a ring, once, before its first
+colour pass. The surface block of `Impl::draw` became `surface::submitDraw` with its inputs captured at the draw
+(`surface::DrawInput`); while a streamed batch waits, later draws' submissions wait behind it, so the builder sees the
+original order; `drainSurfaces` (now used by every reader instead of `surfaceBuilder->drain`) reads the ring back once,
+rebuilds the `DrawVertex` list with the formulas of `kick` / `toDV` (and flat shading without IIP) and submits in order. A
+batch whose draw ended before a colour pass takes the CPU evaluation (`surface::evaluateBatch`). Strip batches only.
+
+| check | result |
+| --- | --- |
+| `GSR_VERTEX_SURFACE_VERIFY=1`, owner's settings with `gpu`, Surdana | 10,402,602 streamed vertices compared with the CPU evaluation, 0 differ (2,156 batches, 98 flushes) |
+| runtime tests `vertex_path`, `vertex_program_draw`, `vertex_records`, `surface_builder`, `ray_*`, `synthetic` | 10 of 10 passed |
+| A/B, owner's settings (scale 8), 3 interleaved repeats | cpu 118.8 fps, 8.39 ms; gpu with the stream 60.7 fps, 16.24 ms (+94 %, 3 of 3 pairs); VU1 worker 6.36 to 4.21 ms per frame |
+| A/B, the same at `PS2X_GS_SCALE=2`, 2 repeats | cpu 148.6 fps, 6.56 ms; gpu with the stream 106.8 fps, 9.05 ms (+38 %, 2 of 2 pairs) |
+
+Why it loses: `programSurfaceRead` is about 9 ms per world (1.0 s of every 2 s on the GS worker) at scale 8. The copy
+and the map wait until the GPU has executed the world so far; the GPU runs about a frame behind the CPU (the CPU
+variant's GPU frame time equals its frame time, 8.40 against 8.39 ms), so the wait serialises the two. The values
+are exact; the cost is the same-frame dependency of the ray surfaces on vertices only the GPU has.
+
+So `GSR_VERTEX_SURFACE` is off by default (the hold of section 4 stays the shipped behaviour; checked again on the
+final build: gpu 8.61 against cpu 8.58 ms, nothing handed over). For it to pay, the read-back must not be waited on in
+the same frame: either the ray and water passes run one frame later (one frame more latency, same picture), or the
+reconstruction moves to the GPU (a compute pass that un-projects the streamed triangles into the ray scene's buffers).
+
+The unnamed busy threads of section 3 now name themselves: `SurfaceBuilder` (27 to 56 %) and `RayWater` (25 to 41 %).
+`GSR_SURFACE_HASH` prints a hash of each world's surface list for comparisons between paths; it was added but not yet
+used for a paused toggle comparison.
+
+## 7. Open
+
+* The GPU vertex path under modern water without a same-frame wait (section 6): the ray and water passes one frame
+  later, or the surface reconstruction on the GPU. Stream output itself is done and exact.
+* A paused toggle comparison of the surface lists (`GSR_SURFACE_HASH`, `DRAKAN_VERTEX_TOGGLE`) with the stream on:
+  batch boundaries of the shader path and the packet path could split a draw's minimum vertex alpha differently.
 * Whether the shipped defaults should pace to the display (vsync on, or a frame limit at the refresh) is the
   owner's decision; `tearing is the jitter` is inferred, not measured on the panel.
 * Only the Surdana start was measured; the owner's session ran at about twice its rate, and no scene with the

@@ -772,3 +772,15 @@ state switches in the driver's threads and the `Present` wait. DLSS quality fram
 Flame scenes, -2 % Surdana, -7 % Ravenshold. Measured with `GSR_VELOCITY_SKIP_TOGGLE` inside one run, because
 interleaved runs on the shared machine swung by up to 18 % with DLSS off, where the setting cannot act. See
 [the journal](../journal/2026-11-14/gpu-dlss-finish.md).
+
+## CPU use, jitter and the GPU vertex path at 4K (2026-11-16)
+
+At the owner's settings (3840x2160, scale 8, vsync off, uncapped) CPU time per world frame is the same at any frame
+rate, so process CPU scales with the rate: about 3.7 logical processors at 117 fps in Surdana, half of that under
+vsync or a 60 cap. Modern water costs about 1.1 processors (the `SurfaceBuilder` and `RayWater` threads, which now
+name themselves) and 21 % frame time. With modern water on, `vertex_processing = gpu` used to evaluate every strip
+record on the CPU in the renderer (3 times the frame time); the capability now offers no stage while a ray effect,
+terrain cliffs or a vertex diagnosis reads the vertices on the CPU, so the runs stay in the microprogram. With water
+off the GPU path pays at 4K (-13 % frame time, VU1 worker 7.2 to 5.1 ms). An exact stream-out of the shader's vertices
+for the ray surfaces exists (`GSR_VERTEX_SURFACE=1`, off) but its same-frame read-back serialises CPU and GPU (+94 %
+frame time at scale 8, +38 % at scale 2). Details: [journal](../journal/2026-11-16/perf-cpu-jitter.md).

@@ -31,10 +31,12 @@ struct RuntimeFlags {
 
     // ---- modern water / ray tracing (d3d11_backend, ray_water) -------------------------------------------------
     bool modernWater = false; // GSR_MODERN_WATER: not-"0"; default off
-    // GSR_VERTEX_SURFACE: unset or not-"0". Off: while modern water or a ray effect is on, vertex-program records stay
-    // in the VU1 microprogram (as before 2026-11-16) instead of being drawn by the shader and streamed out for the ray
-    // surface reconstruction (Direct3D 11).
-    bool vertexSurfaceStream = true;
+    // GSR_VERTEX_SURFACE: not-"0"; default off. On (Direct3D 11): while modern water or a ray effect is on,
+    // vertex-program records are still drawn by the shader and their vertices streamed out for the ray surface
+    // reconstruction. Exact, but the read-back waits for the GPU once per world, which serialises the CPU and the GPU:
+    // Surdana at 3840x2160 scale 8 went from 8.4 to 16.2 ms a frame, at scale 2 from 6.6 to 9.1 ms
+    // (docs/journal/2026-11-16/perf-cpu-jitter.md). Off: those records stay in the VU1 microprogram.
+    bool vertexSurfaceStream = false;
     // GSR_VERTEX_SURFACE_VERIFY: presence. Every streamed-out surface vertex is also evaluated on the CPU and compared
     // bit for bit (counts in the `[gsr] vertex surfaces` line); the CPU values are submitted.
     bool vertexSurfaceVerify = false;

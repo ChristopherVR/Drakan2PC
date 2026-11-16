@@ -47,7 +47,7 @@ RuntimeFlags parse() {
 
     // modern water / ray tracing
     f.modernWater = setAndNotZero("GSR_MODERN_WATER");
-    f.vertexSurfaceStream = unsetOrNotZero("GSR_VERTEX_SURFACE");
+    f.vertexSurfaceStream = setAndNotZero("GSR_VERTEX_SURFACE");
     f.vertexSurfaceVerify = present("GSR_VERTEX_SURFACE_VERIFY");
     f.rayReflections = setAndNotZero("GSR_RAY_REFLECTIONS");
     f.rayShadows = setAndNotZero("GSR_RAY_SHADOWS");
