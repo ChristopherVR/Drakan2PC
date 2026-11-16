@@ -108,51 +108,43 @@ inline void loadRow(const uint8_t* data, uint32_t slot, Row& r) {
     std::memcpy(r.st, data + size_t(kSt + slot) * 16u, 16);
 }
 
-// Lanes a stage reads and writes on its own slot.
+// Lanes a stage reads and writes on its own slot, by pass kind (gsr::vp::PassKind; 0 and unknown kinds: none).
+inline constexpr uint16_t kReadLanes[16] = {
+    0,                     // -
+    kLaneY,                // PassGrid
+    kLanePos | kLaneRgb,   // PassPointLight
+    kLaneCol,              // PassTexGenInt
+    kLanePos,              // PassTexGenPos
+    kLaneCol,              // PassLight
+    kLanePos,              // PassTransform
+    kLaneAlpha | kLaneStZ, // PassFade
+    kLaneStXy,             // PassTexMatrix
+    kLanePos,              // PassProject
+    0,                     // PassGridFlat
+};
+inline constexpr uint16_t kWriteLanes[16] = {
+    0,                   // -
+    kLanePos,            // PassGrid
+    kLaneCol,            // PassPointLight
+    kLaneSt,             // PassTexGenInt
+    kLaneSt,             // PassTexGenPos
+    kLaneCol,            // PassLight
+    kLanePos | kLaneStZ, // PassTransform
+    kLaneAlpha,          // PassFade
+    kLaneStXy,           // PassTexMatrix
+    kLanePos | kLaneStZ, // PassProject
+    kLanePos,            // PassGridFlat
+};
+static_assert(gsr::vp::PassGrid == 1 && gsr::vp::PassPointLight == 2 && gsr::vp::PassTexGenInt == 3 &&
+                  gsr::vp::PassTexGenPos == 4 && gsr::vp::PassLight == 5 && gsr::vp::PassTransform == 6 &&
+                  gsr::vp::PassFade == 7 && gsr::vp::PassTexMatrix == 8 && gsr::vp::PassProject == 9 &&
+                  gsr::vp::PassGridFlat == 10,
+              "the lane tables follow the pass kinds");
 inline uint16_t readLanes(uint32_t kind) {
-    switch (kind) {
-        case gsr::vp::PassGrid:
-            return kLaneY;
-        case gsr::vp::PassGridFlat:
-            return 0;
-        case gsr::vp::PassPointLight:
-            return kLanePos | kLaneRgb;
-        case gsr::vp::PassTexGenInt:
-        case gsr::vp::PassLight:
-            return kLaneCol;
-        case gsr::vp::PassTexGenPos:
-        case gsr::vp::PassTransform:
-        case gsr::vp::PassProject:
-            return kLanePos;
-        case gsr::vp::PassFade:
-            return kLaneAlpha | kLaneStZ;
-        case gsr::vp::PassTexMatrix:
-            return kLaneStXy;
-        default:
-            return 0;
-    }
+    return kind < 16u ? kReadLanes[kind] : 0u;
 }
 inline uint16_t writeLanes(uint32_t kind) {
-    switch (kind) {
-        case gsr::vp::PassGrid:
-        case gsr::vp::PassGridFlat:
-            return kLanePos;
-        case gsr::vp::PassPointLight:
-        case gsr::vp::PassLight:
-            return kLaneCol;
-        case gsr::vp::PassTexGenInt:
-        case gsr::vp::PassTexGenPos:
-            return kLaneSt;
-        case gsr::vp::PassTransform:
-        case gsr::vp::PassProject:
-            return kLanePos | kLaneStZ;
-        case gsr::vp::PassFade:
-            return kLaneAlpha;
-        case gsr::vp::PassTexMatrix:
-            return kLaneStXy;
-        default:
-            return 0;
-    }
+    return kind < 16u ? kWriteLanes[kind] : 0u;
 }
 inline uint32_t familyOf(uint32_t kind) {
     switch (kind) {
@@ -560,6 +552,23 @@ public:
                lanes;
     }
 
+    // lanesOf over every quadword of [first, first + count): the pending or stale lanes among `lanes` of any.
+    uint32_t lanesIn(uint32_t first, uint32_t count, uint32_t lanes) const {
+        uint32_t qw = first < kPos ? kPos : first;
+        const uint32_t end = first + count < kSt + kSlots ? first + count : kSt + kSlots;
+        uint32_t any = 0;
+        while (qw < end) {
+            const uint32_t array = (qw - kPos) / kSlots, base = kPos + array * kSlots;
+            const uint32_t stop = end < base + kSlots ? end : base + kSlots;
+            uint32_t acc = 0;
+            for (uint32_t s = qw - base; s < stop - base; ++s)
+                acc |= uint32_t(m_virtual[s]) | m_stale[s];
+            any |= (acc >> (array * 4u)) & lanes;
+            qw = stop;
+        }
+        return any;
+    }
+
     uint16_t virtualLanes(uint32_t slot) const { return m_virtual[slot]; }
     uint16_t staleLanes(uint32_t slot) const { return m_stale[slot]; }
     uint32_t pendingPasses(uint32_t slot) const { return m_chainLength[slot]; }
@@ -882,6 +891,9 @@ private:
         // Runs whose corners take all three rows from their own slot share vertices by slot.
         uint8_t vertexOfSlot[kSlots];
         bool mapped = false;
+        int32_t collected = -1; // the last slot collect() ran on, with what it was asked and what it found
+        uint16_t collectedNeed = 0, collectedMemory = 0;
+        uint64_t collectedMarks[4] = {};
         for (uint32_t c = 0; c < list.cornerCount; ++c) {
             const Corner& k = list.corners[c];
             const bool own = k.stSlot == k.slot && k.colSlot == k.slot;
@@ -916,8 +928,23 @@ private:
                 return Reason::StaleInput;
             uint64_t marks[4] = {};
             uint16_t memory = 0;
-            if (m_chainLength[k.slot] != 0u)
-                collect(k.slot, need, marks, memory);
+            if (m_chainLength[k.slot] != 0u) {
+                // Neighbouring slots of a batch carry the same chain: collect's result depends only on the lanes
+                // asked for, the slot's virtual lanes and its chain, so a slot equal in all three takes the last one.
+                const uint32_t length = m_chainLength[k.slot];
+                if (collected >= 0 && need == collectedNeed && m_virtual[k.slot] == m_virtual[collected] &&
+                    length == m_chainLength[collected] &&
+                    std::memcmp(m_chain[k.slot], m_chain[collected], length) == 0) {
+                    std::memcpy(marks, collectedMarks, sizeof(marks));
+                    memory = collectedMemory;
+                } else {
+                    collect(k.slot, need, marks, memory);
+                    collected = k.slot;
+                    collectedNeed = need;
+                    std::memcpy(collectedMarks, marks, sizeof(marks));
+                    collectedMemory = memory;
+                }
+            }
             BatchVertex& v = vertices[vertexCount];
             loadRow(data, k.slot, v.row);
             v.passMask = 0;
@@ -1074,17 +1101,18 @@ inline bool stripInputsKnown(const Tracker& tracker, const uint8_t* record) {
     const uint8_t* table = record + sizeof(header) + sizeof(gsr::vp::Constants);
     const bool lit = header.program != gsr::vp::StripsFlat;
     uint32_t slot = kFirstSlot, unknown = 0;
-    for (uint32_t s = 0; s < header.stripCount; ++s) {
+    for (uint32_t s = 0; s < header.stripCount && !unknown; ++s) {
         uint32_t n;
         std::memcpy(&n, table + size_t(s) * 4u, 4);
         unknown |= tracker.lanesOf(slot + kAux, 1u); // the strip's length
-        for (uint32_t i = 1; i <= n; ++i) {
-            unknown |= tracker.lanesOf(slot + i, 15u) | tracker.lanesOf(slot + i + kStripSt, 7u);
-            if (lit)
-                unknown |= tracker.lanesOf(slot + i + kAux, 15u);
-        }
+        // its vertices slot + 1 .. slot + n: position, texture coordinate, and the normal of a lit run
+        unknown |= tracker.lanesIn(slot + 1u, n, 15u) | tracker.lanesIn(slot + 1u + kStripSt, n, 7u);
+        if (lit)
+            unknown |= tracker.lanesIn(slot + 1u + kAux, n, 15u);
         slot += n + 1u;
     }
+    if (unknown)
+        return false;
     return (unknown | tracker.lanesOf(slot + kAux, 1u)) == 0u; // and the length that ends the table
 }
 } // namespace vu1gpu::batch
