@@ -130,11 +130,13 @@ struct D3D11Backend::Impl::ProgramGpu {
             std::fprintf(stderr,
                          "[gsr] vertex programs: bounds over %llu vertices, %llu evaluated exactly; pieces of strip "
                          "records skipped by their box %llu, estimated %llu; batch-path vertices estimated four at a "
-                         "time %llu, one at a time %llu\n",
+                         "time %llu, one at a time %llu, exact places found evaluated already %llu; pass sets kept "
+                         "from an earlier draw %llu\n",
                          (unsigned long long)boundsVertices, (unsigned long long)boundsExact,
                          (unsigned long long)boundsScratch.piecesSkipped,
                          (unsigned long long)boundsScratch.piecesEstimated, (unsigned long long)boundsScratch.batchFour,
-                         (unsigned long long)boundsScratch.batchSingle);
+                         (unsigned long long)boundsScratch.batchSingle, (unsigned long long)boundsScratch.batchReused,
+                         (unsigned long long)boundsScratch.batchSetsKept);
     }
 };
 

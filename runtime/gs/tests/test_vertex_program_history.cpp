@@ -601,10 +601,10 @@ int main() {
         }
         std::printf("dumped batch-path batches, every vertex estimated one at a time in doubles: %llu differ, %llu "
                     "evaluated exactly, %.2f us per batch (every call counted: %llu vertices estimated four at a time, "
-                    "%llu one at a time)\n",
+                    "%llu one at a time, %llu exact places found evaluated already)\n",
                     (unsigned long long)differScalar, (unsigned long long)scalarExactly,
                     batches[1] ? scalarSeconds * 1e6 / (double)batches[1] : 0.0, (unsigned long long)scratch.batchFour,
-                    (unsigned long long)scratch.batchSingle);
+                    (unsigned long long)scratch.batchSingle, (unsigned long long)scratch.batchReused);
         bad += differScalar;
         if (!batches[0] && !batches[1]) {
             std::printf("[FAIL] GSR_VP_BOUNDS_BATCHES: no batch in %s\n", path);

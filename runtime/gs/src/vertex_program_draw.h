@@ -728,13 +728,25 @@ inline bool pieceBox(const VertexProgramVertex* vertices, const uint8_t* used, u
 } // namespace batchdetail
 
 // The position passes of a batch-path record prepared for the bounds, once per run of records with the same rows of
-// the pass table (the core lets consecutive records with the same passes share their rows).
+// the pass table (the core lets consecutive records with the same passes share their rows), and kept for the next
+// draw: a set whose passes have the same kinds and, for the position passes, the same constants is prepared alike.
 struct BatchPassSet {
     uint32_t constants = 0, passCount = 0; // the rows of the batch's pass table
     uint32_t positionPasses = 0, transforms = 0, grids = 0;
+    uint32_t kinds[vp::kBatchMaxPasses] = {};
+    uint32_t k[vp::kBatchMaxPasses][12][4] = {}; // the constants of the position passes (what prepare reads)
     batchdetail::PreparedPass prepared[vp::kBatchMaxPasses];
     batchdetail::FastTransform fast[vp::kBatchMaxPasses];
     batchdetail::FastTransformFloat fastFloat[vp::kBatchMaxPasses];
+    bool sameAs(const vp::Pass* passes, uint32_t count) const {
+        if (count != passCount)
+            return false;
+        for (uint32_t p = 0; p < count; ++p)
+            if (passes[p].kind != kinds[p] ||
+                (motion::positionPass(kinds[p]) && std::memcmp(passes[p].k, k[p], sizeof(k[p])) != 0))
+                return false;
+        return true;
+    }
 };
 
 // Working storage of batchBounds and stripBounds (kept by the caller across draws: no allocation per draw).
@@ -758,7 +770,8 @@ struct BoundsScratch {
     uint64_t piecesSkipped = 0, piecesEstimated = 0;
     // batchBounds: the prepared pass sets; vertices estimated four at a time and one at a time (statistics)
     std::vector<BatchPassSet> passSets;
-    uint64_t batchFour = 0, batchSingle = 0;
+    uint64_t batchFour = 0, batchSingle = 0, batchReused = 0; // batchReused: exact places found evaluated already
+    uint64_t batchSetsKept = 0;                               // pass sets prepared in an earlier draw and used again
     bool batchScalar = false; // every vertex estimated one at a time in doubles (the tests compare both)
 };
 
@@ -835,12 +848,18 @@ inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
             if (scratch.passSets.size() <= setCount)
                 scratch.passSets.emplace_back();
             BatchPassSet& set = scratch.passSets[setCount++];
-            set.constants = record.constants;
-            set.passCount = record.passCount;
-            set.positionPasses = set.transforms = set.grids = 0;
             const vp::Pass* passes = b.passes + record.constants;
-            for (uint32_t p = 0; p < record.passCount; ++p)
-                if (motion::positionPass(passes[p].kind)) {
+            set.constants = record.constants;
+            if (set.sameAs(passes, record.passCount)) {
+                ++scratch.batchSetsKept; // this slot's set of an earlier draw: prepared from the same constants
+            } else {
+                set.passCount = record.passCount;
+                set.positionPasses = set.transforms = set.grids = 0;
+                for (uint32_t p = 0; p < record.passCount; ++p) {
+                    set.kinds[p] = passes[p].kind;
+                    if (!motion::positionPass(passes[p].kind))
+                        continue;
+                    std::memcpy(set.k[p], passes[p].k, sizeof(set.k[p]));
                     set.positionPasses |= 1u << p;
                     batchdetail::prepare(passes[p], set.prepared[p]);
                     if (passes[p].kind == vp::PassTransform) {
@@ -851,6 +870,7 @@ inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
                         set.grids |= 1u << p;
                     }
                 }
+            }
         }
         const BatchPassSet& set = scratch.passSets[setCount - 1];
         const vp::Pass* passes = b.passes + record.constants;
@@ -967,11 +987,38 @@ inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
 #endif
     }
     // A vertex can be an extreme only when its interval reaches past the final limit; those are evaluated exactly.
+    // Records of a draw repeat the vertices on their shared edges (terrain tiles, the ends of neighbouring strips), and
+    // those tie for an extreme: a vertex whose place depends on exactly the same inputs as one of the last eight
+    // evaluated (the same rows of the pass table, the same position passes, the same position row and grid values)
+    // has the same place, which the extremes already hold; it is not evaluated again.
+    struct Evaluated {
+        const vp::Pass* passes;
+        uint32_t mask, pos[4], gridX, gridZ;
+    };
+    Evaluated evaluated[8];
+    uint32_t evaluatedCount = 0, evaluatedNext = 0;
     batchdetail::finishExtremes(e, scratch.estimates, [&](const BoundsScratch::Estimate& k) {
+        const vp::Pass* passes = b.passes + b.records[k.record].constants;
+        const vp::BatchVertex& v = b.batchVertices[k.vertex];
+        for (uint32_t j = 0; j < evaluatedCount; ++j) {
+            const Evaluated& d = evaluated[j];
+            if (d.passes == passes && d.mask == k.positionMask && d.gridX == v.gridX && d.gridZ == v.gridZ &&
+                std::memcmp(d.pos, v.row.pos, sizeof(d.pos)) == 0) {
+                ++scratch.batchReused; // its place is among the extremes already: nothing to add
+                return;
+            }
+        }
         int32_t x, y;
-        batchdetail::exactPlace(b.passes + b.records[k.record].constants, k.positionMask, b.batchVertices[k.vertex], x,
-                                y);
+        batchdetail::exactPlace(passes, k.positionMask, v, x, y);
         e.add(x, y);
+        Evaluated& d = evaluated[evaluatedNext];
+        d.passes = passes;
+        d.mask = k.positionMask;
+        std::memcpy(d.pos, v.row.pos, sizeof(d.pos));
+        d.gridX = v.gridX;
+        d.gridZ = v.gridZ;
+        evaluatedNext = (evaluatedNext + 1u) % 8u;
+        evaluatedCount = std::min(evaluatedCount + 1u, 8u);
     });
     return batchdetail::boundsOf(e, offsetX, offsetY);
 }
