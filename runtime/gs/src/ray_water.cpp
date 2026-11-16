@@ -113,6 +113,12 @@ struct RayWater::Impl {
         std::vector<Triangle> triangles;
         std::shared_ptr<const std::vector<Triangle>> staticTriangles;
         uint64_t staticGeometry = 0, staticAttributes = 0;
+        // The static triangles whose attributes may differ from version changedFrom (sorted, unique); valid only when
+        // changedKnown.
+        std::vector<uint32_t> changed;
+        uint64_t changedFrom = 0;
+        bool changedKnown = false;
+        bool warm = false; // the first pass of a new level: D3D11 does not wait for it (GSR_RAY_WARM_START)
         std::shared_ptr<const SceneModels> models;
         uint32_t textureCount = 0, nativeTextureBase = 0;
         std::vector<TextureUpload> textureUploads; // texture slots whose texels changed since the previous job
@@ -173,6 +179,17 @@ struct RayWater::Impl {
     uint64_t staticPublishedGeometry = 0, staticPublishedAttributes = 0;
     uint32_t staticPublishedWater = 0;
     bool staticPublishedValid = false;
+    // The static triangles changed since the version the next job will start from (pendingFrom).
+    std::vector<uint32_t> pendingChanged;
+    uint64_t pendingFrom = 0;
+    bool pendingKnown = false;
+    // GSR_RAY_WARM_START: the first pass of a new static world builds its acceleration structures, normals and
+    // material textures (about 200 ms) without D3D11 waiting for it; the frames bypass the pass until the completion
+    // fence passes warmSerial (written by the pass thread when the warm job is submitted, 0 until then).
+    uint64_t lastJobGeometry = ~0ull;
+    bool warming = false;
+    bool synchronous = false; // render(): the caller waits for the pass, so it is never a warm start
+    std::atomic<uint64_t> warmSerial{0};
     void setStatus(std::string text) {
         std::lock_guard lock(statusMutex);
         status = std::move(text);
@@ -253,6 +270,8 @@ struct RayWater::Impl {
                 signalConsumed(job);
             } catch (...) {
             }
+        if (job.warm)
+            warmSerial.store(serial ? serial : 1, std::memory_order_release); // the job's completion signal
         setStage(kIdle);
         const double ms = msSince(started);
         const bool slow = ms > 250 && (lastSlowLog == Clock::time_point{} || msSince(lastSlowLog) > 5000);
@@ -714,11 +733,19 @@ void RayWater::setStaticWorld(std::span<const Triangle> triangles, uint64_t geom
                      attributeVersion);
 }
 void RayWater::shareStaticWorld(std::shared_ptr<const std::vector<Triangle>> triangles, uint64_t geometryVersion,
-                                uint64_t attributeVersion) {
+                                uint64_t attributeVersion, const std::vector<uint32_t>* changed) {
     auto& s = *impl;
     if (!triangles)
         triangles = std::make_shared<const std::vector<Triangle>>();
-    if (s.staticPublished != triangles)
+    if (!s.staticPublishedValid || s.staticPublishedGeometry != geometryVersion) {
+        s.pendingKnown = false; // a new level: the pass rebuilds the static world whole
+    } else if (s.staticPublishedAttributes != attributeVersion) {
+        if (changed && s.pendingKnown)
+            s.pendingChanged.insert(s.pendingChanged.end(), changed->begin(), changed->end());
+        else
+            s.pendingKnown = false;
+    }
+    if (s.staticPublishedGeometry != geometryVersion && s.staticPublished != triangles)
         s.staticPublishedWater =
             uint32_t(std::count_if(triangles->begin(), triangles->end(), [](const Triangle& t) { return t.water; }));
     s.staticPublished = std::move(triangles);
@@ -732,8 +759,10 @@ bool RayWater::render(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
                       const RayOptions& options) {
     std::vector<Triangle> copy(triangles.begin(), triangles.end());
     // The caller keeps ownership of `models`: wait for the pass before returning.
+    impl->synchronous = true;
     const bool queued = submit(color, depth, output, camera, copy, seconds, reflections, textures,
                                std::shared_ptr<const SceneModels>(models, [](const SceneModels*) {}), options);
+    impl->synchronous = false;
     impl->finish();
     return queued;
 }
@@ -747,6 +776,15 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
     try {
         std::optional<CpuProfile::Scope> stage;
         stage.emplace(s.cpuProfile, CpuProfile::RayProduce);
+        if (s.warming) {
+            const uint64_t target = s.warmSerial.load(std::memory_order_acquire);
+            if (!target || !s.fence || s.fence->GetCompletedValue() < target) {
+                s.setStatus("DXR water: preparing the level's ray scene");
+                return false;
+            }
+            s.warming = false;
+            logLine("the level's ray scene is ready (warm pass completed on the GPU)");
+        }
         if (camera.orthographic) {
             s.setStatus("DXR water bypassed for orthographic camera");
             return false;
@@ -789,6 +827,19 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         allTextures.reserve(textures.size() + (models ? models->textures.size() : 0));
         for (const auto& t : textures)
             allTextures.push_back({t.identity, t.pixels});
+        // The model textures follow the frame's own textures. A slot is uploaded again whenever its occupant changes,
+        // so with a base that moved with every new frame texture all ~200 model textures were re-uploaded at once (a
+        // 17 to 27 ms pass while walking). The base moves in steps of kModelTextureStep; the gap holds one constant
+        // texture, uploaded once (its identity never changes).
+        {
+            static const std::vector<uint32_t> placeholder(Texture::size * Texture::size, 0u);
+            constexpr uint64_t kPlaceholderIdentity = 0x9e3779b97f4a7c15ull;
+            constexpr size_t kModelTextureStep = 64;
+            const size_t padded = (allTextures.size() + kModelTextureStep - 1) / kModelTextureStep * kModelTextureStep;
+            if (padded + (models ? models->textures.size() : 0) <= Impl::kTextureBudget)
+                while (allTextures.size() < padded)
+                    allTextures.push_back({kPlaceholderIdentity, placeholder});
+        }
         const uint32_t nativeTextureBase = uint32_t(allTextures.size());
         if (models)
             for (const auto& t : models->textures)
@@ -855,6 +906,17 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         job->staticTriangles = s.staticPublished;
         job->staticGeometry = s.staticPublishedGeometry;
         job->staticAttributes = s.staticPublishedAttributes;
+        job->changedKnown = s.pendingKnown;
+        job->changedFrom = s.pendingFrom;
+        if (s.pendingKnown) {
+            std::sort(s.pendingChanged.begin(), s.pendingChanged.end());
+            s.pendingChanged.erase(std::unique(s.pendingChanged.begin(), s.pendingChanged.end()),
+                                   s.pendingChanged.end());
+            job->changed.swap(s.pendingChanged);
+        }
+        s.pendingChanged.clear();
+        s.pendingFrom = s.staticPublishedAttributes;
+        s.pendingKnown = true;
         job->models = std::move(models);
         job->textureCount = uint32_t(allTextures.size());
         job->nativeTextureBase = nativeTextureBase;
@@ -891,8 +953,23 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         // The pass thread owns the job (and so the signal) before D3D11 waits on it: a driver that waits on the
         // CPU for a shared fence would otherwise block the only thread that can let the signal happen.
         stage.emplace(s.cpuProfile, CpuProfile::RayEnqueue);
+        // The first pass of a new static world builds everything at once (about 200 ms): D3D11 does not wait for it
+        // and draws the plain raster until it has completed on the GPU, instead of stopping the frame.
+        const bool warm = runtimeFlags().rayWarmStart && !s.synchronous && !staticTriangles.empty() &&
+                          job->staticGeometry != s.lastJobGeometry;
+        s.lastJobGeometry = job->staticGeometry;
+        job->warm = warm;
+        if (warm)
+            s.warmSerial.store(0, std::memory_order_release);
         if (!s.enqueue(std::move(job), triangles))
             return false; // abandoned by the watchdog: nothing will signal this value, so D3D11 must not wait for it
+        if (warm) {
+            s.warming = true;
+            s.setStatus("DXR water: preparing the level's ray scene");
+            if (traced)
+                logLine("pass %llu: warm start, D3D11 does not wait for it", (unsigned long long)consumed);
+            return false;
+        }
         stage.emplace(s.cpuProfile, CpuProfile::RayConsume);
         s.interop->consume11(output, consumed);
         stage.reset();
@@ -1015,13 +1092,13 @@ void RayWater::Impl::execute(Job& job) {
             const size_t oldTextures = previous ? s.staticTextureCount : 0;
             std::vector<Attribute> packed;
             std::vector<uint32_t> dirty;
-            for (size_t i = 0; i < staticTriangles.size(); ++i) {
+            const auto repack = [&](size_t i) {
                 const Triangle& t = staticTriangles[i];
                 if (previous) {
                     const Triangle& old = (*previous)[i];
                     if (std::memcmp(&old, &t, sizeof(Triangle)) == 0 &&
                         (t.texture < oldTextures) == (t.texture < textureCount))
-                        continue;
+                        return;
                     s.staticTextured -= old.texture < oldTextures ? 1u : 0u;
                 }
                 packed.clear();
@@ -1031,6 +1108,16 @@ void RayWater::Impl::execute(Job& job) {
                           s.staticAttributeData.begin() + size_t(slot) * kTriangleAttributes);
                 if (previous)
                     dirty.push_back(slot);
+            };
+            // The renderer names the triangles whose projection changed since the version packed last (resident scene
+            // change log): with the same texture count only those can differ, so the other ~140,000 are not compared.
+            if (previous && job.changedKnown && job.changedFrom == s.staticAttributes && oldTextures == textureCount) {
+                for (const uint32_t i : job.changed)
+                    if (i < staticTriangles.size())
+                        repack(i);
+            } else {
+                for (size_t i = 0; i < staticTriangles.size(); ++i)
+                    repack(i);
             }
             if (s.staticUploaded && !dirty.empty()) {
                 // Slot ranges to upload; nearby runs merge so the copy count stays small.
@@ -1821,7 +1908,8 @@ std::string RayWater::status() const {
 }
 void RayWater::finish() {}
 void RayWater::setStaticWorld(std::span<const Triangle>, uint64_t, uint64_t) {}
-void RayWater::shareStaticWorld(std::shared_ptr<const std::vector<Triangle>>, uint64_t, uint64_t) {}
+void RayWater::shareStaticWorld(std::shared_ptr<const std::vector<Triangle>>, uint64_t, uint64_t,
+                                const std::vector<uint32_t>*) {}
 bool RayWater::submit(ID3D11Texture2D*, ID3D11Texture2D*, ID3D11Texture2D*, const nr::guides::FrameConstants&,
                       std::vector<Triangle>&, float, bool, std::span<const Texture>, std::shared_ptr<const SceneModels>,
                       const RayOptions&) {

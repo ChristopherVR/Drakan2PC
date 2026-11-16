@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <unordered_map>
+#include <vector>
 #include <cfenv>
 #include <cstring>
 #if (defined(_M_X64) || defined(_M_IX86) || defined(__SSE__)) && !defined(__EMSCRIPTEN__)
@@ -34,6 +35,10 @@ class ResidentScene {
     // material. A new projection repacks only the layers changed since the buffer it reuses was built.
     std::unordered_map<uint32_t, std::vector<uint32_t>> layerTriangles;
     std::unordered_map<uint32_t, uint64_t> layerChanged;
+    // Every change above in order: (projection version that first includes it, triangle index or kLayerEntry | layer).
+    // The versions never decrease, so changedSince() finds its start by binary search; forgetChangesUpTo() trims it.
+    static constexpr uint32_t kLayerEntry = 1u << 31;
+    std::vector<std::pair<uint64_t, uint32_t>> changeLog;
     // Match candidates stored contiguously per cell and water flag, in the cell's insertion order, with the terms
     // match() needs. Degenerate triangles (|det| < 1 or normal length < 1) never match and are left out. Rebuilt by
     // prepareMatch() after replace() or when the floating-point mode changes.
@@ -55,6 +60,7 @@ class ResidentScene {
     mutable std::shared_ptr<std::vector<Triangle>> projected;
     mutable bool projectionDirty = true;
     mutable uint64_t projectedVersion = 0;
+    mutable uint64_t fullVersion = 0; // the projection version that was last projected in full (a new level or mode)
     // Projections of this level and math mode, recycled once no holder (a ray pass, its queued jobs) keeps them.
     struct Spare {
         std::shared_ptr<std::vector<Triangle>> triangles;
@@ -144,6 +150,7 @@ public:
         triangleChanged.clear();
         layerTriangles.clear();
         layerChanged.clear();
+        changeLog.clear();
         spares.clear();
         matchEntries.clear();
         matchCells.clear();
@@ -253,12 +260,14 @@ public:
             cellMaterials[uint32_t(index)] = m;
             if (!same) {
                 triangleChanged[uint32_t(index)] = projectedVersion + 1;
+                logChange(uint32_t(index));
                 projectionDirty = true;
             }
         }
         if (layerNewer) {
             materials[layers[index]] = m;
             layerChanged[layers[index]] = projectedVersion + 1;
+            logChange(kLayerEntry | layers[index]);
             projectionDirty = true;
         }
     }
@@ -297,6 +306,7 @@ public:
         }
         auto& out = *target->triangles;
         if (target->version == 0 || out.size() != triangles.size()) {
+            fullVersion = projectedVersion + 1;
             out.resize(triangles.size());
             for (size_t i = 0; i < triangles.size(); ++i)
                 project(i, out[i]);
@@ -317,6 +327,39 @@ public:
         projected = target->triangles;
         return projected;
     }
+    // The triangle indices whose projected attributes may differ between projection `from` and the current one, call
+    // after projectedShared() (unsorted, may repeat). False when that cannot be told: no earlier projection, or a full
+    // projection (a new level or floating-point mode) or a trimmed log since `from`.
+    bool changedSince(uint64_t from, std::vector<uint32_t>& out) const {
+        if (from == 0 || from > projectedVersion || from < fullVersion || from < forgotten)
+            return false;
+        auto it = std::upper_bound(changeLog.begin(), changeLog.end(), from,
+                                   [](uint64_t v, const std::pair<uint64_t, uint32_t>& e) { return v < e.first; });
+        for (; it != changeLog.end(); ++it) {
+            if (!(it->second & kLayerEntry)) {
+                out.push_back(it->second);
+                continue;
+            }
+            if (const auto found = layerTriangles.find(it->second & ~kLayerEntry); found != layerTriangles.end())
+                out.insert(out.end(), found->second.begin(), found->second.end());
+        }
+        return true;
+    }
+    void logChange(uint32_t entry) {
+        if (changeLog.size() >= (1u << 18)) { // nobody asks (no ray pass): start over, earlier queries fall back
+            changeLog.clear();
+            forgotten = projectedVersion + 1;
+        }
+        changeLog.emplace_back(projectedVersion + 1, entry);
+    }
+    // Drops the log entries no later query from `version` or after needs.
+    void forgetChangesUpTo(uint64_t version) {
+        auto it = std::upper_bound(changeLog.begin(), changeLog.end(), version,
+                                   [](uint64_t v, const std::pair<uint64_t, uint32_t>& e) { return v < e.first; });
+        changeLog.erase(changeLog.begin(), it);
+        forgotten = std::max(forgotten, version);
+    }
+    uint64_t forgotten = 0;
     // Changes whenever projectedTriangles() would return different attributes.
     uint64_t attributeVersion() const {
         projectedTriangles();

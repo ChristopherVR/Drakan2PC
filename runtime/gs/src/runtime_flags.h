@@ -65,7 +65,10 @@ struct RuntimeFlags {
     uint32_t waterCoverageDebug = 0;    // GSR_WATER_COVERAGE_DEBUG: atoi; default 0
     std::optional<float> waterTime;     // GSR_WATER_TIME: strtof; fixes the water clock (site rejects non-finite)
     std::optional<std::string> raySceneDump; // GSR_RAY_SCENE_DUMP: string; dump at raySceneDumpEpoch
-    bool waterLog = false;                   // GSR_WATER_LOG: presence
+    // GSR_RAY_WARM_START: unset or not-"0". The first ray pass of a new level is not waited for (the plain raster is
+    // drawn for the ~0.2 s it takes) instead of stopping that frame; 0 = wait as before.
+    bool rayWarmStart = true;
+    bool waterLog = false;         // GSR_WATER_LOG: presence
     uint32_t rayWatchdogMs = 3000; // GSR_RAY_WATCHDOG_MS: atoi; a pass stuck this long on the GPU (7x on the CPU) is
                                    // abandoned and the shared fences released; 0 = report stalls but never abandon
     std::optional<uint64_t> rayTestDropSignal; // GSR_RAY_TEST_DROP_SIGNAL: strtoull; test hook: the pass with this

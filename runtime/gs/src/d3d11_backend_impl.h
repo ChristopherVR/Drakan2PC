@@ -674,6 +674,9 @@ struct D3D11Backend::Impl {
         residentScene, runtimeFlags().surfaceAsync, runtimeFlags().surfaceOverlap);
     // Ray-surface submissions (gs_draw.inl): drainSurfaces replaces surfaceBuilder->drain for every reader.
     surface::PendingDraws pendingSurfaces;
+    // The resident scene version last handed to the ray pass and the triangles changed since (d3d11_world.cpp).
+    uint64_t sharedGeometry = ~0ull, sharedAttributes = 0;
+    std::vector<uint32_t> sharedChanged;
     void submitSurface(const surface::DrawInput& in, const DrawVertex* v, uint32_t count);
     void submitOrHoldSurface(const surface::DrawInput& in, const DrawVertex* v, uint32_t count);
     void submitProgramSurface(const surface::DrawInput& in, const VertexProgramBatch& batch);

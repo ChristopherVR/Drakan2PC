@@ -605,8 +605,19 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         }
         // Resident level geometry keeps its acceleration structures across frames; only this frame's
         // reconstructed surface triangles are rebuilt.
-        waterRenderer->shareStaticWorld(residentScene.projectedShared(), residentScene.geometryVersion,
-                                        residentScene.attributeVersion());
+        {
+            // The changed triangles since the previous publication travel with it, so the pass repacks only those.
+            auto shared = residentScene.projectedShared();
+            const uint64_t attributes = residentScene.attributeVersion();
+            sharedChanged.clear();
+            const bool known = sharedGeometry == residentScene.geometryVersion &&
+                               residentScene.changedSince(sharedAttributes, sharedChanged);
+            waterRenderer->shareStaticWorld(std::move(shared), residentScene.geometryVersion, attributes,
+                                            known ? &sharedChanged : nullptr);
+            residentScene.forgetChangesUpTo(attributes);
+            sharedGeometry = residentScene.geometryVersion;
+            sharedAttributes = attributes;
+        }
         // The pass takes this frame's reconstructed triangles (the target's list is not read again this frame).
         std::vector<surface::Triangle> noTriangles;
         auto& rayScene = rt.surface.epoch == motionEpoch ? rt.surface.triangles : noTriangles;

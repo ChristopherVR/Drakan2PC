@@ -637,6 +637,27 @@ class Capture {
                 }
             }
         }
+        // Keep the previous order: textures that were in the set stay in their old relative order and new ones follow
+        // in id order. In plain id order a newly resident texture with a lower id moved every later one to another
+        // index, and the ray pass uploads a texture slot again whenever its occupant changes (155 to 199 textures in
+        // one pass, a 17 to 27 ms spike while walking with modern water on). The set's content is the same either way.
+        {
+            std::vector<std::pair<uint64_t, uint32_t>> order; // (sort key, texture id)
+            order.reserve(indices.size());
+            for (const auto& [id, at] : indices) {
+                const auto old = textureIndices.find(id);
+                order.emplace_back(old != textureIndices.end() ? uint64_t(old->second) : (uint64_t(1) << 32) + at, id);
+            }
+            std::sort(order.begin(), order.end());
+            std::vector<std::shared_ptr<const gsr::SceneModelTexture>> ordered;
+            ordered.reserve(order.size());
+            for (const auto& [key, id] : order) {
+                const uint32_t at = indices[id];
+                indices[id] = uint32_t(ordered.size());
+                ordered.push_back(std::move(refreshNext[at]));
+            }
+            refreshNext = std::move(ordered);
+        }
         if (indices != textureIndices) {
             meshes.clear();
             templates.clear();

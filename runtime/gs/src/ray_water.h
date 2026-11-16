@@ -26,8 +26,10 @@ public:
     // structures persist between frames. setStaticWorld copies the triangles when a version changes;
     // shareStaticWorld keeps the (immutable) vector alive while passes use it.
     void setStaticWorld(std::span<const Triangle> triangles, uint64_t geometryVersion, uint64_t attributeVersion);
+    // `changed`: the triangle indices whose attributes may differ from the previous call's version (the same geometry),
+    // so a pass repacks only those; null when unknown (every triangle is compared).
     void shareStaticWorld(std::shared_ptr<const std::vector<Triangle>> triangles, uint64_t geometryVersion,
-                          uint64_t attributeVersion);
+                          uint64_t attributeVersion, const std::vector<uint32_t>* changed = nullptr);
     // Asynchronous pass. Takes this frame's triangles out of `triangles` (left empty, with recycled capacity).
     // Returns false (and changes nothing) when the pass is bypassed or the renderer has faulted.
     bool submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Texture2D* output,

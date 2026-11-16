@@ -83,6 +83,7 @@ RuntimeFlags parse() {
             f.raySceneDumpEpoch = epoch;
     }
     f.waterLog = present("GSR_WATER_LOG");
+    f.rayWarmStart = unsetOrNotZero("GSR_RAY_WARM_START");
     if (const char* e = env("GSR_RAY_WATCHDOG_MS"))
         f.rayWatchdogMs = uint32_t(std::atoi(e));
     if (const char* e = env("GSR_RAY_TEST_DROP_SIGNAL"))
