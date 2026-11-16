@@ -8,6 +8,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -241,11 +242,39 @@ int main() {
             return 1;
         }
     }
-    if (!kernel.dispatch(dev.Get(), ctx.Get(), streamSrv.Get(), draws, cameras, match, outUav.Get(), layout, origin,
-                         textures, packedMaterial)) {
-        std::puts("surface_gpu: FAIL dispatch");
-        return 1;
+    // GPU time of the kernel (both passes), for the record: a world of the game has about as many slots.
+    ComPtr<ID3D11Query> disjoint, begin, end;
+    D3D11_QUERY_DESC disjointDesc{D3D11_QUERY_TIMESTAMP_DISJOINT}, stampDesc{D3D11_QUERY_TIMESTAMP};
+    const bool timed = SUCCEEDED(dev->CreateQuery(&disjointDesc, &disjoint)) &&
+                       SUCCEEDED(dev->CreateQuery(&stampDesc, &begin)) && SUCCEEDED(dev->CreateQuery(&stampDesc, &end));
+    double best = 1e9;
+    for (unsigned round = 0; round < (timed ? 5u : 1u); ++round) {
+        if (timed) {
+            ctx->Begin(disjoint.Get());
+            ctx->End(begin.Get());
+        }
+        if (!kernel.dispatch(dev.Get(), ctx.Get(), streamSrv.Get(), draws, cameras, match, outUav.Get(), layout, origin,
+                             textures, packedMaterial)) {
+            std::puts("surface_gpu: FAIL dispatch");
+            return 1;
+        }
+        if (timed) {
+            ctx->End(end.Get());
+            ctx->End(disjoint.Get());
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT f{};
+            UINT64 t0 = 0, t1 = 0;
+            while (ctx->GetData(disjoint.Get(), &f, sizeof(f), 0) == S_FALSE) {
+            }
+            while (ctx->GetData(begin.Get(), &t0, sizeof(t0), 0) == S_FALSE) {
+            }
+            while (ctx->GetData(end.Get(), &t1, sizeof(t1), 0) == S_FALSE) {
+            }
+            if (!f.Disjoint)
+                best = std::min(best, double(t1 - t0) * 1000.0 / double(f.Frequency));
+        }
     }
+    if (timed)
+        std::printf("surface_gpu: kernel GPU time %.3f ms for %u slots (best of 5)\n", best, slot);
     std::vector<uint32_t> words;
     uint32_t lost = 0, emittedGpu = 0, overflow = 0;
     std::vector<GpuObserve> records;

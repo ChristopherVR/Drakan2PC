@@ -34,20 +34,23 @@ class SurfaceGpuKernel {
         Ptr<ID3D11ShaderResourceView> srv;
         uint32_t capacity = 0; // elements
     };
-    Ptr<ID3D11ComputeShader> shader;
+    Ptr<ID3D11ComputeShader> shader, alphaShader;
+    Ptr<ID3D11Buffer> drawAlpha;
+    Ptr<ID3D11UnorderedAccessView> drawAlphaUav;
+    std::vector<std::array<uint32_t, 2>> chunkList;
     Ptr<ID3D11Buffer> constants, counters, counterStaging[4], observes, observeStaging[4];
     Ptr<ID3D11UnorderedAccessView> counterUav, observeUav;
-    Structured draws, cameras, cells, entries;
+    Structured draws, cameras, cells, entries, chunks;
     uint64_t matchSerial = ~0ull;
     unsigned counterNext = 0;
     bool counterPending[4]{};
     std::string error;
     bool failed = false;
 
-    static bool compileShader(ID3D11Device* dev, Ptr<ID3DBlob>& binary, std::string* why) {
+    static bool compileShader(ID3D11Device* dev, Ptr<ID3DBlob>& binary, std::string* why, const char* entry = "main") {
         Ptr<ID3DBlob> errors;
         const HRESULT hr = shader_compile::compile(
-            kSurfaceGpuHlsl, sizeof(kSurfaceGpuHlsl) - 1, "surface_gpu", nullptr, "main", "cs_5_0",
+            kSurfaceGpuHlsl, sizeof(kSurfaceGpuHlsl) - 1, "surface_gpu", nullptr, entry, "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_IEEE_STRICTNESS, &binary, &errors);
         if (FAILED(hr) && why)
             *why = errors ? std::string(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize())
@@ -95,9 +98,11 @@ public:
     }
     // Compile into the blob cache only (start-up prewarm thread).
     static void prewarm(ID3D11Device* dev) {
-        Ptr<ID3DBlob> binary;
-        if (supported(dev))
+        Ptr<ID3DBlob> binary, alpha;
+        if (supported(dev)) {
             compileShader(dev, binary, nullptr);
+            compileShader(dev, alpha, nullptr, "drawAlpha");
+        }
     }
     bool ready() const { return shader && !failed; }
     const std::string& why() const { return error; }
@@ -109,9 +114,11 @@ public:
             error = "the adapter has no double-precision division (Direct3D 11.1 extended doubles)";
             return false;
         }
-        Ptr<ID3DBlob> binary;
-        if (!compileShader(dev, binary, &error) ||
-            FAILED(dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &shader))) {
+        Ptr<ID3DBlob> binary, alpha;
+        if (!compileShader(dev, binary, &error) || !compileShader(dev, alpha, &error, "drawAlpha") ||
+            FAILED(dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &shader)) ||
+            FAILED(
+                dev->CreateComputeShader(alpha->GetBufferPointer(), alpha->GetBufferSize(), nullptr, &alphaShader))) {
             failed = true;
             if (error.empty())
                 error = "the compute shader could not be created";
@@ -150,6 +157,12 @@ public:
         records.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         for (auto& s : observeStaging)
             ok = ok && SUCCEEDED(dev->CreateBuffer(&records, nullptr, &s));
+        D3D11_BUFFER_DESC alphas = counter;
+        alphas.ByteWidth = 65536 * 4;
+        D3D11_UNORDERED_ACCESS_VIEW_DESC alphaView = uav;
+        alphaView.Buffer.NumElements = 65536;
+        ok = ok && SUCCEEDED(dev->CreateBuffer(&alphas, nullptr, &drawAlpha)) &&
+             SUCCEEDED(dev->CreateUnorderedAccessView(drawAlpha.Get(), &alphaView, &drawAlphaUav));
         if (!ok) {
             failed = true;
             error = "the kernel's buffers could not be created";
@@ -165,8 +178,16 @@ public:
                   Point origin, uint32_t textures, float packedMaterial) {
         if (!ready() || drawList.empty() || drawList.size() > 65535)
             return false;
+        // 64 triangles of one draw per group of the second pass (one thread per triangle).
+        chunkList.clear();
+        for (uint32_t k = 0; k < drawList.size(); ++k)
+            for (uint32_t t = 0; t * 3 < drawList[k].count; t += 64)
+                chunkList.push_back({k, t});
+        if (chunkList.empty() || chunkList.size() > 65535u)
+            return false;
         if (!upload(dev, ctx, draws, drawList.data(), drawList.size()) ||
-            !upload(dev, ctx, cameras, cameraList.data(), cameraList.size()))
+            !upload(dev, ctx, cameras, cameraList.data(), cameraList.size()) ||
+            !upload(dev, ctx, chunks, chunkList.data(), chunkList.size()))
             return false;
         if (match.serial != matchSerial) {
             if (!upload(dev, ctx, cells, match.cells.data(), match.cells.size()) ||
@@ -185,18 +206,20 @@ public:
         ctx->UpdateSubresource(constants.Get(), 0, nullptr, &k, 0, 0);
         const UINT zero[4] = {0, 0, 0, 0};
         ctx->ClearUnorderedAccessViewUint(counterUav.Get(), zero);
-        ID3D11ShaderResourceView* srvs[5] = {stream, draws.srv.Get(), cameras.srv.Get(), cells.srv.Get(),
-                                             entries.srv.Get()};
-        ID3D11UnorderedAccessView* uavs[3] = {out, counterUav.Get(), observeUav.Get()};
-        ctx->CSSetShader(shader.Get(), nullptr, 0);
+        ID3D11ShaderResourceView* srvs[6] = {stream,          draws.srv.Get(),   cameras.srv.Get(),
+                                             cells.srv.Get(), entries.srv.Get(), chunks.srv.Get()};
+        ID3D11UnorderedAccessView* uavs[4] = {out, counterUav.Get(), observeUav.Get(), drawAlphaUav.Get()};
         ctx->CSSetConstantBuffers(0, 1, constants.GetAddressOf());
-        ctx->CSSetShaderResources(0, 5, srvs);
-        ctx->CSSetUnorderedAccessViews(0, 3, uavs, nullptr);
+        ctx->CSSetShaderResources(0, 6, srvs);
+        ctx->CSSetUnorderedAccessViews(0, 4, uavs, nullptr);
+        ctx->CSSetShader(alphaShader.Get(), nullptr, 0); // per draw: its minimum vertex alpha
         ctx->Dispatch(UINT(drawList.size()), 1, 1);
-        ID3D11ShaderResourceView* noSrvs[5]{};
-        ID3D11UnorderedAccessView* noUavs[3]{};
-        ctx->CSSetShaderResources(0, 5, noSrvs);
-        ctx->CSSetUnorderedAccessViews(0, 3, noUavs, nullptr);
+        ctx->CSSetShader(shader.Get(), nullptr, 0); // per triangle
+        ctx->Dispatch(UINT(chunkList.size()), 1, 1);
+        ID3D11ShaderResourceView* noSrvs[6]{};
+        ID3D11UnorderedAccessView* noUavs[4]{};
+        ctx->CSSetShaderResources(0, 6, noSrvs);
+        ctx->CSSetUnorderedAccessViews(0, 4, noUavs, nullptr);
         ctx->CSSetShader(nullptr, nullptr, 0);
         // The observe records and counters of this world, read some worlds later without waiting (countersLate). The
         // records are copied first: once the counters' copy is done, theirs is too.

@@ -25,10 +25,12 @@ RWBuffer<uint> Counters : register(u1); // lost observes, emitted triangles, obs
 // The resident observes the CPU path would have made (ResidentScene::observe), for the renderer to apply a few worlds
 // later: slot, resident index, texture, the three world positions and UVs (GpuObserve, 18 words each).
 RWBuffer<uint> Observes : register(u2);
+RWBuffer<uint> DrawAlpha : register(u3); // pass 1's result per draw
+StructuredBuffer<uint2> Chunks : register(t5);
 
 static const uint kIip = 1, kZmask = 2, kBlend = 4, kAlpha44 = 8, kAlphaTestOn = 16, kTextureAlpha = 32,
                   kMaterialEligible = 64, kHasTexture = 128;
-groupshared uint sAlpha;
+groupshared uint sAlpha, sLost, sEmitted;
 
 bool finiteD(double d) { uint lo, hi; asuint(d, lo, hi); return (hi & 0x7ff00000u) != 0x7ff00000u; }
 float fdiv(float a, float b) { return (float)((double)a / (double)b); }
@@ -165,12 +167,12 @@ void writeAttribute(uint slot, uint index, float4 a) {
     store(b + 0, asuint(a.x)); store(b + 1, asuint(a.y)); store(b + 2, asuint(a.z)); store(b + 3, asuint(a.w));
 }
 
+// Pass 1, one group per draw (submitDraw): the minimum vertex alpha of the draw as the core queued it (flat shading
+// gives every vertex of a triangle its last vertex's colour).
 [numthreads(64, 1, 1)]
-void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
+void drawAlpha(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
     const Draw d = Draws[group.x];
     const bool iip = (d.flags & kIip) != 0;
-    // submitDraw: the minimum vertex alpha of the draw as the core queued it (flat shading gives every vertex of a
-    // triangle its last vertex's colour).
     if (thread == 0) sAlpha = 255;
     GroupMemoryBarrierWithGroupSync();
     uint alpha = 255;
@@ -180,7 +182,18 @@ void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
     }
     InterlockedMin(sAlpha, alpha);
     GroupMemoryBarrierWithGroupSync();
-    const uint vertexAlpha = d.count ? sAlpha : 255;
+    if (thread == 0) DrawAlpha[group.x] = d.count ? sAlpha : 255;
+}
+
+// Pass 2, one thread per triangle: Chunks[group] = (draw, first triangle) of 64 triangles of one draw.
+[numthreads(64, 1, 1)]
+void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
+    if (thread == 0) { sLost = 0; sEmitted = 0; }
+    GroupMemoryBarrierWithGroupSync();
+    const uint2 chunk = Chunks[group.x];
+    const Draw d = Draws[chunk.x];
+    const bool iip = (d.flags & kIip) != 0;
+    const uint vertexAlpha = DrawAlpha[chunk.x];
     const bool blend = (d.flags & kBlend) != 0, testOn = (d.flags & kAlphaTestOn) != 0;
     const bool textureAlpha = (d.flags & kTextureAlpha) != 0;
     const uint alphaSource = textureAlpha ? d.texMin : vertexAlpha;
@@ -198,7 +211,8 @@ void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
     const float textureIndex = hasTexture && d.textureId < gTextures ? (float)d.textureId : -1.f;
     const Camera camera = Cameras[d.camera];
     uint lost = 0, emittedCount = 0;
-    for (uint t = thread; t * 3 < d.count; t += 64) {
+    const uint t = chunk.y + thread;
+    if (t * 3 < d.count) {
         const uint slot = d.slot + t;
         Vertex v[3];
         [unroll] for (uint j = 0; j < 3; ++j) v[j] = loadVertex(d.first + t * 3 + j, d.ofx, d.ofy);
@@ -237,8 +251,7 @@ void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
         writePositions(slot, p, emit);
         if (!emit) {
             [unroll] for (uint a = 0; a < 7; ++a) writeAttribute(slot, a, float4(0, 0, 0, 0));
-            continue;
-        }
+        } else {
         ++emittedCount;
         float2 uv[3];
         [unroll] for (uint m = 0; m < 3; ++m) {
@@ -256,9 +269,15 @@ void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
         writeAttribute(slot, 5, float4(normal.z, textureIndex, (float)flags, (float)d.alphaRef));
         const float packed = packNormal(normal);
         writeAttribute(slot, 6, float4(packed, packed, packed, gPackedMaterial));
+        }
     }
-    if (lost) InterlockedAdd(Counters[0], lost);
-    if (emittedCount) InterlockedAdd(Counters[1], emittedCount);
+    if (lost) InterlockedAdd(sLost, lost);
+    if (emittedCount) InterlockedAdd(sEmitted, emittedCount);
+    GroupMemoryBarrierWithGroupSync();
+    if (thread == 0) {
+        if (sLost) InterlockedAdd(Counters[0], sLost);
+        if (sEmitted) InterlockedAdd(Counters[1], sEmitted);
+    }
 }
 )HLSL";
 } // namespace gsr::surface
