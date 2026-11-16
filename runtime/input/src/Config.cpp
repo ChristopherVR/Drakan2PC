@@ -293,9 +293,11 @@ const char* Config::defaultIniText() {
 ;                                        drakan.ini [general] debug_menu = 1)
 ;             QUICK1 .. QUICK9           [bindings] only: use / equip the Nth quick-slot item (marked with Cross / F in
 ;                                        the inventory), in the order of the game's Quick Inventory bar (R1 / Q)
-; The comments follow the game's Standard controller scheme (Options > Controller): Triangle = Jump, Cross = Crouch,
-; Square = Attack, Circle = Magic/Parry, L1 = Call Arokh/Use, R1 = Quick Inventory, R2 = Toggle Targeting,
-; L2 = Next Target/Strafe, Select = Inventory/Map, Start = Game Menu. The button-prompt generator shows the FIRST key bound.
+; The comments name what the buttons do on foot in the game's controller scheme A (Options > Controls): Triangle = Jump,
+; Cross = Crouch, Square = Attack, Circle = Magic/Parry, L1 = Call Arokh/Use, R1 = Quick Inventory, R2 = Toggle Targeting,
+; L2 = Next Target/Strafe, Select = Inventory/Map, Start = Game Menu. Schemes B and C put other commands on the same
+; buttons, and riding Arokh the game uses its own flight layout (scheme A: L1 = previous breath / item, R1 = Attack);
+; F1 > Controls shows the meanings for the scheme the game runs. The button-prompt generator shows the FIRST key bound.
 
 [general]
 capture_mouse = 1          ; hide + clip the cursor while playing
@@ -380,7 +382,7 @@ A = LSTICK_LEFT
 D = LSTICK_RIGHT
 LSHIFT = WALK
 LALT = DIRECTIONAL_ATTACK  ; hold with Attack and W / A / S / D for a directional special move
-; combat / actions: these follow the game's own Standard controller scheme (Options > Controller screen)
+; combat / actions: the comments are controller scheme A on foot (see the top of this file for B, C and Arokh)
 MOUSE1 = SQUARE            ; Attack
 MOUSE2 = CIRCLE            ; Bow sight / Use Magic / Parry
 MOUSE3 = R2                ; Toggle Targeting (lock-on)
@@ -393,11 +395,11 @@ E = L1                     ; Call Arokh / Use
 Q = R1                     ; Quick Inventory
 F = R2                     ; Toggle Targeting
 R = L2                     ; Next Target / Strafe
-V = R3
+V = R3                     ; Camera view toggle (command 0x400a, every scheme)
 TAB = SELECT               ; Inventory / Map
 ESC = START                ; Game Menu (pause)
 ; quick slots: 1..5 use / equip the 1st..5th quick-slot item (weapons are drawn, potions drunk) through the game's own
-; Quick Inventory bar; 6 = the shipped PC keymap's Quick Inventory (command 0x403a, the same as Q)
+; Quick Inventory bar; 6 = the shipped PC keymap's Quick Inventory (command 0x403a in every scheme)
 1 = QUICK1
 2 = QUICK2
 3 = QUICK3
@@ -409,8 +411,8 @@ F5 = QUICKSAVE
 F8 = QUICKLOAD
 F3 = DEBUG_MENU            ; developer debug menu (Settings > Gameplay > Developer)
 M = VIEW_MAP               ; full-screen map
-WHEELUP = ACT:0x114        ; 0x4034 previous weapon
-WHEELDOWN = ACT:0x115      ; 0x4035 next weapon
+WHEELUP = ACT:0x114        ; 0x4034 previous item (context-dependent; Arokh's breath in flight)
+WHEELDOWN = ACT:0x115      ; 0x4035 next item (context-dependent)
 UP = DPAD_UP               ; Special Moves
 DOWN = DPAD_DOWN
 LEFT = DPAD_LEFT

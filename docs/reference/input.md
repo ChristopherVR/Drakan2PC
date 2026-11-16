@@ -269,12 +269,34 @@ vertical, fed by L2/R2-type digital commands); axis5 = camera orbit yaw (right s
   0x4011-0x4020 handlers triggers dodge/roll states `player+0xc4`.)
 * `Game_OnInputCommand` (0x23ce18): giant switch; held-state flags kept in `player+0x504/+0x510` (bit0/1/8 per direction).
   Command guesses [L]: 0x4006 primary attack (Square), 0x4007 secondary/block (Circle; sets player flag 0x20), 0x4009 jump/use
-  (Space/Enter/L1), 0x400a mount/fly toggle (R3), 0x400b/0x400c (R2/L2, PgDn/Del) target/aim modes (0x400c calls
+  (Space/Enter/L1), 0x400a camera view toggle (R3/V; it acts on the camera object `ctx+0x4b4`, not a mount
+  toggle: journals 2026-10-17 combat-encounters, 2026-10-23 world-rate-audit), 0x400b/0x400c (R2/L2, PgDn/Del) target/aim modes (0x400c calls
   `Input_SetAimAxisMode` 0x457390), 0x4011/0x4012 sidestep L/R, 0x4013/0x4014 turn L/R, 0x4019/0x4020 forward/back, 0x4015/0x4016
-  strafe?, 0x4030 inventory/map, 0x4034/0x4035 prev/next weapon, 0x403a-0x403f item/weapon slots, 0x4056 abort, 0x4058/0x4059
+  strafe?, 0x4030 inventory/map, 0x4034/0x4035 prev/next (context-dependent: handlers 0x270818/0x2707d8; steps the
+  breath in flight), 0x403a-0x403f item/weapon slots, 0x4056 abort, 0x4058/0x4059
   camera zoom. Confirm with a runtime log of (cmd,pressed) while pressing each pad button.
 * Pad -> command default scheme A (normal): Square 0x4006, Circle 0x4007, L1 0x4009, L2 0x400c, R1 0x403a, R2 0x400b,
   Triangle 0x4011, Cross 0x4012, Up 0x4019, Down 0x4020, Left 0x4015 (full 12-entry lists for all schemes in tables.txt).
+* **Scheme and Arokh tables (issue #7, 2026-11-16).** `Options_ApplyButtonScheme` loads the 12-entry table
+  `(&0x511ed8)[opt+0x2e8]` on foot and `(&0x511ee8)[opt+0x2e8]` while the dragon-mode predicate `0x3d2798(0x4fbac8)`
+  holds [H]. The scheme (0 = A, 1 = B, 2 = C) is `JoyConfig_Scheme` in `Drakan 2.cfg`. Commands per button
+  (Triangle, Cross, Square, Circle, L1, L2, R1, R2; D-pad the same in all six):
+
+  | Table | Tri | Cross | Square | Circle | L1 | L2 | R1 | R2 |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | foot A | 4011 | 4012 | 4006 | 4007 | 4009 | 400c | 403a | 400b |
+  | foot B | 4009 | 4006 | 403a | 4007 | 4011 | 4012 | 400b | 400c |
+  | foot C | 4009 | 400b | 403a | 400c | 4011 | 4012 | 4006 | 4007 |
+  | Arokh A | 4011 | 4012 | 4006 | 4007 | 4034 | 400c | 4006 | 400b |
+  | Arokh B | 4009 | 4006 | 4034 | 4007 | 4011 | 4012 | 400b | 400c |
+  | Arokh C | 4009 | 400b | 4034 | 400c | 4011 | 4012 | 4006 | 4007 |
+
+  The port's keys are bound to pad buttons, so a key's command follows this table. `dsettings::padCommand` /
+  `actionLabel` / `actionLabelOnArokh` (`runtime/settings`) hold the same table; `drakan_menus.cpp` publishes
+  `opt+0x2e8` each tick (`setControllerScheme`) and seeds it from `drakan_native_options.ini`, so F1 > Controls labels
+  every key for the running scheme with the Arokh meaning beside it. The button prompts (`runtime/ui`) map a pad
+  button to its key and are scheme independent. Static only: schemes B / C and the Arokh labels other than climb /
+  dive were not exercised in play.
 * Rumble: `PadMgr_UpdateRumble` 0x1e4278 -> `scePadSetActDirect`.
 
 ## 5. Camera (d)

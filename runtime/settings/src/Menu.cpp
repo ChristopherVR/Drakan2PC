@@ -969,8 +969,14 @@ void SettingsMenu::drawBindingTable(bool gameLayer) {
             ImGui::TableSetColumnIndex(0);
             ImGui::AlignTextToFramePadding();
             ImGui::TextUnformatted(actionLabel(d));
-            if (ImGui::IsItemHovered() && d.hint && *d.hint)
-                ImGui::SetTooltip("%s", d.hint);
+            const std::string hint = gameLayer ? actionHint(d) : std::string(d.hint ? d.hint : "");
+            if (ImGui::IsItemHovered() && !hint.empty())
+                ImGui::SetTooltip("%s", hint.c_str());
+            if (const char* air = gameLayer ? actionLabelOnArokh(d) : nullptr) {
+                // The game swaps to its own Arokh table while she rides him: the same key then does this.
+                ImGui::SameLine();
+                ImGui::TextColored(kMuted, "(on Arokh: %s)", air);
+            }
             const auto srcs = layer.sourcesFor(d.id);
             for (int s = 0; s < kSlots; ++s) {
                 ImGui::TableSetColumnIndex(1 + s);
@@ -1134,6 +1140,10 @@ static const char* padButtonName(const std::string& id) {
 void SettingsMenu::drawControllerView() {
     ImGui::PushTextWrapPos(0);
     ImGui::TextColored(kMuted, "The original PlayStation 2 controls. Button prompts in the game show the pad icons.");
+    ImGui::TextColored(kMuted,
+                       "Controller scheme %c (change it in the game's Options > Controls). Riding Arokh the game uses "
+                       "its own flight layout, shown in the last column.",
+                       controllerSchemeLetter(controllerScheme()));
     ImGui::PopTextWrapPos();
     ImGui::Dummy(ImVec2(0, S(4)));
     drawSchemaPage("controls", true);
@@ -1141,9 +1151,11 @@ void SettingsMenu::drawControllerView() {
     for (int layer = 0; layer < 2; ++layer) {
         const bool gameLayer = layer == 0;
         SectionTitle(gameLayer ? "In gameplay" : "In menus, inventory and cutscenes");
-        if (ImGui::BeginTable(gameLayer ? "##pg" : "##pm", 2,
+        if (ImGui::BeginTable(gameLayer ? "##pg" : "##pm", gameLayer ? 3 : 2,
                               ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+            ImGui::TableSetupColumn(gameLayer ? "On foot" : "Action", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+            if (gameLayer)
+                ImGui::TableSetupColumn("On Arokh", ImGuiTableColumnFlags_WidthStretch, 1.5f);
             ImGui::TableSetupColumn("Pad", ImGuiTableColumnFlags_WidthStretch, 1.0f);
             ImGui::TableHeadersRow();
             for (const ActionDef& d : gameLayer ? gameActions() : menuActions()) {
@@ -1153,7 +1165,15 @@ void SettingsMenu::drawControllerView() {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextUnformatted(actionLabel(d));
-                ImGui::TableSetColumnIndex(1);
+                int col = 1;
+                if (gameLayer) {
+                    ImGui::TableSetColumnIndex(col++);
+                    if (const char* air = actionLabelOnArokh(d))
+                        ImGui::TextColored(kAmber, "%s", air);
+                    else if (padCommand(d.id, controllerScheme(), PadMode::OnArokh))
+                        ImGui::TextColored(kMuted, "same"); // a scheme button the flight table leaves alone
+                }
+                ImGui::TableSetColumnIndex(col);
                 ImGui::TextColored(kCream, "%s", btn);
             }
             ImGui::EndTable();

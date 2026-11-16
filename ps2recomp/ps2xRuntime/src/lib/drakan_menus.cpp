@@ -13,6 +13,7 @@
 #include "drakan_language_policy.h"
 #include "input/DrakanInput.h"
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
+#include "settings/Bindings.h"
 #include "settings/Store.h"
 #endif
 #if defined(PS2X_HAVE_GSR)
@@ -596,6 +597,11 @@ constexpr NativeOption kNativeOptions[] = {{"sensitivity", "Sensitivity", "1", 0
 std::array<uint32_t, std::size(kNativeOptions)> g_savedOptions{};
 bool g_optionsReady = false;
 
+// The F1 controls page and the binding labels follow the game's controller scheme (issue #7).
+void publishControllerScheme(long scheme) {
+    dsettings::setControllerScheme(scheme >= 0 && scheme <= 2 ? static_cast<int>(scheme) : 0);
+}
+
 bool validOption(const NativeOption& opt, const std::string& value) {
     char* end = nullptr;
     const double n = std::strtod(value.c_str(), &end);
@@ -671,7 +677,10 @@ std::string nativeOptionsPath() {
 void installNativeOptions() {
     std::string text;
     dsettings::FileIO::native().read(nativeOptionsPath(), text);
-    if (writeGuestOptions(dsettings::IniDoc::parse(text), true))
+    const auto ini = dsettings::IniDoc::parse(text);
+    if (const std::string scheme = ini.get("options", "controller_scheme"); !scheme.empty())
+        publishControllerScheme(std::strtol(scheme.c_str(), nullptr, 10)); // until the game's own options are read
+    if (writeGuestOptions(ini, true))
         std::fprintf(stderr, "[menus] native options prepared for the game's normal startup loader\n");
 }
 
@@ -689,8 +698,11 @@ void nativeOptionsTick(MGuest& g, int screen) {
         g_optionsReady = true;
     }
     decltype(g_savedOptions) current;
-    for (size_t i = 0; i < current.size(); ++i)
+    for (size_t i = 0; i < current.size(); ++i) {
         current[i] = g.read32(0x4fb6d0u + kNativeOptions[i].offset);
+        if (kNativeOptions[i].offset == 0x2e8)
+            publishControllerScheme(static_cast<int32_t>(current[i]));
+    }
     if (current == g_savedOptions)
         return;
     auto ini = dsettings::IniDoc::parse("");

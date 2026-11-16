@@ -933,7 +933,9 @@ std::vector<gameui::BindingLayerView> buildBindingViews(const Settings& s) {
             gameui::BindingAction a;
             a.id = d.id;
             a.label = actionLabel(d);
-            a.hint = d.hint ? d.hint : "";
+            if (const char* air = game ? actionLabelOnArokh(d) : nullptr)
+                a.label += std::string(" (on Arokh: ") + air + ")"; // the game's flight table differs for this button
+            a.hint = game ? actionHint(d) : std::string(d.hint ? d.hint : "");
             for (const std::string& src : layer.sourcesFor(d.id)) {
                 gameui::BindingSlot sl;
                 sl.source = src;

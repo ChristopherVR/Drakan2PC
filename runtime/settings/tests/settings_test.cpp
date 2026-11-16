@@ -9,6 +9,7 @@
 #include <string>
 #include <type_traits>
 
+#include "settings/Apply.h"
 #include "settings/Bindings.h"
 #include "settings/Store.h"
 
@@ -828,6 +829,86 @@ static void testMipBiasMode() {
     }
 }
 
+// Issue #7: rebinding onto a used key. The menus ask Replace / Use for both / Cancel; these are the two commits.
+static void testRebindConflicts() {
+    Settings d = loadAll("", "");
+    BindingLayer g = d.controls.game;
+    CHECK(g.actionsFor("LEFT") == std::vector<std::string>{"DPAD_LEFT"});
+    // Replace: the wheel's previous command moves onto Left, the special move loses the key (no double command).
+    BindingLayer r = g;
+    bindSlot(r, "ACT:0x114", 1, "LEFT", true);
+    CHECK(r.actionsFor("LEFT") == std::vector<std::string>{"ACT:0x114"});
+    CHECK(r.sourcesFor("DPAD_LEFT").empty());
+    CHECK(r.sourcesFor("ACT:0x114") == (std::vector<std::string>{"WHEELUP", "LEFT"}));
+    // Use for both: the key sends both actions, the explicit choice of the conflict prompt.
+    BindingLayer b = g;
+    bindSlot(b, "ACT:0x114", 1, "LEFT", false);
+    CHECK(b.actionsFor("LEFT") == (std::vector<std::string>{"DPAD_LEFT", "ACT:0x114"}));
+    // Rebinding a slot replaces this action's old key in that slot, it does not add a third one.
+    BindingLayer s = g;
+    bindSlot(s, "ACT:0x114", 0, "PGUP", true);
+    CHECK(s.sourcesFor("ACT:0x114") == std::vector<std::string>{"PGUP"} && s.actionsFor("WHEELUP").empty());
+}
+
+// Issue #7: the labels follow the game's controller scheme (A / B / C) and its separate Arokh table.
+static void testControllerSchemes() {
+    auto def = [](const char* id) -> const ActionDef& {
+        for (const auto& a : gameActions())
+            if (std::string(a.id) == id)
+                return a;
+        static const ActionDef none{"", "", "", ""};
+        return none;
+    };
+    auto label = [&](const char* id) { return std::string(actionLabel(def(id))); };
+    auto air = [&](const char* id) {
+        const char* l = actionLabelOnArokh(def(id));
+        return std::string(l ? l : "");
+    };
+    CHECK(controllerScheme() == 0);
+    // The game's tables (analysis/input/tables.txt 0x511ed8 / 0x511ee8), one button each.
+    CHECK(padCommand("L1", 0, PadMode::OnFoot) == 0x4009 && padCommand("L1", 0, PadMode::OnArokh) == 0x4034);
+    CHECK(padCommand("R1", 0, PadMode::OnFoot) == 0x403a && padCommand("R1", 0, PadMode::OnArokh) == 0x4006);
+    CHECK(padCommand("SQUARE", 1, PadMode::OnFoot) == 0x403a && padCommand("SQUARE", 1, PadMode::OnArokh) == 0x4034);
+    CHECK(padCommand("R1", 2, PadMode::OnFoot) == 0x4006 && padCommand("R2", 2, PadMode::OnFoot) == 0x4007);
+    CHECK(padCommand("R3", 1, PadMode::OnArokh) == 0x400a && padCommand("DPAD_UP", 0, PadMode::OnFoot) == 0);
+    CHECK(padCommand("L1", 7, PadMode::OnFoot) == 0x4009); // out of range = A
+    // Scheme A on foot keeps the old labels; on Arokh L1 / R1 change, Triangle / Cross climb / dive.
+    CHECK(label("TRIANGLE") == "Jump" && label("CROSS") == "Crouch" && label("SQUARE") == "Attack" &&
+          label("CIRCLE") == "Use Magic / Parry" && label("L1") == "Call Arokh / Use" &&
+          label("R1") == "Quick Inventory" && label("R2") == "Toggle Targeting" &&
+          label("L2") == "Next Target / Strafe");
+    CHECK(air("L1") == "Previous breath / item" && air("R1") == "Attack" && air("TRIANGLE") == "Climb" &&
+          air("CROSS") == "Dive" && air("SQUARE").empty() && air("CIRCLE").empty());
+    CHECK(actionHint(def("R1")).find("scheme A") != std::string::npos &&
+          actionHint(def("R1")).find("On Arokh: Attack") != std::string::npos);
+    // R3 is the camera view toggle (0x400a) in every scheme; the wheel is context-dependent.
+    CHECK(label("R3") == "Camera view toggle" && air("R3").empty());
+    CHECK(label("ACT:0x114").find("context-dependent") != std::string::npos &&
+          label("ACT:0x115").find("context-dependent") != std::string::npos);
+    // Scheme C (JoyConfig_Scheme "2", the card of the report): E (L1) jumps, Q (R1) attacks, left mouse (Square) opens
+    // the Quick Inventory, right mouse (Circle) is Next Target, and Magic / Parry moved to R2.
+    setControllerScheme(2);
+    CHECK(controllerScheme() == 2 && controllerSchemeLetter(controllerScheme()) == 'C');
+    CHECK(label("L1") == "Jump" && label("L2") == "Crouch" && label("R1") == "Attack" &&
+          label("SQUARE") == "Quick Inventory" && label("CIRCLE") == "Next Target / Strafe" &&
+          label("R2") == "Use Magic / Parry" && label("TRIANGLE") == "Call Arokh / Use" &&
+          label("CROSS") == "Toggle Targeting");
+    CHECK(air("SQUARE") == "Previous breath / item" && air("L1") == "Climb" && air("R1").empty());
+    setGameHasSpells(false); // the spell-free wording follows command 0x4007, wherever the scheme puts it
+    CHECK(label("R2") == "Parry" && label("CIRCLE") == "Next Target / Strafe");
+    setGameHasSpells(true);
+    setControllerScheme(1);
+    CHECK(label("CROSS") == "Attack" && label("SQUARE") == "Quick Inventory" && label("R1") == "Toggle Targeting" &&
+          label("R2") == "Next Target / Strafe" && air("SQUARE") == "Previous breath / item");
+    CHECK(actionHint(def("CROSS")).find("scheme B") != std::string::npos);
+    // The menu layer reuses the button ids with its own labels: never scheme dependent.
+    for (const auto& a : menuActions())
+        CHECK(std::string(actionLabel(a)) == a.label && actionLabelOnArokh(a) == nullptr);
+    setControllerScheme(-3);
+    CHECK(controllerScheme() == 0);
+    setControllerScheme(0);
+}
+
 int main(int argc, char** argv) {
     {
         SettingsStore st;
@@ -1010,6 +1091,8 @@ int main(int argc, char** argv) {
     testWorldRate();
     testSaveMinimalDiff();
     testBindings();
+    testControllerSchemes();
+    testRebindConflicts();
     testFileIo();
     testRealFiles(argc, argv);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);

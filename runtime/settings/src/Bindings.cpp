@@ -76,30 +76,41 @@ const std::vector<ActionDef>& gameActions() {
         {"DIRECTIONAL_ATTACK", "Directional attack",
          "Hold with Attack and a movement key for a special move (Left Alt by default; see Directional attacks)",
          "Actions"},
+        // The eight scheme buttons: the label shown is the command of the game's current controller scheme on foot
+        // (actionLabel), the hint adds what the button does on Arokh (actionHint). `label` is scheme A on foot.
         {"TRIANGLE", "Jump", "Triangle", "Actions"},
         {"CROSS", "Crouch", "Cross", "Actions"},
         {"SQUARE", "Attack", "Square", "Actions"},
         {"CIRCLE", "Use Magic / Parry", "Circle", "Actions"},
         {"L1", "Call Arokh / Use", "L1", "Actions"},
         {"R1", "Quick Inventory", "R1", "Actions"},
-        {"R2", "Toggle Targeting", "R2", "Targeting"},
-        {"L2", "Next Target / Strafe", "L2", "Targeting"},
-        {"R3", "Right stick click", "R3 (no game function known)", "Targeting"},
-        {"L3", "Left stick click", "L3 (no game function known)", "Targeting"},
+        {"R2", "Toggle Targeting", "R2", "Actions"},
+        {"L2", "Next Target / Strafe", "L2", "Actions"},
+        {"R3", "Camera view toggle",
+         "R3 (command 0x400a, the same in every scheme): switches the camera view. Mounting Arokh is Call Arokh / Use",
+         "Actions"},
+        {"L3", "Left stick click", "L3 (no game function known)", "Actions"},
         {"SELECT", "Inventory / Map", "Select", "Interface"},
         {"START", "Game Menu (pause)", "Start", "Interface"},
         {"QUICKSAVE", "Quick save", "Replace the dedicated quicksave (F5 by default)", "Interface"},
         {"QUICKLOAD", "Quick load", "Load the quicksave; unsaved progress is lost (F8 by default)", "Interface"},
         {"DEBUG_MENU", "Debug menu",
          "Open / close the game's developer debug menu (F3 by default; needs Gameplay > Developer)", "Interface"},
-        {"ACT:0x114", "Previous weapon", "Mouse wheel up by default", "Weapons and items"},
-        {"ACT:0x115", "Next weapon", "Mouse wheel down by default", "Weapons and items"},
+        {"ACT:0x114", "Previous item (context-dependent)",
+         "Mouse wheel up by default. The game's previous command (0x4034); what it switches depends on what Rynn "
+         "holds and whether she rides Arokh",
+         "Weapons and items"},
+        {"ACT:0x115", "Next item (context-dependent)",
+         "Mouse wheel down by default. The game's next command (0x4035); what it switches depends on what Rynn holds "
+         "and whether she rides Arokh",
+         "Weapons and items"},
         {"QUICK1", "Quick slot 1", "Use / equip the 1st quick-slot item (Quick Inventory order)", "Weapons and items"},
         {"QUICK2", "Quick slot 2", "Use / equip the 2nd quick-slot item", "Weapons and items"},
         {"QUICK3", "Quick slot 3", "Use / equip the 3rd quick-slot item", "Weapons and items"},
         {"QUICK4", "Quick slot 4", "Use / equip the 4th quick-slot item", "Weapons and items"},
         {"QUICK5", "Quick slot 5", "Use / equip the 5th quick-slot item", "Weapons and items"},
-        {"ACT:0x0e", "Quick Inventory (key 6)", "PC keymap id 0x403a, the same as R1", "Weapons and items"},
+        {"ACT:0x0e", "Quick Inventory (key 6)", "PC keymap command 0x403a (Quick Inventory) in every controller scheme",
+         "Weapons and items"},
         {"ACT:0x17", "Item shortcut", "PC keymap action 0x17", "Weapons and items"},
         {"DPAD_UP", "Special move: up", "D-pad up", "Special moves (D-pad)"},
         {"DPAD_DOWN", "Special move: down", "D-pad down", "Special moves (D-pad)"},
@@ -115,18 +126,135 @@ const std::vector<ActionDef>& gameActions() {
 
 namespace {
 std::atomic<bool> g_gameHasSpells{true};
+std::atomic<int> g_controllerScheme{0};
+
+// The scheme buttons in the order of the game's pad action ids 0x122..0x129.
+constexpr const char* kSchemeButtons[8] = {"TRIANGLE", "CROSS", "SQUARE", "CIRCLE", "L1", "L2", "R1", "R2"};
+// Pad -> command tables of SCES_500.06 (analysis/input/tables.txt): 0x511ed8 on foot, 0x511ee8 while the dragon-mode
+// predicate 0x3d2798 holds (Options_ApplyButtonScheme 0x3fa258); one row per scheme A / B / C, columns as
+// kSchemeButtons. The D-pad entries of the same tables are identical in all six and are not listed.
+constexpr unsigned kSchemeCommands[2][3][8] = {
+    {
+        {0x4011, 0x4012, 0x4006, 0x4007, 0x4009, 0x400c, 0x403a, 0x400b}, // foot A
+        {0x4009, 0x4006, 0x403a, 0x4007, 0x4011, 0x4012, 0x400b, 0x400c}, // foot B
+        {0x4009, 0x400b, 0x403a, 0x400c, 0x4011, 0x4012, 0x4006, 0x4007}, // foot C
+    },
+    {
+        {0x4011, 0x4012, 0x4006, 0x4007, 0x4034, 0x400c, 0x4006, 0x400b}, // Arokh A
+        {0x4009, 0x4006, 0x4034, 0x4007, 0x4011, 0x4012, 0x400b, 0x400c}, // Arokh B
+        {0x4009, 0x400b, 0x4034, 0x400c, 0x4011, 0x4012, 0x4006, 0x4007}, // Arokh C
+    },
+};
+
+// Whether `d` is an entry of the gameplay catalogue (not the menu layer's entries of the same ids).
+bool isGameAction(const ActionDef& d) {
+    const auto& v = gameActions();
+    return !v.empty() && &d >= v.data() && &d < v.data() + v.size();
 }
+
+int clampScheme(int s) {
+    return s < 0 || s > 2 ? 0 : s;
+}
+} // namespace
+
 void setGameHasSpells(bool spells) {
     g_gameHasSpells.store(spells, std::memory_order_relaxed);
 }
 bool gameHasSpells() {
     return g_gameHasSpells.load(std::memory_order_relaxed);
 }
+void setControllerScheme(int scheme) {
+    g_controllerScheme.store(clampScheme(scheme), std::memory_order_relaxed);
+}
+int controllerScheme() {
+    return g_controllerScheme.load(std::memory_order_relaxed);
+}
+char controllerSchemeLetter(int scheme) {
+    return static_cast<char>('A' + clampScheme(scheme));
+}
+
+unsigned padCommand(std::string_view padAction, int scheme, PadMode mode) {
+    for (int i = 0; i < 8; ++i)
+        if (padAction == kSchemeButtons[i])
+            return kSchemeCommands[mode == PadMode::OnArokh ? 1 : 0][clampScheme(scheme)][i];
+    if (padAction == "R3")
+        return 0x400a; // the shipped keymap (0x54b7b8), outside the scheme tables: the camera view toggle
+    return 0;
+}
+
+const char* commandLabel(unsigned command, PadMode mode) {
+    const bool air = mode == PadMode::OnArokh;
+    switch (command) {
+        case 0x4011: // measured: Jump on foot; Space (Triangle) climbs on Arokh (input.md "Arokh on mouse and
+                     // keyboard")
+            return air ? "Climb" : "Jump";
+        case 0x4012:
+            return air ? "Dive" : "Crouch";
+        case 0x4006:
+            return "Attack";
+        case 0x4007:
+            return gameHasSpells() ? "Use Magic / Parry" : "Parry";
+        case 0x4009:
+            return "Call Arokh / Use";
+        case 0x400c:
+            return "Next Target / Strafe";
+        case 0x403a:
+            return "Quick Inventory";
+        case 0x400b:
+            return "Toggle Targeting";
+        case 0x400a: // acts on the camera object (ctx+0x4b4), journal 2026-10-17/combat-encounters.md
+            return "Camera view toggle";
+        case 0x4034: // the wheel's previous command; in flight it steps Arokh's breath (journal 2026-10-23)
+            return air ? "Previous breath / item" : "Previous item (context-dependent)";
+        case 0x4035:
+            return "Next item (context-dependent)";
+        default:
+            return nullptr;
+    }
+}
+
 const char* actionLabel(const ActionDef& d) {
-    if (!gameHasSpells() && d.id && std::string_view(d.id) == "CIRCLE" &&
-        std::string_view(d.label) == "Use Magic / Parry")
-        return "Parry";
+    if (!d.id)
+        return d.label;
+    const std::string_view id(d.id);
+    if (id == "R3")
+        return d.label;
+    if (const unsigned cmd = padCommand(id, controllerScheme(), PadMode::OnFoot)) {
+        if (isGameAction(d)) // the menu layer reuses the ids with its own labels
+            if (const char* l = commandLabel(cmd, PadMode::OnFoot))
+                return l;
+    }
     return d.label;
+}
+
+const char* actionLabelOnArokh(const ActionDef& d) {
+    if (!d.id || std::string_view(d.id) == "R3")
+        return nullptr;
+    if (!isGameAction(d))
+        return nullptr;
+    const int s = controllerScheme();
+    const unsigned foot = padCommand(d.id, s, PadMode::OnFoot), air = padCommand(d.id, s, PadMode::OnArokh);
+    if (!air)
+        return nullptr;
+    const char* a = commandLabel(air, PadMode::OnArokh);
+    const char* f = commandLabel(foot, PadMode::OnFoot);
+    if (!a || (f && std::string_view(a) == f))
+        return nullptr;
+    return a;
+}
+
+std::string actionHint(const ActionDef& d) {
+    std::string h = d.hint ? d.hint : "";
+    if (!d.id || !padCommand(d.id, 0, PadMode::OnFoot) || std::string_view(d.id) == "R3")
+        return h;
+    if (!isGameAction(d))
+        return h;
+    h += " in controller scheme ";
+    h += controllerSchemeLetter(controllerScheme());
+    h += " (the game's Options > Controls)";
+    if (const char* a = actionLabelOnArokh(d))
+        h += std::string(". On Arokh: ") + a;
+    return h;
 }
 
 const char* textWithoutSpells(unsigned interfaceTextId, int lang) {

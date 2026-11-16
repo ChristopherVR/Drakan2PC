@@ -16,8 +16,9 @@ Default PC bindings. Rebind anything under **F1 → Key Bindings**. Linux and br
 | F / middle mouse | Toggle target lock |
 | E | Use / call Arokh |
 | Q | Quick Inventory |
+| V | Camera view toggle |
 | 1–5 | Use or equip a quick-slot item |
-| Mouse wheel | Previous / next weapon |
+| Mouse wheel | Previous / next item; what it switches depends on what Rynn holds (Arokh's breath in flight) |
 | Tab | Full inventory |
 | I | Inventory strip |
 | M | Full-screen map |
@@ -26,6 +27,8 @@ Default PC bindings. Rebind anything under **F1 → Key Bindings**. Linux and br
 | F5 / F8 | Quicksave / quickload |
 | F10 | Release / recapture mouse |
 | F11 / Alt+Enter | Borderless fullscreen on Windows |
+
+The keys are bound to PS2 pad buttons, so their meaning follows the game's own controller scheme (**Options > Controls**, schemes A, B and C) and changes while Rynn rides Arokh. The table is scheme A on foot. On Arokh in scheme A, **E** steps to the previous breath / item and **Q** attacks; schemes B and C move most actions to other buttons (in C, for example, E jumps and Q attacks). **F1 → Controls** names every key for the scheme the game is running, with the Arokh meaning next to it, and the controller view lists both layouts.
 
 Quickload discards unsaved progress without asking and uses its own slot, not your newest manual save. See [Saves & updates](saves.md).
 
@@ -41,7 +44,7 @@ In menus, use the mouse or arrows/WASD to select, **Enter / Space** to confirm a
 
 <!-- media:pc-settings -->
 
-Open **F1 → Key Bindings** to change actions, and the mouse settings for sensitivity and inversion. Windows bindings are stored in `drakan_input.ini` next to the executable. Close the game before editing the file by hand.
+Open **F1 → Key Bindings** to change actions, and the mouse settings for sensitivity and inversion. Choosing a key that already has an action asks first: **Replace** moves the key to the new action (the old one loses it), **Use for both** makes one key send both, **Cancel** keeps everything. Windows bindings are stored in `drakan_input.ini` next to the executable. Close the game before editing the file by hand.
 
 The Windows controller path uses XInput and maps the original DualShock layout onto the controller. Controller and keyboard prompts can be selected in PC Settings.
 
