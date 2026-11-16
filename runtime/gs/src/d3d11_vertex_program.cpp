@@ -52,6 +52,17 @@ struct D3D11Backend::Impl::ProgramGpu {
         ComPtr<ID3D11Buffer> buffer;
         uint32_t capacity = 0, offset = 0, drawOffset = 0;
     } vb, ib, previousVb, constants;
+    // One ring for what every draw uploads (its constants and the previous ones, vertices and indices: one Map per
+    // draw instead of three), bound as vertex, index and shader-resource buffer. Needs NO_OVERWRITE on a
+    // shader-resource buffer (constantsAppend); without it, or with GSR_VERTEX_PROGRAM_RINGS=1, the rings `constants`,
+    // `vb` and `ib` are used. The previous stream of the velocity pass keeps `previousVb` either way.
+    Ring all;
+    bool combined = false;
+    ComPtr<ID3D11ShaderResourceView> allSrv;
+    // Where the draw being drawn lies (set by bindProgramDraw, read by the draw and velocity passes).
+    ID3D11Buffer* drawVb = nullptr;
+    ID3D11Buffer* drawIb = nullptr;
+    uint32_t drawVbOffset = 0, drawFirstIndex = 0;
     // The ray-surface stream (kCaps.programSurfaces): the vertices of the batches whose surfaces wait for them, in the
     // order reserveProgramSurface handed out their ranges, until readProgramSurfaces copies them back.
     struct SurfaceStream {
@@ -253,6 +264,8 @@ bool D3D11Backend::Impl::programTakes(vpath::Fallback* why, bool batchPath) {
         g.constantsAppend =
             SUCCEEDED(dev->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &options, sizeof(options))) &&
             options.MapNoOverwriteOnDynamicBufferSRV;
+        const char* rings = std::getenv("GSR_VERTEX_PROGRAM_RINGS");
+        g.combined = g.constantsAppend && !(rings && rings[0] == '1');
         if (g.arithmetic == vp::Arithmetic::None)
             std::fprintf(stderr, "[gsr] vertex programs: no exact arithmetic chosen for this adapter, records are "
                                  "evaluated on the CPU\n");
@@ -387,7 +400,39 @@ bool appendRing(ID3D11DeviceContext* ctx, Ring& ring, bool append, uint32_t unit
     ring.offset = (uint32_t)(offset + bytes);
     return true;
 }
+// appendRing for the combined ring: the parts one after the other, each starting on a 16-byte row (a part of size
+// zero takes no room); `start` receives each part's byte offset. One Map.
+template <class Ring>
+bool appendRows(ID3D11DeviceContext* ctx, Ring& ring, const void* const* data, const uint32_t* sizes, uint32_t count,
+                uint32_t* start) {
+    uint64_t bytes = 0;
+    for (uint32_t i = 0; i < count; ++i)
+        bytes += (uint64_t(sizes[i]) + 15u) & ~uint64_t(15u);
+    uint64_t offset = (uint64_t(ring.offset) + 15u) & ~uint64_t(15u);
+    D3D11_MAP mode = D3D11_MAP_WRITE_NO_OVERWRITE;
+    if (offset > ring.capacity || bytes > ring.capacity - offset) {
+        mode = D3D11_MAP_WRITE_DISCARD;
+        offset = 0;
+    }
+    D3D11_MAPPED_SUBRESOURCE ms{};
+    if (!ring.buffer || bytes > ring.capacity || FAILED(ctx->Map(ring.buffer.Get(), 0, mode, 0, &ms)) || !ms.pData)
+        return false;
+    uint8_t* const base = static_cast<uint8_t*>(ms.pData);
+    uint64_t at = offset;
+    for (uint32_t i = 0; i < count; ++i) {
+        start[i] = (uint32_t)at;
+        if (sizes[i])
+            std::memcpy(base + at, data[i], sizes[i]);
+        at += (uint64_t(sizes[i]) + 15u) & ~uint64_t(15u);
+    }
+    ctx->Unmap(ring.buffer.Get(), 0);
+    ring.drawOffset = (uint32_t)offset;
+    ring.offset = (uint32_t)(offset + bytes);
+    return true;
+}
 constexpr uint32_t kPassRows = sizeof(vp::Pass) / 16u;
+// the own constants (or passes) end on a row, so the previous ones follow them without a gap (appendRows)
+static_assert(sizeof(vp::Constants) % 16u == 0 && sizeof(vp::Pass) % 16u == 0, "constants in whole rows");
 } // namespace
 
 // The previous state of every record of the batch, for the velocity pass. Called by gs_draw.inl where an ordinary
@@ -458,18 +503,42 @@ void D3D11Backend::Impl::bindProgramDraw(const GsDrawState& s, const VertexProgr
     const uint32_t vertexSizes[1] = {batch.vertexCount * stride};
     const void* indexData[1] = {batch.indices};
     const uint32_t indexSizes[1] = {batch.indexCount * (uint32_t)sizeof(uint32_t)};
-    if (!appendRing(ctx.Get(), g.constants, g.constantsAppend, bp ? 16u : (uint32_t)sizeof(vp::Constants), constantData,
-                    constantSizes, 2) ||
-        !appendRing(ctx.Get(), g.vb, true, stride, vertexData, vertexSizes, 1) ||
-        !appendRing(ctx.Get(), g.ib, true, (uint32_t)sizeof(uint32_t), indexData, indexSizes, 1)) {
-        // Only a removed device gets here (the buffers were reserved before the draw started); drawProgramVertices
-        // and drawProgramVelocity then draw nothing.
-        probeDevice("vertex program buffers");
-        programFailed("a buffer of the draw could not be written");
-        return;
+    uint32_t constantRow = 0;
+    if (g.combined) {
+        // One Map: the constants (own, then previous: contiguous rows), the vertices and the indices, each part
+        // starting on a 16-byte row. The ring's room was reserved before the draw started. The previous stream of
+        // the velocity pass keeps its own ring (prepareProgramMotion).
+        const void* parts[4] = {constantData[0], constantData[1], vertexData[0], indexData[0]};
+        const uint32_t sizes[4] = {constantSizes[0], constantSizes[1], vertexSizes[0], indexSizes[0]};
+        uint32_t start[4];
+        if (!appendRows(ctx.Get(), g.all, parts, sizes, 4, start)) {
+            probeDevice("vertex program buffers");
+            programFailed("a buffer of the draw could not be written");
+            return;
+        }
+        constantRow = start[0] / 16u;
+        g.drawVb = g.drawIb = g.all.buffer.Get();
+        g.drawVbOffset = start[2];
+        g.drawFirstIndex = start[3] / (uint32_t)sizeof(uint32_t);
+    } else {
+        if (!appendRing(ctx.Get(), g.constants, g.constantsAppend, bp ? 16u : (uint32_t)sizeof(vp::Constants),
+                        constantData, constantSizes, 2) ||
+            !appendRing(ctx.Get(), g.vb, true, stride, vertexData, vertexSizes, 1) ||
+            !appendRing(ctx.Get(), g.ib, true, (uint32_t)sizeof(uint32_t), indexData, indexSizes, 1)) {
+            // Only a removed device gets here (the buffers were reserved before the draw started);
+            // drawProgramVertices and drawProgramVelocity then draw nothing.
+            probeDevice("vertex program buffers");
+            programFailed("a buffer of the draw could not be written");
+            return;
+        }
+        constantRow = g.constants.drawOffset / 16u;
+        g.drawVb = g.vb.buffer.Get();
+        g.drawVbOffset = g.vb.drawOffset;
+        g.drawIb = g.ib.buffer.Get();
+        g.drawFirstIndex = g.ib.drawOffset / (uint32_t)sizeof(uint32_t);
     }
     const int32_t words[4] = {(int32_t)(s.xyoffset & 0xFFFF), (int32_t)((s.xyoffset >> 32) & 0xFFFF),
-                              (int32_t)(g.constants.drawOffset / 16u), 0};
+                              (int32_t)constantRow, 0};
     D3D11_MAPPED_SUBRESOURCE ms{};
     if (FAILED(map(g.cb.Get(), D3D11_MAP_WRITE_DISCARD, ms, "vertex program constants")) || !ms.pData) {
         programFailed("the draw constants could not be written");
@@ -478,14 +547,14 @@ void D3D11Backend::Impl::bindProgramDraw(const GsDrawState& s, const VertexProgr
     std::memcpy(ms.pData, words, sizeof(words));
     ctx->Unmap(g.cb.Get(), 0);
     ProgramGpu::Shaders& sh = g.of(bp);
-    const UINT offset = g.vb.drawOffset;
+    const UINT offset = g.drawVbOffset;
     ctx->IASetInputLayout(sh.layout.Get());
-    ctx->IASetVertexBuffers(0, 1, g.vb.buffer.GetAddressOf(), &stride, &offset);
-    ctx->IASetIndexBuffer(g.ib.buffer.Get(), DXGI_FORMAT_R32_UINT, 0);
+    ctx->IASetVertexBuffers(0, 1, &g.drawVb, &stride, &offset);
+    ctx->IASetIndexBuffer(g.drawIb, DXGI_FORMAT_R32_UINT, 0);
     ctx->VSSetShader(sh.vs.Get(), nullptr, 0);
     ID3D11Buffer* buffers[2] = {g.cb.Get(), g.cbMotion.Get()};
     ctx->VSSetConstantBuffers(5, 2, buffers);
-    ctx->VSSetShaderResources(8, 1, g.constantsSrv.GetAddressOf());
+    ctx->VSSetShaderResources(8, 1, g.combined ? g.allSrv.GetAddressOf() : g.constantsSrv.GetAddressOf());
     ++g.batches_;
 }
 
@@ -504,7 +573,7 @@ void D3D11Backend::Impl::drawProgramVertices(const VertexProgramBatch& batch) {
         ctx->GSSetShader(sh.soRaw.Get(), nullptr, 0);
         const UINT offset = st.first * (UINT)sizeof(surface::RawVertex);
         ctx->SOSetTargets(1, st.buffer.GetAddressOf(), &offset);
-        ctx->DrawIndexed(batch.indexCount, g.ib.drawOffset / (uint32_t)sizeof(uint32_t), 0);
+        ctx->DrawIndexed(batch.indexCount, g.drawFirstIndex, 0);
         ID3D11Buffer* none = nullptr;
         const UINT zero = 0;
         ctx->SOSetTargets(1, &none, &zero);
@@ -515,7 +584,7 @@ void D3D11Backend::Impl::drawProgramVertices(const VertexProgramBatch& batch) {
         ++st.batches;
         st.vertices += batch.indexCount;
     }
-    ctx->DrawIndexed(batch.indexCount, g.ib.drawOffset / (uint32_t)sizeof(uint32_t), 0);
+    ctx->DrawIndexed(batch.indexCount, g.drawFirstIndex, 0);
 }
 
 bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) {
@@ -645,7 +714,7 @@ void D3D11Backend::Impl::drawProgramVelocity(RT& rt, DepthBuf& db, const VertexP
     ctx->IASetVertexBuffers(1, 1, g.previousVb.buffer.GetAddressOf(), &stride, &offset);
     ctx->VSSetShader(sh.vsMotion.Get(), nullptr, 0);
     ctx->PSSetShader(psMotion.Get(), nullptr, 0);
-    ctx->DrawIndexed(batch.indexCount, g.ib.drawOffset / (uint32_t)sizeof(uint32_t), 0);
+    ctx->DrawIndexed(batch.indexCount, g.drawFirstIndex, 0);
     if (!restore)
         return;
     ID3D11RenderTargetView* rtvs[1] = {rt.rtv.Get()};
@@ -723,13 +792,30 @@ void D3D11Backend::drawVertexProgram(const GsDrawState& st, const ClutBuf& clut,
                                           : 2u * batch.constantCount * (uint32_t)sizeof(vp::Constants);
         const uint32_t vertexBytes =
             batch.vertexCount * (bp ? (uint32_t)sizeof(vp::BatchVertex) : (uint32_t)sizeof(VertexProgramVertex));
-        ready = reserveRing(i.dev.Get(), g.vb, vertexBytes, 8u << 20, D3D11_BIND_VERTEX_BUFFER) &&
-                reserveRing(i.dev.Get(), g.ib, batch.indexCount * (uint32_t)sizeof(uint32_t), 2u << 20,
-                            D3D11_BIND_INDEX_BUFFER) &&
-                reserveRing(i.dev.Get(), g.previousVb, batch.vertexCount * (uint32_t)sizeof(motion::ProgramPrevious),
-                            4u << 20, D3D11_BIND_VERTEX_BUFFER) &&
-                reserveRing(i.dev.Get(), g.constants, constantBytes, 4u << 20, D3D11_BIND_SHADER_RESOURCE);
-        if (ready && (!g.constantsSrv || before != g.constants.buffer.Get())) {
+        const uint32_t indexBytes = batch.indexCount * (uint32_t)sizeof(uint32_t);
+        const uint32_t previousBytes = batch.vertexCount * (uint32_t)sizeof(motion::ProgramPrevious);
+        static_assert(sizeof(motion::ProgramPrevious) >= sizeof(motion::BatchPrevious), "the previous stream's room");
+        if (g.combined) {
+            const ID3D11Buffer* const allBefore = g.all.buffer.Get();
+            // the four parts of appendRows, each rounded up to a row
+            ready = reserveRing(i.dev.Get(), g.all, constantBytes + vertexBytes + indexBytes + 64u, 16u << 20,
+                                D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_INDEX_BUFFER | D3D11_BIND_SHADER_RESOURCE) &&
+                    reserveRing(i.dev.Get(), g.previousVb, previousBytes, 4u << 20, D3D11_BIND_VERTEX_BUFFER);
+            if (ready && (!g.allSrv || allBefore != g.all.buffer.Get())) {
+                D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
+                sd.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+                sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+                sd.Buffer.NumElements = g.all.capacity / 16u;
+                g.allSrv.Reset();
+                ready = SUCCEEDED(i.dev->CreateShaderResourceView(g.all.buffer.Get(), &sd, &g.allSrv)) && g.allSrv;
+            }
+        } else {
+            ready = reserveRing(i.dev.Get(), g.vb, vertexBytes, 8u << 20, D3D11_BIND_VERTEX_BUFFER) &&
+                    reserveRing(i.dev.Get(), g.ib, indexBytes, 2u << 20, D3D11_BIND_INDEX_BUFFER) &&
+                    reserveRing(i.dev.Get(), g.previousVb, previousBytes, 4u << 20, D3D11_BIND_VERTEX_BUFFER) &&
+                    reserveRing(i.dev.Get(), g.constants, constantBytes, 4u << 20, D3D11_BIND_SHADER_RESOURCE);
+        }
+        if (ready && !g.combined && (!g.constantsSrv || before != g.constants.buffer.Get())) {
             D3D11_SHADER_RESOURCE_VIEW_DESC sd{};
             sd.Format = DXGI_FORMAT_R32G32B32A32_UINT;
             sd.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
