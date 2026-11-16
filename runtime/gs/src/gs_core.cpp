@@ -559,22 +559,31 @@ struct Renderer::Impl {
             r.allDrawn = allDrawn;
             programRecords.push_back(r);
         }
-        const vp::Vertex* v = rec.vertices;
+        // The vertices (room made once per record) and the triangles written in place.
+        uint32_t triangles = 0;
+        for (uint32_t s = 0; s < h.stripCount; ++s)
+            triangles += rec.strips[s] >= 3 ? rec.strips[s] - 2 : 0u;
+        const uint32_t firstVertex = (uint32_t)programVertices.size();
+        if (programVertices.capacity() < firstVertex + size_t(h.vertexCount)) // grown geometrically, as push_back would
+            programVertices.reserve(std::max(firstVertex + size_t(h.vertexCount), programVertices.capacity() * 2));
+        for (uint32_t i = 0; i < h.vertexCount; ++i)
+            programVertices.push_back(VertexProgramVertex{rec.vertices[i], constants, h.program, {0, 0}});
+        const size_t firstIndex = programIndices.size();
+        programIndices.resize(firstIndex + size_t(triangles) * 3u);
+        uint32_t* index = programIndices.data() + firstIndex;
+        uint32_t first = firstVertex;
         for (uint32_t s = 0; s < h.stripCount; ++s) {
             const uint32_t n = rec.strips[s];
-            const uint32_t first = (uint32_t)programVertices.size();
-            for (uint32_t i = 0; i < n; ++i)
-                programVertices.push_back(VertexProgramVertex{v[i], constants, h.program, {0, 0}});
             // every triangle in strip order (i, i + 1, i + 2): the order the CPU path's triangle list has
-            for (uint32_t i = 0; i + 2 < n; ++i)
-                for (uint32_t c = 0; c < 3; ++c)
-                    programIndices.push_back(first + i + c);
-            v += n;
-            if (n >= 3) {
-                stats.triangles += n - 2;
-                stats.primitives += n - 2;
+            for (uint32_t i = 0; i + 2 < n; ++i, index += 3) {
+                index[0] = first + i;
+                index[1] = first + i + 1;
+                index[2] = first + i + 2;
             }
+            first += n;
         }
+        stats.triangles += triangles;
+        stats.primitives += triangles;
         stats.vertices += h.vertexCount;
         stats.programGpuVertices += h.vertexCount;
         programCounted += h.vertexCount;
