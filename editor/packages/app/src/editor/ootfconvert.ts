@@ -13,8 +13,21 @@ import {
     type Ps2ModelSwapOptions,
     type LevelMapOverride,
     type Ps2TextureSwapOptions,
+    type AuthoredModel,
+    authoredProblem,
 } from '@drakan/formats';
 import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
+
+// Authored replacement meshes made in Blender (scripts/buildtool/kit/models, formats ootfauthored.ts): geometry only, the
+// converter takes their textures and weights from the player's own models. Loaded when a conversion runs, not with the editor.
+const AUTHORED_FILES = import.meta.glob<AuthoredModel>('../../../../../scripts/buildtool/kit/models/*.json', {
+    import: 'default',
+});
+
+async function authoredModels(): Promise<AuthoredModel[]> {
+    const all = await Promise.all(Object.values(AUTHORED_FILES).map((load) => load()));
+    return all.filter((m) => authoredProblem(m) === null);
+}
 
 /** One file of the player's install: its path below the chosen folder and the file itself. */
 export interface InstallFile {
@@ -107,6 +120,7 @@ export async function runConversion(
             ...OOTF_DIALOG_OPTIONS,
             ps2Textures: req.ps2Textures,
             ps2Models: req.ps2Models,
+            authoredModels: await authoredModels(),
             levelMaps: req.levelMaps,
             pcVoices: req.pcVoices === true,
             wartokIdle: req.wartokIdle ?? 'drakan2',
