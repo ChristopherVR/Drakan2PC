@@ -496,8 +496,15 @@ struct Renderer::Impl {
         vp::View rec;
         if (!vp::parse(data, size, rec))
             return;
-        settleBatchTail();
+        settleBatchOnly();
         const vp::Header& h = rec.header;
+        // A record with vertices loads every register and its PRIM empties the queue: a pending strip tail is replaced.
+        // Without vertices the registers stay as the tail leaves them (settled before the PRIM write, as the packets
+        // were).
+        if (h.vertexCount == 0)
+            settleStripTail();
+        else
+            stripTail.pending = false;
         stats.programRecords++;
         // The strip tag carries PRIM (PRE = 1): the same write the tag of every strip would have made.
         writeReg(R_PRIM, h.prim);
@@ -568,36 +575,19 @@ struct Renderer::Impl {
         stats.programGpuVertices += h.vertexCount;
         programCounted += h.vertexCount;
         vpath::state().counters.gpuVertices.fetch_add(h.vertexCount, std::memory_order_relaxed);
-        // The registers and the vertex queue as the last strip leaves them.
-        if (h.vertexCount) {
-            const vp::Output o = vp::evaluate(h.program, *rec.constants, rec.vertices[h.vertexCount - 1]);
-            cs = asFloat(o.s);
-            ct = asFloat(o.t);
-            cq = asFloat(o.q);
-            cr = o.r;
-            cg = o.g;
-            cb = o.b;
-            ca = o.a;
-            cfog = o.fog;
-        }
-        // The queue holds what the last strip left in it: its last two vertices (a following tag without PRIM
-        // continues that strip, as it does after the packets of the microprogram). Nothing is drawn here.
+        // The registers and the vertex queue as the last strip leaves them: its last two vertices queued (nothing
+        // drawn), the registers at the record's last vertex; evaluated when something can see them (settleStripTail).
         qn = 0;
-        if (h.stripCount) {
-            const uint32_t n = rec.strips[h.stripCount - 1];
-            for (uint32_t i = n > 2 ? n - 2 : 0; i < n; ++i) {
-                const vp::Output o = vp::evaluate(h.program, *rec.constants, rec.vertices[h.vertexCount - n + i]);
-                cs = asFloat(o.s);
-                ct = asFloat(o.t);
-                cq = asFloat(o.q);
-                cr = o.r;
-                cg = o.g;
-                cb = o.b;
-                ca = o.a;
-                cfog = o.fog;
-                kick(o.x, o.y, o.z, -1, false);
-                stats.vertices--; // counted above
-            }
+        stripTail.pending = false;
+        if (h.vertexCount) {
+            const uint32_t n = h.stripCount ? rec.strips[h.stripCount - 1] : 0u;
+            stripTail.program = h.program;
+            stripTail.constants = *rec.constants;
+            stripTail.kick = n > 0;
+            stripTail.count = n > 0 ? std::min(n, 2u) : 1u;
+            for (uint32_t i = 0; i < stripTail.count; ++i)
+                stripTail.v[i] = rec.vertices[h.vertexCount - stripTail.count + i];
+            stripTail.pending = true;
         }
         if (programDebug & 1)
             flushProgram();
@@ -647,7 +637,35 @@ struct Renderer::Impl {
         uint32_t firstPass = 0, passCount = 0, count = 0;
         vp::BatchVertex v[2];
     } batchTail;
+    // The same for the last strip record the shader draws: its registers and queue as its last strip leaves them,
+    // evaluated (with a copy of its constants) only when something can see them. A following record with vertices
+    // replaces all of it (it writes PRIM, which empties the queue, and loads every register), so for a run of strip
+    // records nothing is evaluated here; before, three vertices were evaluated per record.
+    struct StripTail {
+        bool pending = false, kick = false;
+        uint32_t program = 0, count = 0;
+        vp::Constants constants{};
+        vp::Vertex v[2]{};
+    } stripTail;
+    void settleStripTail() {
+        if (!stripTail.pending)
+            return;
+        stripTail.pending = false;
+        for (uint32_t i = 0; i < stripTail.count; ++i) {
+            const vp::Output o = vp::evaluate(stripTail.program, stripTail.constants, stripTail.v[i]);
+            loadBatchVertex(o);
+            if (stripTail.kick) {
+                kick(o.x, o.y, o.z, -1, false); // the queue was emptied by the record's PRIM; nothing is drawn
+                stats.vertices--;               // counted with the record
+            }
+        }
+    }
+    // Every reader of the vertex registers or the queue: both kinds of pending tail.
     void settleBatchTail() {
+        settleStripTail();
+        settleBatchOnly();
+    }
+    void settleBatchOnly() {
         if (!batchTail.pending)
             return;
         batchTail.pending = false;
@@ -779,6 +797,7 @@ struct Renderer::Impl {
         GsDrawState state{};
         if (batchOnGpu(rec, state)) {
             batchTail.pending = false; // replaced: the record writes PRIM and leaves registers and queue of its own
+            stripTail.pending = false;
             queueBatch(rec, state);
             return true;
         }
