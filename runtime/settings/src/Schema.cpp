@@ -716,10 +716,10 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
                  false, mouseSteer)
             .needs = "Needs Arokh steering: Mouse and Look mode: Direct.";
         b.toggle("input.keyboard.dragon_strafe", "A / D strafe on Arokh",
-                 "A and D slide Arokh sideways while the mouse turns him, as on foot. Off: A and D turn him (the "
-                 "PS2 mapping).",
-                 false, mouseSteer)
-            .needs = "Needs Arokh steering: Mouse and Look mode: Direct.";
+                 "A and D slide Arokh sideways while the mouse turns him, as on foot, in the air and on the ground, "
+                 "with either steering mode. Off: A and D turn him (the PS2 mapping).",
+                 false, c.strafeKeys)
+            .needs = "Needs A / D strafe on.";
     }
 
     pg.sections.push_back({"Gamepad", {}});

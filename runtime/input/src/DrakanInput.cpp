@@ -1101,9 +1101,10 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     meleeDirections_ = melee;
     meleeIdentity_ = meleeIdentity;
     const bool casting = summon >= 1 && summon <= 4;
-    const bool dragonStrafe = cfg_.dragonStrafe && !cfg_.dragonStick && cfg_.lookMode == LookMode::Direct;
+    // On Arokh (flight and mounted ground alike) the remap follows [keyboard] dragon_strafe alone, whatever
+    // dragon_mode / look_mode say: the mouse turns him in both modes, so A / D turning is redundant (issue #11).
     const bool want = cfg_.strafeKeys && !casting && !padSteering && frame_.focused && !layerIsMenu_ &&
-                      (!dragon || dragonStrafe) && !hostOwned();
+                      (!dragon || cfg_.dragonStrafe) && !hostOwned();
     const int32_t axis = static_cast<int32_t>(g.read32(rec));
     if (want) {
         if (axis != 3) { // (re)installed by the options code: remember the game's own mapping, then strafe

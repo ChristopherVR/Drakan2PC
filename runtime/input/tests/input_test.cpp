@@ -1039,16 +1039,58 @@ static void testControlsV2() {
         {
             InputModule md; // dragon_strafe = 1 (default) with dragon_mode = mouse: A / D strafe Arokh too
             md.initHeadless(legacyPitch(c));
+            FakeGuest gd;
+            gd.write32(REC, 0);
+            gd.writeF(REC + 8, 0.8f);
             md.beginFrame(f);
-            md.beforePadMgrUpdate(g, true);
-            CHECK(g.read32(REC) == 3);
+            md.beforePadMgrUpdate(gd, true);
+            CHECK(gd.read32(REC) == 3);
+            NEAR(gd.readF(REC + 8), 1.0, 1e-6);
+            md.beforePadMgrUpdate(gd, false); // dismount and remount: the remap stays on
+            md.beforePadMgrUpdate(gd, true);
+            CHECK(gd.read32(REC) == 3);
+        }
+        {
+            // Issue #11: dragon_mode = stick (the mouse feeds the right stick) still strafes on A / D, flight and
+            // mounted ground alike (both are the controlled dragon); so does look_mode = stick.
             Config stick = legacyPitch(c);
-            stick.dragonStick = true; // the mouse is the stick: A / D keep turning him
-            md.initHeadless(stick);
-            md.beginFrame(f);
-            md.beforePadMgrUpdate(g, true);
-            CHECK(g.read32(REC) == 0);
-            NEAR(g.readF(REC + 8), 0.8, 1e-6);
+            stick.dragonStick = true;
+            InputModule ms;
+            ms.initHeadless(stick);
+            FakeGuest gs;
+            gs.write32(REC, 0);
+            gs.writeF(REC + 8, 0.8f);
+            ms.beginFrame(f);
+            ms.beforePadMgrUpdate(gs, true);
+            CHECK(gs.read32(REC) == 3);
+            NEAR(gs.readF(REC + 8), 1.0, 1e-6);
+            ms.beforePadMgrUpdate(gs, false);
+            CHECK(gs.read32(REC) == 3);
+            ms.setMenuActive(true); // a menu on the mount: the game's own record
+            ms.beginFrame(f);
+            ms.beforePadMgrUpdate(gs, true);
+            CHECK(gs.read32(REC) == 0);
+            NEAR(gs.readF(REC + 8), 0.8, 1e-6);
+            Config look = stick;
+            look.lookMode = LookMode::Stick;
+            InputModule ml;
+            ml.initHeadless(look);
+            ml.beginFrame(f);
+            ml.beforePadMgrUpdate(gs, true);
+            CHECK(gs.read32(REC) == 3);
+            Config off = stick;
+            off.dragonStrafe = false; // dragon_strafe = 0: A / D turn him again, on foot they still strafe
+            InputModule mo;
+            mo.initHeadless(off);
+            FakeGuest go;
+            go.write32(REC, 0);
+            go.writeF(REC + 8, 0.8f);
+            mo.beginFrame(f);
+            mo.beforePadMgrUpdate(go, false);
+            CHECK(go.read32(REC) == 3);
+            mo.beforePadMgrUpdate(go, true);
+            CHECK(go.read32(REC) == 0);
+            NEAR(go.readF(REC + 8), 0.8, 1e-6);
         }
         m.beforePadMgrUpdate(g, false);
         CHECK(g.read32(REC) == 3);

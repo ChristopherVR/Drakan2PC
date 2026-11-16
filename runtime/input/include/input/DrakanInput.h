@@ -100,10 +100,10 @@ public:
     bool bowCrosshairVisible() const {
         return (bowAiming_.load() || bowSightOpen_.load()) && !hostOwned() && !menuActive_.load();
     }
-    // Before-hook for PadMgr_Update: A / D strafe (on foot, and on Arokh with [keyboard] dragon_strafe) by pointing
-    // the left stick's X at the strafe axis (3) instead of the turn axis (0). `dragon` = current controlled-actor
-    // role. With [mouse] dragon_mode = mouse it also turns / pitches the controlled Arokh by the mouse counts of this
-    // tick (steerDragon, DragonSteer.h) before the game's controller runs.
+    // Before-hook for PadMgr_Update: A / D strafe (on foot, and on Arokh in any mode with [keyboard] dragon_strafe) by
+    // pointing the left stick's X at the strafe axis (3) instead of the turn axis (0). `dragon` = current
+    // controlled-actor role. With [mouse] dragon_mode = mouse it also turns / pitches the controlled Arokh by the mouse
+    // counts of this tick (steerDragon, DragonSteer.h) before the game's controller runs.
     void beforePadMgrUpdate(IGuest& g, bool dragon);
 
     // After-hook for PadMgr_Update (0x1e3970): delivers ACT:/CMD: bindings and (optionally) menu cursor / clicks.

@@ -335,7 +335,7 @@ stick_sign_y = 1
 walk_scale = 0.5
 toggle_run = 0             ; 1 = press WALK to switch between running and walking; starts running
 strafe = 1                 ; A / D strafe like Drakan: Order of the Flame (0 = the game's own mapping: A / D turn). Needs no change in the game's Options.
-dragon_strafe = 1          ; with [mouse] dragon_mode = mouse, A / D strafe Arokh too (the mouse turns him); 0 = A / D turn him
+dragon_strafe = 1          ; with strafe = 1, A / D strafe Arokh too, flying or on the ground, either dragon_mode (the mouse turns him); 0 = A / D turn him
 curve_compensation = 1     ; undo the game's squared stick response so WASD is full speed
 directional_attack = modifier ; when WASD + attack is a directional special move: modifier = only while DIRECTIONAL_ATTACK (Left Alt) is held, so a plain attack keeps walking / strafing; tap = press the movement key and attack together; always = whenever a movement key is held; off = arrow keys only
 

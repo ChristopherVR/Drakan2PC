@@ -637,7 +637,7 @@ const std::vector<Field>& fields() {
          "swings round about half a second later)"},
         {"keyboard", "strafe", true, GETB(controls.strafeKeys), SETB(controls.strafeKeys), nullptr},
         {"keyboard", "dragon_strafe", true, GETB(controls.dragonStrafe), SETB(controls.dragonStrafe),
-         "with dragon_mode = mouse, A / D strafe Arokh too (0 = A / D turn him)"},
+         "with strafe = 1, A / D strafe Arokh too, flying or on the ground, either dragon_mode (0 = A / D turn him)"},
         {"keyboard", "walk_scale", true, GETF(controls.walkScale, "%.2f"), SETF(controls.walkScale), nullptr},
         {"keyboard", "toggle_run", true, GETB(controls.toggleRun), SETB(controls.toggleRun), nullptr},
         {"keyboard", "curve_compensation", true, GETB(controls.curveCompensation), SETB(controls.curveCompensation),

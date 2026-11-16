@@ -172,7 +172,7 @@ struct ControlSettings {
     float dragonScale = 1.0f;         // [mouse] dragon_sensitivity (x sensitivity_x / _y while steering Arokh)
     float dragonSmoothing = 0.0f;     // [mouse] dragon_smoothing (ms; 0 = raw)
     bool dragonCameraCarry = true;    // [mouse] dragon_camera_carry (the view turns with Arokh's mouse turns at once)
-    bool dragonStrafe = true;         // [keyboard] dragon_strafe (A / D strafe Arokh with dragon_mode = mouse)
+    bool dragonStrafe = true;         // [keyboard] dragon_strafe (A / D strafe Arokh, any dragon_mode)
     bool curveCompensation = true;    // [keyboard] curve_compensation
     std::string directionalAttack = "modifier"; // [keyboard] directional_attack: modifier | tap | always | off
     bool gamepadEnabled = true;                 // [gamepad] enabled

@@ -91,8 +91,8 @@ struct Config {
     bool toggleRun = false;   // WALK switches between run and walk on each press instead of while held
     bool strafeKeys = true;   // A / D (left stick x) strafe instead of turn, like Drakan: Order of the Flame (on foot;
                               // on Arokh see dragonStrafe)
-    bool dragonStrafe = true; // [keyboard] dragon_strafe: with dragon_mode = mouse, A / D strafe Arokh as well (the
-                              // mouse turns him); 0 = A / D turn him as on the PS2
+    bool dragonStrafe = true; // [keyboard] dragon_strafe: A / D strafe Arokh as well, in flight and mounted on the
+                              // ground, any dragon_mode (the mouse turns him); 0 = A / D turn him as on the PS2
     bool curveCompensation = true; // pre-invert the game's pow(|v|,2) so keyboard movement is linear/full speed
     DirectionalAttackMode directionalAttack = DirectionalAttackMode::Modifier; // [keyboard] directional_attack
     // [gamepad]

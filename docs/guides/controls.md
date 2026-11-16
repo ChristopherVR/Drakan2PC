@@ -48,6 +48,10 @@ Open **F1 → Key Bindings** to change actions, and the mouse settings for sensi
 
 The Windows controller path uses XInput and maps the original DualShock layout onto the controller. Controller and keyboard prompts can be selected in PC Settings.
 
+## Riding Arokh
+
+The mouse turns Arokh, in the air and on the ground. **A / D strafe him sideways**, as they strafe Rynn on foot, with either steering mode (**F1 → Controls → Arokh → Steering**: Mouse or Right stick emulation). W / S fly forward and back, **Space** climbs and **Left Ctrl / C** dives. To make A / D turn him as on the PS2 pad, switch off **A / D strafe on Arokh** (`[keyboard] dragon_strafe = 0`); `[keyboard] strafe = 0` turns strafing off on foot and on Arokh. A physical controller's left stick keeps the game's own mapping.
+
 ## Modern bow aiming
 
 Choose the bow style in **Options > Gameplay > Combat > Bow combat**:
