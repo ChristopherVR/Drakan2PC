@@ -794,6 +794,17 @@ same uploaded bytes (`GSR_MOTION_PREPARE_VERIFY`); Wartok Canyons -3 to -6 % fra
 same-run toggle (`GSR_DLSS_PATH_TOGGLE`), Surdana unchanged (VU1 worker bound). Details and what remains:
 [journal](../journal/2026-11-16/perf-dlss-path.md).
 
+## DLSS motion tracking and posed capture in one pass (2026-11-17)
+
+`GSR_MOTION_TRACK_FUSED` (default on): `History::track` converts, checks and keeps a segment from the draw's own
+vertices in one SSE2 pass, and draws without object or mesh skip the ordinal map; `DRAKAN_SCENE_POSED_FUSED` (default
+on): a posed character's corners gathered without branches and hashed per triangle in the same pass. Same DLSS inputs
+(`GSR_MOTION_PREPARE_VERIFY`, `DRAKAN_SCENE_POSED_VERIFY`, unit tests). Wartok Canyons with DLSS quality, same-run
+toggle `GSR_DLSS_CANYON_TOGGLE`: GS worker `drawObjectMotion` -0.16 to -0.22 ms per world, posed capture -7 us per
+character (about -0.1 ms per capture), frame time within the run spread (-3.8 to +0.3 %) because the GS worker and the
+EE both stay at 94 to 98 %. Surdana (VU1 bound) unchanged. What DLSS still costs:
+[journal](../journal/2026-11-17/perf-dlss-canyon.md).
+
 ## CPU use, jitter and the GPU vertex path at 4K (2026-11-16)
 
 At the owner's settings (3840x2160, scale 8, vsync off, uncapped) CPU time per world frame is the same at any frame

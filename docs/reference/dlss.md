@@ -4,6 +4,21 @@ The DLSS 5 neural rendering bridge (`gsr_nr`, `nr_prototype`) was removed on 28 
 layout NVIDIA does not publish. DLSS Super Resolution / DLAA are unchanged. Sections below that describe the neural path
 are history.
 
+## Motion tracking and the posed capture in one pass, 17 November 2026
+
+- `motion::History::track` reads a tracked segment's draw vertices itself (`motion::Source`) and converts, checks,
+  writes the entries and keeps the copy for the next world in one SSE2 pass (`GSR_MOTION_TRACK_FUSED`, default on;
+  draws without object or mesh also skip the per-world ordinal map). The EE gathers a posed character's corners
+  without branches and hashes each triangle while it is in cache (`DRAKAN_SCENE_POSED_FUSED`, default on; same
+  identity value).
+- Same inputs: `GSR_MOTION_PREPARE_VERIFY=1` also compares the fused form with converting first and the first
+  `track()` (2.6 M streams, 309 k tracked batches: 0 differ); `DRAKAN_SCENE_POSED_VERIFY=1` builds every pose the
+  first way too (28,140 poses: 0 differ). In-run switch: `GSR_DLSS_CANYON_TOGGLE=<s>`.
+- Wartok Canyons, DLSS quality: GS worker `drawObjectMotion` 0.69 to 0.77 -> 0.51 to 0.57 ms per world, posed
+  characters 18 to 21 -> 11 to 13 us each on the EE; frame time -3.8, -0.9 and +0.3 % (within the spread, both threads
+  stay near full). DLSS quality still costs about 1 ms per frame over off there. See
+  [the journal](../journal/2026-11-17/perf-dlss-canyon.md).
+
 ## Object-motion work on the GS worker and the EE, 16 November 2026
 
 - With DLSS on, the GS worker tracks every world draw's vertices for object motion (`prepareObjectMotion`,
