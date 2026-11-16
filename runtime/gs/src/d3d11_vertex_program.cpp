@@ -210,13 +210,24 @@ bool D3D11Backend::Impl::programTakes(vpath::Fallback* why, bool batchPath) {
     b.worldOpen = engineWorldOpen;
     b.hudMapped = hudScale < 0.999f || std::fabs(hudSize - 1.0f) > 0.001f || sceneCamera.guiScreen == 14 ||
                   inventoryHudFrame.applies(false, 640) || nativeSubtitleOpen;
+    fillVertexReaders(b);
+    vertexReaders.store(program_draw::cpuReadsVertices(b), std::memory_order_relaxed);
+    return program_draw::backendTakes(b, why);
+}
+
+void D3D11Backend::Impl::fillVertexReaders(program_draw::BackendState& b) const {
     b.rayEffects = modernWater || rayShadows || rayReflections || rayGlobalIllumination;
     // Terrain detail and the debug view shade per pixel from the camera and depth (prepareTerrain); the cliff side
     // projection and the audit read the first triangles of the draw on the CPU.
     b.terrainDetail = terrainCfg.cliffs || runtimeFlags().terrainAudit;
     b.lodStatistic = lodStat;
     b.vertexDiagnosis = runtimeFlags().surfaceAudit || cstr(runtimeFlags().surfacePick) != nullptr;
-    return program_draw::backendTakes(b, why);
+}
+
+void D3D11Backend::Impl::publishVertexReaders() {
+    program_draw::BackendState b;
+    fillVertexReaders(b);
+    vertexReaders.store(program_draw::cpuReadsVertices(b), std::memory_order_relaxed);
 }
 
 namespace {
@@ -448,6 +459,12 @@ vpath::Capability D3D11Backend::vertexPathCapability() const {
     };
     c.shaderStages = (offered(g ? &g->strips : nullptr) ? vpath::kStrips : 0u) |
                      (offered(g ? &g->batches : nullptr) ? (vpath::kAllStages & ~vpath::kStrips) : 0u);
+    // A feature that reads every draw's vertices on the CPU would refuse each record (Fallback::Feature) and the
+    // renderer would evaluate them one by one: three times the frame time in Surdana with modern water on
+    // (docs/journal/2026-11-16/perf-cpu-jitter.md). Offer nothing; drakan_vertex_path follows within 250 ms.
+    c.cpuVertexReaders = m_impl->vertexReaders.load(std::memory_order_relaxed);
+    if (c.cpuVertexReaders)
+        c.shaderStages = 0;
     return c;
 }
 

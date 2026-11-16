@@ -63,6 +63,12 @@ struct BackendState {
     bool lodStatistic = false;    // GSR_LODSTAT
     bool vertexDiagnosis = false; // a debug switch that prints or inspects vertices
 };
+// A renderer feature reads the vertices of every draw on the CPU: backendTakes answers Feature for each record while it
+// is on. The backends publish it (vertexPathCapability offers no stage then), so the runs stay in the VU1 microprogram
+// instead of being handed over and evaluated record by record on the renderer thread, which is several times slower.
+inline bool cpuReadsVertices(const BackendState& b) {
+    return b.rayEffects || b.terrainDetail || b.lodStatistic || b.vertexDiagnosis;
+}
 inline bool backendTakes(const BackendState& b, vpath::Fallback* why) {
     vpath::Fallback reason = vpath::Fallback::BackendNoPath;
     bool takes = false;
@@ -72,7 +78,7 @@ inline bool backendTakes(const BackendState& b, vpath::Fallback* why) {
         reason = vpath::Fallback::AdapterNoSupport;
     else if (!b.shaderReady)
         reason = vpath::Fallback::NotReady;
-    else if (b.rayEffects || b.terrainDetail || b.lodStatistic || b.vertexDiagnosis)
+    else if (cpuReadsVertices(b))
         reason = vpath::Fallback::Feature;
     else if (!b.worldOpen && b.hudMapped)
         reason = vpath::Fallback::DrawState;

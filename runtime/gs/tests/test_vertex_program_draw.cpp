@@ -110,7 +110,14 @@ void testDecisions() {
         b = ready;
         (f == 0 ? b.rayEffects : f == 1 ? b.terrainDetail : f == 2 ? b.lodStatistic : b.vertexDiagnosis) = true;
         expect(!program_draw::backendTakes(b, &why) && why == vpath::Fallback::Feature, "a vertex-reading feature");
+        expect(program_draw::cpuReadsVertices(b), "the capability sees the vertex-reading feature");
     }
+    expect(!program_draw::cpuReadsVertices(ready), "no vertex-reading feature: the capability offers stages");
+    b = ready;
+    b.shaderReady = false;
+    b.hudMapped = true;
+    b.worldOpen = false;
+    expect(!program_draw::cpuReadsVertices(b), "per-draw reasons do not hold the path back for the session");
     b = ready;
     b.worldOpen = false;
     expect(program_draw::backendTakes(b, &why), "outside the world without a HUD map (a replay)");

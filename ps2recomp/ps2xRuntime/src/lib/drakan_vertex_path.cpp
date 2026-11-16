@@ -40,10 +40,13 @@ void applyLocked() {
     if (word != before || toggle)
         std::fprintf(stderr,
                      "[vertex-path] vertex_processing = %s: %s (renderer path %d, adapter exact %d, proven %d), "
-                     "stages 0x%02x%s%s (stages 0x%02x)\n",
+                     "stages 0x%02x%s%s (stages 0x%02x)%s\n",
                      vpath::choiceName(g_choice), vpath::evalName(vpath::evalOf(word)), int(cap.backendHasPath),
                      int(cap.adapterExact), int(cap.proven), vpath::stagesOf(word), toggle ? ", toggling with " : "",
-                     toggle ? vpath::evalName(vpath::evalOf(other)) : "", toggle ? vpath::stagesOf(other) : 0u);
+                     toggle ? vpath::evalName(vpath::evalOf(other)) : "", toggle ? vpath::stagesOf(other) : 0u,
+                     cap.cpuVertexReaders ? "; held in the microprogram: modern water, a ray effect, terrain cliffs or "
+                                            "a vertex diagnosis reads the vertices on the CPU"
+                                          : "");
 }
 } // namespace
 

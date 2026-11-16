@@ -608,6 +608,11 @@ struct D3D11Backend::Impl {
     const VertexProgramBatch* programBatch = nullptr; // set around the draw() of a batch
     ProgramGpu& programState();
     bool programTakes(vpath::Fallback* why, bool batchPath);
+    // program_draw::cpuReadsVertices of the current settings, written on the renderer thread (applyLive, initTerrain,
+    // programTakes) and read by vertexPathCapability on the EE thread.
+    std::atomic<bool> vertexReaders{false};
+    void fillVertexReaders(program_draw::BackendState& b) const;
+    void publishVertexReaders();
     void programFailed(const char* what);
     bool prepareProgramMotion(RT& rt, const GsDrawState& s, const VertexProgramBatch& batch, float sx, float sy);
     void bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch);

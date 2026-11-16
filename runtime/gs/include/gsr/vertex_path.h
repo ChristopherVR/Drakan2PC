@@ -83,6 +83,9 @@ struct Capability {
     // record no shader can draw would be evaluated on the CPU by the renderer, which is exact but much slower than
     // the microprogram it replaced.
     uint32_t shaderStages = 0;
+    // A renderer feature that reads the vertices of every draw on the CPU is on (modern water, a ray effect, terrain
+    // cliffs, a vertex diagnosis): shaderStages is 0 meanwhile, so nothing leaves the microprogram.
+    bool cpuVertexReaders = false;
 };
 
 // The setting to an evaluation mode. `gpu` asks for the GPU path wherever the backend has one (anything it cannot

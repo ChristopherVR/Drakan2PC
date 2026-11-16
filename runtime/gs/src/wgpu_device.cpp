@@ -353,6 +353,7 @@ void WgpuBackend::Impl::applyLive(const LiveSettings& ls) {
             configureSurface();
         }
     }
+    publishVertexReaders();
 }
 
 void WgpuBackend::Impl::reset() {

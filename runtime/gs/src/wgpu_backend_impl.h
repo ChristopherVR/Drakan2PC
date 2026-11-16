@@ -53,6 +53,10 @@
 
 namespace gsr {
 
+namespace program_draw {
+struct BackendState; // vertex_program_draw.h
+} // namespace program_draw
+
 namespace wgpu_detail {
 // gs_shaders_wgsl.h kWgslRect
 struct RectConsts {
@@ -226,6 +230,11 @@ struct WgpuBackend::Impl {
     ProgramGpu& programState();
     void programFailed(const char* what);
     bool programTakes(vpath::Fallback* why);
+    // program_draw::cpuReadsVertices of the current settings, written on the renderer thread (applyLive,
+    // programTakes) and read by vertexPathCapability on the EE thread.
+    std::atomic<bool> vertexReaders{false};
+    void fillVertexReaders(program_draw::BackendState& b) const;
+    void publishVertexReaders();
     const VertexProgramBatch* programBatch = nullptr;
     bool prepareProgramMotion(RT& rt, const GsDrawState& s, const VertexProgramBatch& batch, float sx, float sy);
     void bindProgramDraw(const GsDrawState& s, const VertexProgramBatch& batch);

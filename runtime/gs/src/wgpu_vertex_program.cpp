@@ -184,11 +184,22 @@ bool WgpuBackend::Impl::programTakes(vpath::Fallback* why) {
     b.worldOpen = engineWorldOpen;
     b.hudMapped = hudScale < 0.999f || std::fabs(hudSize - 1.0f) > 0.001f || sceneCamera.guiScreen == 14 ||
                   inventoryHudFrame.applies(false, 640) || nativeSubtitleOpen;
+    fillVertexReaders(b);
+    vertexReaders.store(program_draw::cpuReadsVertices(b), std::memory_order_relaxed);
+    return program_draw::backendTakes(b, why);
+}
+
+void WgpuBackend::Impl::fillVertexReaders(program_draw::BackendState& b) const {
     b.rayEffects = modernWater || rayShadows || rayReflections || rayGlobalIllumination;
     b.terrainDetail = runtimeFlags().terrainAudit;
     b.lodStatistic = lodStat;
     b.vertexDiagnosis = runtimeFlags().surfaceAudit || cstr(runtimeFlags().surfacePick) != nullptr;
-    return program_draw::backendTakes(b, why);
+}
+
+void WgpuBackend::Impl::publishVertexReaders() {
+    program_draw::BackendState b;
+    fillVertexReaders(b);
+    vertexReaders.store(program_draw::cpuReadsVertices(b), std::memory_order_relaxed);
 }
 
 // Behind kCaps.motionVectors, which is false here: never called.
@@ -303,6 +314,11 @@ vpath::Capability WgpuBackend::vertexPathCapability() const {
                      !(i.programGpu && i.programGpu->state.load() == Impl::ProgramGpu::Failed);
     c.proven = false;
     c.shaderStages = vpath::kStrips; // the batch path has no shader on this backend yet
+    // As on Direct3D 11: while a feature reads every draw's vertices on the CPU, nothing is offered, so the runs stay
+    // in the microprogram instead of being evaluated record by record here.
+    c.cpuVertexReaders = i.vertexReaders.load(std::memory_order_relaxed);
+    if (c.cpuVertexReaders)
+        c.shaderStages = 0;
     return c;
 }
 

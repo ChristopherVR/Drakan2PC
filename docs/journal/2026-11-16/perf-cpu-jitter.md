@@ -57,15 +57,43 @@ map file.
 | cpu | 100.1 (96.8 to 116.5) | 9.70 | 15.0 | 7.63 | 8.17 | 8.38 | 31.92 | 1.05 |
 | gpu | 33.8 (32.8 to 34.3) | 29.21 | 34.9 | 8.00 | 5.46 | 29.08 | 54.90 | 4.70 |
 
-The VU1 worker saves 2.7 ms per frame, the GS worker pays 20.7 ms and is saturated (96 %), and the GPU world time
-grows 4.5 times. The 13 November tuning note measured +0.9 to 2.3 ms on the GS worker for the same path in Surdana
-at a 1280x960 window; at 3840x2160 and scale 8 the cost is an order of magnitude larger. `vertex_processing = gpu` is
-a regression at the owner's settings; `cpu` (the shipped default) stays.
+The VU1 worker saves 2.7 ms per frame and the GS worker pays 20.7 ms (96 % busy). The cause is not the shader: with
+`DRAKAN_VERTEX_LOG=1` every record fell back with reason `feature` (shader vertices 0, CPU 42,467,136), and
+`GSR_PROFILE` shows `programEvaluate` taking 1.2 to 1.5 s of every 2 s on the GS worker. The owner's `modern_water = 1`
+sets `BackendState::rayEffects` (the surface reconstruction un-projects every draw's triangles on the CPU), so the
+renderer refuses each record and evaluates it with the CPU reference, while the VU1 side keeps handing the runs over.
+The internal scale is not involved (section 5).
 
-## 5. Open
+Fix: the backends publish `program_draw::cpuReadsVertices` of their settings (`vertexReaders`, written in
+`applyLive`, `initTerrain` and `programTakes`), and `vertexPathCapability` offers no stage while it is set
+(`Capability::cpuVertexReaders`), so `drakan_vertex_path` keeps the runs in the microprogram within 250 ms and the
+`[vertex-path]` line names the reason. Direct3D 11 and WebGPU.
 
-* Name the two unnamed busy threads (rebuild with a map file, then `hostprof.csv` RVAs).
-* Profile the GS worker under `gpu` at scale 8 (`GSR_PROFILE`: `programBounds`, `programUpload`, `drawSubmit`) to
-  find what grows with the internal scale.
+## 5. Settings bisect (Surdana, owner's settings with one change, 2 interleaved repeats)
+
+| variant | world fps | frame ms | 1 % low ms | EE | VU1 | GS | process CPU |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| owner's settings | 101.6 (91.1 to 112.2) | 9.59 | 14.6 | 7.45 | 7.84 | 8.12 | about 390 % |
+| `GSR_MODERN_WATER=0` | 132.9 (123.7 to 142.2) | 7.44 | 9.4 | 5.03 | 7.21 | 5.84 | about 270 % |
+| water off and `DRAKAN_VERTEX_PROCESSING=gpu` | 152.1 (149.5 to 154.8) | 6.44 | 8.6 | 5.32 | 5.10 | 6.06 | not sampled |
+| `GSR_TEXUP=1` | 107.8 | 8.99 | 13.6 | 7.23 | 7.66 | 7.90 | about 400 % |
+| `GSR_TEXREPLACE=0` | 103.8 | 9.41 | 14.3 | 7.19 | 7.62 | 8.18 | about 390 % |
+| `PS2X_GS_SCALE=5` | 103.1 | 9.29 | 14.9 | 7.65 | 7.92 | 8.53 | about 350 % |
+
+* The two unnamed busy threads of section 3 (about 60 % and 50 % of a processor) are gone with modern water off: they
+  are the modern water work. Modern water costs about 1.1 processors and 21 % frame time in this scene (2 of 2
+  pairs faster without it).
+* With water off the GPU vertex path works (142,718,586 shader vertices, 37,777 on the CPU, fallbacks only `not
+  ready` 251) and pays at 3840x2160 and scale 8: frame time -13 % against water off alone, VU1 worker 7.21 to 5.10 ms.
+  The 1 % low improves, the longest frame does not (11 and 28 ms in the two runs).
+* HD textures, texture upscaling and scale 5 against 8 change nothing beyond the run-to-run range.
+
+## 6. Open
+
+* Make the GPU vertex path and modern water work together: the surface reconstruction needs the transformed
+  triangles, which the shader path has only on the GPU (stream output or a compute pass that writes them for the
+  surface builder).
 * Whether the shipped defaults should pace to the display (vsync on, or a frame limit at the refresh) is the
-  owner's decision.
+  owner's decision; `tearing is the jitter` is inferred, not measured on the panel.
+* Only the Surdana start was measured; the owner's session ran at about twice its rate, and no scene with the
+  per-frame read-back (FINISH polls) was benchmarked.

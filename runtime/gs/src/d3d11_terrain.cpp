@@ -18,6 +18,7 @@ void D3D11Backend::Impl::initTerrain() {
     if (f.terrainStrength)
         terrainCfg.strength = *f.terrainStrength;
     terrainCfg.debug = f.terrainDebug;
+    publishVertexReaders(); // terrain cliffs read the vertices of a draw on the CPU
 }
 
 namespace {

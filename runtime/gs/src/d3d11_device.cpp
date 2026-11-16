@@ -764,6 +764,7 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
         if (swap && SUCCEEDED(swap.As(&sc2)))
             sc2->SetMaximumFrameLatency(ls.latency);
     }
+    publishVertexReaders();
 }
 
 void D3D11Backend::Impl::reset() {
