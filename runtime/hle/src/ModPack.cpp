@@ -1701,6 +1701,22 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         const std::string filesRoot = lower(c.prefix) + "files/", newRoot = lower(c.prefix) + "new/";
         size_t nEntries = 0, nTexts = 0, nRejected = 0, nFiles = 0, nNew = 0, nLevels = 0;
         ++modIndex;
+        // The pack's glyph map (overrides/INTERFCE.TXD/glyphs.ini) is read before any of its text.ini files, whatever
+        // the archive order; it only affects text.ini files that declare `encoding = utf-8`.
+        std::shared_ptr<GlyphMap> glyphs;
+        {
+            const std::string glyphPath = root + lower(kGlyphMapDir) + "/" + kGlyphMapName;
+            for (auto& it : c.archive->list()) {
+                if (lower(it.path) != glyphPath)
+                    continue;
+                std::vector<u8> b;
+                if (it.size <= (64u << 10) && c.archive->read(it.path, b))
+                    glyphs = parseGlyphMap(std::string(b.begin(), b.end()), "mod " + mid + ": " + it.path);
+                else
+                    logf("mods: %s: cannot read %s", mid.c_str(), it.path.c_str());
+                break;
+            }
+        }
         for (const std::string& ln : c.st.manifest.levels) {
             std::string why;
             if (!validLevelName(ln, why)) {
@@ -1842,14 +1858,15 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     continue;
                 }
                 std::string content(b.begin(), b.end());
-                nTexts += texts_->loadIni(file, content);
+                nTexts += texts_->loadIni(file, content, glyphs.get());
                 size_t p = 0;
                 while (p < content.size()) {
                     size_t e = content.find('\n', p);
                     std::string ln = trim(content.substr(p, e == std::string::npos ? std::string::npos : e - p));
                     p = e == std::string::npos ? content.size() : e + 1;
                     size_t eq = ln.find('=');
-                    if (ln.empty() || ln[0] == ';' || ln[0] == '#' || eq == std::string::npos)
+                    if (ln.empty() || ln[0] == ';' || ln[0] == '#' || eq == std::string::npos ||
+                        isTextIniDirective(ln.substr(0, eq)))
                         continue;
                     std::string k = lower(trim(ln.substr(0, eq)));
                     if (k.find('.') == std::string::npos)

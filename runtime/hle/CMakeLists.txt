@@ -12,6 +12,7 @@ add_library(drakan_hle STATIC
     src/ArenaLevel.cpp
     src/ResourceService.cpp
     src/ResourceOverride.cpp
+    src/GlyphMap.cpp
     src/CampaignSoundSwaps.cpp
     src/ModPack.cpp
     src/SaveRecord.cpp
@@ -46,6 +47,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(save_upgrade_test tests/save_upgrade_test.cpp)
     target_link_libraries(save_upgrade_test PRIVATE drakan_hle drakan::options)
     add_test(NAME save_upgrade_test COMMAND save_upgrade_test)
+    add_executable(glyph_map_test tests/glyph_map_test.cpp)
+    target_link_libraries(glyph_map_test PRIVATE drakan_hle drakan::options)
+    drakan_enable_asserts(glyph_map_test)
+    add_test(NAME glyph_map_test COMMAND glyph_map_test)
     add_executable(override_test tests/override_test.cpp)
     target_link_libraries(override_test PRIVATE drakan_hle drakan::options)
     add_executable(resource_sequence_test tests/resource_sequence_test.cpp)

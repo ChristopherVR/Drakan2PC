@@ -27,6 +27,29 @@ exact sub id wins over `x` within one pack). The file content replaces the entry
 (`lang` = `en de fr it es` or `*`, default all; `;` and `#` start comments; escapes `\\ \n \r \t`; write the game's
 glyph escape `\033` as `\\033`). Same syntax as the dev override folder.
 
+**Translations (issue #9).** By default `text.ini` values are game bytes as written (Windows-1252 / Latin-1). A line
+`encoding = utf-8` anywhere in a `text.ini` makes that file UTF-8 (a BOM is fine; `raw`, `cp1252`, `latin-1` keep the old
+behaviour; the directive is not a text key, so two packs declaring it do not conflict). Each character is then turned into a
+game byte:
+
+1. through the pack's glyph map `overrides/INTERFCE.TXD/glyphs.ini` (next to the font overrides `0040_96_0.bin` /
+   `0040_97_0.bin`; one map per pack, it applies to every `text.ini` of the pack and to both fonts, because the same string can be
+   drawn with either font and both share the glyph order);
+2. else ASCII, Latin-1 `U+00A1..U+00FF` and the Windows-1252 punctuation the fonts have (`U+2019` etc.) map to themselves,
+   no-break space becomes a space;
+3. else `?` (counted in the log line `override: <FILE>/text.ini: utf-8, N line(s), glyph map M entries, U unmapped, ...`).
+
+The result is cut to **255 bytes** (the 256-byte line buffer from the issue; not traced in the guest code), never inside a
+`\ooo` escape, and each cut is logged. `glyphs.ini` lines are `<char> = <glyph index>` with `<char>` one UTF-8 character or
+`U+XXXX`, for example `U+0416 = 125` or `Ж = 125`. The glyph index is the cell order of the font texture, defined in
+[ui-prompts.md section 1.1](ui-prompts.md):
+0..93 = `!`..`~`, 94..188 = Latin-1 `0xa1..0xff` (`index + 0x43`), 189..223 = the special table (223 = last button picture;
+indices 216..223 exist only in font 97). Index 202 is unreachable and rejected; the control-code glyphs and the backslash glyph
+are written as `\0oo` escapes automatically. A font replacement must keep one marker per cell in that order, so a translation
+draws its letters into existing cells (Latin-1 accents it does not need, or homoglyphs: Cyrillic `А В Е К М Н О Р С Т Х а е о р с у х`
+can point at the Latin cells). Only 224 cells are reachable, so two translations that need different extra letters still compete
+for the same cells. SDB subtitle text is not covered by `text.ini`.
+
 Loading cost: every member of every enabled pack is read once at start-up (in parallel; the log line
 `mods: pack files installed in N ms` reports it) and the files a pack replaces or rebuilds stay in memory for the
 session (`docs/journal/2026-11-12/perf-loading-hitches.md`). A pack file is only held open during that read.

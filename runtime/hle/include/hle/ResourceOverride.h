@@ -180,6 +180,21 @@ std::vector<u8> encode(const std::vector<std::string>& slots);
 int langFromName(const std::string& s);
 } // namespace xdb
 
+class GlyphMap;
+
+// text.ini "encoding" directive: returns true and sets `utf8` when `content` declares one ("utf-8"/"utf8" -> true,
+// "raw"/"cp1252"/"windows-1252"/"latin-1" -> false); `bad` gets an unknown value (treated as raw).
+bool textIniEncoding(const std::string& content, bool& utf8, std::string* bad = nullptr);
+// True for text.ini keys that are directives, not string ids (the mod conflict scan skips them).
+bool isTextIniDirective(const std::string& key);
+// The translation glyph map lives next to the font override: overrides/INTERFCE.TXD/glyphs.ini (one per pack, it
+// applies to both fonts 96 and 97, which share the glyph order).
+inline constexpr const char* kGlyphMapDir = "INTERFCE.TXD";
+inline constexpr const char* kGlyphMapName = "glyphs.ini";
+// Parses a glyph map (bad lines are logged with `label`); loadGlyphMapFile returns nullptr when the file is missing.
+std::shared_ptr<GlyphMap> parseGlyphMap(const std::string& content, const std::string& label);
+std::shared_ptr<GlyphMap> loadGlyphMapFile(const std::string& path, const std::string& label);
+
 class XdbTextOverride final : public IResourceOverride {
 public:
     // Rule callback: may rewrite `text` (raw game bytes: Latin-1/Windows-1252; glyph escapes are the literal characters
@@ -188,9 +203,12 @@ public:
     void addRule(Rule r) { rules_.push_back(std::move(r)); }
     // <root>/<FILE>/text.ini: "<id>[.<lang>] = text" (lang en/de/fr/it/es or *, default *), ';' / '#' at line start =
     // comment, escapes \\ \n \r \t (write the game's glyph escape \033 as \\033). Returns the number of lines accepted.
+    // A line "encoding = utf-8" anywhere in the file makes the values UTF-8: they are transcoded to game bytes through
+    // `glyphs` (GlyphMap.h) and clamped to kXdbTextMaxBytes. Without it (or "encoding = raw") the bytes are kept as
+    // written. loadDirectory reads the glyph map from <root>/INTERFCE.TXD/glyphs.ini when present.
     size_t loadDirectory(const std::string& root);
     // Same line syntax from memory, for one <FILE> (upper-cased). Returns the number of lines accepted.
-    size_t loadIni(const std::string& file, const std::string& content);
+    size_t loadIni(const std::string& file, const std::string& content, const GlyphMap* glyphs = nullptr);
     void setText(const std::string& file, u16 id, int lang, std::string text); // programmatic patch (lang -1 = all)
     bool wants(const ResourceId& id) override;
     bool apply(const ResourceId& id, std::vector<u8>& data) override;

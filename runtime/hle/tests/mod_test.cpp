@@ -1271,6 +1271,31 @@ int main() {
         CHECK(applyTo(mm.entries(), rid("INTERFCE.TXD", 0x40, 98, 3), 60) == fill(50, 0xA2));
     }
 
+    // ---- translation packs: utf-8 text.ini + glyph map next to the font override (synthetic letters only)
+    {
+        fs::path mods = root / "mods_utf8";
+        // glyphs.ini comes after text.ini in the archive: the pack must still read it first
+        writeZip(mods / "ru.zip", {stored("ru/mod.toml", toml("ru")),
+                                   stored("ru/overrides/INTERFCE.XDB/text.ini",
+                                          "encoding = utf-8\n156 = \xD0\x96\xD0\x94!\n"), // U+0416 U+0414 '!'
+                                   stored("ru/overrides/INTERFCE.TXD/glyphs.ini", "U+0416 = 125\n\xD0\x94 = 126\n")});
+        writeZip(mods / "uk.zip", {stored("uk/mod.toml", toml("uk")),
+                                   stored("uk/overrides/INTERFCE.XDB/text.ini", "encoding = utf-8\n157 = ok\n")});
+        g_log.clear();
+        ModManager mm(pal);
+        mm.load(mods.string(), {{"ru", true}, {"uk", true}});
+        CHECK(mm.textCount() == 2);
+        CHECK(mm.conflicts().empty()); // the two "encoding" directives are not text keys
+        auto t = mm.texts();
+        auto txt = xdb::encode({"orig", "o", "o", "o", "o"});
+        std::vector<u8> d = txt;
+        std::vector<std::string> sl;
+        ResourceId tid = rid("INTERFCE.XDB", 0x400, 156, 2);
+        // glyph 125 = byte 0xc0, glyph 126 = byte 0xc1
+        CHECK(t && t->apply(tid, d) && xdb::decode(d, sl) && sl[0] == "\xC0\xC1!");
+        CHECK(logHas("glyph map with 2 entries"));
+    }
+
     // ---- mods.ini: unknown packs are appended as "new" (off, ModStatus::isNew); order and enabled flags honoured
     {
         fs::path mods = root / "mods2";

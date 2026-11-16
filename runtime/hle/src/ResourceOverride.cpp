@@ -1,4 +1,5 @@
 #include "hle/ResourceOverride.h"
+#include "hle/GlyphMap.h"
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
@@ -183,9 +184,42 @@ static std::string unescape(const std::string& s) {
     return o;
 }
 
-size_t XdbTextOverride::loadIni(const std::string& file, const std::string& content) {
+bool isTextIniDirective(const std::string& key) {
+    std::string k = trimStr(key);
+    for (auto& c : k)
+        c = (char)tolower((unsigned char)c);
+    return k == "encoding";
+}
+
+bool textIniEncoding(const std::string& content, bool& utf8, std::string* bad) {
+    size_t pos = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0;
+    while (pos < content.size()) {
+        size_t e = content.find('\n', pos);
+        std::string t = trimStr(content.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
+        pos = e == std::string::npos ? content.size() : e + 1;
+        size_t eq = t.find('=');
+        if (t.empty() || t[0] == ';' || t[0] == '#' || eq == std::string::npos || !isTextIniDirective(t.substr(0, eq)))
+            continue;
+        std::string v = trimStr(t.substr(eq + 1));
+        for (auto& c : v)
+            c = (char)tolower((unsigned char)c);
+        utf8 = v == "utf-8" || v == "utf8";
+        if (!utf8 && v != "raw" && v != "cp1252" && v != "windows-1252" && v != "latin-1" && v != "latin1" && bad)
+            *bad = v;
+        return true;
+    }
+    return false;
+}
+
+size_t XdbTextOverride::loadIni(const std::string& file, const std::string& content, const GlyphMap* glyphs) {
     size_t n = 0;
-    size_t pos = 0;
+    size_t pos = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0;
+    bool utf8 = false;
+    std::string badEncoding;
+    if (textIniEncoding(content, utf8, &badEncoding) && !badEncoding.empty())
+        logf("override: %s/text.ini: unknown encoding '%s', reading the bytes as written", file.c_str(),
+             badEncoding.c_str());
+    size_t unmapped = 0, invalid = 0, clamped = 0;
     while (pos <= content.size()) {
         size_t e = content.find('\n', pos);
         std::string line = content.substr(pos, e == std::string::npos ? std::string::npos : e - pos);
@@ -199,6 +233,8 @@ size_t XdbTextOverride::loadIni(const std::string& file, const std::string& cont
         if (eq == std::string::npos)
             continue;
         std::string key = trimStr(line.substr(0, eq));
+        if (isTextIniDirective(key))
+            continue;
         std::string val = line.substr(eq + 1);
         if (!val.empty() && val[0] == ' ')
             val.erase(0, 1); // one separating blank
@@ -208,12 +244,45 @@ size_t XdbTextOverride::loadIni(const std::string& file, const std::string& cont
             int lang = dot == std::string::npos ? -1 : xdb::langFromName(key.substr(dot + 1));
             if (lang == -2)
                 continue;
-            setText(file, id, lang, unescape(val));
+            std::string text = unescape(val);
+            if (utf8) {
+                TranscodeStats st;
+                text = transcodeUtf8(text, glyphs, &st);
+                unmapped += st.unmapped;
+                invalid += st.invalid;
+                if (st.clampedTo) {
+                    ++clamped;
+                    logf("override: %s/text.ini: %s cut to %zu bytes (line buffer)", file.c_str(), key.c_str(),
+                         st.clampedTo);
+                }
+            }
+            setText(file, id, lang, std::move(text));
             ++n;
         } catch (...) {
         }
     }
+    if (utf8)
+        logf("override: %s/text.ini: utf-8, %zu line(s), glyph map %zu entries, %zu unmapped, %zu invalid, %zu cut",
+             file.c_str(), n, glyphs ? glyphs->size() : (size_t)0, unmapped, invalid, clamped);
     return n;
+}
+
+std::shared_ptr<GlyphMap> loadGlyphMapFile(const std::string& path, const std::string& label) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return nullptr;
+    std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    return parseGlyphMap(content, label);
+}
+
+std::shared_ptr<GlyphMap> parseGlyphMap(const std::string& content, const std::string& label) {
+    auto map = std::make_shared<GlyphMap>();
+    std::vector<std::string> errors;
+    size_t n = map->parse(content, &errors);
+    for (auto& e : errors)
+        logf("override: %s: %s", label.c_str(), e.c_str());
+    logf("override: %s: glyph map with %zu entries", label.c_str(), n);
+    return map;
 }
 
 size_t XdbTextOverride::loadDirectory(const std::string& root) {
@@ -221,6 +290,11 @@ size_t XdbTextOverride::loadDirectory(const std::string& root) {
     std::error_code ec;
     if (root.empty() || !fs::is_directory(root, ec))
         return 0;
+    std::shared_ptr<GlyphMap> glyphs;
+    for (auto& d : fs::directory_iterator(root, ec))
+        if (d.is_directory(ec) && upperStr(d.path().filename().string()) == kGlyphMapDir)
+            glyphs = loadGlyphMapFile((d.path() / kGlyphMapName).string(),
+                                      d.path().filename().string() + "/" + kGlyphMapName);
     for (auto& d : fs::directory_iterator(root, ec)) {
         if (!d.is_directory(ec))
             continue;
@@ -228,7 +302,7 @@ size_t XdbTextOverride::loadDirectory(const std::string& root) {
         if (!in)
             continue;
         std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        n += loadIni(upperStr(d.path().filename().string()), content);
+        n += loadIni(upperStr(d.path().filename().string()), content, glyphs.get());
     }
     return n;
 }

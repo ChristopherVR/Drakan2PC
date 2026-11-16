@@ -20,9 +20,23 @@ Everything the player sees about the DualShock comes from four places. All four 
 * Text layout/measure function `FUN_002865d8` (0x2865d8): a `\` followed by up to **3 octal digits** is one character code (`\033` = 27).
   Strings in the XDBs contain the *literal* characters backslash-0-3-3 (see `xdb_dump.py`), not a control byte. `\t` (9) = tab stop (30 px),
   0x20 = space.
-* Code -> glyph: printable codes use `code - 0x21`; codes `< 0x20` and `0x7f..0xa0` go through the 35-entry table at **0x4eac30**
-  (`0x8c 0x9c 0x8a 0x9a 0x9f 0x9d 0x9e 0x83 0x88 0x98 0x96 0x97 0x91 0x92 0x82 0x93 0x94 0x84 0x86 0x87 0x95 0x85 0x89 0x8b 0x9b 0x99`
-  = Windows-1252 specials, then `0x17..0x1f` = 9 control codes) and are mapped to glyph index `0xde + position`, i.e. the glyphs after the Latin set.
+* Code -> glyph index (corrected 2026-11-16, [journal](../journal/2026-11-16/font-glyph-rule.md); the same rule is inlined in the loader
+  0x285aa8, measure 0x2865d8, draw 0x286170 and the text functions at 0x2872xx / 0x2881xx / 0x2884xx / 0x2885xx; C++ copy:
+  `hle::glyphIndexForCode` in `runtime/hle/src/GlyphMap.cpp`):
+
+  | Code | Glyph index |
+  |---|---|
+  | `0x20` space, `0x09` tab | none (pen advance: space = calibration width, tab = next 30 px stop) |
+  | `0x21..0x7e` | `code - 0x21` = 0..93 |
+  | `0xa1..0xff` | `code - 0x43` = 94..188 (one contiguous run, `×` `÷` included) |
+  | `0x92` | 6 (the apostrophe; tested before the table, so table slot 13 = glyph 202 is unreachable) |
+  | `< 0x20` and `0x7f..0xa0` | `189 + position` in the 35-entry table at **0x4eac30** (`0x8c 0x9c 0x8a 0x9a 0x9f 0x9d 0x9e 0x83 0x88 0x98 0x96 0x97 0x91 0x92 0x82 0x93 0x94 0x84 0x86 0x87 0x95 0x85 0x89 0x8b 0x9b 0x99` = Windows-1252 punctuation, then `0x17..0x1f`) |
+  | not in the table (`0x00..0x16` except tab, `0x7f 0x80 0x81 0x8d..0x90 0xa0`) | 224 = past the last glyph |
+
+  So there are 224 reachable glyph indices (font 97 has exactly 224 cells, font 96 has 216 and ends before the 8 button pictures).
+  The glyph index is the **order of the cells in the texture**, not a grid position (see the loader below).
+* Escapes: `\` + up to 3 decimal-digit characters (`0..9`, read as octal: value = value * 8 + digit) is one code, computed in a signed byte, so only
+  escapes below `\200` work (`\300` gives a negative code -> no glyph). `\` followed by a non-digit draws the backslash glyph (59) and the next character normally.
 * The 8 button glyphs (font 97, same order as the end of the table):
 
 | Escape | Code | Glyph | Replaced by (action -> default binding) |
@@ -39,7 +53,14 @@ Everything the player sees about the DualShock comes from four places. All four 
   22 rows; the row below it contains pixels of palette entry 7 (`01ffff00`) at the left edge of every glyph (row 35: the 4 arrows at x = 3, 26, 49, 70 (+91 end);
   row 57: the 15 specials incl. circle 136, square 161, triangle 185, cross 214, end 240; row 79 ... = text lines). The loader compares **palette indices/colours of
   texels**, so a texture edit must not renumber the palette and must not touch the marker rows: `TxdEdit` only writes into palette slots no pixel uses any more.
-  The textures are stored **upside-down** (row 0 = bottom of the picture); glyph lines therefore run bottom-up.
+  The textures are stored **upside-down** (row 0 = bottom of the picture); the loader reads in upright coordinates (top first).
+  Cell order (2026-11-16, simulated on both fonts and checked by cropping cells for a test string): the colour of upright pixel (0,0) is the marker colour.
+  Row 0 holds a calibration ruler: the first marker at x > 0 (its column gives the glyph height), the next marker `x0` (its column gives the
+  **line pitch**: font 97 22 px, font 96 21 px) and the one after (`x0` to it = **space width**: 6 / 13 px). Then each line `k` at `y = k * pitch`
+  (scanned while pixel `(x0, y)` is a marker, at most 32 lines, at most 256 markers) contributes its markers left to right; line 0 starts after the
+  space cell, the last marker of every line is the end of its last glyph. Glyph `i` is the i-th marker overall; its width is the distance to the next marker
+  minus 1, or to the line end for the last glyph of a line. Lines hold different numbers of glyphs (font 97: 26 21 21 27 26 19 19 24 22 15 4;
+  font 96: 21 19 15 21 21 23 15 17 19 17 21 7), which is why a fixed grid or `cell = code - N` fit slips at line ends.
 * Font 97 icon boxes (stored coordinates, x y w h): circle 136,36,22x21; square 161,36; triangle 187,36; cross 215,36 (all 22x21);
   arrows: the original art is only 15x13 / 13x15 px at 5,18 / 28,18 / 51,17 / 72,17, **but the glyph cells are much bigger**: the marker pixels of row 35 sit at x = 3, 26, 49, 70 (+91) and a
   line is 21 content rows high (stored rows 14..34 below the marker row 35, like the 21-row button icons). The generator therefore draws the W/A/S/D caps as **19x21 px** at x = 5, 28, 50, 71 (stored y 14)

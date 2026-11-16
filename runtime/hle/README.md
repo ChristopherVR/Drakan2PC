@@ -149,7 +149,8 @@ applies the request's `offset`/`length` to the result (the replacement may have 
 
 * `DirectoryOverride::load(root)`: `<root>/<FILE>/<type hex>_<id dec>_<sub dec|x>.bin` = verbatim replacement payload (HD textures, mods).
 * `XdbTextOverride`: text entries (type 0x400 of `*.XDB`: 8 slots, English/German/French/Italian/Spanish + 3 spares, `xdb::decode/encode`),
-  `addRule(callback)` and `<root>/<FILE>/text.ini` (`<id>[.<lang>] = text`, escapes `\ \n \r \t`).
+  `addRule(callback)` and `<root>/<FILE>/text.ini` (`<id>[.<lang>] = text`, escapes `\ \n \r \t`). Opt-in `encoding = utf-8` transcodes
+  the values through the glyph map `<root>/INTERFCE.TXD/glyphs.ini` (`hle/GlyphMap.h`, test `glyph_map_test`; see `docs/reference/modding.md`).
 * `tests/override_test.cpp` (self-contained, builds a folder game tree in the temp dir): codec, folder files, offset/length on replacements, wildcard sub, text rules, untouched
   non-text entries. `hle_test` is unchanged (509 checks with the ISO, one more build target `override_test`).
 The UI prompt generator built on top of it is `runtime/ui`, see `docs/reference/ui-prompts.md`.
