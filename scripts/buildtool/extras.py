@@ -483,6 +483,26 @@ def ootf_cab():
 
 
 COVER = "scripts/buildtool/kit/art/ootf-cover.png"
+# Authored replacement meshes (drakan-authored-model/1 JSON written by analysis/scripts/blender/*_model.py): geometry
+# only, the converter takes textures and weights from the player's own Order of the Flame models.
+MODELS = "scripts/buildtool/kit/models"
+
+
+def bundled_models(root: Path = ROOT) -> Path | None:
+    """The tracked authored model folder, or None when this tree has no model file in it."""
+    folder = root / MODELS
+    return folder if folder.is_dir() and any(folder.glob("*.json")) else None
+
+
+def models_digest(folder: Path | None) -> str | None:
+    """One hash over the authored model files (names and bytes), so a changed model reconverts the levels."""
+    if not folder:
+        return None
+    h = hashlib.sha1()
+    for f in sorted(folder.glob("*.json")):
+        h.update(f.name.encode())
+        h.update(f.read_bytes())
+    return h.hexdigest()
 
 
 def bundled_cover(root: Path = ROOT) -> Path | None:
@@ -591,11 +611,16 @@ def code_version(root: Path = ROOT) -> str:
     return "dev"
 
 
-def convert_state(install: Path, iso: Path, hd: bool, version: str, cover: Path | None = None) -> dict:
+def convert_state(
+    install: Path, iso: Path, hd: bool, version: str, cover: Path | None = None, models: Path | None = None
+) -> dict:
     rrc = child(install, "Dragon.rrc")
-    return {"install": str(install), "rrc": file_stamp(rrc) if rrc else None, "iso": [str(iso), file_stamp(iso)],
-            "hd": hd, "code": version,
-            "cover": hashlib.sha1(cover.read_bytes()).hexdigest() if cover and cover.is_file() else None}  # fmt: skip
+    state = {"install": str(install), "rrc": file_stamp(rrc) if rrc else None, "iso": [str(iso), file_stamp(iso)],
+             "hd": hd, "code": version,
+             "cover": hashlib.sha1(cover.read_bytes()).hexdigest() if cover and cover.is_file() else None}  # fmt: skip
+    if models:
+        state["models"] = models_digest(models)
+    return state
 
 
 def convert_needed(work: Path, state: dict, force: bool = False) -> bool:
@@ -621,6 +646,7 @@ def converter_command(
     hd: bool,
     cover: Path | None = None,
     previous: Path | None = None,
+    models: Path | None = None,
 ) -> list[str]:
     cmd = [
         node, "--experimental-transform-types", "--no-warnings", CONVERTER,
@@ -630,6 +656,9 @@ def converter_command(
     if cover:
         # the campaign's card cover and title / loading background (previews/campaign-ootf.png, background-ootf.png)
         cmd += ["--cover", str(cover)]
+    if models:
+        # authored replacement meshes (Delon, the Boss Blade and Ebon Dragons): formats ootfauthored.ts
+        cmd += ["--authored", str(models)]
     if hd:
         # lossless sources of the textures the converter has to quantise or resize, next to the pack (<out>.hdsrc); the HD step
         # indexes and upscales them itself, so the converter does not start its own HD run
@@ -671,7 +700,8 @@ def convert_ootf(
         raise ExtrasError(f"ISO not found: {iso}")
     mods = work / "mods"
     cover = bundled_cover(root)
-    state = convert_state(install, iso, hd, code_version(root), cover)
+    models = bundled_models(root)
+    state = convert_state(install, iso, hd, code_version(root), cover, models)
     if not convert_needed(work, state, force):
         print(f"Order of the Flame pack is up to date: {mods / (PACK_ID + '.zip')}")
         write_mods_ini(mods)
@@ -703,7 +733,9 @@ def convert_ootf(
     )
     mark = time.time()
     environment = dict(os.environ, DRAKAN_ISO=str(iso))
-    command = converter_command(node, install, data, iso, out, hd, cover, previous if previous.is_file() else None)
+    command = converter_command(
+        node, install, data, iso, out, hd, cover, previous if previous.is_file() else None, models
+    )
     code = run_logged(command, log_file, root, environment)
     if code or not out.is_file():
         raise ExtrasError(f"The converter stopped (exit code {code}). Last lines of {log_file}:\n{tail(log_file)}")

@@ -118,4 +118,26 @@ Blender scripting gotchas met so far:
 * Decimating many thin tubes (hair) cannot reach a budget. Give the LOD a hair shell or cards instead.
 * Cycles on the RTX card: `compute_device_type = "OPTIX"`.
 
+## 5. Put a new model in the game (authored models)
+
+A Blender mesh replaces a PC character at convert time (`editor/packages/formats/src/ootfauthored.ts`, reference
+`docs/reference/modding.md` "Authored models for converted OotF characters"). The converter takes UVs, textures and
+weights from the player's own PC model, so only geometry is committed.
+
+* Export with `analysis/scripts/blender/authored_export.py` (`export_authored(obj, path, model=<PC model name>,
+  label=..., fit="joints", extra={"landmarks": {...}, "keepPcJoints": [...]}, slots={<material>: {"pcTextures": [...]}})`)
+  into `scripts/buildtool/kit/models/<name>.json`. Examples: `delon_model.py --authored`, `boss_blade_dragon_model.py`,
+  `ebon_dragon_model.py`.
+* Build the mesh where the PC mesh is (same bind pose). Landmarks must be consistent: a PC joint whose sideways or
+  height position differs a lot from yours (Delon's collar and neck) makes the piecewise warp steep and stretches a whole
+  band of the body; leave such joints out.
+* Name the PC texture entries per slot when the PC model has cut-out (alpha) textures: the converter leaves them out of
+  slots that do not name them.
+* Preview the fit as the converter does it: `dump-pc-model.ts ... --out <dir> <model> --authored <json>`, then import the
+  OBJ in Blender (`analysis/scripts/blender/preview_authored.sh <json> <container> <model> <name>` does both and renders a comparison).
+* In game: `scripts/harness/ootf_level_run.py <level> --campaign --convert-arg=--authored --convert-arg=<abs kit models
+  dir>`. To film a scene, add `--env DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1` (else the harness taps through it) and use a
+  recipe without `sync play` (that waits until the player has control). Creatures can be pulled next to Rynn with the
+  converter test aid `DRAKAN_DBG_PULL=<class regex>` (`DRAKAN_DBG_PULLFLAGS=1` shows hidden ones).
+
 After the work, write a dated note in `docs/journal/<date>/` (no em-dashes) and commit the scripts only.

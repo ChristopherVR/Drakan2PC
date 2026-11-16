@@ -122,8 +122,10 @@ but not for Delon, Julian or Tuiri.
 
 ## 5. Suggested order
 
-1. Dragon aliases (done 2026-11-17); the Ebon Dragon and Boss Blade Dragon recolours remain.
-2. Build the D2 human kit with Delon as the first character: a base mesh on the D2 rig, the UV layout, the bake and
+1. Dragon aliases (done 2026-11-17). The Ebon Dragon and Boss Blade Dragon got new Blender meshes instead of recolours
+   (owner's choice), in game through authored models ([journal](../journal/2026-11-17/ootf-authored-models.md)).
+2. (Delon done as an authored model on the PC rig, 2026-11-17: new body, 1999 head kept; the D2 rig, the bake and the
+   palette pass below remain.) Build the D2 human kit with Delon as the first character: a base mesh on the D2 rig, the UV layout, the bake and
    palette pass, the face from his PC texture, in game in Ruined Village 1.1.
 3. Reuse the kit for Julian, Tuiri, Rimril, the farmer, the warrior and the villager and slave sets.
 4. Succubus and Queen Shillah (new mesh on the PC rig, wings as cards), then the Goblin upgrade, the knights, the Tick

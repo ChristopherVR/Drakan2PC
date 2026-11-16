@@ -729,6 +729,27 @@ class CoverArtTests(unittest.TestCase):
         kept = kit.select([(extras.COVER, (ROOT / extras.COVER).read_bytes())], kit.load_guard())
         self.assertIn(extras.COVER, kept)
 
+    def test_the_converter_gets_the_authored_models_and_a_changed_model_converts_again(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertIsNone(extras.bundled_models(root))
+            models = root / extras.MODELS
+            models.mkdir(parents=True)
+            (models / "delon.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(extras.bundled_models(root), models)
+            install = make_install(root / "Drakan")
+            iso = root / "game.iso"
+            iso.write_bytes(b"iso")
+            command = extras.converter_command("node", install, root / "d", iso, root / "o.zip", False, models=models)
+            self.assertEqual(command[command.index("--authored") + 1], str(models))
+            self.assertNotIn(
+                "--authored", extras.converter_command("node", install, root / "d", iso, root / "o.zip", False)
+            )
+            before = extras.convert_state(install, iso, False, "v1", None, models)
+            (models / "delon.json").write_text('{"x": 1}', encoding="utf-8")
+            self.assertNotEqual(before, extras.convert_state(install, iso, False, "v1", None, models))
+            self.assertNotIn("models", extras.convert_state(install, iso, False, "v1"))
+
     def test_bundled_cover_is_found_or_absent(self):
         self.assertEqual(extras.bundled_cover(ROOT), ROOT / extras.COVER)
         with tempfile.TemporaryDirectory() as temp:

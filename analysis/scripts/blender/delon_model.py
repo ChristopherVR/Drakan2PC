@@ -32,6 +32,7 @@ def parse_args():
     ap.add_argument("--views", default="front,threequarter,side,back,face")
     ap.add_argument("--no-render", action="store_true")
     ap.add_argument("--lod", action="store_true", help="also render the game LOD")
+    ap.add_argument("--authored", help="write the game LOD as an authored model for the converter (.json)")
     return ap.parse_args(argv)
 
 
@@ -260,11 +261,12 @@ IN_DIR = Vector((0.0, 0.0, -1.0))  # palms face down
 
 def build_graph():
     g = Graph()
-    g.add("pelvis", (0, 0.010, 0.96), (0.135, 0.100))
-    g.add("waist", (0, 0.014, 1.06), (0.110, 0.080))
-    g.add("spine", (0, 0.008, 1.16), (0.122, 0.090))
-    g.add("chest", (0, 0.002, 1.27), (0.140, 0.100))
-    g.add("uchest", (0, 0.012, 1.355), (0.132, 0.084))
+    # slim like the 1999 Delon (chest about 0.23 m, hips about 0.21 m across)
+    g.add("pelvis", (0, 0.010, 0.96), (0.115, 0.090))
+    g.add("waist", (0, 0.014, 1.06), (0.098, 0.074))
+    g.add("spine", (0, 0.008, 1.16), (0.106, 0.082))
+    g.add("chest", (0, 0.002, 1.27), (0.122, 0.090))
+    g.add("uchest", (0, 0.012, 1.355), (0.116, 0.078))
     g.add("neck0", (0, 0.026, 1.425), (0.040, 0.040))
     g.add("neck1", (0, 0.020, 1.53), (0.036, 0.037))
     g.edge("pelvis", "waist", "trousers")
@@ -282,10 +284,10 @@ def build_graph():
         el = sh + ARM_DIR * 0.235
         wr = el + ARM_DIR * 0.235
         g.add("clav" + s, m((0.075, 0.024, 1.41)), 0.050)
-        g.add("shoulder" + s, m(sh), 0.052)
-        g.add("uarm" + s, m(sh + ARM_DIR * 0.11), 0.044)
-        g.add("elbow" + s, m(el), 0.037)
-        g.add("farm" + s, m(el + ARM_DIR * 0.11), 0.038)
+        g.add("shoulder" + s, m(sh), 0.046)
+        g.add("uarm" + s, m(sh + ARM_DIR * 0.11), 0.038)
+        g.add("elbow" + s, m(el), 0.032)
+        g.add("farm" + s, m(el + ARM_DIR * 0.11), 0.033)
         g.add("wrist" + s, m(wr), 0.025)
         palm = wr + ARM_DIR * 0.045
         g.add("palm" + s, m(palm), 0.024)
@@ -320,10 +322,10 @@ def build_graph():
         g.edge("t0" + s, "t1" + s, "skin")
         g.edge("t1" + s, "t2" + s, "skin")
         # leg
-        g.add("hip" + s, m((0.085, 0.012, 0.92)), 0.078)
-        g.add("thigh" + s, m((0.088, 0.008, 0.73)), 0.066)
-        g.add("knee" + s, m((0.085, 0.000, 0.53)), 0.047)
-        g.add("calf" + s, m((0.085, 0.016, 0.38)), 0.052)
+        g.add("hip" + s, m((0.085, 0.012, 0.92)), 0.068)
+        g.add("thigh" + s, m((0.086, 0.008, 0.73)), 0.058)
+        g.add("knee" + s, m((0.083, 0.000, 0.53)), 0.044)
+        g.add("calf" + s, m((0.083, 0.016, 0.38)), 0.047)
         g.add("shin" + s, m((0.085, 0.018, 0.22)), 0.042)
         g.add("ankle" + s, m((0.085, 0.025, 0.090)), 0.040)
         g.add("heel" + s, m((0.085, 0.055, 0.040)), 0.038)
@@ -464,7 +466,7 @@ def build_clothing(body, g):
     n = 10
     for i in range(n):
         t = i / (n - 1)
-        rows.append((1.0 - 0.15 * t, 0.006 + 0.016 * t * t))
+        rows.append((1.045 - 0.155 * t, 0.005 + 0.005 * t * t))  # ends where the 1999 tunic does, barely flared
 
     def hem_fold(a, t):
         return t * (0.004 * math.sin(7 * a) + 0.003 * math.sin(17 * a + 1.3))
@@ -482,7 +484,7 @@ def build_clothing(body, g):
         fold=hem_fold,
     )
     # low-slung belt, big square buckle
-    ring_band("Delon_Belt", verts, Vector((0, 0.010, 0)), up, [(0.985, 0.012), (1.025, 0.012)], 64, "belt", 0.006)
+    ring_band("Delon_Belt", verts, Vector((0, 0.010, 0)), up, [(1.045, 0.010), (1.085, 0.010)], 64, "belt", 0.006)
     for s in "RL":
         ax = V[nm["palm" + s]] - V[nm["wrist" + s]]
         ring_band(
@@ -502,7 +504,7 @@ def build_clothing(body, g):
             verts,
             Vector((V[nm["knee" + s]].x, 0.016, 0)),
             up,
-            [(0.46, 0.002), (0.49, 0.006), (0.505, 0.006)],
+            [(0.50, 0.002), (0.53, 0.006), (0.545, 0.006)],
             40,
             "leather",
             0.004,
@@ -527,7 +529,7 @@ def build_clothing(body, g):
             x = sx * ((z - 1.31) * 0.62 + 0.007)
             pts.append(Vector((x, front_y(verts, x, z) - 0.001, z)))
         cord_curve("Delon_Neckline", pts, 0.0065, "trim")
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.105, 1.004))
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.095, 1.065))
     buckle = bpy.context.active_object
     buckle.name = "Delon_Buckle"
     buckle.scale = (0.064, 0.012, 0.056)
@@ -535,7 +537,7 @@ def build_clothing(body, g):
     bev.width = 0.004
     bev.segments = 3
     add_mat(buckle, "metal")
-    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.111, 1.004))
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(0, -0.101, 1.065))
     plate = bpy.context.active_object
     plate.name = "Delon_BucklePlate"
     plate.scale = (0.040, 0.006, 0.034)
@@ -1098,6 +1100,34 @@ def main():
     except RuntimeError as exc:  # bone heat can fail on odd geometry; keep the model
         print("rig failed:", exc)
     print(f"render mesh tris {tris_hi}, game LOD tris {lod_tris}, verts {len(lod.data.vertices)}")
+    if ARGS.authored:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from authored_export import export_authored
+
+        # PC joint -> graph node: the converter warps the body onto the 1999 rig through these, and keeps the 1999 head
+        # (its face texture is the character; a 450-triangle head with a painted face is the Drakan 2 method)
+        pairs = {
+            "upperbody": "pelvis",
+            "chest": "chest",
+            "head": "neck1",
+        }  # no neck: the 1999 neck joint sits 4 cm higher
+        for s in "RL":
+            pairs |= {
+                f"{s}uparm": f"shoulder{s}",
+                f"{s}forearm": f"elbow{s}",
+                f"{s}thigh": f"hip{s}",
+                f"{s}calf": f"knee{s}",
+                f"{s}foot": f"ankle{s}",
+            }
+        landmarks = {j: [round(c, 4) for c in g.v[g.names[n]]] for j, n in pairs.items()}
+        export_authored(
+            lod,
+            Path(ARGS.authored).resolve(),
+            model="Delon(h)",
+            label="Delon",
+            fit="joints",
+            extra={"landmarks": landmarks, "keepPcJoints": ["head"]},
+        )
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "delon.blend"))
     # glTF of the game LOD
     try:

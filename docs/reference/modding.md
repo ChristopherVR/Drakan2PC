@@ -987,6 +987,27 @@ skeleton, clips and HD textures) instead of the converted PC one (formats `ootfp
 
 See [the model survey](../journal/2026-11-08/ootf-ps2-model-substitution.md).
 
+## Authored models for converted OotF characters
+
+Characters with no Drakan 2 counterpart can be drawn with a new mesh built in Blender (formats `ootfauthored.ts`). The
+files are `drakan-authored-model/1` JSON in `scripts/buildtool/kit/models/` (Delon, the Boss Blade Dragon, the Ebon
+Dragon), written by `analysis/scripts/blender/*_model.py` through `authored_export.py`. They hold geometry only: positions
+in Blender space (metres, Z up), triangles counter-clockwise from outside, one slot per material.
+
+At convert time the converter replaces the named PC model's LOD 0 on the PC skeleton, so the PC clips, hit spheres, scene
+channels and the synthetic jaw keep working:
+* **Placement:** (x, y, z) to PC (x, z, y), a mirror, so the Blender winding is already the PC one (PC meshes are
+  clockwise from outside). `fit`: `height` or `extent` scale onto the PC LOD 0 box; `joints` warps the mesh piecewise per
+  axis so the file's `landmarks` (PC joint name to Blender position) land on the PC joints' bind positions.
+* **Textures and UVs** come from the player's own PC model: each triangle is projected onto the nearest PC triangle (of
+  the slot's `pcTextures`, else every opaque one), with the UVs held within 10 % past that triangle. Triangles skinned
+  mostly to a `radialJoints` joint (default `head`) are projected along rays from that joint instead.
+* **Weights** are the barycentric mix of the closest PC surface point, capped at 4 joints, unless the file carries its own.
+* `keepPcJoints`: the PC part of those joints stays (smoothed once) in place of the authored triangles: Delon keeps his
+  1999 head and face texture on the new body.
+* Off with the model upgrade (`--model-upgrade 0`). CLI `--authored <dir>`; the build passes the kit folder and converts
+  again when a file changes. Preview without the game: `dump-pc-model.ts ... --authored <json>`.
+
 ## Menus and HUD (UI skins)
 
 The modern menus (title, pause, Options pages) and the multiplayer HUD read a small INI file, so a pack can rename and
