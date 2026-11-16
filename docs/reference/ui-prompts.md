@@ -35,8 +35,9 @@ Everything the player sees about the DualShock comes from four places. All four 
 
   So there are 224 reachable glyph indices (font 97 has exactly 224 cells, font 96 has 216 and ends before the 8 button pictures).
   The glyph index is the **order of the cells in the texture**, not a grid position (see the loader below).
-* Escapes: `\` + up to 3 decimal-digit characters (`0..9`, read as octal: value = value * 8 + digit) is one code, computed in a signed byte, so only
-  escapes below `\200` work (`\300` gives a negative code -> no glyph). `\` followed by a non-digit draws the backslash glyph (59) and the next character normally.
+* Escapes (same parse in measure 0x2865d8 and draw 0x286170): `\` + **exactly 3** digit characters (`0..9`, read as octal: value = value * 8 + digit)
+  is one code, computed in a signed byte, so only escapes below `\200` work (`\300` gives a negative code -> no glyph). With fewer than 3 digits
+  (`\33x`) the backslash glyph (59) is drawn, the digits are skipped and drawing goes on at the first non-digit; a `\` before a non-digit draws the backslash.
 * The 8 button glyphs (font 97, same order as the end of the table):
 
 | Escape | Code | Glyph | Replaced by (action -> default binding) |

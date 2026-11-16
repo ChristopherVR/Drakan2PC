@@ -1859,7 +1859,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 }
                 std::string content(b.begin(), b.end());
                 nTexts += texts_->loadIni(file, content, glyphs.get());
-                size_t p = 0;
+                size_t p = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0; // UTF-8 BOM, as loadIni
                 while (p < content.size()) {
                     size_t e = content.find('\n', p);
                     std::string ln = trim(content.substr(p, e == std::string::npos ? std::string::npos : e - p));

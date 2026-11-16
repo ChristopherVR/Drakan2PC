@@ -45,7 +45,8 @@ The result is cut to **255 bytes** (the 256-byte line buffer from the issue; not
 [ui-prompts.md section 1.1](ui-prompts.md):
 0..93 = `!`..`~`, 94..188 = Latin-1 `0xa1..0xff` (`index + 0x43`), 189..223 = the special table (223 = last button picture;
 indices 216..223 exist only in font 97). Index 202 is unreachable and rejected; the control-code glyphs and the backslash glyph
-are written as `\0oo` escapes automatically. A font replacement must keep one marker per cell in that order, so a translation
+are written as 3-digit escapes automatically (`\027`..`\037`, backslash `\134`). Converting from game bytes: index = byte - 0x21
+for `0x21..0x7e`, byte - 0x43 for `0xa1..0xff` (byte `0xC0` = index 125). A font replacement must keep one marker per cell in that order, so a translation
 draws its letters into existing cells (Latin-1 accents it does not need, or homoglyphs: Cyrillic `А В Е К М Н О Р С Т Х а е о р с у х`
 can point at the Latin cells). Only 224 cells are reachable, so two translations that need different extra letters still compete
 for the same cells. SDB subtitle text is not covered by `text.ini`.

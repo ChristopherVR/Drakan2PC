@@ -45,13 +45,14 @@ struct TranscodeStats {
     size_t clampedTo = 0; // non-zero when the text was cut to this many bytes
 };
 
-// UTF-8 -> game bytes. Each code point: the map entry if any (emitted as the byte of that glyph, glyphs 220..223 and
-// the other control codes as the game's literal "\0oo" escape), else ASCII / Latin-1 0xa1..0xff / the Windows-1252
-// punctuation the font has, else '?'. Literal "\ooo" escapes already in the text pass through. The result is clamped
-// with clampXdbText(maxBytes).
+// UTF-8 -> game bytes. Each code point: the map entry if any (emitted as the byte of that glyph, the control-code
+// glyphs 215..223 and the backslash glyph as the game's literal 3-digit escape, e.g. "\034" / "\134"), else ASCII /
+// Latin-1 0xa1..0xff / the Windows-1252 punctuation the font has, else '?'. Literal "\ooo" escapes already in the text
+// pass through. The result is clamped with clampXdbText(maxBytes).
 std::string transcodeUtf8(const std::string& utf8, const GlyphMap* map, TranscodeStats* stats = nullptr,
                           size_t maxBytes = kXdbTextMaxBytes);
-// Cuts `text` to at most maxBytes without splitting a "\ooo" escape (the game reads up to 3 digits after '\').
+// Cuts `text` to at most maxBytes without splitting a "\ooo" escape (the game needs exactly 3 digits after '\'; a cut
+// one leaves a stray backslash glyph).
 // Returns true when it cut.
 bool clampXdbText(std::string& text, size_t maxBytes = kXdbTextMaxBytes);
 

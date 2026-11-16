@@ -19,7 +19,8 @@ renders with slips (`Загрузить игру` -> `ЗаиреШоть`), and 
   `ABCabc019!?' ÀÉÖßàéöÿ¿` with the rule spells the string in both fonts.
 * The reporter's font 97 pairs fit the rule as positions inside the texture minus the 26 cells of line 0 (`A` = glyph 32 -> 6,
   `a` = 64 -> 38). Their font 96 pairs do not fit any offset; they likely came from a different calibration.
-* Escape detail: `\` + digits is evaluated as octal in a signed byte, so escapes `\200` and above give no glyph; a `\` before a
+* Escape detail (measure and draw parse alike): an escape needs exactly 3 digits, evaluated as octal in a signed byte, so `\200`
+  and above give no glyph. With fewer digits (`\33x`) the backslash glyph is drawn and the digits are skipped; a `\` before a
   non-digit draws the backslash glyph.
 * The 256-byte line buffer limit is the reporter's figure (and the bound our own replacement texts were written to); the copy
   into a fixed buffer was not traced.

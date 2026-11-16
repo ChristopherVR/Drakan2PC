@@ -1279,8 +1279,10 @@ int main() {
                                    stored("ru/overrides/INTERFCE.XDB/text.ini",
                                           "encoding = utf-8\n156 = \xD0\x96\xD0\x94!\n"), // U+0416 U+0414 '!'
                                    stored("ru/overrides/INTERFCE.TXD/glyphs.ini", "U+0416 = 125\n\xD0\x94 = 126\n")});
-        writeZip(mods / "uk.zip", {stored("uk/mod.toml", toml("uk")),
-                                   stored("uk/overrides/INTERFCE.XDB/text.ini", "encoding = utf-8\n157 = ok\n")});
+        writeZip(mods / "uk.zip",
+                 {stored("uk/mod.toml", toml("uk")),
+                  stored("uk/overrides/INTERFCE.XDB/text.ini", "\xEF\xBB\xBF"
+                                                               "encoding = utf-8\n157 = ok\n")}); // with a BOM
         g_log.clear();
         ModManager mm(pal);
         mm.load(mods.string(), {{"ru", true}, {"uk", true}});
