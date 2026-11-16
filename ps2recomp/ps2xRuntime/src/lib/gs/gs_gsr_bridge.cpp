@@ -272,9 +272,13 @@ struct GsrBridge::Impl {
     drakan_vblank::Handoff vblankHandoff;
     drakan_vblank::FieldMode presentationFieldMode;
     std::array<std::atomic<uint64_t>, drakan_vblank::Handoff::ReasonCount> handoffReasons{};
-    uint64_t cpuVramWrites = 0;                // rmtx; transfers are separately counted by gsr
-    bool lastVblankAdvanced = true;            // worker-owned; only read after executing RecVsync
-    bool uncappedRequested = false;            // immutable after create; config/environment at startup
+    uint64_t cpuVramWrites = 0;     // rmtx; transfers are separately counted by gsr
+    bool lastVblankAdvanced = true; // worker-owned; only read after executing RecVsync
+    bool uncappedRequested = false; // immutable after create; config/environment at startup
+    // GSR_PRESENT_OVERLAP (worker only): after a native display commit the worker goes on with the next frame's records
+    // and waits for the window thread's present of that commit only before the next record that can latch a display
+    // (see workerMain). Off: it waits right after the commit, as before.
+    bool presentOverlap = false;
     bool nativeCommitted = false;              // rmtx: rearmed only by an accepted native commit
     std::atomic<bool> completionDriven{false}; // host wake/duplicate-present policy
     uint64_t duplicateWorldVblanks = 0;
@@ -616,6 +620,10 @@ void GsrBridge::Impl::workerMain() {
     SetThreadDescription(GetCurrentThread(), L"GSWorker"); // shown by debuggers and in the PS2X_PERF line
 #endif
     std::vector<uint8_t> work;
+    // The serial of a native display commit that was latched but whose present has not been waited for yet
+    // (presentOverlap). The latch is a copy (latchDisplay composes the display image), so the next frame's draws do not
+    // change what the window thread shows; only the next latch would replace it before it was shown.
+    uint64_t owedHandoff = 0;
     for (;;) {
         {
             std::unique_lock<std::mutex> lock(qmtx);
@@ -651,6 +659,11 @@ void GsrBridge::Impl::workerMain() {
             uint32_t type, size;
             std::memcpy(&type, work.data() + at, 4);
             std::memcpy(&size, work.data() + at + 4, 4);
+            // Only a display commit or a vblank latches (publishDisplay): every latched frame is still shown.
+            if (owedHandoff && (type == RecDisplayCommit || type == RecVsync)) {
+                waitForHandoff(owedHandoff, true);
+                owedHandoff = 0;
+            }
             uint64_t published = 0;
             {
                 std::unique_lock<std::recursive_mutex> r(rmtx, std::defer_lock);
@@ -659,10 +672,14 @@ void GsrBridge::Impl::workerMain() {
                     r.lock();
                 }
                 const auto before = latchProgress.latest();
-                const auto execStart = std::chrono::steady_clock::now();
+                // Two clock reads per record (thousands a frame) only while the frame trace wants slow records.
+                const bool traced = frameTraceEnabled();
+                const auto execStart =
+                    traced ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                 execute(type, work.data() + at + 8, size);
-                if (const auto took = std::chrono::steady_clock::now() - execStart;
-                    frameTraceEnabled() && took > std::chrono::milliseconds(8))
+                if (const auto took = traced ? std::chrono::steady_clock::now() - execStart
+                                             : std::chrono::steady_clock::duration::zero();
+                    traced && took > std::chrono::milliseconds(8))
                     std::fprintf(
                         stderr, "[ft] W %lld %u %lld\n",
                         (long long)std::chrono::duration_cast<std::chrono::microseconds>(execStart.time_since_epoch())
@@ -675,7 +692,11 @@ void GsrBridge::Impl::workerMain() {
             // Keep every uncapped native frame, and legacy neural frames, latched
             // until the window thread presents it. Never wait while holding a
             // renderer/context lock, and keep ImGui/Present on their host thread.
-            waitForHandoff(published, type == RecDisplayCommit && uncappedRequested);
+            const bool nativeCommit = type == RecDisplayCommit && uncappedRequested;
+            if (nativeCommit && presentOverlap && published)
+                owedHandoff = published;
+            else
+                waitForHandoff(published, nativeCommit);
             if (type == RecDisplayCommit) {
                 {
                     std::lock_guard<std::mutex> lock(qmtx);
@@ -963,6 +984,8 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
     s.gs->writePriv(kPrivBase + 0x1080, s.lastSig);
     if (const char* pc = std::getenv("PS2X_GS_PACING"))
         s.pacingEvery = std::atof(pc);
+    if (const char* overlap = std::getenv("GSR_PRESENT_OVERLAP"))
+        s.presentOverlap = overlap[0] == '1';
     {
         const char* a = std::getenv("PS2X_GS_ASYNC");
         s.async = !(a && a[0] == '0');

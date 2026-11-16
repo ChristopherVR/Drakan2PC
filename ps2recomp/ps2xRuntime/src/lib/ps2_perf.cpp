@@ -332,8 +332,15 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
             // RVAs) so cumulative (inclusive) cost per function can be computed: hostprof_stacks.csv.
             const char* stacksEnv = std::getenv("PS2X_HOSTPROF_STACKS");
             const bool wantStacks = stacksEnv && stacksEnv[0] && stacksEnv[0] != '0';
-            const DWORD eeTid =
-                gameThreadNativeHandle ? GetThreadId(reinterpret_cast<HANDLE>(gameThreadNativeHandle)) : 0;
+            DWORD eeTid = gameThreadNativeHandle ? GetThreadId(reinterpret_cast<HANDLE>(gameThreadNativeHandle)) : 0;
+            // PS2X_HOSTPROF_STACKS_THREAD=<description> (e.g. GSWorker, VU1Worker): the call chains of the thread that
+            // named itself so instead of the EE thread's.
+            const char* stackThreadEnv = std::getenv("PS2X_HOSTPROF_STACKS_THREAD");
+            const std::wstring stackThread =
+                stackThreadEnv ? std::wstring(stackThreadEnv, stackThreadEnv + std::strlen(stackThreadEnv))
+                               : std::wstring();
+            if (!stackThread.empty())
+                eeTid = 0;
             constexpr int kStackDepth = 48;
             std::map<std::vector<uint32_t>, uint64_t> stacks;
             const uint64_t mainBase = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
@@ -364,8 +371,16 @@ void start(void* gameThreadNativeHandle, uint64_t (*vsyncTick)(void*), void* vsy
                         if (tid != self && !handles.count(tid)) {
                             HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
                                                   FALSE, tid);
-                            if (h)
+                            if (h) {
                                 handles[tid] = h;
+                                PWSTR wide = nullptr;
+                                if (!stackThread.empty() && !eeTid && SUCCEEDED(GetThreadDescription(h, &wide)) &&
+                                    wide) {
+                                    if (stackThread == wide)
+                                        eeTid = tid;
+                                    LocalFree(wide);
+                                }
+                            }
                         }
                     active.clear();
                     for (auto& [tid, h] : handles) {
