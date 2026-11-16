@@ -14,7 +14,7 @@ cbuffer CB : register(b0)
     uint4  cb_b;    // x=fbmask(rgba bytes, target space)  y=texW  z=texH  w=wms|wmt<<2
     uint4  cb_c;    // minu maxu minv maxv
     float4 cb_fog;  // rgb fog colour (0..255)  w=TA0 (24-bit RT source alpha)
-    uint4  cb_d;    // x=mxl|lcm<<4|mmag<<5|mmin<<6|L<<9  y=passmode  z=dimx lo  w=dimx hi
+    uint4  cb_d;    // x=mxl|lcm<<4|mmag<<5|mmin<<6|L<<9|AEM<<12|hdMips<<13|hwFilter<<14  y=passmode  z=dimx lo  w=dimx hi
     float4 cb_e;    // x=K (lod bias)
     float4 cb_src;  // source RT: xy=origin px, zw=1/dims (native px)
     float4 cb_f;    // x=texture upscale factor N (power of two; the bound texture is N times the logical size)  y=mip bias  z=max anisotropy taps  w=log2(N)
@@ -43,6 +43,7 @@ Texture2D<float4> TexA : register(t0);
 Texture2D<float4> DestTex : register(t1);
 SamplerState SmpPt : register(s0);
 SamplerState SmpLin : register(s1);
+SamplerState SmpWrap : register(s4); // bilinear, mip point, wrap: the hardware bilinear taps of sampleLvl
 
 struct VSIn
 {
@@ -106,10 +107,29 @@ float4 fetchTexel(int2 p, int lvl, int2 dim)
     return TexA.Load(int3(x, y, lvl));
 }
 
+// One bilinear tap by the texture unit (hardware_texture_filter, cb_d.x bit 14) instead of four Loads: the same texel
+// positions and weights as the shader taps below, but the weights are the texture unit's (8 fractional bits on current
+// GPUs, so up to about half a step of 255 apart at a hard edge). REPEAT is the sampler's wrap (the copy's level is the
+// logical level times N, so wrapping it is wrapping the logical cells); CLAMP and REGION_CLAMP clamp the position to
+// the first / last texel centre, which is what clamping both texel indices of the footprint does. REGION_REPEAT stays
+// on the shader taps.
+float4 sampleLvlHw(float2 p, int lvl, uint wms, uint wmt)
+{
+    float N = cb_f.x;
+    float2 sz = float2(max(1u, (cb_b.y * (uint)N) >> lvl), max(1u, (cb_b.z * (uint)N) >> lvl));
+    if (wms == 1u) p.x = clamp(p.x, 0.5, sz.x - 0.5);
+    else if (wms == 2u) p.x = clamp(p.x, (float)(cb_c.x >> lvl) * N + 0.5, (float)((cb_c.y >> lvl) + 1u) * N - 0.5);
+    if (wmt == 1u) p.y = clamp(p.y, 0.5, sz.y - 0.5);
+    else if (wmt == 2u) p.y = clamp(p.y, (float)(cb_c.z >> lvl) * N + 0.5, (float)((cb_c.w >> lvl) + 1u) * N - 0.5);
+    return TexA.SampleLevel(SmpWrap, p / sz, (float)lvl);
+}
+
 float4 sampleLvl(float2 uv, int lvl, bool lin)
 {
     int2 dim = int2(max(1, (int)cb_b.y >> lvl), max(1, (int)cb_b.z >> lvl));
     float2 p = uv * (cb_f.x / (float)(1 << lvl));
+    uint wms = cb_b.w & 3u, wmt = (cb_b.w >> 2) & 3u;
+    if (lin && ((cb_d.x >> 14) & 1u) != 0u && wms != 3u && wmt != 3u) return sampleLvlHw(p, lvl, wms, wmt);
     if (lin)
     {
         p -= 0.5;

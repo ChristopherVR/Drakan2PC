@@ -156,6 +156,8 @@ RuntimeFlags parse() {
         f.texUpFilter = iequals(v, "xbrz") ? 1u : iequals(v, "smooth") ? 2u : 0u;
     if (const char* v = env("GSR_ANISO"))
         f.aniso = (uint32_t)std::atoi(v);
+    if (const char* v = env("GSR_HW_FILTER"))
+        f.hwFilter = v[0] == '1';
     if (const char* v = env("GSR_TERRAIN_DETAIL"))
         f.terrainDetail = v[0] == '1';
     if (const char* v = env("GSR_TERRAIN_CLIFFS"))

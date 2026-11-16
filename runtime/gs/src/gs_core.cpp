@@ -2514,6 +2514,12 @@ void Renderer::setAnisotropic(uint32_t t) {
         p.aniso = t;
     });
 }
+void Renderer::setHardwareTextureFilter(bool on) {
+    m_impl->queue([&](LiveSettings& p) {
+        p.mask |= LiveSettings::F_HWFILTER;
+        p.hwFilter = on;
+    });
+}
 void Renderer::setTerrainDetail(bool detail, bool cliffs, float strength) {
     m_impl->terrainGeometryRequested.store(cliffs, std::memory_order_release);
     m_impl->queue([&](LiveSettings& p) {

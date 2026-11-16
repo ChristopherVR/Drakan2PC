@@ -92,6 +92,10 @@ struct Config {
     uint32_t textureUpscaleFilter =
         0; // texture_upscale_filter: 0 = auto (xBRZ for pixel-art / UI / palette-flat, smooth for photographic), 1 =
            // xBRZ, 2 = smooth (bicubic + sharpen). Env GSR_TEXUP_FILTER=auto|xbrz|smooth
+    // hardware_texture_filter: the bilinear taps of the GS texture filter (also every anisotropic tap) by the texture
+    // unit instead of four Loads in the shader (gs_shaders.h sampleLvlHw); REGION_REPEAT stays on the shader taps. Env
+    // GSR_HW_FILTER=0|1
+    bool hardwareTextureFilter = true;
     uint32_t anisotropic = 16; // anisotropic (default 16): 0/1 = off, 2..16 = max taps along the footprint's major axis
                                // (shader based, minified mip-mapped draws only). Env GSR_ANISO
     float mipBias = 0.0f;      // mip_bias: added to the GS LOD of minified draws (negative = sharper); only used when
@@ -300,6 +304,7 @@ public:
     void setFlickerFilter(bool on);
     void setSharpPresent(bool on);
     void setAnisotropic(uint32_t taps);                       // 0/1 off, 2..16
+    void setHardwareTextureFilter(bool on);                   // Config::hardwareTextureFilter
     void setMipBias(float bias, bool autoBias);               // autoBias: -log2(internal scale) (bias ignored)
     void setTextureUpscale(uint32_t factor, uint32_t filter); // factor 0 auto / 1 off / 2 / 4 / 8, filter 0 auto / 1
                                                               // xBRZ / 2 smooth. Flushes the upscaled-texture cache

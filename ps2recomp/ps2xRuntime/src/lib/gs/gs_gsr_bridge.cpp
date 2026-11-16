@@ -870,6 +870,7 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         // these
         const int an = drakan_cfg::getInt("video", "anisotropic", nullptr, 16);
         cfg.anisotropic = an > 1 ? (uint32_t)std::min(an, 16) : 0u;
+        cfg.hardwareTextureFilter = drakan_cfg::getBool("video", "hardware_texture_filter", nullptr, true);
         const std::string tu = drakan_cfg::getString("video", "texture_upscale", nullptr, "auto");
         cfg.textureUpscale = !compareNoCase(tu.c_str(), "auto") || tu.empty()
                                  ? 0u

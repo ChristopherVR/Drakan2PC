@@ -298,6 +298,8 @@ public:
         point_ = wgpuDeviceCreateSampler(device_, &sampler);
         sampler.magFilter = sampler.minFilter = WGPUFilterMode_Linear;
         linear_ = wgpuDeviceCreateSampler(device_, &sampler);
+        sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = WGPUAddressMode_Repeat;
+        repeat_ = wgpuDeviceCreateSampler(device_, &sampler);
     }
     ~WDevice() override {
         stopPipelineWorker();
@@ -318,6 +320,8 @@ public:
             wgpuSamplerRelease(point_);
         if (linear_)
             wgpuSamplerRelease(linear_);
+        if (repeat_)
+            wgpuSamplerRelease(repeat_);
         surface_.reset();
     }
 
@@ -531,7 +535,7 @@ public:
             entries.push_back(e);
         }
         if (in.samplers)
-            for (uint32_t i = 0; i < 2; ++i) {
+            for (uint32_t i = 0; i < 3; ++i) {
                 auto e = WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT;
                 e.binding = 16 + i;
                 e.visibility = stages;
@@ -1476,10 +1480,10 @@ struct U { origin: vec4u }
             entries.push_back(e);
         }
         if (d.samplers)
-            for (uint32_t i = 0; i < 2; ++i) {
+            for (uint32_t i = 0; i < 3; ++i) {
                 auto e = WGPU_BIND_GROUP_ENTRY_INIT;
                 e.binding = 16 + i;
-                e.sampler = i ? linear_ : point_;
+                e.sampler = i == 2 ? repeat_ : i ? linear_ : point_;
                 entries.push_back(e);
             }
         if (!isCompute && d.drawData) {
@@ -1602,7 +1606,7 @@ struct U { origin: vec4u }
     WGPUQueue queue_ = nullptr;
     WGPUCommandEncoder encoder_ = nullptr;
     WGPURenderPassEncoder pass_ = nullptr;
-    WGPUSampler point_ = nullptr, linear_ = nullptr;
+    WGPUSampler point_ = nullptr, linear_ = nullptr, repeat_ = nullptr;
     WGPUQuerySet timingQueries_ = nullptr; // dispatch timing: begin / end per timed dispatch
     WGPUBuffer timingResolve_ = nullptr, timingRead_ = nullptr;
     bool timing_ = false, timingBusy_ = false;

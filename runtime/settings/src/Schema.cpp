@@ -306,6 +306,9 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
         r.currentLabel = v.anisotropic <= 1 ? std::string("Off") : fmtc("%dx", v.anisotropic);
         Builder::select(r);
     }
+    b.toggle("video.hardware_texture_filter", "Hardware texture filtering",
+             "The graphics card's texture units do the smoothing of textures: the same picture, faster at high "
+             "render scales. Off does it in the shader as before.");
     {
         SettingRow& r = b.row("video.texture_upscale", SettingKind::Choice, "Texture upscaling",
                               "Enlarges the original low resolution textures with a filter when they are loaded.", true,

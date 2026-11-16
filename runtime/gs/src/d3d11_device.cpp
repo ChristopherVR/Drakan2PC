@@ -196,6 +196,8 @@ bool D3D11Backend::Impl::init() {
     dev->CreateSamplerState(&sd, &smpPt);
     sd.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     dev->CreateSamplerState(&sd, &smpLin);
+    sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    dev->CreateSamplerState(&sd, &smpWrap);
 
     D3D11_RASTERIZER_DESC rd{};
     rd.FillMode = D3D11_FILL_SOLID;
@@ -209,7 +211,8 @@ bool D3D11Backend::Impl::init() {
     dev->CreateBlendState(&bl, &blendOff);
     // The objects above are used without further checks by every draw and present: a device that refused one (or was
     // removed during start-up) does not make a renderer.
-    if (!vs || !layout || !psHw || !psSb || !cbPS || !cbDisp || !cbPresent || !smpPt || !smpLin || !rast || !blendOff) {
+    if (!vs || !layout || !psHw || !psSb || !cbPS || !cbDisp || !cbPresent || !smpPt || !smpLin || !smpWrap || !rast ||
+        !blendOff) {
         probeDevice("start-up");
         std::fprintf(stderr, "[gsr] Direct3D 11: the device refused a pipeline object at start-up\n");
         return false;
@@ -300,6 +303,7 @@ void D3D11Backend::Impl::warmMainPipelines() {
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ID3D11SamplerState* smps[2] = {smpPt.Get(), smpLin.Get()};
     ctx->PSSetSamplers(0, 2, smps);
+    ctx->PSSetSamplers(4, 1, smpWrap.GetAddressOf());
     ID3D11ShaderResourceView* srvs[2] = {sourceSrv.Get(), sourceSrv.Get()};
     ID3D11ShaderResourceView* nulls[2] = {nullptr, nullptr};
     // GS pixel pipeline: both uber shader variants, opaque and alpha blended, with and without depth writes.
@@ -642,6 +646,8 @@ void D3D11Backend::Impl::applyLive(const LiveSettings& ls) {
         cfg.anisotropic = std::min(ls.aniso, 16u);
         aniso = cfg.anisotropic;
     }
+    if (ls.mask & L::F_HWFILTER)
+        cfg.hardwareTextureFilter = ls.hwFilter;
     if (ls.mask & L::F_MIP) {
         cfg.mipBiasAuto = ls.mipAuto;
         cfg.mipBias = ls.mipBias;

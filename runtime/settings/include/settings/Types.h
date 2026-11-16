@@ -45,6 +45,8 @@ struct VideoSettings {
     // frame_limit: presentation fps cap, 0 = off, kFrameLimitAuto (ini "auto", the default) = the display refresh while
     // vsync is off and no cap with vsync on; does not raise the world update rate
     int frameLimit = kFrameLimitAuto;
+    // hardware_texture_filter: the bilinear taps of texture filtering by the texture unit (0 = by the shader as before)
+    bool hardwareTextureFilter = true;
     int anisotropic = 16;                         // anisotropic: 1 (off) 2 4 8 16
     int textureUpscale = 0;                       // texture_upscale: 0 (auto) 1 (off) 2 4
     std::string textureUpscaleFilter = "default"; // texture_upscale_filter: names come from HostCaps

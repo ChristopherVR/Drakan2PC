@@ -152,6 +152,7 @@ struct LiveSettings {
         F_TERRAIN = 1u << 22,
         F_MATERIAL = 1u << 23,
         F_PAUSE_HUD = 1u << 24,
+        F_HWFILTER = 1u << 25,
     };
     uint32_t mask = 0;
     bool terrainDetail = false, terrainCliffs = false;
@@ -162,6 +163,7 @@ struct LiveSettings {
     bool stretch = false;
     uint32_t filter = 0, deinterlace = 0, aniso = 0, upFactor = 0, upFilter = 0, scale = 1, latency = 1;
     bool flicker = false, sharp = true, mipAuto = true, replace = true, dump = false, vsync = true;
+    bool hwFilter = true; // F_HWFILTER
     float mipBias = 0.0f;
     float hudScale = 1.0f;
     float pauseMenuHudScale = 0.0f; // F_PAUSE_HUD

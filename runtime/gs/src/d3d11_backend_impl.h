@@ -582,7 +582,7 @@ struct D3D11Backend::Impl {
     uint32_t vbCapacity = 0, vbOffset = 0, vbDrawOffset = 0;
     bool vbMapped = false;              // beginVertices mapped vb; false: the draw writes into vbFallback only
     std::vector<DrawVertex> vbFallback; // the vertices of a draw whose Map failed (nothing reaches the GPU)
-    ComPtr<ID3D11SamplerState> smpPt, smpLin;
+    ComPtr<ID3D11SamplerState> smpPt, smpLin, smpWrap; // smpWrap: s4 of the GS shader (sampleLvlHw)
     // ---- terrain detail (d3d11_terrain.cpp; policy and maths in terrain_detail.h) ----
     terrain::Settings terrainCfg;
     struct TerrainGpu {

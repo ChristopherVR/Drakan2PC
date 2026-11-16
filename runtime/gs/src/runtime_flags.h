@@ -125,6 +125,7 @@ struct RuntimeFlags {
     std::optional<uint32_t> texUpFactor; // GSR_TEXUP: auto=0 off=1 else atoi; overrides Config::textureUpscale
     std::optional<uint32_t> texUpFilter; // GSR_TEXUP_FILTER: xbrz=1 smooth=2 else 0 (texup::Algo values)
     std::optional<uint32_t> aniso;       // GSR_ANISO: atoi
+    std::optional<bool> hwFilter;        // GSR_HW_FILTER: 1 / 0
     // terrain detail (terrain_detail.h)
     std::optional<bool> terrainDetail, terrainCliffs; // GSR_TERRAIN_DETAIL / GSR_TERRAIN_CLIFFS: first character '1'
     std::optional<bool> drawStateCache;               // GSR_DRAW_STATE_CACHE: first character '1'

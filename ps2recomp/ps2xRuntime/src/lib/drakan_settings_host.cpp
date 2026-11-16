@@ -2990,6 +2990,8 @@ struct DrakanSettingsHost final : CommonSettingsHost {
             g_gs->setSharpPresent(n.sharpPresent);
         if (n.anisotropic != p.anisotropic)
             g_gs->setAnisotropic((uint32_t)std::max(0, n.anisotropic));
+        if (n.hardwareTextureFilter != p.hardwareTextureFilter)
+            g_gs->setHardwareTextureFilter(n.hardwareTextureFilter);
         if (n.mipBiasAuto != p.mipBiasAuto || n.mipBias != p.mipBias)
             g_gs->setMipBias(n.mipBias, n.mipBiasAuto);
         if (n.textureUpscale != p.textureUpscale || n.textureUpscaleFilter != p.textureUpscaleFilter)

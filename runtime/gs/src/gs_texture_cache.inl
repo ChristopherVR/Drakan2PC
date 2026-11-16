@@ -51,6 +51,8 @@ void GSR_IMPL::initTexQuality() {
         upAlgoCfg = (texup::Algo)*f.texUpFilter;
     if (f.aniso)
         aniso = *f.aniso;
+    if (f.hwFilter)
+        cfg.hardwareTextureFilter = *f.hwFilter;
     if (f.mipBias) {
         userMipBias = f.mipBias->value;
         mipBias = f.mipBias->automatic ? -std::log2((float)scale) : userMipBias;

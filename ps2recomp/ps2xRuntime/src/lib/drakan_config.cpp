@@ -172,6 +172,9 @@ const Entry kEntries[] = {
      "game's own 60 Hz display tick, which can hold heavy scenes at exactly 60 fps); world_rate = uncapped only; "
      "restart required (env DRAKAN_FLIP_ON_SUBMIT)"},
     {"video", "anisotropic", "16", "anisotropic filtering: 1 = off, 2, 4, 8, 16 (env GSR_ANISO)"},
+    {"video", "hardware_texture_filter", "1",
+     "1 = the bilinear taps of texture filtering are done by the texture unit (the same picture, faster); 0 = by the "
+     "shader as before (env GSR_HW_FILTER)"},
     {"video", "texture_upscale", "auto",
      "texture upscaling: 1 = off, 2, 4, 8, auto (internal scale 2-3 -> 2x, 4+ -> 4x) (env GSR_TEXUP)"},
     {"video", "texture_upscale_filter", "default",

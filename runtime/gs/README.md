@@ -287,6 +287,7 @@ The menu capture requested could not be recorded: a fresh `PS2X_GS_CAPTURE` run 
 | `texture_upscale` | `textureUpscale` (0 auto, 1 off, 2/4/8) | `GSR_TEXUP` | auto (default), 1, 2, 4, 8 |
 | `texture_upscale_filter` | `textureUpscaleFilter` (0 auto, 1 xbrz, 2 smooth) | `GSR_TEXUP_FILTER` | auto (default), xbrz, smooth |
 | `anisotropic` | `anisotropic` | `GSR_ANISO` | 16 (default), 0/1 = off, 2, 4, 8 |
+| `hardware_texture_filter` | `hardwareTextureFilter` | `GSR_HW_FILTER` | 1 (default): bilinear taps (also every anisotropic tap) by the texture unit, REGION_REPEAT excepted; 0 = four `Load`s per tap in the shader as before |
 | `mip_bias` | `mipBiasAuto` / `mipBias` (a number sets `mipBiasAuto=false`) | `GSR_MIPBIAS` | auto (default) = -log2(scale), or a float (0 = original GS LOD) |
 | `texture_dump` | `textureDump` | `GSR_TEXDUMP` | 0 (default) / 1 |
 | `texture_replace` | `textureReplace` | `GSR_TEXREPLACE` | 1 (default) / 0 |

@@ -266,6 +266,7 @@ void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView text
     if (drawState.set(Slot::Samplers, draw_state::pair(word(smpPt.Get()), word(smpLin.Get())))) {
         ID3D11SamplerState* smps[2] = {smpPt.Get(), smpLin.Get()};
         c->PSSetSamplers(0, 2, smps);
+        c->PSSetSamplers(4, 1, smpWrap.GetAddressOf()); // only the GS shader uses s4 (a state clear also empties s0)
     }
     if (drawState.set(Slot::Rasterizer, word(rast.Get())))
         c->RSSetState(rast.Get());

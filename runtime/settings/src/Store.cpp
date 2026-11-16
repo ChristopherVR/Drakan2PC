@@ -397,6 +397,10 @@ const std::vector<Field>& fields() {
          "or frames per second; does not raise the world update rate"},
         {"video", "anisotropic", false, GETI(video.anisotropic), SETI(video.anisotropic),
          "anisotropic filtering: 1 (off), 2, 4, 8, 16"},
+        {"video", "hardware_texture_filter", false, GETB(video.hardwareTextureFilter),
+         SETB(video.hardwareTextureFilter),
+         "1 = the bilinear taps of texture filtering are done by the texture unit (the same picture, faster); 0 = by "
+         "the shader as before"},
         {"video", "texture_upscale", false,
          [](const Settings& s) {
              return s.video.textureUpscale == 0 ? std::string("auto") : std::to_string(s.video.textureUpscale);
@@ -896,6 +900,7 @@ std::string settingLabel(const std::string& key) {
         {"video.show_fps", "FPS counter"},
         {"video.fps_position", "FPS counter position"},
         {"video.anisotropic", "Anisotropic filtering"},
+        {"video.hardware_texture_filter", "Hardware texture filtering"},
         {"video.texture_upscale", "Texture upscaling"},
         {"video.texture_upscale_filter", "Texture upscale filter"},
         {"video.mip_bias", "Mip bias"},

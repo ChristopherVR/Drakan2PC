@@ -66,7 +66,8 @@ using BufferPtr = std::shared_ptr<Buffer>;
 //   @binding(0 .. uniformSlots-1)                     uniform buffers (one struct each; dynamic offsets)
 //   @binding(8 .. 8+textureSlots-1)                   texture_2d<f32> (filterable) or, for depthTextureMask bits,
 //                                                     texture_depth_2d
-//   @binding(16) sampler (point), @binding(17) sampler (linear) when samplers = true
+//   @binding(16) sampler (point), @binding(17) sampler (linear), @binding(18) sampler (linear, repeat) when
+//                                                     samplers = true (point and linear clamp to the edge)
 // A compute program (computeEntry set) has no vertex / fragment stage and, besides the bindings above,
 //   @binding(20 .. 20+storageBuffers-1)   var<storage, read>, or read_write for readWriteMask bits
 //   @binding(28 .. 28+storageTextures-1)  texture_storage_2d<storageFormat, write>

@@ -15,7 +15,7 @@ struct CB {
     b: vec4u,       // x=fbmask  y=texW  z=texH  w=wms|wmt<<2
     c: vec4u,       // minu maxu minv maxv
     fog: vec4f,     // rgb fog colour  w=TA0
-    d: vec4u,       // x=mxl|lcm<<4|mmag<<5|mmin<<6|L<<9|AEM<<12  y=passmode  z,w=dimx
+    d: vec4u,       // x=mxl|lcm<<4|mmag<<5|mmin<<6|L<<9|AEM<<12|hdMips<<13|hwFilter<<14  y=passmode  z,w=dimx
     e: vec4f,       // x=K  y=filter override  z=RT alpha mode  w=TA1
     src: vec4f,     // source RT: xy=origin px, zw=1/dims
     f: vec4f,       // x=upscale factor N  y=mip bias  z=max anisotropy  w=log2(N)
@@ -27,6 +27,7 @@ struct CB {
 @group(0) @binding(8) var TexA: texture_2d<f32>;
 @group(0) @binding(16) var SmpPt: sampler;
 @group(0) @binding(17) var SmpLin: sampler;
+@group(0) @binding(18) var SmpWrap: sampler; // bilinear, mip point, repeat: the hardware bilinear taps of sampleLvl
 
 const F_TME = 1u;
 const F_FGE = 2u;
@@ -92,9 +93,24 @@ fn fetchTexel(p: vec2i, lvl: i32, dim: vec2i) -> vec4f {
     return textureLoad(TexA, vec2i(x, y), lvl);
 }
 
+// One bilinear tap by the texture unit (hardware_texture_filter, cb.d.x bit 14); see sampleLvlHw in gs_shaders.h.
+fn sampleLvlHw(pIn: vec2f, lvl: i32, wms: u32, wmt: u32) -> vec4f {
+    var p = pIn;
+    let N = cb.f.x;
+    let sz = vec2f(f32(max(1u, (cb.b.y * u32(N)) >> u32(lvl))), f32(max(1u, (cb.b.z * u32(N)) >> u32(lvl))));
+    if (wms == 1u) { p.x = clamp(p.x, 0.5, sz.x - 0.5); }
+    else if (wms == 2u) { p.x = clamp(p.x, f32(cb.c.x >> u32(lvl)) * N + 0.5, f32((cb.c.y >> u32(lvl)) + 1u) * N - 0.5); }
+    if (wmt == 1u) { p.y = clamp(p.y, 0.5, sz.y - 0.5); }
+    else if (wmt == 2u) { p.y = clamp(p.y, f32(cb.c.z >> u32(lvl)) * N + 0.5, f32((cb.c.w >> u32(lvl)) + 1u) * N - 0.5); }
+    return textureSampleLevel(TexA, SmpWrap, p / sz, f32(lvl));
+}
+
 fn sampleLvl(uv: vec2f, lvl: i32, lin: bool) -> vec4f {
     let dim = vec2i(max(1, i32(cb.b.y) >> u32(lvl)), max(1, i32(cb.b.z) >> u32(lvl)));
     var p = uv * (cb.f.x / f32(1 << u32(lvl)));
+    let wms = cb.b.w & 3u;
+    let wmt = (cb.b.w >> 2u) & 3u;
+    if (lin && ((cb.d.x >> 14u) & 1u) != 0u && wms != 3u && wmt != 3u) { return sampleLvlHw(p, lvl, wms, wmt); }
     if (lin) {
         p = p - 0.5;
         let fl = floor(p);

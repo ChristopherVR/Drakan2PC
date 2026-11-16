@@ -92,6 +92,7 @@ Fresh settings now default reflections off because they can run on opaque scenes
 | `GSR_TEXUP` | `auto`/`off`/number | config | Texture upscale factor. |
 | `GSR_TEXUP_FILTER` | `xbrz`/`smooth`/other=auto | config | Upscale filter. |
 | `GSR_ANISO` | atoi | config | Anisotropy (clamped to 16). |
+| `GSR_HW_FILTER` | `1` / `0` | config | `hardware_texture_filter`: bilinear taps of the GS texture filter by the texture unit (default 1) or by the shader (0). |
 | `GSR_MIPBIAS` | `auto` or atof | config | Mip bias. |
 | `GSR_TEXDUMP`, `GSR_TEXREPLACE`, `GSR_TEXUP_SYNC` | atoi | config | Dump / replace / synchronous upscaling. |
 | `DRAKAN_HEAP_EXTEND`, `DRAKAN_EXTENDED_HEAP_MB` | 0/1; 0..224 | config (`[general] heap_extend`, 1; `extended_heap_mb`, 224) | The game heap continues above the retail 32 MB when it is full (`drakan_extended_heap.cpp`, the guest sbrk answered by the runtime, PAL only), up to 0x2000000 + the given MB; host pages are committed only as far as it reaches. 0 / 0 MB = the retail heap. |

@@ -270,6 +270,8 @@ void WgpuBackend::Impl::applyLive(const LiveSettings& ls) {
         cfg.anisotropic = std::min(ls.aniso, 16u);
         aniso = cfg.anisotropic;
     }
+    if (ls.mask & L::F_HWFILTER)
+        cfg.hardwareTextureFilter = ls.hwFilter;
     if (ls.mask & L::F_MIP) {
         cfg.mipBiasAuto = ls.mipAuto;
         cfg.mipBias = ls.mipBias;
