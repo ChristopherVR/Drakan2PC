@@ -358,6 +358,58 @@ inline bool estimateFastAt(const FastTransform& f, const double pos[4], double e
     }
     return true;
 }
+// Every place a vertex with its raw position inside the box lo..hi (per lane) can take through one prepared transform,
+// as a conservative range in fixed point (min x, min y, max x, max y): the clip lanes as intervals with the error
+// model of estimateFastAt (kRel * magnitude), w clearly positive, 1 / w and the products as intervals widened by the
+// same terms, the truncation and two more units of margin. False when the box cannot be bounded that way (w not
+// clearly positive, saturation, the 16-bit wrap): its vertices are then estimated one by one.
+inline bool estimateBoxFast(const FastTransform& f, const double lo[4], const double hi[4], double range[4]) {
+    if (!f.usable)
+        return false;
+    double clipLo[3], clipHi[3], clipErr[3];
+    for (int k = 0; k < 3; ++k) {
+        double a = 0, b = 0, magnitude = 0;
+        for (int c = 0; c < 4; ++c) {
+            const double x = f.m[c][k] * lo[c], y = f.m[c][k] * hi[c];
+            a += std::min(x, y);
+            b += std::max(x, y);
+            magnitude += f.am[c][k] * std::max(std::fabs(lo[c]), std::fabs(hi[c]));
+        }
+        if (!(magnitude < kLarge))
+            return false;
+        clipErr[k] = kRel * magnitude;
+        clipLo[k] = a - clipErr[k];
+        clipHi[k] = b + clipErr[k];
+    }
+    if (!(clipLo[2] > 4.0 * clipErr[2] + 1e-30) || !(1.0 / clipLo[2] < kLarge))
+        return false; // w not clearly positive for the whole box
+    const double qLo = (1.0 / clipHi[2]) * (1.0 - 4.0 * kRel), qHi = (1.0 / clipLo[2]) * (1.0 + 4.0 * kRel);
+    double out[2][2];
+    for (int l = 0; l < 2; ++l) {
+        double sLo = clipLo[l] * f.scale[l], sHi = clipHi[l] * f.scale[l];
+        if (sLo > sHi)
+            std::swap(sLo, sHi);
+        const double sMag = std::max(std::fabs(sLo), std::fabs(sHi));
+        if (!(sMag < kLarge && sMag * qHi < kLarge))
+            return false;
+        const double p[4] = {sLo * qLo, sLo * qHi, sHi * qLo, sHi * qHi};
+        const double pLo = std::min(std::min(p[0], p[1]), std::min(p[2], p[3]));
+        const double pHi = std::max(std::max(p[0], p[1]), std::max(p[2], p[3]));
+        const double pMag = std::max(std::fabs(pLo), std::fabs(pHi));
+        const double err = kRel * (std::fabs(f.offset[l]) + 2.0 * pMag + sMag * qHi);
+        const double vLo = (f.offset[l] + pLo - err) * 16.0, vHi = (f.offset[l] + pHi + err) * 16.0;
+        const double fixedErr = kRel * std::max(std::fabs(vLo), std::fabs(vHi)) + 1.0 + 2.0;
+        out[l][0] = vLo - fixedErr;
+        out[l][1] = vHi + fixedErr;
+        if (!(out[l][0] >= 0.0 && out[l][1] <= 65535.0)) // saturation or the 16-bit wrap could be reached
+            return false;
+    }
+    range[0] = out[0][0];
+    range[1] = out[1][0];
+    range[2] = out[0][1];
+    range[3] = out[1][1];
+    return true;
+}
 inline bool estimateFast(const FastTransform& f, const uint32_t raw[4], double place[2], double& error) {
     if (!f.usable || !ordinary(raw[0]) || !ordinary(raw[1]) || !ordinary(raw[2]) || !ordinary(raw[3]))
         return false;
@@ -516,6 +568,14 @@ struct BoundsScratch {
         double x, y, error;
     };
     std::vector<Estimate> estimates;
+    // stripBounds: per record, whether its box could be bounded and the conservative place range; the record order.
+    struct RecordBox {
+        bool ok = false, any = false;
+        double range[4] = {};
+    };
+    std::vector<RecordBox> boxes;
+    std::vector<uint32_t> order;
+    uint64_t recordsSkipped = 0, recordsEstimated = 0;
 };
 
 inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
@@ -603,10 +663,73 @@ inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
         batchdetail::exactStripPlace(b.constants[b.vertices[i].constants], b.vertices[i].in, x, y);
         e.add(x, y);
     };
+    // Each record's raw positions as a box, and every place it can reach (estimateBoxFast). A record whose range lies
+    // strictly inside the limits the extremes are already known to reach cannot hold an extreme: its vertices are
+    // neither estimated nor evaluated. The records with the outermost ranges (and those without a range) go first so
+    // the limits are tight early; the extremes do not depend on the order.
+    scratch.boxes.assign(b.recordCount, {});
+    scratch.order.clear();
+    uint32_t outer[4] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
     for (uint32_t r = 0; r < b.recordCount; ++r) {
         const VertexProgramRecord& record = b.records[r];
         if (record.constants >= b.constantCount || record.firstVertex + record.vertexCount > b.vertexCount)
             continue;
+        auto& box = scratch.boxes[r];
+        double lo[4] = {1e300, 1e300, 1e300, 1e300}, hi[4] = {-1e300, -1e300, -1e300, -1e300};
+        bool ordinaryAll = true;
+        for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
+            if (!scratch.used[i])
+                continue;
+            box.any = true;
+            const uint32_t* raw = b.vertices[i].in.pos;
+            if (b.vertices[i].constants != record.constants || !batchdetail::ordinary(raw[0]) ||
+                !batchdetail::ordinary(raw[1]) || !batchdetail::ordinary(raw[2]) || !batchdetail::ordinary(raw[3])) {
+                ordinaryAll = false;
+                break;
+            }
+            for (int c = 0; c < 4; ++c) {
+                const double v = batchdetail::asDouble(raw[c]);
+                lo[c] = std::min(lo[c], v);
+                hi[c] = std::max(hi[c], v);
+            }
+        }
+        if (!box.any)
+            continue; // no vertex of the record is drawn
+        if (ordinaryAll) {
+            batchdetail::prepareStrip(b.constants[record.constants], prepared);
+            batchdetail::prepareFast(prepared, fast);
+            box.ok = batchdetail::estimateBoxFast(fast, lo, hi, box.range);
+        }
+        if (!box.ok) {
+            scratch.order.push_back(r);
+            continue;
+        }
+        for (int d = 0; d < 4; ++d)
+            if (outer[d] == UINT32_MAX || (d < 2 ? box.range[d] < scratch.boxes[outer[d]].range[d]
+                                                 : box.range[d] > scratch.boxes[outer[d]].range[d]))
+                outer[d] = r;
+    }
+    for (int d = 0; d < 4; ++d) {
+        bool listed = outer[d] == UINT32_MAX;
+        for (int earlier = 0; earlier < d && !listed; ++earlier)
+            listed = outer[earlier] == outer[d];
+        if (!listed)
+            scratch.order.push_back(outer[d]);
+    }
+    const size_t firstOthers = scratch.order.size();
+    for (uint32_t r = 0; r < b.recordCount; ++r)
+        if (scratch.boxes[r].ok && r != outer[0] && r != outer[1] && r != outer[2] && r != outer[3])
+            scratch.order.push_back(r);
+    for (size_t at = 0; at < scratch.order.size(); ++at) {
+        const uint32_t r = scratch.order[at];
+        const VertexProgramRecord& record = b.records[r];
+        const auto& box = scratch.boxes[r];
+        if (at >= firstOthers && box.ok && box.range[0] > e.lowX && box.range[1] > e.lowY && box.range[2] < e.highX &&
+            box.range[3] < e.highY) {
+            ++scratch.recordsSkipped;
+            continue;
+        }
+        ++scratch.recordsEstimated;
         batchdetail::prepareStrip(b.constants[record.constants], prepared);
         batchdetail::prepareFast(prepared, fast);
         for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
