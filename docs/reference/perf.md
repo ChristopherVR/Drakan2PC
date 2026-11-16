@@ -837,3 +837,14 @@ Village, where about 650 shader draws a frame of a few dozen vertices each make 
 The VU1 worker saves little: the batch tracker costs about what the microprogram saved. A partial stage set is worse
 than either (records built from rows the microprogram already processed are evaluated on the CPU). Details:
 [journal](../journal/2026-11-16/perf-vertex-batch-families.md).
+
+## Ray surfaces of the GPU vertex path built on the GPU (2026-11-17)
+
+With modern water on, `GSR_VERTEX_SURFACE=gpu` (opt-in, Direct3D 11) keeps the GPU vertex path on without reading the
+streamed vertices back: a compute kernel (`surface_gpu.h`) turns each world's streamed strip batches into the ray
+pass's frame triangles in a texture shared with the D3D12 pass, bit for bit what the CPU path appends (132.3 million
+slots compared in game, 0 differ; 25 same-frame picture pairs bit-identical, the town square stream included). The
+strip batches give about 78 % of the appended frame triangles in Surdana. Owner's 4K settings, Surdana: CPU per world
+frame -21 % (VU1 worker 5.4 to 3.6 ms, GS worker 5.2 to 3.8 ms), better 1 % and 0.1 % lows, but frame time +6 % (8.43
+to 8.90 ms): the frame is GPU-bound and the path adds about 0.5 ms of GPU work (kernel, stream-out pass, BLAS build).
+Off by default. Details and what remains: [journal](../journal/2026-11-17/gpu-water.md).
