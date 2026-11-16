@@ -372,8 +372,10 @@ inline bool estimateFastAt(const FastTransform& f, const double pos[4], double e
 // as a conservative range in fixed point (min x, min y, max x, max y): the clip lanes as intervals with the error
 // model of estimateFastAt (kRel * magnitude), w clearly positive, 1 / w and the products as intervals widened by the
 // same terms, the truncation and two more units of margin. False when the box cannot be bounded that way (w not
-// clearly positive, saturation, the 16-bit wrap): its vertices are then estimated one by one.
-inline bool estimateBoxFast(const FastTransform& f, const double lo[4], const double hi[4], double range[4]) {
+// clearly positive, saturation, the 16-bit wrap): its vertices are then estimated one by one. `error1`: the error
+// lane 1 carries (a grid height, as in estimateFastAt; zero for a raw position), added as estimateFastAt adds it.
+inline bool estimateBoxFast(const FastTransform& f, const double lo[4], const double hi[4], double range[4],
+                            double error1 = 0.0) {
     if (!f.usable)
         return false;
     double clipLo[3], clipHi[3], clipErr[3];
@@ -387,7 +389,7 @@ inline bool estimateBoxFast(const FastTransform& f, const double lo[4], const do
         }
         if (!(magnitude < kLarge))
             return false;
-        clipErr[k] = kRel * magnitude;
+        clipErr[k] = kRel * magnitude + f.am[1][k] * error1;
         clipLo[k] = a - clipErr[k];
         clipHi[k] = b + clipErr[k];
     }
@@ -435,6 +437,96 @@ inline bool estimateGridFast(const PreparedPass& grid, const FastTransform& f, c
     const double pos[4] = {asDouble(v.gridX), grid.gridY + height * 2.0 - 65536.0, asDouble(v.gridZ), grid.gridW};
     return estimateFastAt(f, pos, kRel * (std::fabs(grid.gridY) + std::fabs(height * 2.0) + 65536.0), place, error);
 }
+
+// Four vertices at once through one Transform, in single precision (batchBounds' common chains). Only the decision
+// which vertices can be an extreme rests on it, so its bound must hold, not match the double one: every term of the
+// error model of estimateFastAt is taken with kRelFloat, four times kRel, which covers the VU's own deviation (kRel)
+// plus the rounding of the single-precision evaluation itself (about six roundings of 2^-24 relative to the
+// magnitudes the model already scales, well under kRel), and the final bound is widened once more by a part in 2^10
+// and 1/64 of a unit for the rounding of the error terms. The constants of a pass are floats, so their single-precision
+// copies are exact. False lanes (saturation, the 16-bit wrap, w not clearly positive, a magnitude near the largest
+// float) are estimated or evaluated one by one, as before.
+constexpr float kRelFloat = float(4.0 * kRel);
+constexpr float kLargeFloat = 1e30f; // well below the largest float: no product or sum on the way saturates
+struct FastTransformFloat {
+    bool usable = false;
+    float m[4][3] = {}, am[4][3] = {}; // [c][lanes 0, 1, 3]
+    float offset[2] = {}, scale[2] = {};
+};
+inline void prepareFastFloat(const FastTransform& f, FastTransformFloat& out) {
+    out.usable = f.usable;
+    for (int c = 0; c < 4; ++c)
+        for (int k = 0; k < 3; ++k) {
+            out.m[c][k] = static_cast<float>(f.m[c][k]); // exact: the double came from this float
+            out.am[c][k] = static_cast<float>(f.am[c][k]);
+        }
+    for (int l = 0; l < 2; ++l) {
+        out.offset[l] = static_cast<float>(f.offset[l]);
+        out.scale[l] = static_cast<float>(f.scale[l]);
+    }
+}
+// pos[c][v]: lane c of vertex v's position (raw, or as a grid pass forms it); error1[v]: the error of its lane 1.
+// Writes place[v][2] and error[v]; returns the mask of the vertices that are bounded.
+#if GSR_BOUNDS_SSE2
+inline uint32_t estimateFast4(const FastTransformFloat& f, const float pos[4][4], const float error1[4],
+                              double place[4][2], double error[4]) {
+    const __m128 sign = _mm_set1_ps(-0.0f);
+    const auto vabs = [sign](__m128 v) { return _mm_andnot_ps(sign, v); };
+    const __m128 rel = _mm_set1_ps(kRelFloat), large = _mm_set1_ps(kLargeFloat);
+    __m128 p[4], ap[4];
+    for (int c = 0; c < 4; ++c) {
+        p[c] = _mm_loadu_ps(pos[c]);
+        ap[c] = vabs(p[c]);
+    }
+    const __m128 e1 = _mm_loadu_ps(error1);
+    __m128 clip[3], clipErr[3];
+    __m128 ok = _mm_castsi128_ps(_mm_set1_epi32(-1));
+    for (int k = 0; k < 3; ++k) {
+        __m128 sum = _mm_mul_ps(_mm_set1_ps(f.m[0][k]), p[0]);
+        __m128 magnitude = _mm_mul_ps(_mm_set1_ps(f.am[0][k]), ap[0]);
+        for (int c = 1; c < 4; ++c) {
+            sum = _mm_add_ps(sum, _mm_mul_ps(_mm_set1_ps(f.m[c][k]), p[c]));
+            magnitude = _mm_add_ps(magnitude, _mm_mul_ps(_mm_set1_ps(f.am[c][k]), ap[c]));
+        }
+        ok = _mm_and_ps(ok, _mm_cmplt_ps(magnitude, large));
+        clip[k] = sum;
+        clipErr[k] = _mm_add_ps(_mm_mul_ps(rel, magnitude), _mm_mul_ps(_mm_set1_ps(f.am[1][k]), e1));
+    }
+    const __m128 w = clip[2], aw = vabs(w);
+    ok = _mm_and_ps(ok, _mm_cmpgt_ps(aw, _mm_add_ps(_mm_mul_ps(_mm_set1_ps(4.0f), clipErr[2]), _mm_set1_ps(1e-30f))));
+    const __m128 q = _mm_div_ps(_mm_set1_ps(1.0f), w), aq = vabs(q);
+    ok = _mm_and_ps(ok, _mm_cmplt_ps(aq, large));
+    const __m128 qErr = _mm_mul_ps(aq, _mm_add_ps(_mm_div_ps(clipErr[2], _mm_sub_ps(aw, clipErr[2])), rel));
+    __m128 out[2], outErr[2];
+    for (int l = 0; l < 2; ++l) {
+        const __m128 scale = _mm_set1_ps(f.scale[l]), offset = _mm_set1_ps(f.offset[l]);
+        const __m128 scaled = _mm_mul_ps(clip[l], scale), product = _mm_mul_ps(scaled, q);
+        ok = _mm_and_ps(ok, _mm_and_ps(_mm_cmplt_ps(vabs(scaled), large), _mm_cmplt_ps(vabs(product), large)));
+        const __m128 value = _mm_add_ps(offset, product);
+        const __m128 valueErr =
+            _mm_add_ps(_mm_mul_ps(vabs(scale), _mm_add_ps(_mm_mul_ps(clipErr[l], aq), _mm_mul_ps(vabs(clip[l]), qErr))),
+                       _mm_mul_ps(rel, _mm_add_ps(vabs(offset), _mm_mul_ps(_mm_set1_ps(2.0f), vabs(product)))));
+        out[l] = _mm_mul_ps(value, _mm_set1_ps(16.0f));
+        outErr[l] = _mm_add_ps(_mm_add_ps(_mm_mul_ps(valueErr, _mm_set1_ps(16.0f)), _mm_mul_ps(rel, vabs(out[l]))),
+                               _mm_set1_ps(1.0f)); // the truncation to an integer
+    }
+    __m128 err = _mm_max_ps(outErr[0], outErr[1]);
+    err = _mm_add_ps(_mm_mul_ps(err, _mm_set1_ps(1.0f + 1.0f / 1024.0f)), _mm_set1_ps(1.0f / 64.0f));
+    for (int l = 0; l < 2; ++l) // saturation or the 16-bit wrap
+        ok = _mm_and_ps(ok, _mm_and_ps(_mm_cmpge_ps(_mm_sub_ps(out[l], err), _mm_setzero_ps()),
+                                       _mm_cmple_ps(_mm_add_ps(out[l], err), _mm_set1_ps(65535.0f))));
+    float x[4], y[4], e[4];
+    _mm_storeu_ps(x, out[0]);
+    _mm_storeu_ps(y, out[1]);
+    _mm_storeu_ps(e, err);
+    for (int v = 0; v < 4; ++v) {
+        place[v][0] = x[v];
+        place[v][1] = y[v];
+        error[v] = e[v];
+    }
+    return static_cast<uint32_t>(_mm_movemask_ps(ok));
+}
+#endif
 // A strip record's constants as the Transform pass with the same x and y: the strip stage computes them with the
 // operations of passTransform (whose offset is first multiplied by one, which changes no bit).
 inline void prepareStrip(const vp::Constants& k, PreparedPass& out) {
@@ -477,11 +569,23 @@ inline void exactTransformPlace(const uint32_t (*m)[4], const uint32_t offset[4]
 inline void exactStripPlace(const vp::Constants& k, const vp::Vertex& v, int32_t& x, int32_t& y) {
     exactTransformPlace(k.mvp, k.offset, k.scale, v.pos, x, y);
 }
-// The exact x and y (16-bit fixed point) of a vertex: its position passes with the VU's arithmetic.
+// The exact x and y (16-bit fixed point) of a vertex: its position passes with the VU's arithmetic. When the last of
+// them is a Transform, only its place lanes are evaluated (exactTransformPlace: the same operations as passTransform
+// on x and y, which depend on the position alone); the passes before it (a grid pass) run whole.
 inline void exactPlace(const vp::Pass* passes, uint32_t mask, const vp::BatchVertex& v, int32_t& x, int32_t& y) {
-    if (mask && !(mask & (mask - 1u)) && passes[lowestBit(mask)].kind == vp::PassTransform) {
-        const vp::Pass& p = passes[lowestBit(mask)];
-        exactTransformPlace(p.k, p.k[5], p.k[6], v.row.pos, x, y);
+    uint32_t last = 0;
+    for (uint32_t bits = mask; bits; bits &= bits - 1u)
+        last = lowestBit(bits);
+    if (mask && passes[last].kind == vp::PassTransform) {
+        const vp::Pass& p = passes[last];
+        if (!(mask & (mask - 1u))) {
+            exactTransformPlace(p.k, p.k[5], p.k[6], v.row.pos, x, y);
+            return;
+        }
+        vp::Row r = v.row;
+        for (uint32_t bits = mask & ~(1u << last); bits; bits &= bits - 1u)
+            vp::applyPass(passes[lowestBit(bits)], r, v.gridX, v.gridZ);
+        exactTransformPlace(p.k, p.k[5], p.k[6], r.pos, x, y);
         return;
     }
     vp::Row r = v.row;
@@ -623,7 +727,17 @@ inline bool pieceBox(const VertexProgramVertex* vertices, const uint8_t* used, u
 }
 } // namespace batchdetail
 
-// Working storage of batchBounds (kept by the caller across draws: no allocation per draw).
+// The position passes of a batch-path record prepared for the bounds, once per run of records with the same rows of
+// the pass table (the core lets consecutive records with the same passes share their rows).
+struct BatchPassSet {
+    uint32_t constants = 0, passCount = 0; // the rows of the batch's pass table
+    uint32_t positionPasses = 0, transforms = 0, grids = 0;
+    batchdetail::PreparedPass prepared[vp::kBatchMaxPasses];
+    batchdetail::FastTransform fast[vp::kBatchMaxPasses];
+    batchdetail::FastTransformFloat fastFloat[vp::kBatchMaxPasses];
+};
+
+// Working storage of batchBounds and stripBounds (kept by the caller across draws: no allocation per draw).
 struct BoundsScratch {
     std::vector<uint8_t> used;
     struct Estimate {
@@ -642,63 +756,215 @@ struct BoundsScratch {
     std::vector<uint32_t> order;
     std::vector<batchdetail::FastTransform> transforms;
     uint64_t piecesSkipped = 0, piecesEstimated = 0;
+    // batchBounds: the prepared pass sets; vertices estimated four at a time and one at a time (statistics)
+    std::vector<BatchPassSet> passSets;
+    uint64_t batchFour = 0, batchSingle = 0;
+    bool batchScalar = false; // every vertex estimated one at a time in doubles (the tests compare both)
 };
 
+inline constexpr uint32_t kBoundsPiece = 32; // 16 and 64 measured within a few per cent of it on Surdana's batches
+
+namespace batchdetail {
+// A piece goes on the list: one without a range at once (those go first), a boxed one with the outermost piece per
+// direction remembered in `outer` (UINT32_MAX: none yet).
+inline void addPiece(BoundsScratch& scratch, const BoundsScratch::Piece& piece, uint32_t outer[4]) {
+    const uint32_t at = (uint32_t)scratch.pieces.size();
+    scratch.pieces.push_back(piece);
+    if (!piece.ok) {
+        scratch.order.push_back(at);
+        return;
+    }
+    for (int d = 0; d < 4; ++d)
+        if (outer[d] == UINT32_MAX || (d < 2 ? piece.range[d] < scratch.pieces[outer[d]].range[d]
+                                             : piece.range[d] > scratch.pieces[outer[d]].range[d]))
+            outer[d] = at;
+}
+// The order the pieces are estimated in: those without a range (already listed), the outermost one per direction,
+// then the other boxed ones; `firstOthers` is where those start.
+inline void orderPieces(BoundsScratch& scratch, const uint32_t outer[4], size_t& firstOthers) {
+    for (int d = 0; d < 4; ++d) {
+        bool listed = outer[d] == UINT32_MAX;
+        for (int earlier = 0; earlier < d && !listed; ++earlier)
+            listed = outer[earlier] == outer[d];
+        if (!listed)
+            scratch.order.push_back(outer[d]);
+    }
+    firstOthers = scratch.order.size();
+    for (uint32_t p = 0; p < (uint32_t)scratch.pieces.size(); ++p)
+        if (scratch.pieces[p].ok && p != outer[0] && p != outer[1] && p != outer[2] && p != outer[3])
+            scratch.order.push_back(p);
+}
+// A piece whose range lies strictly inside the limits the extremes are known to reach cannot hold an extreme.
+inline bool insideLimits(const BoundsScratch::Piece& piece, const Extremes& e) {
+    return piece.range[0] > e.lowX && piece.range[1] > e.lowY && piece.range[2] < e.highX && piece.range[3] < e.highY;
+}
+} // namespace batchdetail
+
+// The bounds of a batch of batch-path records: every used vertex estimated, the ones that can be an extreme evaluated
+// exactly (the method described above). The position passes are prepared once per pass set (a run of records with
+// the same rows). The vertices of the two common chains (one transform from the raw position, or a grid pass and then
+// a transform) are estimated four at a time in single precision where the target has SSE2 (estimateFast4, with its
+// wider error model); a vertex it cannot bound, and every other vertex, is estimated one at a time in doubles as
+// before, or evaluated exactly. Which vertices are estimated how changes only how many are evaluated exactly, never
+// the extremes: every estimate's interval holds the exact place.
 inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
     if (!b.batchPath || !b.indexCount)
         return {};
-    // Vertices the triangles use (a strip of one or two indices has none).
-    scratch.used.assign(b.vertexCount, 0);
-    for (uint32_t i = 0; i < b.indexCount; ++i)
-        if (b.indices[i] < b.vertexCount)
-            scratch.used[b.indices[i]] = 1;
+    // Vertices the triangles use (a strip of one or two indices has none): all of them when every record says so.
+    bool everyDrawn = true;
+    for (uint32_t r = 0; r < b.recordCount && everyDrawn; ++r)
+        everyDrawn = b.records[r].allDrawn;
+    const uint8_t* used = nullptr;
+    if (!everyDrawn) {
+        scratch.used.assign(b.vertexCount, 0);
+        for (uint32_t i = 0; i < b.indexCount; ++i)
+            if (b.indices[i] < b.vertexCount)
+                scratch.used[b.indices[i]] = 1;
+        used = scratch.used.data();
+    }
     scratch.estimates.clear();
+    uint32_t setCount = 0;
     batchdetail::Extremes e;
-    batchdetail::PreparedPass prepared[vp::kBatchMaxPasses];
-    batchdetail::FastTransform fast[vp::kBatchMaxPasses];
     for (uint32_t r = 0; r < b.recordCount; ++r) {
         const VertexProgramRecord& record = b.records[r];
         if (record.constants + record.passCount > b.passCount || record.passCount > vp::kBatchMaxPasses ||
             record.firstVertex + record.vertexCount > b.vertexCount)
             continue;
-        const vp::Pass* passes = b.passes + record.constants;
-        uint32_t positionPasses = 0, transforms = 0, grids = 0;
-        for (uint32_t p = 0; p < record.passCount; ++p)
-            if (motion::positionPass(passes[p].kind)) {
-                positionPasses |= 1u << p;
-                batchdetail::prepare(passes[p], prepared[p]);
-                if (passes[p].kind == vp::PassTransform) {
-                    transforms |= 1u << p;
-                    batchdetail::prepareFast(prepared[p], fast[p]);
-                } else if (passes[p].kind == vp::PassGrid || passes[p].kind == vp::PassGridFlat) {
-                    grids |= 1u << p;
+        if (!setCount || scratch.passSets[setCount - 1].constants != record.constants ||
+            scratch.passSets[setCount - 1].passCount != record.passCount) {
+            if (scratch.passSets.size() <= setCount)
+                scratch.passSets.emplace_back();
+            BatchPassSet& set = scratch.passSets[setCount++];
+            set.constants = record.constants;
+            set.passCount = record.passCount;
+            set.positionPasses = set.transforms = set.grids = 0;
+            const vp::Pass* passes = b.passes + record.constants;
+            for (uint32_t p = 0; p < record.passCount; ++p)
+                if (motion::positionPass(passes[p].kind)) {
+                    set.positionPasses |= 1u << p;
+                    batchdetail::prepare(passes[p], set.prepared[p]);
+                    if (passes[p].kind == vp::PassTransform) {
+                        set.transforms |= 1u << p;
+                        batchdetail::prepareFast(set.prepared[p], set.fast[p]);
+                        batchdetail::prepareFastFloat(set.fast[p], set.fastFloat[p]);
+                    } else if (passes[p].kind == vp::PassGrid || passes[p].kind == vp::PassGridFlat) {
+                        set.grids |= 1u << p;
+                    }
                 }
-            }
-        for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
-            if (!scratch.used[i])
-                continue;
+        }
+        const BatchPassSet& set = scratch.passSets[setCount - 1];
+        const vp::Pass* passes = b.passes + record.constants;
+        // One vertex: its estimate in doubles (or its exact place when it has none).
+        const auto single = [&](uint32_t i, uint32_t mask) {
             const vp::BatchVertex& v = b.batchVertices[i];
-            const uint32_t mask = v.passMask & positionPasses;
             double place[2], error = 0;
-            // the common chains: one transform from the raw position, or a grid pass and then a transform
-            const uint32_t first = mask & (0u - mask), rest = mask & ~first;
+            const uint32_t low = mask & (0u - mask), rest = mask & ~low;
             bool known;
-            if (first && !rest && (first & transforms))
-                known = batchdetail::estimateFast(fast[batchdetail::lowestBit(first)], v.row.pos, place, error);
-            else if ((first & grids) && rest && !(rest & (rest - 1u)) && (rest & transforms))
-                known = batchdetail::estimateGridFast(prepared[batchdetail::lowestBit(first)],
-                                                      fast[batchdetail::lowestBit(rest)], v, place, error);
+            if (low && !rest && (low & set.transforms))
+                known = batchdetail::estimateFast(set.fast[batchdetail::lowestBit(low)], v.row.pos, place, error);
+            else if ((low & set.grids) && rest && !(rest & (rest - 1u)) && (rest & set.transforms))
+                known = batchdetail::estimateGridFast(set.prepared[batchdetail::lowestBit(low)],
+                                                      set.fast[batchdetail::lowestBit(rest)], v, place, error);
             else
-                known = batchdetail::estimatePlace(prepared, mask, v, place, error);
+                known = batchdetail::estimatePlace(set.prepared, mask, v, place, error);
+            ++scratch.batchSingle;
             if (!known) {
                 int32_t x, y;
                 batchdetail::exactPlace(passes, mask, v, x, y);
                 e.add(x, y);
-                continue;
+                return;
             }
             if (e.estimate(place[0], place[1], error))
                 scratch.estimates.push_back({i, mask, r, place[0], place[1], error});
+        };
+#if GSR_BOUNDS_SSE2
+        // Up to four vertices of one chain (the same position mask) wait here for estimateFast4.
+        uint32_t groupMask = 0, groupCount = 0, groupTransform = 0, groupGrid = UINT32_MAX;
+        uint32_t groupVertex[4];
+        float groupPos[4][4], groupError1[4];
+        const auto flush = [&]() {
+            if (!groupCount)
+                return;
+            for (uint32_t k = groupCount; k < 4u; ++k) { // the empty lanes repeat the first vertex
+                for (int c = 0; c < 4; ++c)
+                    groupPos[c][k] = groupPos[c][0];
+                groupError1[k] = groupError1[0];
+            }
+            double place[4][2], error[4];
+            const uint32_t known =
+                batchdetail::estimateFast4(set.fastFloat[groupTransform], groupPos, groupError1, place, error);
+            for (uint32_t k = 0; k < groupCount; ++k) {
+                if (!((known >> k) & 1u)) {
+                    single(groupVertex[k], groupMask);
+                    continue;
+                }
+                ++scratch.batchFour;
+                if (e.estimate(place[k][0], place[k][1], error[k]))
+                    scratch.estimates.push_back({groupVertex[k], groupMask, r, place[k][0], place[k][1], error[k]});
+            }
+            groupCount = 0;
+        };
+#endif
+        for (uint32_t i = record.firstVertex; i < record.firstVertex + record.vertexCount; ++i) {
+            if (used && !used[i])
+                continue;
+            const vp::BatchVertex& v = b.batchVertices[i];
+            const uint32_t mask = v.passMask & set.positionPasses;
+#if GSR_BOUNDS_SSE2
+            if (!scratch.batchScalar) {
+                // the common chains with the values estimateFast and estimateGridFast take
+                const uint32_t low = mask & (0u - mask), rest = mask & ~low;
+                uint32_t transform = 0, grid = UINT32_MAX;
+                bool common = false;
+                if (low && !rest && (low & set.transforms)) {
+                    transform = batchdetail::lowestBit(low);
+                    common = set.fast[transform].usable && batchdetail::ordinary(v.row.pos[0]) &&
+                             batchdetail::ordinary(v.row.pos[1]) && batchdetail::ordinary(v.row.pos[2]) &&
+                             batchdetail::ordinary(v.row.pos[3]);
+                } else if ((low & set.grids) && rest && !(rest & (rest - 1u)) && (rest & set.transforms)) {
+                    grid = batchdetail::lowestBit(low);
+                    transform = batchdetail::lowestBit(rest);
+                    common = set.fast[transform].usable && set.prepared[grid].usable &&
+                             batchdetail::ordinary(v.gridX) && batchdetail::ordinary(v.gridZ);
+                }
+                if (common) {
+                    if (groupCount && groupMask != mask)
+                        flush();
+                    groupMask = mask;
+                    groupTransform = transform;
+                    groupGrid = grid;
+                    float* lane[4] = {groupPos[0], groupPos[1], groupPos[2], groupPos[3]};
+                    if (grid == UINT32_MAX) {
+                        for (int c = 0; c < 4; ++c)
+                            std::memcpy(&lane[c][groupCount], &v.row.pos[c], 4);
+                        groupError1[groupCount] = 0.0f;
+                    } else {
+                        // the grid pass's position, as estimateGridFast forms it; lane 1 is rounded to a float here,
+                        // which its error takes in (one rounding of 2^-24, counted as 2^-23)
+                        const batchdetail::PreparedPass& g = set.prepared[grid];
+                        const double height = g.kind == vp::PassGridFlat ? 0.0 : double(int32_t(v.row.pos[1]));
+                        const double y = g.gridY + height * 2.0 - 65536.0;
+                        std::memcpy(&lane[0][groupCount], &v.gridX, 4);
+                        lane[1][groupCount] = static_cast<float>(y);
+                        std::memcpy(&lane[2][groupCount], &v.gridZ, 4);
+                        lane[3][groupCount] = static_cast<float>(g.gridW);
+                        groupError1[groupCount] = static_cast<float>(
+                            4.0 * batchdetail::kRel * (std::fabs(g.gridY) + std::fabs(height * 2.0) + 65536.0) +
+                            std::fabs(y) * (1.0 / (1u << 23)));
+                    }
+                    groupVertex[groupCount++] = i;
+                    if (groupCount == 4u)
+                        flush();
+                    continue;
+                }
+            }
+#endif
+            single(i, mask);
         }
+#if GSR_BOUNDS_SSE2
+        flush();
+        (void)groupGrid;
+#endif
     }
     // A vertex can be an extreme only when its interval reaches past the final limit; those are evaluated exactly.
     batchdetail::finishExtremes(e, scratch.estimates, [&](const BoundsScratch::Estimate& k) {
@@ -720,7 +986,6 @@ inline Bounds batchBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
 // evaluated. The pieces without a range go first, then those with the outermost ranges, so the limits are tight early;
 // the extremes do not depend on the order. Pieces rather than whole records: a record of the game has about 150
 // vertices, and only the part of an outer record near the edge reaches past the limits.
-inline constexpr uint32_t kBoundsPiece = 32; // 16 and 64 measured within a few per cent of it on Surdana's batches
 inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t offsetY, BoundsScratch& scratch) {
     if (b.batchPath || !b.indexCount)
         return {};
@@ -774,33 +1039,14 @@ inline Bounds stripBounds(const VertexProgramBatch& b, int32_t offsetX, int32_t 
                 const double dlo[4] = {lo[0], lo[1], lo[2], lo[3]}, dhi[4] = {hi[0], hi[1], hi[2], hi[3]};
                 piece.ok = batchdetail::estimateBoxFast(fast, dlo, dhi, piece.range);
             }
-            const uint32_t at = (uint32_t)scratch.pieces.size();
-            scratch.pieces.push_back(piece);
-            if (!piece.ok) {
-                scratch.order.push_back(at);
-                continue;
-            }
-            for (int d = 0; d < 4; ++d)
-                if (outer[d] == UINT32_MAX || (d < 2 ? piece.range[d] < scratch.pieces[outer[d]].range[d]
-                                                     : piece.range[d] > scratch.pieces[outer[d]].range[d]))
-                    outer[d] = at;
+            batchdetail::addPiece(scratch, piece, outer);
         }
     }
-    for (int d = 0; d < 4; ++d) {
-        bool listed = outer[d] == UINT32_MAX;
-        for (int earlier = 0; earlier < d && !listed; ++earlier)
-            listed = outer[earlier] == outer[d];
-        if (!listed)
-            scratch.order.push_back(outer[d]);
-    }
-    const size_t firstOthers = scratch.order.size();
-    for (uint32_t p = 0; p < (uint32_t)scratch.pieces.size(); ++p)
-        if (scratch.pieces[p].ok && p != outer[0] && p != outer[1] && p != outer[2] && p != outer[3])
-            scratch.order.push_back(p);
+    size_t firstOthers = 0;
+    batchdetail::orderPieces(scratch, outer, firstOthers);
     for (size_t at = 0; at < scratch.order.size(); ++at) {
         const BoundsScratch::Piece& piece = scratch.pieces[scratch.order[at]];
-        if (at >= firstOthers && piece.range[0] > e.lowX && piece.range[1] > e.lowY && piece.range[2] < e.highX &&
-            piece.range[3] < e.highY) {
+        if (at >= firstOthers && batchdetail::insideLimits(piece, e)) {
             ++scratch.piecesSkipped;
             continue;
         }

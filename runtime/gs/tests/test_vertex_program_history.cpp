@@ -480,9 +480,9 @@ int main() {
         bad += differ;
     }
     if (const char* path = std::getenv("GSR_VP_BOUNDS_BATCHES")) {
-        // Strip batches the game drew (GSR_VP_BOUNDS_DUMP, vertex_program_dump.h; private data): stripBounds against
-        // vp::evaluate of every vertex the triangles use, and its time per batch (the shortest of GSR_VP_BOUNDS_REPEATS
-        // calls, default 5).
+        // Batches the game drew (GSR_VP_BOUNDS_DUMP, vertex_program_dump.h; private data): stripBounds and
+        // batchBounds against vp::evaluate / vp::evaluateVertex of every vertex the triangles use, and their time per
+        // batch (the shortest of GSR_VP_BOUNDS_REPEATS calls, default 5), per kind.
         std::FILE* f = std::fopen(path, "rb");
         if (!f) {
             std::printf("[FAIL] GSR_VP_BOUNDS_BATCHES: cannot open %s\n", path);
@@ -492,18 +492,25 @@ int main() {
         const int repeats = std::max(1, repeatText ? std::atoi(repeatText) : 5);
         program_draw::BoundsScratch scratch;
         program_dump::Batch d;
-        uint64_t batches = 0, differ = 0, vertices = 0, records = 0, exactly = 0, flagWrong = 0, flagged = 0;
-        uint64_t differLooked = 0; // the same batches with every record's allDrawn cleared (the index lookup)
-        double seconds = 0;
+        // per kind: [0] strip batches, [1] batch-path batches
+        uint64_t batches[2] = {}, differ[2] = {}, vertices[2] = {}, records[2] = {}, exactly[2] = {};
+        uint64_t flagWrong[2] = {}, flagged[2] = {};
+        uint64_t differLooked[2] = {}; // the same batches with every record's allDrawn cleared (the index lookup)
+        double seconds[2] = {};
+        // batch-path batches: every vertex estimated one at a time in doubles (BoundsScratch::batchScalar)
+        double scalarSeconds = 0;
+        uint64_t differScalar = 0, scalarExactly = 0;
         std::vector<uint8_t> used;
         std::vector<VertexProgramRecord> unflagged;
         while (program_dump::read(f, d)) {
             const VertexProgramBatch b = d.view();
+            const int kind = b.batchPath ? 1 : 0;
+            const char* kindName = b.batchPath ? "batch-path" : "strip";
             program_draw::Bounds got;
             double best = 1e30;
             for (int rep = 0; rep < repeats; ++rep) {
                 const auto r0 = std::chrono::steady_clock::now();
-                got = program_draw::stripBounds(b, d.offsetX, d.offsetY, scratch);
+                got = program_draw::programBounds(b, d.offsetX, d.offsetY, scratch);
                 best = std::min(best, std::chrono::duration<double>(std::chrono::steady_clock::now() - r0).count());
             }
             used.assign(b.vertexCount, 0);
@@ -516,19 +523,22 @@ int main() {
                 for (uint32_t i = 0; i < r.vertexCount; ++i)
                     all = all && used[r.firstVertex + i];
                 if (r.allDrawn && !all) {
-                    if (flagWrong < 4)
-                        std::printf("  [FAIL] dumped strip batch %llu: a record says every vertex is drawn\n",
-                                    (unsigned long long)batches);
-                    ++flagWrong;
+                    if (flagWrong[kind] < 4)
+                        std::printf("  [FAIL] dumped %s batch %llu: a record says every vertex is drawn\n", kindName,
+                                    (unsigned long long)batches[kind]);
+                    ++flagWrong[kind];
                 }
-                flagged += r.allDrawn;
+                flagged[kind] += r.allDrawn;
             }
             int32_t want[4] = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
             for (uint32_t i = 0; i < b.vertexCount; ++i) {
                 if (!used[i])
                     continue;
-                const VertexProgramVertex& v = b.vertices[i];
-                const vp::Output o = vp::evaluate(v.program, b.constants[v.constants], v.in);
+                const vp::Output o =
+                    b.batchPath
+                        ? vp::evaluateVertex(b.passes + b.batchVertices[i].slot / vp::ir::kPassRows,
+                                             vp::kBatchMaxPasses, b.batchVertices[i])
+                        : vp::evaluate(b.vertices[i].program, b.constants[b.vertices[i].constants], b.vertices[i].in);
                 want[0] = std::min(want[0], (int32_t)o.x);
                 want[1] = std::min(want[1], (int32_t)o.y);
                 want[2] = std::max(want[2], (int32_t)o.x);
@@ -540,38 +550,66 @@ int main() {
                 got.any == any &&
                 (!any || (got.x0 == (want[0] - ox) * (1.0f / 16.0f) && got.y0 == (want[1] - oy) * (1.0f / 16.0f) &&
                           got.x1 == (want[2] - ox) * (1.0f / 16.0f) && got.y1 == (want[3] - oy) * (1.0f / 16.0f)));
-            if (!same && differ < 4)
-                std::printf("  [FAIL] dumped strip batch %llu: got %g %g %g %g, want %g %g %g %g\n",
-                            (unsigned long long)batches, got.x0, got.y0, got.x1, got.y1, (want[0] - ox) / 16.0,
+            if (!same && differ[kind] < 4)
+                std::printf("  [FAIL] dumped %s batch %llu: got %g %g %g %g, want %g %g %g %g\n", kindName,
+                            (unsigned long long)batches[kind], got.x0, got.y0, got.x1, got.y1, (want[0] - ox) / 16.0,
                             (want[1] - oy) / 16.0, (want[2] - ox) / 16.0, (want[3] - oy) / 16.0);
-            differ += !same;
+            differ[kind] += !same;
             unflagged.assign(d.records.begin(), d.records.end());
             for (VertexProgramRecord& r : unflagged)
                 r.allDrawn = false;
             VertexProgramBatch looked = b;
             looked.records = unflagged.data();
-            const program_draw::Bounds other = program_draw::stripBounds(looked, ox, oy, scratch);
-            differLooked += !(other.any == got.any && other.x0 == got.x0 && other.y0 == got.y0 && other.x1 == got.x1 &&
-                              other.y1 == got.y1);
-            ++batches;
-            vertices += b.vertexCount;
-            records += b.recordCount;
-            exactly += got.exact;
-            seconds += best;
+            const program_draw::Bounds other = program_draw::programBounds(looked, ox, oy, scratch);
+            differLooked[kind] += !(other.any == got.any && other.x0 == got.x0 && other.y0 == got.y0 &&
+                                    other.x1 == got.x1 && other.y1 == got.y1);
+            if (b.batchPath) {
+                scratch.batchScalar = true;
+                program_draw::Bounds scalar;
+                double scalarBest = 1e30;
+                for (int rep = 0; rep < repeats; ++rep) {
+                    const auto r0 = std::chrono::steady_clock::now();
+                    scalar = program_draw::batchBounds(b, ox, oy, scratch);
+                    scalarBest = std::min(scalarBest,
+                                          std::chrono::duration<double>(std::chrono::steady_clock::now() - r0).count());
+                }
+                scratch.batchScalar = false;
+                scalarSeconds += scalarBest;
+                scalarExactly += scalar.exact;
+                differScalar += !(scalar.any == got.any && scalar.x0 == got.x0 && scalar.y0 == got.y0 &&
+                                  scalar.x1 == got.x1 && scalar.y1 == got.y1);
+            }
+            ++batches[kind];
+            vertices[kind] += b.vertexCount;
+            records[kind] += b.recordCount;
+            exactly[kind] += got.exact;
+            seconds[kind] += best;
         }
         std::fclose(f);
-        std::printf("dumped strip batches: %llu (%llu records, %llu of them all drawn, %llu wrongly; %llu vertices, "
-                    "%llu evaluated exactly), %llu differ, %llu differ with the index lookup; %.2f us per batch, %.1f "
-                    "ns per vertex\n",
-                    (unsigned long long)batches, (unsigned long long)records, (unsigned long long)flagged,
-                    (unsigned long long)flagWrong, (unsigned long long)vertices, (unsigned long long)exactly,
-                    (unsigned long long)differ, (unsigned long long)differLooked,
-                    batches ? seconds * 1e6 / (double)batches : 0.0, vertices ? seconds * 1e9 / (double)vertices : 0.0);
-        if (!batches) {
+        for (int kind = 0; kind < 2; ++kind) {
+            std::printf("dumped %s batches: %llu (%llu records, %llu of them all drawn, %llu wrongly; %llu vertices, "
+                        "%llu evaluated exactly), %llu differ, %llu differ with the index lookup; %.2f us per batch, "
+                        "%.1f ns per vertex\n",
+                        kind ? "batch-path" : "strip", (unsigned long long)batches[kind],
+                        (unsigned long long)records[kind], (unsigned long long)flagged[kind],
+                        (unsigned long long)flagWrong[kind], (unsigned long long)vertices[kind],
+                        (unsigned long long)exactly[kind], (unsigned long long)differ[kind],
+                        (unsigned long long)differLooked[kind],
+                        batches[kind] ? seconds[kind] * 1e6 / (double)batches[kind] : 0.0,
+                        vertices[kind] ? seconds[kind] * 1e9 / (double)vertices[kind] : 0.0);
+            bad += differ[kind] + differLooked[kind] + flagWrong[kind];
+        }
+        std::printf("dumped batch-path batches, every vertex estimated one at a time in doubles: %llu differ, %llu "
+                    "evaluated exactly, %.2f us per batch (every call counted: %llu vertices estimated four at a time, "
+                    "%llu one at a time)\n",
+                    (unsigned long long)differScalar, (unsigned long long)scalarExactly,
+                    batches[1] ? scalarSeconds * 1e6 / (double)batches[1] : 0.0, (unsigned long long)scratch.batchFour,
+                    (unsigned long long)scratch.batchSingle);
+        bad += differScalar;
+        if (!batches[0] && !batches[1]) {
             std::printf("[FAIL] GSR_VP_BOUNDS_BATCHES: no batch in %s\n", path);
             ++bad;
         }
-        bad += differ + differLooked + flagWrong;
     }
     // The batch path: every vertex of the batch cases (and of GSR_VB_RECORDS).
     const vbcases::Cases batchCases = vbcases::standardCases();
@@ -643,6 +681,30 @@ int main() {
                 want[3] = std::max(want[3], (int32_t)o.y);
             }
             const auto t2 = std::chrono::steady_clock::now();
+            if (n >= 3) {
+                // every vertex is in a triangle here: the same bounds without the index lookup (allDrawn)
+                for (VertexProgramRecord& r : records)
+                    r.allDrawn = true;
+                const program_draw::Bounds flagged = program_draw::batchBounds(b, ox, oy, scratch);
+                if (!(flagged.any == got.any && flagged.x0 == got.x0 && flagged.y0 == got.y0 && flagged.x1 == got.x1 &&
+                      flagged.y1 == got.y1)) {
+                    if (differ < 4)
+                        std::printf("  [FAIL] batch bounds at vertex %zu differ with every record all drawn\n", first);
+                    ++differ;
+                }
+            }
+            {
+                // every vertex estimated one at a time in doubles: the same bounds
+                scratch.batchScalar = true;
+                const program_draw::Bounds scalar = program_draw::batchBounds(b, ox, oy, scratch);
+                scratch.batchScalar = false;
+                if (!(scalar.any == got.any && scalar.x0 == got.x0 && scalar.y0 == got.y0 && scalar.x1 == got.x1 &&
+                      scalar.y1 == got.y1)) {
+                    if (differ < 4)
+                        std::printf("  [FAIL] batch bounds at vertex %zu differ from the scalar estimate\n", first);
+                    ++differ;
+                }
+            }
             boundsSeconds += best;
             everySeconds += std::chrono::duration<double>(t2 - t1).count();
             const bool any = want[0] != INT32_MAX;

@@ -408,6 +408,7 @@ struct Renderer::Impl {
     uint32_t programCounted = 0; // vertices of the open batch counted as drawn by a shader
     std::vector<vp::BatchVertex> programBatchVertices;
     std::vector<vp::Pass> programPasses;
+    uint32_t programLastPass = 0, programLastPassCount = 0; // the last batch-path record's rows of programPasses
     // GSR_PROFILE: the core's share of the vertex-program work (records, and batches handed to the backend), in a
     // report line of its own next to the backend's
     CpuProfile programProfile;
@@ -454,6 +455,7 @@ struct Renderer::Impl {
         programIndices.clear();
         programBatchVertices.clear();
         programPasses.clear();
+        programLastPass = programLastPassCount = 0;
         programBatchPath = false;
         programCounted = 0;
         programActive = false;
@@ -727,11 +729,22 @@ struct Renderer::Impl {
             programBatchPath = true;
         }
         const uint8_t* vertexBytes = reinterpret_cast<const uint8_t*>(rec.vertices);
-        const uint32_t firstPass = (uint32_t)programPasses.size();
+        // The index-list runs of one batch carry the same passes record after record (the same stages with the same
+        // constants): such a record uses the previous record's rows of the pass table instead of a copy. Its
+        // vertices then name the same rows, so the shader, the bounds and the history read the same passes.
+        const size_t passBytes = size_t(h.passCount) * sizeof(vp::Pass);
+        const bool shared = h.passCount && programLastPassCount == h.passCount &&
+                            programLastPass + h.passCount <= programPasses.size() &&
+                            std::memcmp(programPasses.data() + programLastPass, rec.passes, passBytes) == 0;
+        const uint32_t firstPass = shared ? programLastPass : (uint32_t)programPasses.size();
         const uint32_t firstVertex = (uint32_t)programBatchVertices.size();
-        programPasses.resize(firstPass + h.passCount);
-        if (h.passCount)
-            std::memcpy(programPasses.data() + firstPass, rec.passes, size_t(h.passCount) * sizeof(vp::Pass));
+        if (!shared) {
+            programPasses.resize(firstPass + h.passCount);
+            if (h.passCount)
+                std::memcpy(programPasses.data() + firstPass, rec.passes, passBytes);
+            programLastPass = firstPass;
+            programLastPassCount = h.passCount;
+        }
         programBatchVertices.resize(firstVertex + h.vertexCount);
         vp::BatchVertex* vertices = programBatchVertices.data() + firstVertex;
         if (h.vertexCount)
@@ -748,18 +761,37 @@ struct Renderer::Impl {
             r.shape = program_draw::batchShapeOf(h, rec.strips, rec.indices, rec.passes, vertexBytes);
             programRecords.push_back(r);
         }
+        // The triangles, counted first and written in place (room made once per record).
+        uint32_t triangles = 0;
+        bool allDrawn = true;
+        for (uint32_t s = 0; s < h.stripCount; ++s) {
+            triangles += rec.strips[s] >= 3 ? rec.strips[s] - 2 : 0u;
+            allDrawn = allDrawn && rec.strips[s] >= 3;
+        }
+        if (allDrawn) {
+            // and every vertex is one of the indices (at most kBatchMaxIndices of either, so one bit each)
+            static_assert(vp::kBatchMaxIndices <= 64, "one bit per vertex");
+            uint64_t seen = 0;
+            for (uint32_t i = 0; i < h.indexCount; ++i)
+                seen |= rec.indices[i] < 64u ? 1ull << rec.indices[i] : 0ull;
+            allDrawn = seen == (h.vertexCount >= 64u ? ~0ull : (1ull << h.vertexCount) - 1u);
+        }
+        programRecords.back().allDrawn = allDrawn;
+        const size_t firstIndex = programIndices.size();
+        programIndices.resize(firstIndex + size_t(triangles) * 3u);
+        uint32_t* out = programIndices.data() + firstIndex;
         const uint16_t* index = rec.indices;
         for (uint32_t s = 0; s < h.stripCount; ++s) {
             const uint32_t n = rec.strips[s];
-            for (uint32_t i = 0; i + 2 < n; ++i)
-                for (uint32_t c = 0; c < 3; ++c)
-                    programIndices.push_back(firstVertex + index[i + c]);
-            if (n >= 3) {
-                stats.triangles += n - 2;
-                stats.primitives += n - 2;
+            for (uint32_t i = 0; i + 2 < n; ++i, out += 3) {
+                out[0] = firstVertex + index[i];
+                out[1] = firstVertex + index[i + 1];
+                out[2] = firstVertex + index[i + 2];
             }
             index += n;
         }
+        stats.triangles += triangles;
+        stats.primitives += triangles;
         stats.vertices += h.indexCount;
         stats.programGpuVertices += h.indexCount;
         programCounted += h.indexCount;

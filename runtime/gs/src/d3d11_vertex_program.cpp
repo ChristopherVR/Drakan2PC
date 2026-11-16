@@ -106,8 +106,6 @@ struct D3D11Backend::Impl::ProgramGpu {
         return n ? (uint32_t)std::strtoul(n, nullptr, 10) : 0u;
     }();
     void dump(const VertexProgramBatch& batch, int32_t offsetX, int32_t offsetY) {
-        if (batch.batchPath)
-            return;
         if (dumpSkip) {
             --dumpSkip;
             return;
@@ -131,10 +129,12 @@ struct D3D11Backend::Impl::ProgramGpu {
         if (boundsVertices && std::getenv("DRAKAN_VERTEX_LOG"))
             std::fprintf(stderr,
                          "[gsr] vertex programs: bounds over %llu vertices, %llu evaluated exactly; pieces of strip "
-                         "records skipped by their box %llu, estimated %llu\n",
+                         "records skipped by their box %llu, estimated %llu; batch-path vertices estimated four at a "
+                         "time %llu, one at a time %llu\n",
                          (unsigned long long)boundsVertices, (unsigned long long)boundsExact,
                          (unsigned long long)boundsScratch.piecesSkipped,
-                         (unsigned long long)boundsScratch.piecesEstimated);
+                         (unsigned long long)boundsScratch.piecesEstimated, (unsigned long long)boundsScratch.batchFour,
+                         (unsigned long long)boundsScratch.batchSingle);
     }
 };
 
