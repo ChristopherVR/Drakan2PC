@@ -88,6 +88,7 @@ def scale_sections(sections, ku=1.0, kw=None):
 
 COLOURS = {
     "skin": (0.52, 0.32, 0.23),
+    "neck": (0.52, 0.32, 0.23),
     "shirt": (0.40, 0.29, 0.18),
     "robe": (0.10, 0.20, 0.10),
     "trousers": (0.12, 0.072, 0.042),
@@ -449,7 +450,7 @@ def build_lod(objs, budgets, name):
     return lod
 
 
-def export(lod, path, model, label, landmarks, keep=("head",)):
+def export(lod, path, model, label, landmarks, keep=("head",), slots=None):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from authored_export import export_authored
 
@@ -461,6 +462,7 @@ def export(lod, path, model, label, landmarks, keep=("head",)):
         label=label,
         fit="joints",
         extra={"landmarks": lm, "keepPcJoints": list(keep)},
+        slots=slots,
     )
 
 

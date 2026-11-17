@@ -59,8 +59,7 @@ JULIAN_ROBE = [  # x, y, z, half width, half depth (the robe hides the legs, as 
     (0.008, 0.017, 1.40, 0.136, 0.082),
     (0.005, 0.020, 1.435, 0.118, 0.072),
     (0.003, 0.018, 1.47, 0.098, 0.068),
-    (0.0, 0.012, 1.50, 0.068, 0.062),
-    (0.0, 0.006, 1.528, 0.052, 0.058),
+    (0.0, 0.014, 1.485, 0.074, 0.064),
 ]
 JULIAN_ARM = [  # right arm, shoulder to the wide sleeve end (the left one is the mirror)
     (0.120, 0.030, 1.465, 0.060, 0.050),
@@ -132,14 +131,21 @@ def build_julian():
     body = b.build(voxel=0.004, smooth=6, tag=tag)
     # robe edges: a hem lip at the shoe tops, a collar at the neck, a lip at each sleeve end
     hk.ring_band("Julian_Hem", body, (0.006, 0.04, 0), (0, 0, 1), [(0.137, 0.002), (0.155, 0.002)], 64, "robe", 0.003)
-    # the neck reaches into the kept 1999 head, so no gap shows where the converter drops head triangles
+    # the neck reaches into the kept 1999 head, so no gap shows where the converter drops head triangles. The robe
+    # stops at the base of the neck (1.485 m), as the 1999 one does: a collar under the chin swallowed the chin and
+    # the jaw when his head drops forward in the Ruined Village scene where he is pinned by the spear.
     hk.tube_mesh(
         "Julian_Neck",
-        [(0, 0.008, 1.50, 0.046, 0.054), (0, 0.004, 1.535, 0.043, 0.054), (0, 0.004, 1.565, 0.040, 0.050)],
+        [
+            (0, 0.012, 1.46, 0.050, 0.056),
+            (0, 0.008, 1.50, 0.045, 0.053),
+            (0, 0.004, 1.535, 0.042, 0.050),
+            (0, 0.000, 1.552, 0.036, 0.042),
+        ],
         nseg=16,
-        mat="skin",
+        mat="neck",
     )
-    hk.torus("Julian_Collar", (0, 0.007, 1.518), 0.058, 0.061, 0.008, "robe", tilt=0.006)
+    hk.torus("Julian_Collar", (0, 0.013, 1.482), 0.074, 0.064, 0.007, "robe", tilt=0.006)
     for sx in (1, -1):
         hk.hand(
             f"Julian_Hand{sx}",
@@ -909,7 +915,8 @@ def build_rack():
 
 
 CHARACTERS = {
-    "julian": [("julian (h)", "Julian", "julian.json", JULIAN_JOINTS, ("head",))],
+    # the neck takes the 1999 head textures (face, head and neck): the robe texture reaches up to the chin
+    "julian": [("julian (h)", "Julian", "julian.json", JULIAN_JOINTS, ("head",), {"neck": {"pcTextures": [0, 1]}})],
     "farmer": [("farmer", "the farmer", "farmer.json", FARMER_JOINTS, ("head", "neck"))],
     "warrior": [
         ("warrior2", "the wounded warrior", "warrior.json", {k: ws(v) for k, v in WARRIOR_JOINTS.items()}, ("head",))
@@ -951,8 +958,8 @@ def main():
         lod = BUILDERS[name]()
         tris = len(lod.data.polygons)
         print(f"{name}: game mesh {len(lod.data.vertices)} vertices, {tris} triangles")
-        for model, label, fname, joints, keep in CHARACTERS[name]:
-            hk.export(lod, Path(args.models) / fname, model, label, joints, keep)
+        for model, label, fname, joints, keep, *slots in CHARACTERS[name]:
+            hk.export(lod, Path(args.models) / fname, model, label, joints, keep, slots[0] if slots else None)
         if args.render:
             out = Path(args.render).resolve()
             out.mkdir(parents=True, exist_ok=True)

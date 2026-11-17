@@ -185,3 +185,47 @@ The first run (`delon-own`, before the floor inside the skirt) showed black sliv
 
 Open: the atlas is many small islands (smart projection on the decimated remesh), so the 256 px game texture is soft;
 a hand-made seam layout would give the tunic more texels.
+
+## Julian ("Adamar", pinned by the spear) looked broken in his scene
+
+Owner: "Adamar (the one with the spear in his shoulder) model looks extremely broken". The pinned man is Julian
+(`julian (h)`, NPCs 3728): in Ruined Village scene 1.3 he sits against a post with the spear through his right shoulder and
+plays the clips `1_3o` to `1_3z`. `warrior2` (Wartok Canyons) and the wounded wizard are other people; no level object or
+string says "Adamar", the name only comes from the owner. Not a regression: the 09:27 `hum-rv` run (before the seam-hole
+change) already showed it, and the shared helpers have had no later change that touches Julian.
+
+What was wrong (in game, close-ups of 1.3 against the same run with the 1999 model):
+* **Collar under the chin.** The authored robe went up to 1.53 m with a rolled collar at 1.52 m, right under the 1999
+  chin. When his head drops forward the chin sank into it and the robe stood over the jaw in jagged pieces; the 1999 model
+  shows a bare neck there. The seam corners (authored triangles kept along the neck, corners on the head joint) also
+  stood up to 1.2 % of his height out of the 1999 neck as a ledge.
+* **Weights.** Transferred weights are the barycentric mix of the nearest 1999 triangle. On the long 1999 faces that span
+  a joint (the upper arm runs from a ring on the collar to a ring at the elbow, the forearm from the elbow ring to a
+  hand-weighted wrist ring) a mixed vertex is pulled inside when the joints turn apart (linear blend), so shoulders,
+  elbows and the robe folded in. Measured on his own clips: authored vertices left the posed 1999 surface by up to 4.3 %
+  of his height (p99 2.5 %).
+
+Fixes:
+* Converter (formats `ootfauthored.ts`, `ootfassets.ts`): the transferred weights are now fitted to the model's own clips
+  (`authoredPoses`: 4 samples per clip, at most 240; `poseFittedWeights`: the corner joints and their parents, least
+  squares between the skinned vertex and its point on the posed 1999 face over those poses, a 2 % pull towards the
+  barycentric weights, non-negative, at most 4). Authored corners of a kept joint are moved onto the kept (smoothed) 1999
+  part and take its weights there, which closes the neck seam. `dump-pc-model.ts --authored` (and so
+  `preview_authored.sh`) fits the same way. Tests in `test/ootfauthored.test.ts`.
+* Model (`humans_model.py`, `julian.json`): the robe stops at the base of the neck (1.485 m) with the collar there, the
+  neck tube runs from 1.46 m into the head and takes only the 1999 head textures (a new `neck` slot naming PC entries 0 and
+  1; `human_kit.export` takes `slots`), so no robe green lands on it.
+
+All 28 authored models, on clip times the fit did not sample (3 per clip, `build/adamar/evalall.ts`, scratch): the gap to
+the posed 1999 surface fell for every model, e.g. Julian mean 0.31 to 0.17 % of height, p99 2.5 to 1.4, max 4.3 to 2.6;
+goblin p99 8.1 to 3.4; Succubus max 27 to 10; male villagers p99 2.3 to 1.6, mine slaves 2.6 to 1.5. A first version
+also stopped a vertex from taking a joint whose 1999 part starts further along the bone; it tore a hand of the wounded
+warrior (a vertex on his chest left for the torso) and was dropped.
+
+In game (Ruined Village alone, campaign, the owner's video settings: scale auto, texture upscale auto, 1280x960 window,
+DLSS off), scene 1.3: Julian sits pinned with a bare neck between the collar and the bowed head, the head on the neck with
+no gap, no robe over the jaw, shoulders and arms like the 1999 ones in the same frames. Frames: `build/ootf-run/adamar-auth`
+(before), `adamar-pc` (1999 model), `adamar-fix4` (after).
+
+Open: his hand nearest the camera takes the blood of the 1999 wrist (the authored hand is smaller than the 1999 one and
+projects from its bloody end); the other humans were measured, not looked at in game after the weight change.
