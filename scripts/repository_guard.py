@@ -147,10 +147,11 @@ _pin_manifest("scripts/buildtool/kit/art/settings/", "scripts/buildtool/kit/art/
 # The authored models' own textures (original art baked in Blender by analysis/scripts/blender/*_model.py; the meshes are
 # JSON beside them). Refresh the lists with scripts/buildtool/pin_model_textures.py after a bake.
 _pin_manifest("scripts/buildtool/kit/models/", "scripts/buildtool/kit/models.sha256")
-_pin_manifest("scripts/buildtool/kit/models-draft/", "scripts/buildtool/kit/models-draft.sha256")
 # Earlier draft textures that are still in the published history (moved to models/ since, or rebaked): kept by hand,
-# never rewritten by the pin script, so pushes and full-history audits accept those old blobs.
+# never rewritten by the pin script, so pushes and full-history audits accept those old blobs. Read before the
+# current list, which wins when a path holds a newer picture.
 _pin_manifest("scripts/buildtool/kit/models-draft/", "scripts/buildtool/kit/models-draft-history.sha256")
+_pin_manifest("scripts/buildtool/kit/models-draft/", "scripts/buildtool/kit/models-draft.sha256")
 TOKEN_PATTERNS = [
     re.compile(rb"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----"),
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),
