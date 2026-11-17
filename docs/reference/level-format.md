@@ -675,8 +675,13 @@ messages included. So a skip ends a scene the way watching it does; only what is
 of the scene's length) is not shortened. Without the bit, Start opens the pause menu while the scene waits (seen for the
 OotF church walk-down). The PC sequence flags carry the same bit (Order of the Flame: 43 of 110 sequences).
 
-Not decoded: what types 4, 6 and 8 mean, the interpolation between keyframes, what `mode` and `ref` select for props, how
-messages address objects, the units of `length`. A rewrite keeps all of that opaque.
+**Transform key option `0x10` (seen in game 2026-11-17, `docs/journal/2026-11-17/ootf-scene-wartok-feet.md`).** A key with
+`0x10` in its option word is reached by moving from the previous key over the time between them; a key without it is a cut: the
+actor holds the previous key's position until the key's time and then jumps there (guest RAM read every 1 to 4 s in Ruined
+Village scenes 1.1 and 1.2a: a Wartok held 822 over the grass for 37 s up to a `0` key, then ran along a `0x10` pair).
+
+Not decoded: what types 4, 6 and 8 mean, the interpolation curve between keyframes, what `mode` and `ref` select for props,
+how messages address objects, the units of `length`. A rewrite keeps all of that opaque.
 
 ### New story content from the editor (2026-11-01)
 
