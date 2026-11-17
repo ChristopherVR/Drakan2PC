@@ -51,6 +51,13 @@ draws its letters into existing cells (Latin-1 accents it does not need, or homo
 can point at the Latin cells). Only 224 cells are reachable, so two translations that need different extra letters still compete
 for the same cells. SDB subtitle text is not covered by `text.ini`.
 
+To place letters without guessing, run `python analysis/scripts/font_cells.py INTERFCE.TXD build/font-cells`
+on your extracted file. It writes per-font CSV (`index,x,y,width,stored_y`) and JSON (including raw marker colour,
+height/pitch and line counts). It also accepts a raw `0040_96_0.bin` / `0040_97_0.bin` override to verify its layout.
+The coordinates are upright; the raw texture rows are bottom-up. See the corrected scan rule and coordinate details in
+[ui-prompts.md section 1.1](ui-prompts.md).
+The height/pitch ruler is **vertical**, row 0's normal glyphs count, and each row's final marker is only a boundary.
+
 Loading cost: every member of every enabled pack is read once at start-up (in parallel; the log line
 `mods: pack files installed in N ms` reports it) and the files a pack replaces or rebuilds stay in memory for the
 session (`docs/journal/2026-11-12/perf-loading-hitches.md`). A pack file is only held open during that read.

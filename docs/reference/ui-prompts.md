@@ -50,18 +50,40 @@ Everything the player sees about the DualShock comes from four places. All four 
 
   (`\027` is a tiny glyph before Circle, not a button.) Used as e.g. "Press \033 to crouch" in `LEVEL1ON.XDB` (and German/Italian/Spanish inventory help
   `INTERFCE.XDB` 148: `\034\035\036\037` select, `\031` use, `\032` drop, `\033` hot slot).
-* Font loader `FUN_00285aa8` (0x285aa8): glyph boundaries are **marker pixels** inside the font texture itself. Line `k` of the font is
-  22 rows; the row below it contains pixels of palette entry 7 (`01ffff00`) at the left edge of every glyph (row 35: the 4 arrows at x = 3, 26, 49, 70 (+91 end);
-  row 57: the 15 specials incl. circle 136, square 161, triangle 185, cross 214, end 240; row 79 ... = text lines). The loader compares **palette indices/colours of
-  texels**, so a texture edit must not renumber the palette and must not touch the marker rows: `TxdEdit` only writes into palette slots no pixel uses any more.
+* Font loader `FUN_00285aa8` (0x285aa8): glyph boundaries are **marker pixels** inside the font texture itself. The plain font 97 has
+  a 22-row pitch; in stored coordinates its marker rows contain palette entry 7 (`01ffff00`) at the left edge of every glyph (row 35: the 4 arrows at x = 3, 26, 49, 70 (+91 end);
+  row 57: the 15 specials incl. circle 136, square 161, triangle 185, cross 214, end 240; row 79 ... = text lines). The loader compares **texel colours**,
+  so preserve marker colours and positions: `TxdEdit` only writes into palette slots no pixel uses any more.
   The textures are stored **upside-down** (row 0 = bottom of the picture); the loader reads in upright coordinates (top first).
-  Cell order (2026-11-16, simulated on both fonts and checked by cropping cells for a test string): the colour of upright pixel (0,0) is the marker colour.
-  Row 0 holds a calibration ruler: the first marker at x > 0 (its column gives the glyph height), the next marker `x0` (its column gives the
-  **line pitch**: font 97 22 px, font 96 21 px) and the one after (`x0` to it = **space width**: 6 / 13 px). Then each line `k` at `y = k * pitch`
-  (scanned while pixel `(x0, y)` is a marker, at most 32 lines, at most 256 markers) contributes its markers left to right; line 0 starts after the
-  space cell, the last marker of every line is the end of its last glyph. Glyph `i` is the i-th marker overall; its width is the distance to the next marker
-  minus 1, or to the line end for the last glyph of a line. Lines hold different numbers of glyphs (font 97: 26 21 21 27 26 19 19 24 22 15 4;
+  Cell order (**corrected 2026-11-17**, issue #9): the colour of upright pixel (0,0) is the marker colour.
+  The first marker on row 0 at x > 0 selects the **height column** (x=1); scan **down that column** from y=1 to the first matching
+  pixel to get glyph height (97: 17, 96: 15). Continue right on row 0 to the next marker, `x0` (3 in both fonts).
+  Scan **down column x0** from y=1 to the first marker to get **line pitch** (97: 22, 96: 21).
+  The next marker right of x0 on row 0 ends the space cell; its x minus x0 gives space width (97: 6, 96: 13).
+  The previous wording incorrectly implied that horizontal marker positions give height/pitch.
+  Each line at `y = k * pitch`, while `(x0,y)` matches, contributes adjacent pairs of markers left to right.
+  On line 0 start at the **end of the space cell** (97: x=9, 96: x=16); on all later lines start at x0=3.
+  Each pair `(left,right)` gives one glyph at `(left,y)` with width `right-left-1`. The terminal marker is only an end boundary,
+  never a glyph or an extra gap in numbering. The calibration and space cells are excluded, but **the ordinary glyphs on row 0 count**.
+  All later symbol/button rows count too. Indices increase continuously from zero across lines, with no padding to a grid.
+  The loader has 32 line slots and rejects reaching 256 marker slots (including a temporary end marker).
+  Lines hold different numbers of glyphs (font 97: 26 21 21 27 26 19 19 24 22 15 4;
   font 96: 21 19 15 21 21 23 15 17 19 17 21 7), which is why a fixed grid or `cell = code - N` fit slips at line ends.
+  Use the standard-library exporter on your own extracted file:
+
+  ```sh
+  python analysis/scripts/font_cells.py INTERFCE.TXD build/font-cells
+  python analysis/scripts/font_cells.py overrides/INTERFCE.TXD/0040_97_0.bin build/mod-font-cells
+  ```
+
+  The first command exports fonts 96 and 97 (optional `--id 96` / `--id 97`); the second checks a repainted raw entry.
+  Each CSV contains `index,x,y,width,stored_y`; JSON adds marker colour, palette indices, glyph height, pitch, space width and line counts.
+  `x,y` are upright texel coordinates, **y is the marker row**, and `stored_y = texture_height-1-y` is that row in the raw payload.
+  Convert each painted pixel's y separately; for a rectangle of height H, its bottom-up starting row is `texture_height-y-H`.
+  Do not flip x. Keep marker rows and calibration pixels unchanged. Read raw palette colours, not a PNG with transparent RGB discarded:
+  both original fonts use palette index 7, raw **BGRA bytes `01 ff ff 00`** (RGBA `ff ff 01 00`), despite alpha being zero.
+  Expected totals: **216** cells for font 96 and **224** for font 97. Glyph 0 (`!`) begins on row 0, at x=16 / x=9 respectively.
+  Repaint the same glyph index in both fonts using each font's own geometry. No game assets are bundled with the exporter.
 * Font 97 icon boxes (stored coordinates, x y w h): circle 136,36,22x21; square 161,36; triangle 187,36; cross 215,36 (all 22x21);
   arrows: the original art is only 15x13 / 13x15 px at 5,18 / 28,18 / 51,17 / 72,17, **but the glyph cells are much bigger**: the marker pixels of row 35 sit at x = 3, 26, 49, 70 (+91) and a
   line is 21 content rows high (stored rows 14..34 below the marker row 35, like the 21-row button icons). The generator therefore draws the W/A/S/D caps as **19x21 px** at x = 5, 28, 50, 71 (stored y 14)
