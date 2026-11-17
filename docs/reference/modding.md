@@ -948,6 +948,11 @@ Drakan 2 Proc Textures counterpart.
 See [the matching survey](../journal/2026-11-08/ootf-ps2-texture-substitution.md) for how the pairs were found and what has
 no Drakan 2 counterpart.
 
+The world rows of the 2026-11-17 surveys join these tables (formats `ootfps2world.ts`, `ootfps2worldprops.ts`): 69 building,
+rock and wood texture pairs, ground families for the Islands World, Volcanic and Rift World containers (and the Mountain
+World block floor and Grotto snow), and 57 prop rows, most of them the disc's PS2 remake of the OotF dungeon kit. See
+[the surveys](../journal/2026-11-17/ootf-world-surveys.md).
+
 ## Drakan 2 characters and weapons for converted OotF levels
 
 Where Drakan 2 has the same creature or the same kind of weapon, the converter uses the disc's own model (with its textures,
