@@ -711,8 +711,10 @@ def queen_body(mats):
         parts.append(tube("leg", leg, sides=16, per=3, ref=V((1, 0, 0))))
         toe = V((an.x - 0.003 * sx, -0.03, -0.222))
         parts.append(foot("foot", V((0.055 * sx, an.y + 0.002, an.z + 0.004)), toe, -0.2275, 0.0135))
-    body = remesh_decimate(join(parts, "queen_body"), 0.0022, 1250)
+    # 1,000 triangles: the rest of the budget goes to the feather cards and the collar
+    body = remesh_decimate(join(parts, "queen_body"), 0.0022, 1000)
     set_material(body, mats["Body"])
+    plumage_slot(body, mats["Down"])
     hands = []
     for s in "RL":
         sx = 1 if s == "R" else -1
@@ -723,6 +725,21 @@ def queen_body(mats):
         set_material(hh, mats["Body"])
         hands.append(hh)
     return [body, *hands]
+
+
+def plumage_slot(body, mat):
+    """Put the body faces that lie well inside the plumage (arms, shoulders, flanks: under the feather cards) into their
+    own slot, so the atlas can give them a lower texel density. Same paint as the body (queen_body_material)."""
+    body.data.materials.append(mat)
+    for p in body.data.polygons:
+        x, y, z = p.center
+        ax = abs(x)
+        f = min(max((z - 0.10) / 0.045, 0.0), 1.0)
+        thr = 0.094 - 0.034 * f * f * (3 - 2 * f)
+        arm = ax - thr > 0.012 and ax < 0.19 and z > 0.035
+        mantle = z > 0.158 and y > -0.008 and ax > 0.06
+        if arm or mantle:
+            p.material_index = 1
 
 
 def queen_wing(side, mats):
@@ -756,13 +773,169 @@ def queen_wing(side, mats):
     return [membrane, b]
 
 
+def _surface_hit(bvh, origin, direction):
+    """Point and outward normal where a ray from inside the body leaves it (the last hit along the ray)."""
+    direction = V(direction).normalized()
+    hit, normal = None, None
+    o = V(origin)
+    for _ in range(8):
+        loc, nrm, _i, _d = bvh.ray_cast(o, direction)
+        if loc is None:
+            break
+        hit, normal = loc, nrm
+        o = loc + direction * 1e-4
+    if normal is not None and normal.dot(direction) < 0:
+        normal = -normal
+    return hit, normal
+
+
+def feather_card(bm, fuv, p, n, d, length, width, lift, variant=0):
+    """One feather: a kite-shaped card folded along its shaft (5 vertices, 4 triangles), its base sunk into the body at
+    `p`, lying along `d` in the tangent plane and lifted `lift` off the surface at the tip, so rows of them overlap like
+    shingles and stand out in silhouette. `fuv` gets the feather's own coordinates (u along the shaft, v across), u
+    offset by 2 per `variant` (the painted variant, see FEATHER_TILES)."""
+    n = V(n).normalized()
+    d = (V(d) - n * V(d).dot(n)).normalized()
+    s = n.cross(d)
+    base = p - n * (width * 0.25) - d * (length * 0.05)
+    mid = p + d * (length * 0.6) + n * (lift * 0.55)
+    pts = {
+        "base": (base, (0.0, 0.0)),
+        "L": (mid - s * (width / 2), (0.6, -1.0)),
+        "R": (mid + s * (width / 2), (0.6, 1.0)),
+        "tip": (p + d * length + n * lift, (1.0, 0.0)),
+        "ridge": (mid + n * (width * 0.16), (0.6, 0.0)),
+    }
+    vs = {k: bm.verts.new(c) for k, (c, _uv) in pts.items()}
+    for tri in (("base", "ridge", "R"), ("base", "L", "ridge"), ("ridge", "tip", "R"), ("L", "tip", "ridge")):
+        f = bm.faces.new([vs[k] for k in tri])
+        for loop, k in zip(f.loops, tri, strict=True):
+            loop[fuv].uv = (pts[k][1][0] + 2 * variant, pts[k][1][1])
+
+
+# the painted feather variants share four tiles in the top right corner of the atlas (2 x 2, each 0.12 x 0.2): every
+# card shows one of them, so each feather is painted at a size that still reads at 256 px
+FEATHER_TILES = (0.76, 0.6, 0.12, 0.2, 0.008)
+
+
+def feather_tile(fuv):
+    """Atlas UV of a feather card loop from its "fuv" coordinates (u + 2 x variant along, v across in -1..1)."""
+    x0, y0, w, h, inset = FEATHER_TILES
+    k = math.floor(fuv[0] / 2 + 1e-6)
+    u = fuv[0] - 2 * k
+    tx, ty = x0 + (k % 2) * w + inset, y0 + (k // 2) * h + inset
+    return V((tx + (fuv[1] + 1) / 2 * (w - 2 * inset), ty + u * (h - 2 * inset)))
+
+
+def queen_feathers(body, mats):
+    """Layered feather cards over the plumage the 1999 queen has painted: rows along the upper arms and forearms
+    (pointing to the hand, the lower ones hanging like a fringe), a two-row mantle over the shoulders and three rows down
+    each flank. Few and large, so they read by their silhouette at game distance."""
+    from mathutils.bvhtree import BVHTree
+
+    bvh = BVHTree.FromObject(body, bpy.context.evaluated_depsgraph_get())
+    bm = bmesh.new()
+    fuv = bm.loops.layers.uv.new("fuv")
+    up, back, out_z = V((0, 0, 1)), V((0, 1, 0)), V((0, 0, -1))
+    count = itertools.count()
+
+    def var():
+        c = next(count)
+        return (c * 3 + c // 4) % 4
+
+    for s in "RL":
+        sx = 1 if s == "R" else -1
+        sh = V(QUEEN_JOINTS[f"{s}Arm"])
+        wr = V(QUEEN_JOINTS[f"{s}Hand"])
+        axis = (wr - sh).normalized()
+        # arms: 4 stations from the shoulder to the wrist, 5 feathers round the top, front, back and underside
+        for i, t in enumerate((0.0, 0.3, 0.6, 0.88)):
+            c = sh.lerp(wr, t) + V((-0.012 * sx, 0, 0))
+            for k, ang in enumerate((-115, -60, 0, 60, 115)):
+                a = math.radians(ang + (14 if i % 2 else 0))
+                ray = up * math.cos(a) + back * math.sin(a)
+                p, n = _surface_hit(bvh, c, ray)
+                if p is None:
+                    continue
+                hang = 0.25 + 1.1 * (1 - math.cos(a)) / 2  # the lower ones point more downward
+                d = axis + out_z * hang
+                size = 1.0 - 0.18 * t
+                feather_card(bm, fuv, p, n, d, 0.05 * size, 0.026 * size, 0.008 + 0.004 * (k % 2), var())
+        # mantle: two rows round the shoulders from the collarbone to the shoulder blade, pointing down and outward
+        centre = V((0.0, 0.015, 0.13))
+        for row, (elev, phis, length, width) in enumerate(
+            (
+                (0.6, (30, 52, 74, 96, 118, 140, 162), 0.05, 0.03),
+                (0.28, (42, 63, 85, 107, 129, 151, 172), 0.058, 0.032),
+            )
+        ):
+            for phi in phis:
+                f = math.radians(phi)
+                horiz = V((math.sin(f) * sx, -math.cos(f), 0.0))
+                p, n = _surface_hit(bvh, centre, horiz + up * elev)
+                if p is None:
+                    continue
+                feather_card(bm, fuv, p, n, horiz * 0.45 + out_z, length, width, 0.011 - row * 0.002, var())
+        # flanks under the arm, three staggered rows pointing down
+        for r, z in enumerate((0.115, 0.08, 0.045)):
+            for y in (-0.04, -0.008, 0.024):
+                yy = y + (0.016 if r % 2 else 0.0)
+                p, n = _surface_hit(bvh, V((0.0, yy, z)), V((sx, 0, 0)))
+                if p is None:
+                    continue
+                feather_card(bm, fuv, p, n, out_z + V((sx * 0.15, 0, 0)), 0.048, 0.027, 0.008, var())
+    obj = mesh_from_bm("feathers", bm)
+    set_material(obj, mats["Feather"])
+    return obj
+
+
+def queen_collar(body, mats):
+    """A gold collar band (a torc) round the base of the neck, lower at the front, over the seam with the kept head."""
+    from mathutils.bvhtree import BVHTree
+
+    bvh = BVHTree.FromObject(body, bpy.context.evaluated_depsgraph_get())
+    bm = bmesh.new()
+    n_ring, rings = 12, []
+    for k in range(n_ring):
+        a = 2 * math.pi * k / n_ring  # 0 at the front
+        horiz = V((math.sin(a), -math.cos(a), 0.0))
+        z = 0.163 - 0.012 * max(0.0, math.cos(a))
+        p, n = _surface_hit(bvh, V((0.0, 0.02, z)), horiz)
+        if p is None:
+            p, n = V((0.0, 0.02, z)) + horiz * 0.05, horiz
+        n = V((n.x, n.y, 0.0)).normalized()
+        p = p + n * 0.0015
+        h, t = 0.0055, 0.0032  # half height, thickness
+        rings.append([bm.verts.new(p + V((0, 0, h)) + n * q) for q in (0.0, t)])
+        rings[-1] += [bm.verts.new(p - V((0, 0, h)) + n * t), bm.verts.new(p - V((0, 0, h)))]
+    for k in range(n_ring):
+        r0, r1 = rings[k], rings[(k + 1) % n_ring]
+        for j in range(4):
+            j1 = (j + 1) % 4
+            bm.faces.new((r0[j], r1[j], r1[j1], r0[j1]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    obj = mesh_from_bm("collar", bm)
+    set_material(obj, mats["Gold"])
+    return obj
+
+
 def build_queen():
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    mats = make_mats({"Body": (0.62, 0.55, 0.52), "Wing": (0.35, 0.22, 0.2), "Bone": (0.5, 0.45, 0.4)})
+    mats = make_mats(
+        {
+            "Body": (0.62, 0.55, 0.52),
+            "Wing": (0.35, 0.22, 0.2),
+            "Bone": (0.5, 0.45, 0.4),
+            "Feather": (0.3, 0.26, 0.22),
+            "Gold": (0.6, 0.45, 0.15),
+            "Down": (0.3, 0.26, 0.22),
+        }
+    )
     objs = queen_body(mats)
+    objs += [queen_feathers(objs[0], mats), queen_collar(objs[0], mats)]
     for s in "RL":
         objs += queen_wing(s, mats)
-    return finish(objs, "queen_shillah", ["Body", "Wing", "Bone"], mats)
+    return finish(objs, "queen_shillah", ["Body", "Wing", "Bone", "Feather", "Gold", "Down"], mats)
 
 
 # ---------------------------------------------------------------------------- own textures (procedural, baked)
@@ -1014,27 +1187,6 @@ def horn_material(mat, dark, light, scale):
     s.surface(col)
 
 
-def membrane_material(mat, base, light, vein, scale):
-    """Bat-wing membrane: a mottled leathery skin with wandering veins (contour lines of a warped noise, a coarse and a
-    fine set) and a faint pale rim beside the coarse ones."""
-    s = Shade(mat)
-    warp = s.noise(scale * 0.5, detail=2.0, out="Color")
-    q = s.vmath("ADD", s.P, s.vmath("MULTIPLY", warp, (0.03, 0.03, 0.03)))
-    coarse = s.noise(scale, vec=q, detail=1.0)
-    fine = s.noise(scale * 2.8, vec=q, detail=1.0)
-    m = s.noise(scale * 1.5, detail=4.0)
-    col = s.mix(s.step(m, 0.35, 0.7), base, light)
-    col = s.mix(s.mul(s.band(coarse, 0.5, 0.012, 0.012), 0.35), col, tuple(min(1.0, c * 1.3) for c in light))
-    col = s.mix(s.mul(s.band(fine, 0.5, 0.006, 0.006), 0.6), col, vein)
-    col = s.mix(s.band(coarse, 0.5, 0.007, 0.007), col, vein)
-    occ = s.ao(0.02)
-    col = s.mix(s.mul(s.inv(occ), 0.6), col, tuple(c * 0.5 for c in base))
-    s.surface(col)
-
-
-QUEEN_SKIN = (0.80, 0.60, 0.47)
-
-
 def feathers(s, stretch, axis, sign, barbs):
     """Overlapping feathers: Voronoi cells stretched by `stretch` (long along `axis`), each lighter toward its tip
     (the `axis` end, times `sign`) so the rows read as overlapping, with a pale shaft, fine barbs and dark gaps."""
@@ -1054,69 +1206,299 @@ def feathers(s, stretch, axis, sign, barbs):
     return s.mix(s.mul(s.step(s.noise(20.0, detail=2.0), 0.4, 0.7), 0.3), col, (0.16, 0.11, 0.07))
 
 
+def seg_dist(s, p, a, b):
+    """Distance of the vector `p` to the segment a-b (constant points)."""
+    a, b = V(a), V(b)
+    ab = b - a
+    t = s.math("MULTIPLY", s.vmath("DOT_PRODUCT", s.vmath("SUBTRACT", p, tuple(a)), tuple(ab), out="Value"), 1.0)
+    t = s.math("MULTIPLY", t, 1.0 / max(ab.length_squared, 1e-12), clamp=True)
+    q = s.vmath("ADD", tuple(a), s.vec(s.mul(t, ab.x), s.mul(t, ab.y), s.mul(t, ab.z)))
+    return s.vmath("DISTANCE", p, q, out="Value")
+
+
+def poly_dist(s, p, pts):
+    d = None
+    for a, b in itertools.pairwise(pts):
+        e = seg_dist(s, p, a, b)
+        d = e if d is None else s.minf(d, e)
+    return d
+
+
+def side_sock(s, right, left):
+    """Like side_value, for two sockets."""
+    t = s.step(s.x, -0.001, 0.001)
+    return s.add(left, s.mul(t, s.sub(right, left)))
+
+
+def mirrored(s):
+    """The position with x made positive: one set of right-side shapes serves both sides."""
+    return s.vec(s.absf(s.x), s.y, s.z)
+
+
+def ellipsoid_r(s, c, r):
+    """Normalised radius of the position in the ellipsoid (centre c, radii r): 1 on its surface."""
+    q = s.vmath("DIVIDE", s.vmath("SUBTRACT", mirrored(s), tuple(c)), tuple(r))
+    return q, s.vmath("LENGTH", q, out="Value")
+
+
+QUEEN_SKIN_LIT = (0.66, 0.45, 0.32)
+QUEEN_CREASE = (0.30, 0.17, 0.19)
+
+
 def queen_body_material(mat):
-    """Pale ashen skin with lilac creases; overlapping grey-brown feathers on the arms, down the flanks and over the
-    shoulders like a mantle, and a soft downy patch at the groin."""
+    """Warm pale skin with painted form: a soft light from above and the front, darker sides and undersides, lilac
+    creases under the bust, the belly fold, the armpits and knees, a navel. The plumage areas (arms, shoulders, flanks)
+    are painted as dark layered under-feathers: the feather cards lie over them, so the gaps read as depth. Regalia: a
+    jewelled gold girdle round the hips and gold bracelets."""
     s = Shade(mat)
     ax = s.absf(s.x)
     rag = s.mul(s.sub(s.noise(70.0, detail=3.0), 0.5), 0.03)
-    # arms and shoulders: the line moves inward over the shoulders
     thr = s.sub(0.094, s.mul(s.step(s.z, 0.10, 0.145), 0.034))
     arm_d = s.sub(s.add(ax, rag), thr)
-    arm = s.mul(s.step(arm_d, -0.002, 0.004), s.step(ax, 0.203, 0.196))  # the hands stay skin
-    arm = s.mul(arm, s.step(s.add(s.z, rag), 0.0, 0.02))  # down the flanks to the waist, not over the hips
-    mantle = s.mul(s.step(s.add(s.z, rag), 0.150, 0.158), s.step(s.y, -0.035, -0.01))
+    arm = s.mul(s.step(arm_d, -0.002, 0.004), s.step(ax, 0.203, 0.196))
+    arm = s.mul(arm, s.step(s.add(s.z, rag), 0.0, 0.02))
+    mantle = s.mul(s.step(s.add(s.z, rag), 0.142, 0.15), s.step(s.y, -0.04, -0.015))
+    mantle = s.mul(mantle, s.step(ax, 0.036, 0.05))  # the neck stays skin, to meet the kept head
     fmask = s.minf(s.add(arm, mantle), 1.0)
     groin_r = s.dist((0.0, -0.09, -0.07), vec=s.scaled(1.0, 1.0, 1.7))
     down = s.mul(s.step(s.add(groin_r, s.mul(rag, 0.5)), 0.03, 0.018), 0.75)
 
-    # feathers: two sets, lying along the arm (pointing to the hand) and down the flanks and back (pointing down)
     barbs = s.noise(1.0, vec=s.scaled(90.0, 700.0, 700.0), detail=2.0)
     along_arm = s.step(ax, 0.104, 0.124)
     fcol = s.mix(
         along_arm,
-        feathers(s, (55.0, 55.0, 24.0), (0.0, 0.0, -1.0), 1.0, barbs),
-        feathers(s, (24.0, 60.0, 60.0), (1.0, 0.0, 0.0), s.math("SIGN", s.x), barbs),
+        feathers(s, (40.0, 40.0, 18.0), (0.0, 0.0, -1.0), 1.0, barbs),
+        feathers(s, (18.0, 44.0, 44.0), (1.0, 0.0, 0.0), s.math("SIGN", s.x), barbs),
     )
+    fcol = s.mix(0.7, fcol, (0.045, 0.032, 0.026))  # under-plumage in the shade of the cards
 
-    skin_c = skin(s, QUEEN_SKIN, (0.76, 0.52, 0.44), (0.36, 0.29, 0.36), 60.0, 0.05, 0.9, 0.65, (0.60, 0.53, 0.55))
-    # the skin greys toward the feathers, like down
-    halo = s.mul(s.step(arm_d, -0.02, -0.002), 0.45)
-    skin_c = s.mix(halo, skin_c, (0.46, 0.38, 0.32))
-    skin_c = s.mix(s.mul(down, s.add(0.5, s.mul(barbs, 0.5))), skin_c, (0.36, 0.28, 0.22))
+    skin_c = skin(s, QUEEN_SKIN_LIT, (0.70, 0.45, 0.32), QUEEN_CREASE, 45.0, 0.03, 0.55, 0.7)
+    geo = s.node("ShaderNodeNewGeometry").outputs["Normal"]
+    nz = s.vmath("DOT_PRODUCT", geo, (0.0, 0.0, 1.0), out="Value")
+    nf = s.vmath("DOT_PRODUCT", geo, (0.0, -1.0, 0.0), out="Value")
+    nx = s.absf(s.vmath("DOT_PRODUCT", geo, (1.0, 0.0, 0.0), out="Value"))
+    # painted light: tops and fronts lighter and warmer, the sides turning away toward the crease tone
+    # (a key light from above and in front, painted in: the engine adds little lighting of its own)
+    key = s.add(s.add(0.5, s.mul(nz, 0.32)), s.sub(s.mul(nf, 0.38), s.mul(nx, 0.22)))
+    shade = s.ramp(
+        key, [(0.1, (0.42, 0.33, 0.42)), (0.45, (0.8, 0.74, 0.76)), (0.68, (1.0, 1.0, 1.0)), (0.95, (1.16, 1.12, 1.06))]
+    )
+    skin_c = s.mix(1.0, skin_c, shade, blend="MULTIPLY")
+    big_occ = s.ao(0.09)
+    skin_c = s.mix(s.mul(s.inv(big_occ), 0.7), skin_c, (0.24, 0.13, 0.17))
+    # creases
+    crease = 0.0
+    q, br = ellipsoid_r(s, (0.05, -0.06, 0.074), (0.037, 0.034, 0.031))
+    qz = s.vmath("DOT_PRODUCT", q, (0.0, 0.0, 1.0), out="Value")
+    # the lower half of each breast in soft shade, darkest at the fold
+    crease = s.add(crease, s.mul(s.mul(s.step(br, 1.2, 0.95), s.step(qz, 0.0, -0.95)), 0.5))
+    belly = s.mul(s.band(s.z, -0.057, 0.003, 0.008), s.mul(s.step(s.y, -0.03, -0.06), s.step(ax, 0.095, 0.07)))
+    crease = s.add(crease, belly)
+    crease = s.add(crease, s.mul(s.step(s.dist((0.0, -0.103, 0.003)), 0.0065, 0.002), 0.9))  # navel
+    crease = s.add(crease, s.mul(s.step(s.dist((0.088, 0.012, 0.118), vec=mirrored(s)), 0.03, 0.008), 0.8))
+    crease = s.add(crease, s.mul(s.step(s.dist((0.053, 0.028, -0.122), vec=mirrored(s)), 0.022, 0.006), 0.7))
+    crease = s.add(crease, s.mul(s.step(s.dist((0.052, -0.04, -0.142), vec=mirrored(s)), 0.012, 0.003), 0.45))
+    knee_cap = s.step(s.dist((0.052, -0.045, -0.114), vec=mirrored(s)), 0.016, 0.004)
+    skin_c = s.mix(s.mul(knee_cap, 0.35), skin_c, (0.74, 0.55, 0.43))
+    skin_c = s.mix(s.minf(crease, 0.85), skin_c, (0.27, 0.15, 0.22))
+
+    halo = s.mul(s.step(arm_d, -0.016, -0.002), 0.5)
+    skin_c = s.mix(halo, skin_c, (0.26, 0.20, 0.18))
+    skin_c = s.mix(s.mul(down, s.add(0.5, s.mul(barbs, 0.5))), skin_c, (0.30, 0.22, 0.18))
     col = s.mix(fmask, skin_c, fcol)
+
+    # gold girdle: round the hips, dipping under the belly at the front, red gems along it and a large one in front
+    front = s.step(s.y, -0.02, -0.085)
+    gz = s.sub(-0.03, s.mul(front, 0.03))
+    gband = s.mul(s.band(s.z, gz, 0.0028, 0.0008), s.step(s.z, 0.0, -0.01))
+    theta = s.math("ARCTAN2", s.x, s.mul(s.y, -1.0))
+    gem_r = s.mul(s.step(s.math("COSINE", s.mul(theta, 9.0)), 0.86, 0.95), gband)
+    big = s.step(s.dist((0.0, -0.093, -0.064)), 0.0075, 0.005)
+    gold = s.mix(s.step(s.noise(500.0), 0.3, 0.7), (0.2, 0.1, 0.012), (0.5, 0.3, 0.045))
+    gold = s.mix(s.mul(s.band(s.sub(s.z, gz), 0.0, 0.0006, 0.0004), 0.6), gold, (0.16, 0.08, 0.02))
+    gem = s.mix(s.step(s.sub(s.z, gz), 0.0, 0.003), (0.18, 0.005, 0.02), (0.55, 0.06, 0.08))
+    col = s.mix(s.minf(s.add(gband, big), 1.0), col, gold)
+    col = s.mix(s.minf(s.add(gem_r, s.step(s.dist((0.0, -0.093, -0.064)), 0.0058, 0.0045)), 1.0), col, gem)
+    # bracelets at the wrists
+    brace = s.mul(s.band(ax, 0.186, 0.004, 0.0008), s.step(s.z, 0.1, 0.115))
+    brace_c = s.mix(s.band(s.sub(ax, 0.186), 0.0, 0.0008, 0.0005), gold, (0.22, 0.01, 0.03))
+    col = s.mix(brace, col, brace_c)
     s.surface(col, rough=0.65)
+
+
+def feather_card_material(mat):
+    """The feather cards, painted in their own coordinates ("fuv": u along the shaft plus 2 per variant, v across): a dark
+    base, a vane lightening to the tip with a few bold barb bands, a pale edge round the outer half, an ivory shaft and a
+    painted light on one side of the fold. Emission only: every card of a variant writes the same pixels into its shared
+    tile, so the paint must not depend on where the card is."""
+    s = Shade(mat)
+    uvn = s.node("ShaderNodeUVMap", uv_map="fuv")
+    sep = s.node("ShaderNodeSeparateXYZ")
+    s.nt.links.new(uvn.outputs[0], sep.inputs[0])
+    raw, v = sep.outputs[0], sep.outputs[1]
+    k = s.math("FLOOR", s.add(s.mul(raw, 0.5), 1e-4))
+    u = s.sub(raw, s.mul(k, 2.0))
+    av = s.absf(v)
+    w = s.maxf(s.minf(s.mul(u, 1 / 0.6), s.mul(s.sub(1.0, u), 1 / 0.4)), 0.02)
+    e = s.math("DIVIDE", av, w)
+
+    def is_k(j):
+        return s.band(k, j, 0.2, 0.1)
+
+    # variants: 0 grey-brown, 1 dark umber, 2 pale ash, 3 warm brown with a pale bar
+    mid = s.mix(is_k(1), (0.13, 0.095, 0.07), (0.06, 0.04, 0.028))
+    mid = s.mix(is_k(2), mid, (0.27, 0.23, 0.19))
+    mid = s.mix(is_k(3), mid, (0.17, 0.10, 0.06))
+    tip = s.mix(is_k(1), (0.32, 0.27, 0.21), (0.18, 0.13, 0.09))
+    tip = s.mix(is_k(2), tip, (0.45, 0.41, 0.34))
+    tip = s.mix(is_k(3), tip, (0.38, 0.27, 0.18))
+    col = s.mix(s.step(u, 0.12, 0.42), (0.018, 0.012, 0.01), mid)
+    col = s.mix(s.step(u, 0.5, 0.95), col, tip)
+    # barbs: chevrons pointing to the tip, four bold bands
+    chev = s.math("FRACT", s.mul(s.sub(u, s.mul(av, 0.25)), 4.0))
+    col = s.mix(s.mul(s.band(chev, 0.5, 0.1, 0.12), s.mul(s.step(u, 0.3, 0.45), 0.5)), col, (0.0, 0.0, 0.0))
+    bar = s.mul(is_k(3), s.band(s.sub(u, s.mul(av, 0.25)), 0.66, 0.05, 0.03))
+    col = s.mix(bar, col, (0.62, 0.55, 0.44))
+    # painted light: the side of the fold toward v > 0 lit, the other in shade
+    col = s.mix(s.mul(s.step(v, 0.1, -0.6), 0.35), col, (0.0, 0.0, 0.0))
+    # pale edge round the outer half, a dark rim at the very edge
+    col = s.mix(s.mul(s.step(e, 0.7, 0.86), s.mul(s.step(u, 0.5, 0.7), 0.85)), col, (0.50, 0.44, 0.35))
+    col = s.mix(s.mul(s.step(e, 0.9, 0.99), 0.6), col, (0.03, 0.022, 0.018))
+    # shaft, dark at the quill, ivory along the vane
+    shaft = s.mul(s.band(av, 0.0, 0.045, 0.035), s.step(u, 0.95, 0.85))
+    col = s.mix(shaft, col, s.mix(s.step(u, 0.12, 0.4), (0.06, 0.045, 0.035), (0.62, 0.56, 0.45)))
+    em = s.node("ShaderNodeEmission")
+    s._set(em.inputs["Color"], col)
+    em.inputs["Strength"].default_value = 1.0
+    s.nt.links.new(em.outputs[0], s.out.inputs["Surface"])
+
+
+def gold_material(mat):
+    """The collar: hammered gold with a dark engraved middle line and red cabochons, a large one at the throat."""
+    s = Shade(mat)
+    gold = s.mix(s.step(s.noise(400.0, detail=3.0), 0.3, 0.7), (0.17, 0.08, 0.008), (0.46, 0.27, 0.035))
+    occ = s.ao(0.006)
+    gold = s.mix(s.mul(s.inv(occ), 0.8), gold, (0.12, 0.06, 0.015))
+    theta = s.math("ARCTAN2", s.x, s.mul(s.sub(s.y, 0.02), -1.0))
+    gems = s.step(s.math("COSINE", s.mul(theta, 8.0)), 0.95, 0.985)
+    gems = s.maxf(gems, s.step(s.math("COSINE", theta), 0.975, 0.99))
+    gem = s.mix(s.step(s.noise(300.0), 0.4, 0.8), (0.20, 0.004, 0.02), (0.6, 0.07, 0.09))
+    s.surface(s.mix(gems, gold, gem), rough=0.4)
+
+
+def queen_membrane_material(mat):
+    """Opaque mauve-brown membranes: mottled, with strong branching veins, the finger bones' shadow along each finger
+    and a dark leading edge along the arm and the leading finger."""
+    s = Shade(mat)
+    base, light, vein = (0.13, 0.05, 0.04), (0.25, 0.10, 0.08), (0.03, 0.008, 0.008)
+    pm = mirrored(s)
+    warp = s.noise(9.0, detail=2.0, out="Color")
+    q = s.vmath("ADD", pm, s.vmath("MULTIPLY", warp, (0.025, 0.025, 0.025)))
+    sq = s.node("ShaderNodeSeparateXYZ")
+    s.nt.links.new(q, sq.inputs[0])
+    rx, rz = s.sub(sq.outputs[0], 0.206), s.sub(sq.outputs[2], 0.15)
+    theta = s.math("ARCTAN2", rz, rx)
+    radius = s.math("SQRT", s.add(s.mul(rx, rx), s.mul(rz, rz)))
+    # veins radiate from the wrist between the fingers (about 7 degrees apart), wavy, fading near the wrist
+    wav = s.mul(s.sub(s.noise(16.0, detail=1.0), 0.5), 0.09)
+    fan = s.math("FRACT", s.mul(s.add(theta, wav), 8.0))
+    rad = s.mul(s.band(fan, 0.5, 0.035, 0.05), s.step(radius, 0.04, 0.09))
+    cross = s.mul(s.band(s.math("FRACT", s.mul(s.add(radius, s.mul(wav, 0.3)), 9.0)), 0.5, 0.025, 0.04), 0.3)
+    m = s.noise(14.0, detail=2.0, rough=0.4)
+    col = s.mix(s.step(m, 0.3, 0.75), base, light)
+    col = s.mix(s.mul(s.band(fan, 0.5, 0.11, 0.06), 0.35), col, (0.32, 0.15, 0.12))
+    col = s.mix(s.minf(s.add(rad, s.mul(cross, s.step(radius, 0.06, 0.12))), 1.0), col, vein)
+    lead_d, bone_d = [], []
+    for side in "RL":
+        w = QUEEN_WING[side]
+        wrist, knuckle, tip = V(w["wrist"]), V(w["knuckle"]), V(w["tip"])
+        lead_d.append(poly_dist(s, pm, [wrist, knuckle, knuckle.lerp(tip, 0.5) + V((0, -0.004, 0.012)), tip]))
+        fd = None
+        for f in w["fingers"]:
+            e = poly_dist(s, pm, f)
+            fd = e if fd is None else s.minf(fd, e)
+        bone_d.append(fd)
+    lead_d = side_sock(s, lead_d[0], lead_d[1])
+    bone_d = side_sock(s, bone_d[0], bone_d[1])
+    col = s.mix(s.mul(s.step(bone_d, 0.016, 0.003), 0.6), col, (0.07, 0.03, 0.03))
+    col = s.mix(s.step(lead_d, 0.045, 0.01), col, (0.055, 0.022, 0.024))
+    occ = s.ao(0.02)
+    col = s.mix(s.mul(s.inv(occ), 0.6), col, (0.06, 0.03, 0.03))
+    s.surface(col)
+
+
+def ivory_material(mat):
+    """Wing bones and claws: ivory, darker toward the thin ends, with dark knuckle rings and swollen pale joints."""
+    s = Shade(mat)
+    pm = mirrored(s)
+    m = s.noise(300.0, detail=3.0, distortion=0.3)
+    col = s.ramp(m, [(0.3, (0.40, 0.34, 0.24)), (0.75, (0.62, 0.56, 0.43))])
+    joints = []
+    for side in "RL":
+        w = QUEEN_WING[side]
+        pts = [V(w["knuckle"])] + [V(f[1]) for f in w["fingers"]]
+        pts.append(V(w["knuckle"]).lerp(V(w["tip"]), 0.5))
+        d = None
+        for p in pts:
+            e = s.dist(tuple(p), vec=pm)
+            d = e if d is None else s.minf(d, e)
+        joints.append(d)
+    jd = side_sock(s, joints[0], joints[1])
+    col = s.mix(s.mul(s.step(jd, 0.012, 0.004), 0.5), col, (0.78, 0.72, 0.58))
+    col = s.mix(s.band(jd, 0.014, 0.0025, 0.0015), col, (0.10, 0.07, 0.045))
+    tipd = s.step(s.absf(s.x), 0.45, 0.62)
+    col = s.mix(s.mul(tipd, 0.5), col, (0.18, 0.13, 0.09))
+    occ = s.ao(0.006)
+    col = s.mix(s.mul(s.inv(occ), 0.7), col, (0.08, 0.06, 0.04))
+    s.surface(col)
 
 
 ANGLE = 45.0
 
 
-def own_unwrap(obj, baked, density, margin=0.012):
+def own_unwrap(obj, baked, density, margin=0.012, angle=ANGLE, fixed=None):
     """The "atlas" UV map for bake_atlas over the baked slots only (a slot not baked keeps its 1999 projection and takes
-    no room), each slot's islands scaled by `density` (relative texel density) before the final packing."""
+    no room), each slot's islands scaled by `density` (relative texel density) before the final packing. `fixed` maps
+    a slot to a function giving each loop's atlas UV from its "fuv" coordinates: those faces are not unwrapped but
+    placed there and pinned (shared tiles, such as one painted feather for all the feather cards), and the other
+    islands are packed around them."""
     me = obj.data
     names = [m.name for m in me.materials]
+    fixed = fixed or {}
     if "atlas" not in me.uv_layers:
         me.uv_layers.new(name="atlas")
     me.uv_layers.active = me.uv_layers["atlas"]
     for p in me.polygons:
-        p.select = names[p.material_index] in baked
+        p.select = names[p.material_index] in baked and names[p.material_index] not in fixed
     bpy.context.view_layer.objects.active = obj
     for o in bpy.context.selected_objects:
         o.select_set(False)
     obj.select_set(True)
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_mode(type="FACE")
-    bpy.ops.uv.smart_project(angle_limit=math.radians(ANGLE), island_margin=margin, area_weight=1.0)
+    bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=margin, area_weight=1.0)
     bpy.ops.object.mode_set(mode="OBJECT")
     uv = me.uv_layers["atlas"].data
     for p in me.polygons:
         k = density.get(names[p.material_index], 1.0) if p.select else 0.0
         for li in p.loop_indices:
             uv[li].uv = uv[li].uv * k if p.select else V((0.999, 0.999))
+    if fixed:
+        fuv = me.uv_layers["fuv"].data
+        for p in me.polygons:
+            place = fixed.get(names[p.material_index])
+            if place is None:
+                continue
+            p.select = True
+            for li in p.loop_indices:
+                uv[li].uv = place(fuv[li].uv)
+                uv[li].pin_uv = True
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.uv.select_all(action="SELECT")
-    bpy.ops.uv.pack_islands(margin=margin, rotate=True, scale=True)
+    if fixed:
+        bpy.ops.uv.pack_islands(margin=margin, rotate=True, scale=True, pin=True, pin_method="LOCKED")
+    else:
+        bpy.ops.uv.pack_islands(margin=margin, rotate=True, scale=True)
     bpy.ops.object.mode_set(mode="OBJECT")
 
 
@@ -1307,7 +1689,9 @@ CHARACTERS = {
         "slots": {},
         "frame": ((0, 0, 0.02), 1.4),
         # the 1999 wings are opaque, so the whole body, wings and bones are baked (wings at a lower texel density)
-        "bake": {"Body": 1.0, "Wing": 0.55, "Bone": 0.35},
+        "bake": {"Body": 1.0, "Wing": 1.0, "Bone": 0.35, "Feather": 1.0, "Gold": 0.4, "Down": 0.6},
+        # fewer, larger islands on the lumpy body; the feather cards share painted tiles
+        "unwrap": {"angle": 66.0, "margin": 0.008, "fixed": {"Feather": feather_tile}},
     },
 }
 
@@ -1320,8 +1704,11 @@ def dressing(model, key):
         horn_material(mats["Bone"], (0.035, 0.022, 0.02), (0.16, 0.09, 0.07), 900.0)
     else:
         queen_body_material(mats["Body"])
-        membrane_material(mats["Wing"], (0.13, 0.065, 0.05), (0.22, 0.12, 0.09), (0.045, 0.022, 0.018), 22.0)
-        horn_material(mats["Bone"], (0.16, 0.11, 0.075), (0.42, 0.34, 0.25), 300.0)
+        queen_body_material(mats["Down"])
+        queen_membrane_material(mats["Wing"])
+        ivory_material(mats["Bone"])
+        feather_card_material(mats["Feather"])
+        gold_material(mats["Gold"])
 
 
 def main():
@@ -1338,7 +1725,7 @@ def main():
 
             folder = Path(ARGS.authored).resolve()
             dressing(model, key)
-            own_unwrap(model, set(ch["bake"]), ch["bake"])
+            own_unwrap(model, set(ch["bake"]), ch["bake"], **ch.get("unwrap", {}))
             baked = bake_parts(model, folder / ch["file"].replace(".json", ".png"), set(ch["bake"]), ARGS.size)
             export_authored(
                 model,

@@ -129,3 +129,16 @@ Tool fixes found by the builders:
   only when all three corners belong to kept joints.
 * Open: per-part baking (loose pieces shade the body), texel weights per slot in `unwrap`, and an unwrap angle of 45
   degrees instead of 66 (stretching on faces seen edge-on) are done in the builders' scripts, not yet in the helper.
+
+## Fourth round: the drafts finished
+
+Owner: finish the draft items. Three builders reworked the last drafts against the lead's notes; all now ship from
+`kit/models` (`kit/models-draft` is empty).
+
+| Model | What changed | In game |
+| --- | --- | --- |
+| Death Mage (and ghost, shaman) | a 1.2x skull with brow ridge, deep sockets with an ember glow, cheekbones and teeth, set in shadow in a deeper hood; layered irregular blood-soaked rags (about 60 % red-brown, 40 % dirty bandage); 28 twisting strips with torn tips; the shaman plate engraved and worn; the ghost pale blue with the same rags | Volcanic: hooded, strips hanging, floating and animating, no holes |
+| Dr. Evil | an organic head (domed brows into back-swept horns, sockets with scowling lids over three eyes a side, rounded snout with nostrils, curved tooth line), layered camouflage, scale size from fine (face) to large (back), pale plated throat and belly | converted (Rift World); not seen in frame (he rises from a pit in his boss scene) |
+| Queen Shillah | 86 feather cards in shoulder, arm and flank rows sharing four painted feather tiles (they read at 256 px), skin with painted form, veined wings, a gold collar on the neck seam, girdle and bracelets | Succubus Lair: flying and moving around Rynn |
+
+Still to see in game: Dr. Evil in his scene, the ghost mages (Rift World), and the Queen's feather cards while she flaps.

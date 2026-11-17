@@ -4,12 +4,15 @@ The 1999 PC models `deathmage(h)`, `deathmage ghost(h)` (the same mesh with a pa
 same mesh, about 5 mm further back, with a chest plate and bracers) in Common/NPC/NPCs are replaced at convert time by
 this mesh: the converter fits it on the PC skeleton and takes the skin weights from the player's own disc
 (editor/packages/formats/src/ootfauthored.ts); the textures are the model's own. This script reads no game data: the
-hooded skull, the bandage-wrapped robe tapering into a legless tail, slim wrapped sleeves, bare arm bones and clawed
-hands, raised wraps, and the separate thin strips hanging from the arms, shoulders, hood and all round the hem are built
-from rounded proportions measured on the reference (joint positions, heights and widths). Every slot is painted with
-procedural shader nodes (pale dirty bandages with rust and old blood over a dark robe, ivory bone with dark sockets and
-an ember in each, the shaman's dark plate with green stones; a pale palette for the ghost) and baked into one atlas per
-variant by own_texture.bake_atlas, saved beside the JSON (original art; run scripts/buildtool/pin_model_textures.py).
+deep hood, the large sculpted skull (brow ridge, deep sockets, nasal cavity, cheekbones, teeth rows, an open jaw), the
+rag-wrapped robe tapering into a legless tail, slim wrapped sleeves, bare arm bones and clawed hands, raised wraps that
+wind irregularly round the body and sleeves with loose ends, and the twisted strips hanging from the arms, shoulders,
+hood and all round the hem are built from rounded proportions measured on the reference (joint positions, heights and
+widths). Every slot is painted with procedural shader nodes (dark red-brown blood-soaked rags over dirty off-white
+bandage in irregular overlapping layers, torn holes, grime heaviest at the hem; dark aged bone with stains and a dim
+ember deep in each socket; the shaman's engraved, worn iron plate with green stones; a pale blue palette for the ghost)
+and baked into one atlas per variant (own_texture.bake_atlas, the hanging strips baked on their own so they do not shade
+the body), saved beside the JSON (original art; run scripts/buildtool/pin_model_textures.py).
 
     blender -b --factory-startup -P analysis/scripts/blender/deathmage_model.py -- \
         --out build/authored/deathmage-model [--which mage|shaman|ghost|all] \
@@ -29,7 +32,7 @@ from pathlib import Path
 
 import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 # ---------------------------------------------------------------------------- args
 
@@ -102,8 +105,17 @@ TORSO = [
     (-0.145, 0.019, 0.0012, 0.0012),
 ]
 
-# triangle budgets per remeshed part (with the strips, wraps and hands the model has about 3,000 triangles)
-BUDGET = {"body": 640, "hood": 340, "skull": 440, "armour": 260}
+# triangle budgets per remeshed part (with the strips, wraps and hands the model has about 3,500 triangles)
+BUDGET = {"body": 500, "body_shaman": 430, "hood": 380, "skull": 560, "armour": 205}
+
+# The skull: a large face filling the hood opening (the 1999 face is about 2.6 cm wide and 3.7 cm from brow to chin).
+SOCKETS = ((0.0063, -0.0300, 0.1335), (-0.0063, -0.0300, 0.1335))
+NOSE = (0.0, -0.0292, 0.1268)
+# the hood opening: everything of the cowl inside this ellipsoid is cut away (the skull sits in the hollow)
+RECESS = ((0.0, -0.0460, 0.1295), (0.0195, 0.0300, 0.0262))
+# the skull is modelled at the reference size and scaled up about this point to fill the opening (its paint follows)
+SKULL_SCALE = 1.2
+SKULL_PIVOT = (0.0, -0.010, 0.128)
 
 # ---------------------------------------------------------------------------- helpers
 
@@ -258,35 +270,29 @@ def ring_tube(name, path, radius, sides=6):
     return mesh_from_bm(name, bm)
 
 
-def ribbon(name, ctrl, normal, width, thick=0.0012, per=1, point=True):
-    """A hanging cloth strip: diamond section along control points (x, y, z, half width scale), tapering to a point.
-    `normal` (a vector or a function of the point) is the side the strip faces; its width lies across it. Without
-    `point` the strip ends square (a torn end)."""
-    samples = catmull(ctrl, per)
-    pts = [V(s[:3]) for s in samples]
+def strip3(name, pts, widths, normals, ident, thick=0.0007, point=True):
+    """A cloth strip with a flat triangular section (a broad face toward `normals`, a flat back) through the points
+    `pts`, half widths `widths`; it ends in a point (or square, a torn end, without `point`). Every vertex carries the
+    colour attribute "strip" = (ident, position along the strip 0..1, 0), read by the paint."""
     bm = bmesh.new()
+    lay = bm.verts.layers.float_color.new("strip")
+    n = len(pts)
     rings = []
-    for i, s in enumerate(samples):
-        p = pts[i]
-        t = (pts[min(i + 1, len(pts) - 1)] - pts[max(i - 1, 0)]).normalized()
-        n = normal(p) if callable(normal) else V(normal)
-        side = t.cross(n).normalized()
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized()
+        side = t.cross(normals[i]).normalized()
         nn = side.cross(t).normalized()
-        w = width * s[3]
-        if point and i == len(samples) - 1:
-            rings.append([bm.verts.new(p)])
-            continue
-        rings.append(
-            [
-                bm.verts.new(p + side * w),
-                bm.verts.new(p + nn * thick),
-                bm.verts.new(p - side * w),
-                bm.verts.new(p - nn * thick),
-            ]
-        )
+        w = widths[i]
+        if point and i == n - 1:
+            ring = [bm.verts.new(p)]
+        else:
+            ring = [bm.verts.new(p + side * w), bm.verts.new(p + nn * thick), bm.verts.new(p - side * w)]
+        for v in ring:
+            v[lay] = (ident, i / (n - 1), 0.0, 1.0)
+        rings.append(ring)
     for r0, r1 in itertools.pairwise(rings):
-        for k in range(4):
-            k1 = (k + 1) % 4
+        for k in range(3):
+            k1 = (k + 1) % 3
             if len(r1) == 1:
                 bm.faces.new((r0[k], r0[k1], r1[0]))
             else:
@@ -298,7 +304,7 @@ def ribbon(name, ctrl, normal, width, thick=0.0012, per=1, point=True):
     return mesh_from_bm(name, bm)
 
 
-def remesh_decimate(obj, voxel, tris, smooth=3):
+def remesh_decimate(obj, voxel, tris, smooth=3, bumps=0.0):
     rm = obj.modifiers.new("remesh", "REMESH")
     rm.mode = "VOXEL"
     rm.voxel_size = voxel
@@ -308,6 +314,17 @@ def remesh_decimate(obj, voxel, tris, smooth=3):
         sm = obj.modifiers.new("smooth", "SMOOTH")
         sm.factor = 0.5
         sm.iterations = smooth
+        apply_modifiers(obj)
+    if bumps:
+        # lumpy cloth: a soft cloud displacement so the surface is not a clean turned shape
+        tex = bpy.data.textures.new("lumps", "CLOUDS")
+        tex.noise_scale = 0.012
+        tex.noise_depth = 1
+        d = obj.modifiers.new("lumps", "DISPLACE")
+        d.texture = tex
+        d.texture_coords = "LOCAL"
+        d.strength = bumps
+        d.mid_level = 0.5
         apply_modifiers(obj)
     decimate(obj, tris)
     return obj
@@ -352,42 +369,63 @@ def outward(obj):
     bm.free()
 
 
+def _rand(i, k=0):
+    """Deterministic jitter in [0, 1)."""
+    v = math.sin(i * 12.9898 + k * 78.233) * 43758.5453
+    return v - math.floor(v)
+
+
 # ---------------------------------------------------------------------------- painting (the model's own textures)
 # Every slot is painted procedurally with shader nodes in object space (the model sits at the origin in PC units) and
-# baked into one atlas by own_texture.bake_atlas: base colour x occlusion x a soft top light, like the painted-in shading
-# of Drakan 2 textures. Nothing is sampled from the 1999 skins; they were only looked at for the colour scheme (pale
-# bandages with rust and old blood over a dark body, ivory bone, a dark shaman plate with green stones).
+# baked into one atlas: base colour x occlusion x a soft top light, like the painted-in shading of Drakan 2 textures.
+# Nothing is sampled from the 1999 skins; they were only looked at for the colour scheme (dark red, blood-soaked rags
+# over pale bandage, a stained skull; a dark shaman plate with green stones). The bake light averages about 0.45, so
+# the albedos are set brighter than the colours wanted in the picture.
 
 PALETTES = {
     # linear colours
     "mage": {
-        "bandage": (0.28, 0.180, 0.110),
-        "bandage_lo": (0.110, 0.062, 0.040),
-        "robe": (0.010, 0.0075, 0.007),
-        "robe_hi": (0.034, 0.024, 0.020),
-        "rust": (0.13, 0.050, 0.020),
-        "blood": (0.12, 0.014, 0.010),
-        "bone": (0.34, 0.26, 0.155),
-        "bone_lo": (0.11, 0.070, 0.035),
-        "socket": (0.020, 0.010, 0.008),
-        "glow": (1.0, 0.25, 0.04),
-        "armour": (0.016, 0.018, 0.022),
-        "armour_hi": (0.055, 0.058, 0.064),
+        "rag_dark": (0.050, 0.011, 0.008),
+        "rag": (0.14, 0.036, 0.020),
+        "rag_hi": (0.25, 0.088, 0.046),
+        "bandage": (0.55, 0.44, 0.31),
+        "bandage_lo": (0.30, 0.205, 0.130),
+        "rust": (0.27, 0.095, 0.035),
+        "blood": (0.22, 0.012, 0.010),
+        "grime": (0.035, 0.020, 0.013),
+        "hole": (0.012, 0.004, 0.003),
+        "inner": (0.006, 0.003, 0.0025),
+        "bone": (0.42, 0.28, 0.125),
+        "bone_lo": (0.15, 0.095, 0.050),
+        "stain": (0.080, 0.040, 0.018),
+        "socket": (0.008, 0.004, 0.003),
+        "glow": (1.0, 0.13, 0.02),
+        "armour": (0.020, 0.020, 0.024),
+        "armour_hi": (0.060, 0.060, 0.070),
+        "steel": (0.22, 0.22, 0.24),
+        "bronze": (0.22, 0.13, 0.05),
         "gem": (0.10, 0.85, 0.20),
     },
     "ghost": {
-        "bandage": (0.40, 0.42, 0.43),
-        "bandage_lo": (0.17, 0.19, 0.21),
-        "robe": (0.022, 0.026, 0.034),
-        "robe_hi": (0.060, 0.068, 0.082),
-        "rust": (0.15, 0.17, 0.16),
-        "blood": (0.10, 0.13, 0.14),
-        "bone": (0.42, 0.42, 0.39),
-        "bone_lo": (0.13, 0.14, 0.15),
-        "socket": (0.015, 0.020, 0.030),
+        "rag_dark": (0.020, 0.028, 0.045),
+        "rag": (0.080, 0.110, 0.150),
+        "rag_hi": (0.19, 0.24, 0.31),
+        "bandage": (0.58, 0.63, 0.68),
+        "bandage_lo": (0.25, 0.29, 0.35),
+        "rust": (0.16, 0.26, 0.34),
+        "blood": (0.09, 0.18, 0.30),
+        "grime": (0.030, 0.040, 0.060),
+        "hole": (0.006, 0.010, 0.018),
+        "inner": (0.004, 0.008, 0.016),
+        "bone": (0.56, 0.60, 0.64),
+        "bone_lo": (0.20, 0.23, 0.29),
+        "stain": (0.090, 0.120, 0.170),
+        "socket": (0.005, 0.010, 0.020),
         "glow": (0.35, 0.75, 1.0),
-        "armour": (0.016, 0.018, 0.022),
-        "armour_hi": (0.055, 0.058, 0.064),
+        "armour": (0.020, 0.020, 0.024),
+        "armour_hi": (0.060, 0.060, 0.070),
+        "steel": (0.22, 0.22, 0.24),
+        "bronze": (0.22, 0.13, 0.05),
         "gem": (0.10, 0.85, 0.20),
     },
 }
@@ -396,11 +434,15 @@ PALETTES = {
 class Painter:
     """Small helper over a material's node tree: object-space position, noise, bands, masks and mixes."""
 
-    def __init__(self, mat):
+    def __init__(self, mat, scaled=None):
+        """`scaled` = (factor, pivot): paint in the coordinates the part was modelled in before it was scaled."""
         self.nt = mat.node_tree
         self.bsdf = self.nt.nodes["Principled BSDF"]
         self.bsdf.inputs["Roughness"].default_value = 0.9
         self.pos = self.node("ShaderNodeTexCoord").outputs["Object"]
+        if scaled:
+            k, c = scaled
+            self.pos = self.mapped(scale=(1 / k,) * 3, loc=tuple(x * (1 - 1 / k) for x in c))
         sep = self.node("ShaderNodeSeparateXYZ")
         self.link(self.pos, sep.inputs[0])
         self.x, self.y, self.z = sep.outputs[0], sep.outputs[1], sep.outputs[2]
@@ -424,6 +466,14 @@ class Painter:
         self.link(a, n.inputs[0])
         self.link(b, n.inputs[1])
         return n.outputs[0]
+
+    def lin(self, *terms, c=0.0):
+        """c + sum(k * socket) for (socket, k) pairs."""
+        acc = c
+        for s, k in terms:
+            t = self.math("MULTIPLY", s, k)
+            acc = t if isinstance(acc, float) and acc == 0.0 else self.math("ADD", acc, t)
+        return acc
 
     def vec(self, x, y, z):
         n = self.node("ShaderNodeCombineXYZ")
@@ -482,6 +532,20 @@ class Painter:
         """1 inside an ellipsoid (centre, radii), fading to 0 over its outer `soft` part."""
         return self.step(self.ellipsoid_value(centre, r), 1.0, 1.0 - soft)
 
+    def spots(self, centres, r, soft=0.4):
+        out = None
+        for c in centres:
+            s = self.spot(c, r, soft)
+            out = s if out is None else self.math("MAXIMUM", out, s)
+        return out
+
+    def attr(self, name="strip"):
+        """The (r, g, b) of a colour attribute as three float sockets."""
+        n = self.node("ShaderNodeAttribute", attribute_name=name)
+        sep = self.node("ShaderNodeSeparateXYZ")
+        self.link(n.outputs["Vector"], sep.inputs[0])
+        return sep.outputs[0], sep.outputs[1], sep.outputs[2]
+
     def mix(self, fac, a, b, blend="MIX"):
         n = self.node("ShaderNodeMix", data_type="RGBA", blend_type=blend, clamp_factor=True)
         ins = {s.identifier: s for s in n.inputs}
@@ -502,163 +566,272 @@ class Painter:
             self.link(self.math("MULTIPLY", glow_mask, strength), self.bsdf.inputs["Emission Strength"])
 
 
-def cloth_dirt(p, col, pal, dirt_scale=1.0, stains=True):
-    """Weathering shared by the bandages: grime toward the hem, rust stains and a few spots of old blood, a fine weave."""
-    low = p.step(p.z, 0.02, -0.20)
-    grime = p.math("MULTIPLY", p.noise(28 * dirt_scale, 4, 0.6), p.math("ADD", 0.35, low))
-    col = p.mix(p.step(grime, 0.20, 0.60), col, pal["bandage_lo"])
-    if stains:
-        rust = p.step(p.noise(55 * dirt_scale, 3, 0.55, vec=p.mapped(loc=(3.1, 1.7, 0.4))), 0.57, 0.66)
-        col = p.mix(p.math("MULTIPLY", rust, 0.8), col, pal["rust"])
-        blood = p.step(p.noise(40 * dirt_scale, 2, 0.5, vec=p.mapped(loc=(-5.3, 2.2, 7.9))), 0.64, 0.70)
-        col = p.mix(p.math("MULTIPLY", blood, 0.85), col, pal["blood"])
-    return p.shade(col, p.math("ADD", 0.85, p.math("MULTIPLY", p.noise(900, 1, 0.5), 0.3)))
+def rag_cloth(p, pal, seed):
+    """Dark red-brown rag: mottled, with soaked darker patches and a few lighter worn spots."""
+    m = p.noise(34, 4, 0.62, vec=p.mapped(loc=(seed + 5.0, 2.0, 1.0)))
+    col = p.mix(p.step(m, 0.30, 0.55), pal["rag_dark"], pal["rag"])
+    return p.mix(p.step(m, 0.60, 0.80), col, pal["rag_hi"])
 
 
-def wrap_bands(p, u, scale):
-    """Bandage mask (1 on the strips, 0 in the gaps) and an edge shade (dark creases along the strip edges)."""
-    b = p.bands(u, scale, distortion=2.6)
-    # the strips change width along their length: shift the threshold with a slow noise
-    t = p.math("MULTIPLY", p.noise(18, 2, 0.5, vec=p.mapped(loc=(scale, 0.0, 0.0))), 0.30)
-    b = p.math("ADD", b, p.math("SUBTRACT", t, 0.15))
-    mask = p.step(b, 0.30, 0.38)
-    crease = p.math("ADD", 0.50, p.math("MULTIPLY", p.step(b, 0.34, 0.66), 0.50))
-    return mask, crease
+def dirty_bandage(p, pal, seed):
+    """Off-white bandage gone yellow-brown, with rust spots."""
+    n = p.noise(30, 4, 0.6, vec=p.mapped(loc=(seed, seed * 0.7, 1.3)))
+    col = p.mix(p.step(n, 0.30, 0.72), pal["bandage"], pal["bandage_lo"])
+    rust = p.step(p.noise(52, 3, 0.55, vec=p.mapped(loc=(seed + 3.1, 1.7, 0.4))), 0.56, 0.68)
+    return p.mix(p.math("MULTIPLY", rust, 0.75), col, pal["rust"])
+
+
+def wrapped_cloth(p, pal, coords, seed=0.0, rag_share=0.5, under=0.55):
+    """Layers of wrapped cloth over a dark under-layer. Each entry of `coords` is (coordinate across the strips, scale):
+    one layer of strips whose widths wander (a slow noise shifts the threshold), whose edges fray (a fine noise), which
+    covers the body only in patches, each patch rag or bandage, and which casts a shadow on what lies under its edges."""
+    col = p.shade(rag_cloth(p, pal, seed + 11.0), under)
+    for k, (u, scale) in enumerate(coords):
+        s = seed + 4.3 * k
+        loc = (s, 1.9 * k + seed, 0.6 * k)
+        b = p.bands(u, scale, distortion=2.5 + 0.6 * k)
+        shift = p.math("MULTIPLY", p.noise(22 + 5 * k, 2, 0.5, vec=p.mapped(loc=loc)), 0.55)
+        fray = p.math("MULTIPLY", p.noise(260, 2, 0.75, vec=p.mapped(loc=loc)), 0.20)
+        b = p.math("ADD", b, p.math("ADD", shift, fray))
+        patch = p.step(p.noise(16 + 4 * k, 2, 0.5, vec=p.mapped(loc=(s + 9.0, 2.0, 3.0))), 0.38, 0.46)
+        mask = p.math("MULTIPLY", p.step(b, 1.00, 1.04), patch)
+        shadow = p.math("MULTIPLY", p.step(b, 0.84, 1.01), patch)
+        crease = p.math("ADD", 0.60, p.math("MULTIPLY", p.step(b, 1.03, 1.32), 0.40))
+        sel = p.step(p.noise(14, 1, 0.5, vec=p.mapped(loc=(s + 21.0, 5.0, 2.0))), rag_share - 0.04, rag_share + 0.04)
+        lc = p.mix(sel, rag_cloth(p, pal, s), dirty_bandage(p, pal, s))
+        col = p.shade(col, p.math("SUBTRACT", 1.0, p.math("MULTIPLY", shadow, 0.6)))
+        col = p.mix(mask, col, p.shade(lc, crease))
+    return col
+
+
+def weather(p, pal, col, seed=0.0, holes=True, blood=0.8, hem=True):
+    """Torn holes, soaked blood, grime toward the hem and a fine weave."""
+    if holes:
+        torn = p.step(p.noise(34, 3, 0.65, vec=p.mapped(loc=(seed + 7.0, 7.0, 7.0))), 0.665, 0.70)
+        col = p.mix(torn, col, pal["hole"])
+    if blood:
+        b = p.step(p.noise(15, 3, 0.6, vec=p.mapped(loc=(seed - 5.3, 2.2, 7.9)), distortion=0.6), 0.53, 0.66)
+        spl = p.step(p.noise(90, 2, 0.5, vec=p.mapped(loc=(seed + 1.0, 4.0, 2.0))), 0.62, 0.68)
+        col = p.mix(p.math("MULTIPLY", p.math("MAXIMUM", b, spl), blood), col, pal["blood"])
+    if hem:
+        low = p.step(p.z, 0.03, -0.15)
+        g = p.math("MULTIPLY", low, p.math("ADD", 0.30, p.math("MULTIPLY", p.noise(40, 3, 0.6), 0.75)))
+        col = p.mix(g, col, pal["grime"])
+    return p.shade(col, p.math("ADD", 0.84, p.math("MULTIPLY", p.noise(700, 1, 0.5), 0.32)))
 
 
 def paint_robe(mat, pal):
-    """The body: a dark robe under criss-crossed bandage wraps (around the trunk; around the arms on the sleeves)."""
+    """The body: layered rags and bandages wound irregularly round the trunk (and round the arms on the sleeves)."""
     p = Painter(mat)
     ax = p.math("ABSOLUTE", p.x)
-    # coordinate across the bandages: height on the trunk, along the arm (drooping about 23 degrees) on the sleeves
-    arm_u = p.math("SUBTRACT", p.math("MULTIPLY", ax, 0.92), p.math("MULTIPLY", p.z, 0.40))
     on_arm = p.step(ax, 0.046, 0.058)
-    trunk1 = p.math("ADD", p.z, p.math("MULTIPLY", p.x, 0.22))
-    trunk2 = p.math("SUBTRACT", p.math("SUBTRACT", p.z, p.math("MULTIPLY", p.x, 0.30)), 0.0037)
-    m1, c1 = wrap_bands(p, trunk1, 34)
-    m2, c2 = wrap_bands(p, trunk2, 27)
-    a1, ac1 = wrap_bands(p, arm_u, 40)
-    # the second trunk layer only in patches, so the wraps cross here and there
-    patch = p.step(p.noise(11, 2, 0.5, vec=p.mapped(loc=(1.3, 0.2, 4.0))), 0.48, 0.58)
-    m2 = p.math("MULTIPLY", m2, patch)
-    trunk_mask = p.math("MAXIMUM", m1, m2)
-    trunk_crease = p.math("MINIMUM", c1, p.math("ADD", c2, p.math("SUBTRACT", 1.0, patch)))
-    mask = p.mix(on_arm, p.vec(trunk_mask, 0, 0), p.vec(a1, 0, 0))
-    crease = p.mix(on_arm, p.vec(trunk_crease, 0, 0), p.vec(ac1, 0, 0))
-    sm = p.node("ShaderNodeSeparateXYZ")
-    p.link(mask, sm.inputs[0])
-    sc = p.node("ShaderNodeSeparateXYZ")
-    p.link(crease, sc.inputs[0])
-    # gaps: dark robe with faint vertical folds
-    folds = p.noise(70, 2, 0.5, vec=p.mapped(scale=(1, 1, 0.25)))
-    robe = p.mix(p.step(folds, 0.35, 0.75), pal["robe"], pal["robe_hi"])
-    band = p.shade(cloth_dirt(p, pal["bandage"], pal), sc.outputs[0])
-    # torn holes in the wraps
-    torn = p.step(p.noise(45, 3, 0.6, vec=p.mapped(loc=(7, 7, 7))), 0.66, 0.70)
-    m = p.math("MULTIPLY", sm.outputs[0], p.math("SUBTRACT", 1.0, torn))
-    p.out(p.mix(m, robe, band))
+    trunk = wrapped_cloth(
+        p,
+        pal,
+        [
+            (p.lin((p.z, 1.0), (p.x, 0.35)), 21),
+            (p.lin((p.z, 1.0), (p.x, -0.55), (p.y, 0.25)), 16),
+            (p.lin((p.z, 1.0), (p.x, 0.12), (p.y, -0.35)), 27),
+            (p.lin((p.z, 1.0), (p.x, -0.20), (p.y, 0.10)), 13),
+        ],
+        seed=0.0,
+        rag_share=0.58,
+    )
+    arm = wrapped_cloth(
+        p,
+        pal,
+        [
+            (p.lin((ax, 0.92), (p.z, -0.40)), 30),
+            (p.lin((ax, 0.85), (p.z, -0.10), (p.y, 0.30)), 23),
+            (p.lin((ax, 0.95), (p.z, -0.60), (p.y, -0.20)), 37),
+        ],
+        seed=31.0,
+        rag_share=0.58,
+    )
+    p.out(weather(p, pal, p.mix(on_arm, trunk, arm)))
 
 
 def paint_hood(mat, pal):
-    """Dark cowl with soft vertical folds, a pale bandage hem around the face opening and loose wraps on the crown."""
+    """The cowl: rag layers wound round the head, a near-black hollow inside the opening, the rolled brim darker
+    toward the face."""
     p = Painter(mat)
-    folds = p.noise(60, 3, 0.55, vec=p.mapped(scale=(1.0, 1.0, 0.3)))
-    col = p.mix(p.step(folds, 0.30, 0.78), pal["robe"], pal["robe_hi"])
-    band = cloth_dirt(p, pal["bandage"], pal, stains=False)
-    # distance from the recess cut into the hood (build_hood): a rim band just outside it, at the front
-    rim_v = p.ellipsoid_value((0.0, -0.036, 0.1260), (0.0155, 0.0265, 0.0230))
-    rim = p.math("MULTIPLY", p.step(rim_v, 1.32, 1.14), p.step(p.y, -0.002, -0.010))
-    edge = p.bands(p.math("ADD", p.z, p.math("MULTIPLY", p.x, 0.5)), 80, 1.0)
-    rim_col = p.shade(band, p.math("ADD", 0.6, p.math("MULTIPLY", edge, 0.4)))
-    crown, ccrease = wrap_bands(p, p.math("ADD", p.y, p.math("MULTIPLY", p.z, 0.6)), 22)
-    crown = p.math("MULTIPLY", crown, p.step(p.z, 0.134, 0.142))
-    crown = p.math("MULTIPLY", crown, p.step(p.noise(14, 1, 0.5), 0.45, 0.55))
-    col = p.mix(p.math("MULTIPLY", crown, 0.8), col, p.shade(band, ccrease))
-    p.out(p.mix(rim, col, rim_col))
+    col = wrapped_cloth(
+        p,
+        pal,
+        [
+            (p.lin((p.z, 1.0), (p.x, 0.30), (p.y, 0.20)), 17),
+            (p.lin((p.z, 1.0), (p.x, -0.45), (p.y, -0.35)), 13),
+        ],
+        seed=57.0,
+        rag_share=0.80,
+        under=0.85,
+    )
+    # soft folds falling from the crown
+    folds = p.noise(55, 3, 0.55, vec=p.mapped(scale=(1.0, 1.0, 0.25)))
+    col = p.shade(col, p.math("ADD", 0.55, p.math("MULTIPLY", p.step(folds, 0.30, 0.75), 0.55)))
+    col = weather(p, pal, col, seed=3.0, blood=0.6, hem=False)
+    rv = p.ellipsoid_value(*RECESS)
+    front = p.step(p.y, -0.006, -0.016)
+    inner = p.math("MULTIPLY", p.step(rv, 1.12, 1.0), front)
+    col = p.mix(p.math("MULTIPLY", p.step(rv, 1.35, 1.10), front), col, p.shade(col, 0.5))
+    p.out(p.mix(inner, col, pal["inner"]))
 
 
-def bone_colour(p, pal):
-    """Ivory bone: grime and hairline cracks (occlusion darkens the joints)."""
-    col = p.mix(p.step(p.noise(160, 4, 0.6), 0.35, 0.80), pal["bone"], p.mix(0.5, pal["bone"], pal["bone_lo"]))
-    cracks = p.step(p.voronoi_edge(260), 0.03, 0.0)
+def bone_colour(p, pal, stains=0.85):
+    """Aged bone: mottled ivory going brown, dark stains, hairline cracks (occlusion darkens the joints)."""
+    m = p.noise(140, 4, 0.6)
+    col = p.mix(p.step(m, 0.35, 0.80), pal["bone"], p.mix(0.55, pal["bone"], pal["bone_lo"]))
+    big = p.noise(28, 3, 0.6, vec=p.mapped(loc=(4.0, 1.0, 2.0)), distortion=0.8)
+    col = p.mix(p.math("MULTIPLY", p.step(big, 0.40, 0.68), 0.75), col, pal["bone_lo"])
+    st = p.step(p.noise(130, 3, 0.6, vec=p.mapped(loc=(1.0, 8.0, 3.0)), distortion=1.2), 0.50, 0.60)
+    col = p.mix(p.math("MULTIPLY", st, stains), col, pal["stain"])
+    runs = p.step(p.noise(70, 3, 0.6, vec=p.mapped(scale=(1, 1, 0.2), loc=(5.0, 2.0, 1.0))), 0.55, 0.66)
+    col = p.mix(p.math("MULTIPLY", runs, 0.6 * stains), col, pal["bone_lo"])
+    cracks = p.step(p.voronoi_edge(230), 0.025, 0.0)
     cracks = p.math("MULTIPLY", cracks, p.step(p.noise(30, 1, 0.5), 0.5, 0.6))
-    return p.mix(p.math("MULTIPLY", cracks, 0.7), col, pal["bone_lo"])
-
-
-SOCKETS = ((0.0053, -0.0255, 0.1333), (-0.0053, -0.0255, 0.1333))
+    return p.mix(p.math("MULTIPLY", cracks, 0.8), col, pal["stain"])
 
 
 def paint_skull(mat, pal):
-    """The skull: bone with dark eye sockets and nose, a dim ember in each socket, teeth drawn on the teeth rows."""
-    p = Painter(mat)
+    """The skull: stained bone, darker round the sockets and under the cheekbones, near-black sockets and nose with a
+    dim ember deep in each socket, teeth rows with dark gaps and an open mouth."""
+    p = Painter(mat, (SKULL_SCALE, SKULL_PIVOT))
     col = bone_colour(p, pal)
-    shadow = p.math("MAXIMUM", *[p.spot(c, (0.0072, 0.010, 0.0068), 0.6) for c in SOCKETS])
-    cheeks = p.math("MAXIMUM", *[p.spot((c[0] * 1.55, -0.019, 0.1238), (0.0030, 0.008, 0.0030), 0.7) for c in SOCKETS])
-    sockets = p.math("MAXIMUM", *[p.spot(c, (0.0050, 0.008, 0.0047), 0.30) for c in SOCKETS])
-    nose = p.spot((0.0, -0.0262, 0.1284), (0.0023, 0.008, 0.0036), 0.35)
-    col = p.mix(p.math("MULTIPLY", p.math("MAXIMUM", shadow, cheeks), 0.6), col, pal["bone_lo"])
+    around = p.spots(SOCKETS, (0.0080, 0.014, 0.0075), 0.6)
+    col = p.mix(p.math("MULTIPLY", around, 0.75), col, pal["bone_lo"])
+    hollow = p.spots([(0.0105, -0.0225, 0.1235), (-0.0105, -0.0225, 0.1235)], (0.0038, 0.010, 0.0032), 0.7)
+    temple = p.spots([(0.0150, -0.012, 0.1350), (-0.0150, -0.012, 0.1350)], (0.0040, 0.008, 0.0060), 0.7)
+    col = p.mix(p.math("MULTIPLY", p.math("MAXIMUM", hollow, temple), 0.75), col, pal["stain"])
+    sockets = p.spots(SOCKETS, (0.0055, 0.0125, 0.0052), 0.35)
+    nose = p.spot((NOSE[0], NOSE[1], NOSE[2] - 0.0006), (0.0021, 0.010, 0.0034), 0.35)
     col = p.mix(p.math("MAXIMUM", sockets, nose), col, pal["socket"])
-    # the mouth: a dark line between the upper teeth and the open mandible, gaps between the front teeth
+    # teeth: the rows a little lighter, dark gaps between the teeth (angle round the jaw), the mouth between the rows
     front = p.step(p.y, -0.014, -0.019)
-    mouth = p.math("MULTIPLY", p.step(p.z, 0.1168, 0.1176), p.step(p.z, 0.1190, 0.1182))
-    col = p.mix(p.math("MULTIPLY", mouth, front), col, pal["socket"])
-    upper = p.math("MULTIPLY", p.step(p.z, 0.1186, 0.1192), p.step(p.z, 0.1222, 0.1214))
-    lower = p.math("MULTIPLY", p.step(p.z, 0.1146, 0.1152), p.step(p.z, 0.1172, 0.1166))
+    ang = p.math("ARCTAN2", p.x, p.math("SUBTRACT", -0.010, p.y))
+    upper = p.math("MULTIPLY", p.step(p.z, 0.1158, 0.1164), p.step(p.z, 0.1206, 0.1198))
+    lower = p.math("MULTIPLY", p.step(p.z, 0.1104, 0.1110), p.step(p.z, 0.1148, 0.1142))
     rows = p.math("MULTIPLY", p.math("MAXIMUM", upper, lower), front)
-    gaps = p.step(p.bands(p.x, 150, 0.0), 0.18, 0.05)
-    col = p.mix(p.math("MULTIPLY", p.math("MULTIPLY", rows, gaps), 0.8), col, pal["socket"])
-    ember = p.math("MAXIMUM", *[p.spot((c[0], -0.0262, c[2] - 0.0004), (0.0026, 0.006, 0.0022), 0.7) for c in SOCKETS])
-    p.out(col, pal["glow"], ember, 4.0)
+    col = p.mix(p.math("MULTIPLY", rows, 0.6), col, p.mix(0.5, pal["bone"], (0.62, 0.52, 0.36)))
+    gaps = p.step(p.bands(ang, 2.1, 0.0), 0.16, 0.05)
+    col = p.mix(p.math("MULTIPLY", p.math("MULTIPLY", rows, gaps), 0.9), col, pal["socket"])
+    mouth = p.math("MULTIPLY", p.step(p.z, 0.1144, 0.1149), p.step(p.z, 0.1162, 0.1157))
+    col = p.mix(p.math("MULTIPLY", mouth, front), col, pal["socket"])
+    gum = p.math("MULTIPLY", p.step(p.z, 0.1198, 0.1204), p.step(p.z, 0.1218, 0.1210))
+    col = p.mix(p.math("MULTIPLY", gum, p.math("MULTIPLY", front, 0.7)), col, pal["stain"])
+    ember = p.spots([(c[0], -0.0225, c[2] - 0.0005) for c in SOCKETS], (0.0021, 0.006, 0.0018), 0.9)
+    p.out(col, pal["glow"], ember, 0.9)
 
 
 def paint_arm_bone(mat, pal):
     p = Painter(mat)
-    p.out(bone_colour(p, pal))
+    p.out(bone_colour(p, pal, stains=1.0))
 
 
 def paint_tatter(mat, pal):
-    """Hanging bandage strips: lengthwise streaks, some strips darker, dirtier toward the ends, cross wrinkles."""
+    """Hanging strips: each a rag or a bandage (by its id), streaked lengthwise, crumpled across, soaked with blood in
+    places, dark and frayed toward the torn end and dirtier toward the hem."""
     p = Painter(mat)
-    streak = p.noise(260, 2, 0.5, vec=p.mapped(scale=(1, 1, 0.08)))
-    col = p.mix(p.step(streak, 0.3, 0.75), pal["bandage_lo"], pal["bandage"])
-    dark = p.step(p.noise(16, 1, 0.5, vec=p.mapped(loc=(2.0, 5.0, 1.0))), 0.56, 0.60)
-    col = p.mix(p.math("MULTIPLY", dark, 0.85), col, p.mix(0.5, pal["robe_hi"], pal["bandage_lo"]))
-    col = cloth_dirt(p, col, pal, dirt_scale=1.2)
-    wr = p.bands(p.z, 260, 3.0)
-    p.out(p.shade(col, p.math("ADD", 0.78, p.math("MULTIPLY", wr, 0.22))))
+    ident, along, _ = p.attr("strip")
+    rag = rag_cloth(p, pal, 71.0)
+    band = dirty_bandage(p, pal, 73.0)
+    col = p.mix(p.step(ident, 0.56, 0.60), rag, band)
+    streak = p.noise(240, 2, 0.5, vec=p.mapped(scale=(1, 1, 0.08)))
+    col = p.shade(col, p.math("ADD", 0.70, p.math("MULTIPLY", streak, 0.45)))
+    wr = p.bands(p.z, 200, 3.0)
+    col = p.shade(col, p.math("ADD", 0.78, p.math("MULTIPLY", wr, 0.22)))
+    end = p.step(along, 0.55, 1.0)
+    frayed = p.math("MULTIPLY", end, p.math("ADD", 0.15, p.math("MULTIPLY", p.noise(160, 2, 0.6), 0.35)))
+    col = p.mix(frayed, col, pal["grime"])
+    soak = p.step(
+        p.math("ADD", p.noise(9, 2, 0.5, vec=p.mapped(loc=(2.0, 5.0, 1.0))), p.math("MULTIPLY", ident, 0.3)), 0.62, 0.70
+    )
+    col = p.mix(p.math("MULTIPLY", soak, 0.8), col, pal["blood"])
+    p.out(weather(p, pal, col, seed=9.0, holes=False, blood=0.5))
 
 
 def paint_bandage(mat, pal):
-    """The raised wraps: pale strips with lengthwise streaks and stains."""
+    """The raised wraps: mostly bandage, some rag (by id), streaked along their length, darker at their loose ends."""
     p = Painter(mat)
-    col = cloth_dirt(p, pal["bandage"], pal)
-    streak = p.noise(300, 2, 0.5, vec=p.mapped(scale=(0.1, 0.1, 1.0)))
-    p.out(p.shade(col, p.math("ADD", 0.75, p.math("MULTIPLY", streak, 0.4))))
+    ident, along, _ = p.attr("strip")
+    col = p.mix(p.step(ident, 0.30, 0.34), rag_cloth(p, pal, 81.0), dirty_bandage(p, pal, 83.0))
+    streak = p.noise(300, 2, 0.5, vec=p.mapped(scale=(0.15, 0.15, 1.0)))
+    col = p.shade(col, p.math("ADD", 0.72, p.math("MULTIPLY", streak, 0.40)))
+    ends = p.math("MAXIMUM", p.step(along, 0.82, 1.0), p.step(along, 0.10, 0.0))
+    col = p.mix(p.math("MULTIPLY", ends, 0.7), col, pal["grime"])
+    p.out(weather(p, pal, col, seed=13.0, holes=False, blood=0.9))
 
 
 GEMS = ((0.0, -0.026, 0.068), (0.030, -0.022, 0.086), (-0.030, -0.022, 0.086))
 
 
 def paint_armour(mat, pal):
-    """The shaman's plate and bracers: dark blued iron, scratched, bronze trim, green stones in the chest and shoulders."""
+    """The shaman's plate and bracers: dark hammered iron, worn bright on the edges and scratched, engraved rings round
+    each stone, a band of runes across the chest, bronze trims studded with rivets, rust runs and old blood."""
     p = Painter(mat)
-    col = p.mix(p.step(p.noise(90, 4, 0.6), 0.55, 0.85), pal["armour"], pal["armour_hi"])
+    col = p.mix(p.step(p.noise(90, 4, 0.6), 0.40, 0.85), pal["armour"], pal["armour_hi"])
+    dents = p.node("ShaderNodeTexVoronoi", feature="F1")
+    p.link(p.pos, dents.inputs["Vector"])
+    dents.inputs["Scale"].default_value = 140
+    col = p.shade(col, p.math("ADD", 0.75, p.math("MULTIPLY", dents.outputs["Distance"], 0.5)))
     scratches = p.step(p.voronoi_edge(70, vec=p.mapped(scale=(1, 1, 3))), 0.012, 0.0)
     scratches = p.math("MULTIPLY", scratches, p.step(p.noise(25, 1, 0.5), 0.5, 0.6))
-    col = p.mix(p.math("MULTIPLY", scratches, 0.6), col, pal["armour_hi"])
-    # engraved panel lines: a centre seam and ribs across the chest, and a bronze trim at the edges
+    col = p.mix(p.math("MULTIPLY", scratches, 0.45), col, pal["steel"])
+    # edge wear: the convex edges rubbed bright
+    geo = p.node("ShaderNodeNewGeometry")
+    wear = p.step(geo.outputs["Pointiness"], 0.57, 0.66)
+    wear = p.math("MULTIPLY", wear, p.step(p.noise(60, 2, 0.6), 0.45, 0.60))
+    col = p.mix(p.math("MULTIPLY", wear, 0.55), col, pal["steel"])
+    # chased scrollwork over the plate: engraved lines with a bright burr beside them
+    scroll = p.voronoi_edge(48, vec=p.mapped(scale=(1, 1, 1.4), loc=(2.0, 0.0, 1.0)))
+    zone = p.math("MULTIPLY", p.step(p.z, 0.055, 0.060), p.step(p.z, 0.100, 0.096))
+    burr = p.math("MULTIPLY", p.step(scroll, 0.016, 0.010), zone)
+    line = p.math("MULTIPLY", p.step(scroll, 0.008, 0.004), zone)
+    col = p.mix(p.math("MULTIPLY", burr, 0.45), col, pal["steel"])
+    col = p.mix(line, col, (0.002, 0.002, 0.003))
     ax = p.math("ABSOLUTE", p.x)
+    # centre seam and ribs across the upper chest
     seam = p.step(ax, 0.0016, 0.0006)
     ribs = p.step(p.math("ABSOLUTE", p.math("SUBTRACT", p.bands(p.z, 38, 0.0), 0.5)), 0.47, 0.5)
-    ribs = p.math("MULTIPLY", ribs, p.step(p.z, 0.090, 0.084))
-    col = p.mix(p.math("MAXIMUM", seam, ribs), col, (0.004, 0.004, 0.005))
-    trim = p.math("MAXIMUM", p.step(p.z, 0.100, 0.104), p.step(p.z, 0.033, 0.029))
-    col = p.mix(p.math("MULTIPLY", trim, 0.7), col, (0.11, 0.075, 0.035))
-    setting = p.math("MAXIMUM", *[p.spot(c, (0.0064, 0.012, 0.0064), 0.15) for c in GEMS[:2]])
-    setting = p.math("MAXIMUM", setting, p.spot(GEMS[2], (0.0064, 0.012, 0.0064), 0.15))
-    gems = p.math("MAXIMUM", *[p.spot(c, (0.0042, 0.012, 0.0042), 0.45) for c in GEMS[:2]])
-    gems = p.math("MAXIMUM", gems, p.spot(GEMS[2], (0.0042, 0.012, 0.0042), 0.45))
-    col = p.mix(setting, col, (0.13, 0.085, 0.035))
+    ribs = p.math("MULTIPLY", ribs, p.math("MULTIPLY", p.step(p.z, 0.098, 0.093), p.step(p.z, 0.075, 0.080)))
+    col = p.mix(p.math("MAXIMUM", seam, ribs), col, (0.003, 0.003, 0.004))
+    # engraved rings round each stone
+    for g in GEMS:
+        w = p.node("ShaderNodeTexWave", wave_type="RINGS", rings_direction="SPHERICAL")
+        p.link(p.mapped(loc=tuple(-c for c in g)), w.inputs["Vector"])
+        w.inputs["Scale"].default_value = 150
+        line = p.step(w.outputs["Factor"], 0.80, 0.95)
+        zone = p.math(
+            "MULTIPLY",
+            p.spot(g, (0.0125, 0.03, 0.0125), 0.15),
+            p.step(p.ellipsoid_value(g, (0.0068, 0.03, 0.0068)), 1.0, 1.1),
+        )
+        col = p.mix(p.math("MULTIPLY", line, zone), col, (0.004, 0.004, 0.005))
+    # a band of runes across the lower chest: cell outlines engraved, the cells inlaid with bronze in places
+    band = p.math("MULTIPLY", p.step(p.z, 0.036, 0.039), p.step(p.z, 0.052, 0.049))
+    glyph = p.step(p.voronoi_edge(160, vec=p.mapped(scale=(1, 1, 0.55))), 0.035, 0.010)
+    inlay = p.step(p.noise(120, 1, 0.5), 0.5, 0.56)
+    col = p.mix(p.math("MULTIPLY", band, p.math("MULTIPLY", inlay, 0.7)), col, pal["bronze"])
+    col = p.mix(p.math("MULTIPLY", band, glyph), col, (0.003, 0.003, 0.004))
+    # bronze trims at the neck and the lower edge, studded with rivets
+    trim = p.math("MAXIMUM", p.step(p.z, 0.099, 0.103), p.step(p.z, 0.033, 0.029))
+    col = p.mix(p.math("MULTIPLY", trim, 0.85), col, pal["bronze"])
+    ang = p.math("ARCTAN2", p.x, p.math("SUBTRACT", p.y, 0.004))
+    stud = p.step(p.bands(ang, 2.8, 0.0), 0.86, 0.96)
+    near = p.math(
+        "MAXIMUM",
+        p.step(p.math("ABSOLUTE", p.math("SUBTRACT", p.z, 0.0335)), 0.0024, 0.0012),
+        p.step(p.math("ABSOLUTE", p.math("SUBTRACT", p.z, 0.0950)), 0.0024, 0.0012),
+    )
+    col = p.mix(p.math("MULTIPLY", stud, near), col, (0.40, 0.28, 0.13))
+    # rust runs downward and old blood
+    runs = p.step(p.noise(40, 3, 0.6, vec=p.mapped(scale=(1, 1, 0.12), loc=(3.0, 1.0, 0.0))), 0.58, 0.70)
+    col = p.mix(p.math("MULTIPLY", runs, 0.65), col, pal["rust"])
+    spat = p.step(p.noise(55, 2, 0.6, vec=p.mapped(loc=(9.0, 3.0, 1.0))), 0.64, 0.70)
+    col = p.mix(p.math("MULTIPLY", spat, 0.8), col, pal["blood"])
+    # the stones in raised bronze settings
+    setting = p.spots(GEMS, (0.0066, 0.012, 0.0066), 0.15)
+    gems = p.spots(GEMS, (0.0044, 0.012, 0.0044), 0.45)
+    col = p.mix(setting, col, pal["bronze"])
     col = p.mix(gems, col, p.shade(pal["gem"], 0.25))
     p.out(col, pal["gem"], gems, 0.7)
 
@@ -673,6 +846,7 @@ PAINT = {
     "Armour": paint_armour,
 }
 ORDER = list(PAINT)
+LOOSE = {"Tatter"}  # baked on their own, so the hanging strips do not darken the robe they swing in front of
 
 
 def make_mats():
@@ -745,9 +919,15 @@ def hidden_faces(bm, reach=0.04):
     return out
 
 
+def _uv_area(f, uv):
+    q = [lo[uv].uv for lo in f.loops]
+    return abs(sum(q[i].x * q[i - 1].y - q[i - 1].x * q[i].y for i in range(len(q)))) / 2
+
+
 def unwrap_weighted(obj, weights, margin=0.004):
-    """The "atlas" UV map, as own_texture.unwrap makes it, but with a texel density per slot: the skull's face gets more
-    of the picture than its area would (the converter keeps 256 px of it)."""
+    """The "atlas" UV map, as own_texture.unwrap makes it but at 45 degrees (less stretch on faces seen edge-on) and
+    with a texel density per slot: the skull's face and the hood opening get more of the picture than their area
+    would (the converter keeps 256 px of it); islands that are never seen are shrunk."""
     bpy.context.view_layer.objects.active = obj
     for o in bpy.context.selected_objects:
         o.select_set(False)
@@ -756,24 +936,35 @@ def unwrap_weighted(obj, weights, margin=0.004):
     if "atlas" not in me.uv_layers:
         me.uv_layers.new(name="atlas")
     me.uv_layers.active = me.uv_layers["atlas"]
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=margin, area_weight=1.0)
-    bpy.ops.object.mode_set(mode="OBJECT")
+    names = [m.name.split(".")[0] for m in me.materials]
+    # one projection per angle group: the skull at a wide angle, so the face is a few large islands
+    groups = {}
+    for i, n in enumerate(names):
+        groups.setdefault(UV_ANGLES.get(n, 45), []).append(i)
+    for angle, idx in groups.items():
+        for poly in me.polygons:
+            poly.select = poly.material_index in idx
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.uv.smart_project(angle_limit=math.radians(angle), island_margin=margin, area_weight=1.0)
+        bpy.ops.object.mode_set(mode="OBJECT")
     bm = bmesh.new()
     bm.from_mesh(me)
     uv = bm.loops.layers.uv["atlas"]
-    names = [m.name.split(".")[0] for m in me.materials]
     hidden = hidden_faces(bm)
     for isl in uv_islands(bm, uv):
         area = sum(f.calc_area() for f in isl) or 1.0
-        k = weights.get(names[isl[0].material_index], 1.0)
+        name = names[isl[0].material_index]
+        # the projections are scaled independently: bring every island to one texel density first
+        uv_area = sum(_uv_area(f, uv) for f in isl) or 1e-12
+        k = weights.get(name, 1.0) * math.sqrt(area / uv_area)
+        centre = sum((f.calc_center_median() for f in isl), V()) / len(isl)
+        if name == "Hood" and centre.y < -0.012:
+            k *= 1.4  # the brim and the opening round the face
         if sum(f.calc_area() for f in isl if f.index in hidden) / area > 0.85:
             k *= 0.25  # inside the hood or buried in the robe: never seen
-        if k != 1.0:
-            for f in isl:
-                for lo in f.loops:
-                    lo[uv].uv = lo[uv].uv * k
+        for f in isl:
+            for lo in f.loops:
+                lo[uv].uv = lo[uv].uv * k
     bm.to_mesh(me)
     bm.free()
     bpy.ops.object.mode_set(mode="EDIT")
@@ -790,12 +981,35 @@ def arm_points(side):
     return V(JOINTS[sh]), V(JOINTS[el]), V(JOINTS[wr]), V(JOINTS[hand]), V(JOINTS[fing]), V(JOINTS[thumb]), reach
 
 
-def sleeve(side):
-    """A slim wrapped sleeve from inside the shoulder to just past the elbow; returns the tube and the cuff centre."""
+SLEEVE = ((0.0, 0.0150), (0.15, 0.0118), (0.60, 0.0098), (1.0, 0.0090), (1.30, 0.0072))  # (shoulder..elbow f, radius)
+
+
+def sleeve_frame(side):
     sh, el, wr, *_ = arm_points(side)
     sx = 1 if sh.x > 0 else -1
     root = V((0.030 * sx, 0.006, 0.090))
     cuff = el.lerp(wr, 0.30)
+    return root, sh, el, cuff
+
+
+def sleeve_at(side, f):
+    """Centre and radius of the sleeve at f (0 at the shoulder root, 1 at the elbow, 1.3 at the cuff)."""
+    root, sh, el, cuff = sleeve_frame(side)
+    if f <= 0.0:
+        c = root
+    elif f <= 1.0:
+        c = root.lerp(sh, max(0.0, 1 - f / 0.15)) if f < 0.15 else sh.lerp(el, f)
+    else:
+        c = el.lerp(cuff, (f - 1.0) / 0.30)
+    for (f0, r0), (f1, r1) in itertools.pairwise(SLEEVE):
+        if f0 <= f <= f1:
+            return c, r0 + (r1 - r0) * (f - f0) / (f1 - f0)
+    return c, SLEEVE[-1][1]
+
+
+def sleeve(side):
+    """A slim wrapped sleeve from inside the shoulder to just past the elbow; returns the tube and the cuff centre."""
+    root, sh, el, cuff = sleeve_frame(side)
     ctrl = [
         (*root, 0.0150, 0.0160),
         (*sh.lerp(el, 0.15), 0.0118, 0.0125),
@@ -809,61 +1023,129 @@ def sleeve(side):
 def _band(c, axis, r, thick, n=12, sides=3):
     s = axis.cross(UP if abs(axis.dot(UP)) < 0.9 else V((1, 0, 0))).normalized()
     u = s.cross(axis).normalized()
-    path = [c + (s * math.cos(a) + u * math.sin(a)) * r for a in _angles(n)]
+    path = [c + (s * math.cos(a) + u * math.sin(a)) * r * (1.0 + 0.08 * math.sin(3 * a + 1.0)) for a in _angles(n)]
     return ring_tube("band", path, thick, sides=sides)
 
 
-def build_wraps(cuffs):
-    """Raised bandage wraps (separate geometry over the painted ones): three tilted bands round the robe and a band at
-    each sleeve end."""
-    parts = []
-    for z0, tilt in ((0.062, 0.20), (0.012, -0.24), (-0.048, 0.22)):
-        path = []
-        for a in _angles(16):
-            x0 = math.cos(a)
-            z = z0 + tilt * x0 * 0.03
-            cy, rx, ry = torso_at(z)
-            path.append(V((x0 * rx * 1.04, cy + math.sin(a) * ry * 1.06, z)))
-        parts.append(ring_tube("wrap", path, 0.0015, sides=3))
-    for side in SIDES:
+def torso_wrap(i, z0, dz, a0, sweep, width, samples=12):
+    """A raised strip wound part way round the robe: it starts at angle a0 (front is -pi/2) and height z0, winds by
+    `sweep` radians while it drops by `dz`, wanders, changes width and peels off at its torn end."""
+    ph = _rand(i, 3) * 6.28
+    pts, ws, ns = [], [], []
+    for k in range(samples):
+        f = k / (samples - 1)
+        a = a0 + sweep * f
+        z = z0 + dz * f + 0.0035 * math.sin(a * 2.0 + ph)
+        cy, rx, ry = torso_at(z)
+        nrm = V((math.cos(a) / rx, math.sin(a) / ry, 0.0)).normalized()
+        p = V((math.cos(a) * rx * 1.06, cy + math.sin(a) * ry * 1.08, z))
+        if k >= samples - 2:  # the loose end lifts off and droops
+            j = k - samples + 3
+            p += nrm * 0.0018 * j + V((0, 0, -0.0045 * j))
+        pts.append(p)
+        ns.append(nrm)
+        ws.append(width * (0.70 + 0.55 * _rand(i, 10 + k)) * (0.6 if k == samples - 1 else 1.0))
+    return strip3("wrap", pts, ws, ns, _rand(i, 40), thick=0.0009, point=False)
+
+
+def sleeve_wrap(side, i, f0, f1, turns, width, samples=14):
+    """A strip spiralling round the sleeve from f0 to f1 (see sleeve_at), loose at its end."""
+    ph = _rand(i, 5) * 6.28
+    pts, ws, ns = [], [], []
+    for k in range(samples):
+        f = f0 + (f1 - f0) * k / (samples - 1)
+        c, r = sleeve_at(side, f)
+        c2, _ = sleeve_at(side, min(f + 0.05, 1.3))
+        d = (c2 - c).normalized() if (c2 - c).length > 1e-6 else V((1, 0, 0))
+        s = d.cross(UP).normalized()
+        u = s.cross(d).normalized()
+        a = ph + turns * 2 * math.pi * k / (samples - 1)
+        nrm = (s * math.cos(a) + u * math.sin(a)).normalized()
+        p = c + nrm * r * 1.12
+        if k == samples - 1:
+            p += nrm * 0.0015 + V((0, 0, -0.004))
+        pts.append(p)
+        ns.append(nrm)
+        ws.append(width * (0.65 + 0.6 * _rand(i, 20 + k)))
+    return strip3("swrap", pts, ws, ns, _rand(i, 41), thick=0.0008, point=False)
+
+
+def build_wraps(cuffs, sleeves=True):
+    """Raised strips wound irregularly over the painted layers: crossing the chest, round the waist and hips, spiralling
+    down the sleeves, and a frayed band at each sleeve end."""
+    hp = math.pi / 2
+    parts = [
+        torso_wrap(1, 0.080, -0.062, -hp - 1.25, 2.6, 0.0042),
+        torso_wrap(2, 0.058, -0.046, -hp + 1.45, -2.2, 0.0030),
+        torso_wrap(3, 0.022, -0.012, -hp - 0.35, 4.7, 0.0052),
+        torso_wrap(4, -0.006, -0.034, 0.40, 5.0, 0.0036),
+        torso_wrap(5, -0.050, -0.024, -hp + 0.85, 3.9, 0.0047),
+        torso_wrap(6, 0.046, 0.014, -hp + 0.35, 2.1, 0.0026, samples=9),
+    ]
+    for k, side in enumerate(SIDES):
+        if sleeves:
+            parts.append(sleeve_wrap(side, 50 + k, 0.10, 1.25, 2.3 + 0.4 * k, 0.0028))
         sh, el, wr, *_ = arm_points(side)
         d = (wr - el).normalized()
-        parts.append(_band(cuffs[side] - d * 0.0015, d, 0.0074, 0.0013, n=10))
+        parts.append(_band(cuffs[side] - d * 0.0015, d, 0.0075, 0.0013, n=10))
+    for o in parts[-2:] if not sleeves else [parts[-3], parts[-1]]:
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        lay = bm.verts.layers.float_color.new("strip")
+        for v in bm.verts:
+            v[lay] = (0.9, 0.5, 0.0, 1.0)
+        bm.to_mesh(o.data)
+        bm.free()
     return join(parts, "wraps")
 
 
-def build_body():
-    """Torso and robe, the cowl collar and both sleeves, merged in one remesh."""
+def build_body(budget):
+    """Torso and robe, the cowl collar and both sleeves, merged in one remesh, a little lumpy."""
     parts = [vloft("torso", TORSO, sides=24, per=3, sq=0.9)]
     # cowl folds at the collar, so the hood drapes onto the shoulders
-    parts.append(ellipsoid("cowl", (0.0, 0.002, 0.104), (0.026, 0.022, 0.010)))
-    parts.append(ellipsoid("cowlback", (0.0, 0.016, 0.110), (0.020, 0.012, 0.014)))
+    parts.append(ellipsoid("cowl", (0.0, 0.002, 0.104), (0.027, 0.023, 0.011)))
+    parts.append(ellipsoid("cowlback", (0.0, 0.016, 0.110), (0.021, 0.013, 0.015)))
     # shoulder blades and the shoulder caps the sleeves hang from
     for sx in (1, -1):
         parts.append(ellipsoid("cap", (0.038 * sx, 0.006, 0.090), (0.014, 0.015, 0.009)))
         parts.append(ellipsoid("blade", (0.020 * sx, 0.018, 0.070), (0.016, 0.008, 0.020)))
+    # bunched rag at the belly and a sag at the back of the hips
+    parts.append(ellipsoid("bunch", (0.006, -0.008, 0.016), (0.024, 0.014, 0.010)))
+    parts.append(ellipsoid("sag", (-0.004, 0.016, -0.030), (0.022, 0.010, 0.016)))
     cuffs = {}
     for side in SIDES:
         s, cuff = sleeve(side)
         parts.append(s)
         cuffs[side] = cuff
     body = join(parts, "body")
-    remesh_decimate(body, 0.0014, BUDGET["body"], smooth=2)
+    remesh_decimate(body, 0.0014, budget, smooth=2, bumps=0.0016)
     return body, cuffs
 
 
 def build_hood():
-    """A deep cowl with a pointed crown drooping back, its sides falling onto the collar, and a recess cut in front in
-    which the skull sits (the brim overhangs the brow)."""
+    """A deep cowl with a pointed crown drooping back, its sides falling onto the collar, a thick rolled brim that
+    juts out over the brow and round the cheeks, and a hollow cut inside it in which the skull sits in shadow."""
+    brim = [
+        (-0.0205, -0.0215, 0.1050),
+        (-0.0228, -0.0295, 0.1220),
+        (-0.0205, -0.0340, 0.1385),
+        (-0.0120, -0.0375, 0.1495),
+        (0.0, -0.0390, 0.1530),
+        (0.0120, -0.0375, 0.1495),
+        (0.0205, -0.0340, 0.1385),
+        (0.0228, -0.0295, 0.1220),
+        (0.0205, -0.0215, 0.1050),
+    ]
+    rad = [0.0030, 0.0040, 0.0046, 0.0048, 0.0050, 0.0048, 0.0046, 0.0040, 0.0030]
     outer = [
-        ellipsoid("hood", (0.0, 0.002, 0.1285), (0.0215, 0.0265, 0.0235), seg=32),
+        ellipsoid("hood", (0.0, -0.004, 0.1320), (0.0270, 0.0340, 0.0290), seg=32),
         loft(
             "crown",
             [
-                (0.0, 0.006, 0.142, 0.016, 0.010),
-                (0.0, 0.020, 0.146, 0.010, 0.008),
-                (0.0, 0.032, 0.138, 0.005, 0.005),
-                (0.0, 0.040, 0.124, 0.0015, 0.0015),
+                (0.0, 0.004, 0.148, 0.017, 0.011),
+                (0.0, 0.020, 0.152, 0.011, 0.009),
+                (0.0, 0.034, 0.143, 0.006, 0.006),
+                (0.0, 0.044, 0.127, 0.0015, 0.0015),
             ],
             sides=12,
             per=4,
@@ -872,49 +1154,68 @@ def build_hood():
         loft(
             "drape",
             [
-                (0.0, 0.004, 0.122, 0.021, 0.025),
-                (0.0, 0.005, 0.111, 0.024, 0.024),
-                (0.0, 0.005, 0.102, 0.027, 0.021),
+                (0.0, 0.002, 0.124, 0.022, 0.028),
+                (0.0, 0.003, 0.112, 0.026, 0.027),
+                (0.0, 0.004, 0.101, 0.029, 0.023),
             ],
             sides=16,
+            per=3,
+        ),
+        loft("brim", [(*b, r, r) for b, r in zip(brim, rad)], sides=8, per=3),
+        ellipsoid("front", (0.0, -0.020, 0.1300), (0.0265, 0.0200, 0.0270), seg=24),
+        # the cowl's lip behind the brim, so the brim is part of a deep hood and not a loose hoop
+        loft(
+            "lip",
+            [(b[0] * 1.08, b[1] + 0.0065, b[2] - 0.001, r * 1.5, r * 1.5) for b, r in zip(brim, rad)],
+            sides=8,
             per=3,
         ),
     ]
     hood = join(outer, "hood")
     remesh_decimate(hood, 0.0008, 100000, smooth=2)
-    boolean(hood, ellipsoid("recess", (0.0, -0.036, 0.1260), (0.0155, 0.0265, 0.0230), seg=40))
+    boolean(hood, ellipsoid("recess", *RECESS, seg=40))
     remesh_decimate(hood, 0.0006, BUDGET["hood"], smooth=1)
     return hood
 
 
 def build_skull():
-    """The face inside the hood: cranium, a broad smooth face, upper jaw and an open mandible, shallow eye sockets and
-    the nose cut in (the sockets, nose and teeth are painted darker on top)."""
+    """The face inside the hood, large enough to fill the opening: cranium, a heavy brow ridge, cheekbones, the upper jaw with its teeth row, an open mandible with the lower teeth, deep eye sockets and the nasal
+    cavity cut in (the stains, socket darkness, the teeth gaps and the embers are painted on top)."""
     parts = [
-        ellipsoid("cranium", (0.0, -0.004, 0.1345), (0.0130, 0.0160, 0.0120), seg=28),
-        ellipsoid("maxilla", (0.0, -0.0155, 0.1235), (0.0090, 0.0080, 0.0060)),
-        ellipsoid("face", (0.0, -0.0120, 0.1300), (0.0118, 0.0110, 0.0110)),
+        ellipsoid("cranium", (0.0, -0.0085, 0.1375), (0.0150, 0.0185, 0.0145), seg=28),
+        ellipsoid("face", (0.0, -0.0172, 0.1320), (0.0116, 0.0113, 0.0105)),
+        ellipsoid("maxilla", (0.0, -0.0212, 0.1225), (0.0096, 0.0074, 0.0064)),
     ]
-    upper = [(-0.0075, -0.0160, 0.1205), (0, -0.0238, 0.1205), (0.0075, -0.0160, 0.1205)]
-    parts.append(loft("uteeth", [(*p, 0.0016, 0.0022) for p in catmull(upper, 3)], sides=8))
-    jaw = [
-        (-0.0110, -0.0040, 0.1250),
-        (-0.0098, -0.0060, 0.1140),
-        (-0.0055, -0.0185, 0.1115),
-        (0.0, -0.0225, 0.1110),
-        (0.0055, -0.0185, 0.1115),
-        (0.0098, -0.0060, 0.1140),
-        (0.0110, -0.0040, 0.1250),
-    ]
-    parts.append(loft("mandible", [(*p, 0.0019, 0.0028) for p in jaw], sides=8, per=3))
-    lower = [(-0.0068, -0.0165, 0.1168), (0.0, -0.0225, 0.1165), (0.0068, -0.0165, 0.1168)]
-    parts.append(loft("lteeth", [(*p, 0.0014, 0.0018) for p in lower], sides=8, per=3))
-    skull = join(parts, "skull")
-    remesh_decimate(skull, 0.00045, 100000, smooth=1)
+    brow = [(-0.0112, -0.0238, 0.1380), (-0.0066, -0.0287, 0.1401), (0.0, -0.0279, 0.1386)]
+    brow += [(-x, y, z) for x, y, z in reversed(brow[:-1])]
+    parts.append(loft("brow", [(*b, 0.0019, 0.0016) for b in catmull(brow, 3)], sides=8, per=2))
     for sx in (1, -1):
-        boolean(skull, ellipsoid("socket", (0.0053 * sx, -0.0262, 0.1333), (0.0040, 0.0045, 0.0038)))
-    boolean(skull, ellipsoid("nose", (0.0, -0.0262, 0.1287), (0.0016, 0.0040, 0.0027)))
+        parts.append(ellipsoid("cheek", (0.0096 * sx, -0.0220, 0.1288), (0.0032, 0.0056, 0.0029)))
+    upper = [(-0.0082, -0.0190, 0.1182), (0, -0.0272, 0.1182), (0.0082, -0.0190, 0.1182)]
+    parts.append(loft("uteeth", [(*p, 0.0017, 0.0024) for p in catmull(upper, 3)], sides=8))
+    jaw = [
+        (-0.0128, -0.0060, 0.1290),
+        (-0.0122, -0.0085, 0.1160),
+        (-0.0082, -0.0205, 0.1092),
+        (0.0, -0.0252, 0.1082),
+        (0.0082, -0.0205, 0.1092),
+        (0.0122, -0.0085, 0.1160),
+        (0.0128, -0.0060, 0.1290),
+    ]
+    parts.append(loft("mandible", [(*p, 0.0024, 0.0034) for p in jaw], sides=8, per=3))
+    parts.append(ellipsoid("chin", (0.0, -0.0245, 0.1084), (0.0058, 0.0030, 0.0028)))
+    lower = [(-0.0072, -0.0185, 0.1127), (0.0, -0.0248, 0.1125), (0.0072, -0.0185, 0.1127)]
+    parts.append(loft("lteeth", [(*p, 0.0015, 0.0021) for p in catmull(lower, 3)], sides=8))
+    skull = join(parts, "skull")
+    remesh_decimate(skull, 0.0004, 100000, smooth=2)
+    for c in SOCKETS:
+        boolean(skull, ellipsoid("socket", c, (0.0052, 0.0090, 0.0049)))
+    boolean(skull, ellipsoid("nose", NOSE, (0.0017, 0.0070, 0.0032)))
+    boolean(skull, ellipsoid("nose2", (0.0, NOSE[1], NOSE[2] - 0.0020), (0.0022, 0.0060, 0.0015)))
     decimate(skull, BUDGET["skull"])
+    c = V(SKULL_PIVOT)
+    for v in skull.data.vertices:
+        v.co = c + (v.co - c) * SKULL_SCALE
     return skull
 
 
@@ -941,11 +1242,11 @@ def build_arm(side, cuff, style="bone"):
     else:
         bracer = loft(
             "bracer",
-            [(*(cuff - d * 0.004), 0.0066, 0.0066), (*cuff.lerp(wr, 0.5), 0.0058, 0.0058), (*wr, 0.0050, 0.0050)],
-            sides=10,
+            [(*(cuff - d * 0.004), 0.0068, 0.0068), (*cuff.lerp(wr, 0.5), 0.0058, 0.0058), (*wr, 0.0052, 0.0052)],
+            sides=8,
             per=2,
         )
-    parts.append(ellipsoid("wrist", tuple(wr), (0.0040, 0.0046, 0.0032), seg=8))
+    parts.append(ellipsoid("wrist", tuple(wr), (0.0040, 0.0046, 0.0032), seg=6))
     knuck = wr.lerp(hand, 0.85)
     parts.append(loft("palm", [(*wr, 0.0046, 0.0024), (*knuck, 0.0056, 0.0020)], sides=8, per=1))
     tipd = (fing - hand).normalized()
@@ -982,55 +1283,71 @@ def _out_from_axis(p):
     return v.normalized() if v.length > 1e-6 else V((0, -1, 0))
 
 
-def _rand(i, k=0):
-    """Deterministic jitter in [0, 1)."""
-    v = math.sin(i * 12.9898 + k * 78.233) * 43758.5453
-    return v - math.floor(v)
-
-
-def hanging_strip(root, length, width, i, out=None, flare=0.0, n=6):
-    """One loose bandage strip hanging from `root`: swaying a little, flaring out by `flare`, slightly narrower at its
-    torn end. `out` is the horizontal direction it falls away from (None: straight down)."""
+def hanging_strip(root, length, width, i, out=None, flare=0.0, curl=0.0, n=7):
+    """One loose strip hanging from `root`: swaying, flaring out by `flare`, twisting round its length, its end curling
+    out and up by `curl`, its width ragged and tapering to a skewed torn point. `out` is the horizontal direction it
+    falls away from (None: forward)."""
     ph = _rand(i) * 6.28
-    ctrl = []
+    twist = (_rand(i, 11) - 0.5) * 2.6
+    facing0 = out if out is not None else V((math.sin(ph) * 0.4, -1.0, 0.0)).normalized()
+    away = out if out is not None else V((0, 0, 0))
+    pts, ws, ns = [], [], []
     for k in range(n):
         f = k / (n - 1)
-        sway = V((0.0045 * math.sin(f * 3.0 + ph), 0.0030 * math.sin(f * 2.4 + ph * 1.7), 0.0))
-        o = (out * (flare * f * f + 0.0008)) if out is not None else V((0, 0, 0))
-        p = root + sway * f + o + V((0, 0, -length * f))
-        ctrl.append((*p, 1.0 - 0.35 * f))
-    facing = out if out is not None else V((math.sin(ph) * 0.4, -1.0, 0.0)).normalized()
-    return ribbon("strip", ctrl, facing, width, thick=0.0007, point=False)
+        sway = V((0.0075 * math.sin(f * 3.4 + ph), 0.0045 * math.sin(f * 2.6 + ph * 1.7), 0.0)) * f
+        o = away * (flare * f * f + 0.0008)
+        c = (away * 1.0 + UP * 0.45) * (curl * f**3)
+        p = root + sway + o + c + V((0, 0, -length * f))
+        nrm = Matrix.Rotation(twist * f, 3, UP) @ facing0
+        if k == n - 1:
+            p += nrm.cross(UP).normalized() * width * (_rand(i, 12) - 0.5) * 2.0
+        pts.append(p)
+        ns.append(nrm)
+        ws.append(width * (1.0 - 0.30 * f) * (0.75 + 0.5 * _rand(i, 20 + k)))
+    return strip3("strip", pts, ws, ns, _rand(i, 30), thick=0.0007, point=True)
 
 
 def build_tatters():
-    """Separate thin strips hanging from the sleeves, the shoulders, the back of the hood and all round the hem."""
+    """Separate strips hanging from the sleeves, the shoulders, the back of the hood and all round the hem."""
     parts = []
     i = 0
     for side in SIDES:
         sh, el, wr, *_ = arm_points(side)
-        cuff = el.lerp(wr, 0.30)
+        sx = 1 if sh.x > 0 else -1
         for f, length, w in (
-            (0.25, 0.075, 0.0022),
-            (0.55, 0.095, 0.0019),
-            (0.85, 0.080, 0.0021),
-            (1.25, 0.055, 0.0018),
+            (0.20, 0.070, 0.0024),
+            (0.45, 0.098, 0.0020),
+            (0.68, 0.085, 0.0023),
+            (0.92, 0.062, 0.0018),
+            (1.20, 0.050, 0.0020),
         ):
-            a = sh.lerp(el, f) if f <= 1.0 else el.lerp(cuff, f - 1.0)
-            r = 0.0110 - 0.0025 * min(f, 1.0)
+            c, r = sleeve_at(side, f)
             i += 1
-            root = a + V((0, 0.002 * (_rand(i, 2) - 0.5), -r * 0.75))
-            sx = 1 if sh.x > 0 else -1
-            swing = V((sx * (_rand(i, 8) - 0.35), (_rand(i, 9) - 0.5) * 0.8, 0)).normalized()
+            root = c + V((0, 0.003 * (_rand(i, 2) - 0.5), -r * 0.75))
+            swing = V((sx * (_rand(i, 8) - 0.30), (_rand(i, 9) - 0.5) * 0.9, 0)).normalized()
             parts.append(
-                hanging_strip(root, length * (0.8 + 0.4 * _rand(i, 1)), w, i, swing, flare=0.004 + 0.008 * _rand(i, 7))
+                hanging_strip(
+                    root,
+                    length * (0.8 + 0.4 * _rand(i, 1)),
+                    w,
+                    i,
+                    swing,
+                    flare=0.006 + 0.012 * _rand(i, 7),
+                    curl=0.007 + 0.012 * _rand(i, 13),
+                )
             )
     # from the front of the shoulders and the back of the hood
     for sx in (1, -1):
         i += 1
-        parts.append(hanging_strip(V((0.024 * sx, -0.018, 0.088)), 0.060, 0.0020, i, V((0.3 * sx, -1, 0)).normalized()))
+        parts.append(
+            hanging_strip(
+                V((0.024 * sx, -0.019, 0.090)), 0.064, 0.0022, i, V((0.3 * sx, -1, 0)).normalized(), curl=0.004
+            )
+        )
         i += 1
-        parts.append(hanging_strip(V((0.008 * sx, 0.030, 0.104)), 0.095, 0.0024, i, V((0.2 * sx, 1, 0)).normalized()))
+        parts.append(
+            hanging_strip(V((0.009 * sx, 0.031, 0.106)), 0.098, 0.0026, i, V((0.2 * sx, 1, 0)).normalized(), curl=0.006)
+        )
     # round the lower robe: roots on the robe at uneven heights, falling free well below the tail, longest at the back
     count = 14
     for k in range(count):
@@ -1040,10 +1357,14 @@ def build_tatters():
         cy, rx, ry = torso_at(z0)
         root = V((math.cos(a) * rx * 0.92, cy + math.sin(a) * ry * 0.92, z0))
         back = 0.5 + 0.5 * math.sin(a)  # 1 at the back (+y)
-        length = 0.095 + 0.060 * back + 0.040 * _rand(i, 5)
+        length = 0.090 + 0.060 * back + 0.045 * _rand(i, 5)
         out = _out_from_axis(root)
         flare = 0.012 + 0.016 * _rand(i, 7)
-        parts.append(hanging_strip(root, length, 0.0019 + 0.0008 * _rand(i, 6), i, out, flare=flare))
+        parts.append(
+            hanging_strip(
+                root, length, 0.0021 + 0.0011 * _rand(i, 6), i, out, flare=flare, curl=0.003 + 0.010 * _rand(i, 14)
+            )
+        )
     return join(parts, "tatters")
 
 
@@ -1058,9 +1379,12 @@ def build_armour():
     parts = [vloft("plate", plate, sides=24, per=2, sq=0.75)]
     for sx in (1, -1):
         parts.append(ellipsoid("pauldron", (0.043 * sx, 0.006, 0.094), (0.017, 0.019, 0.009)))
+        parts.append(ellipsoid("pauldron2", (0.047 * sx, 0.008, 0.087), (0.014, 0.017, 0.006)))
     parts.append(ellipsoid("gorget", (0.0, 0.002, 0.106), (0.024, 0.022, 0.006)))
+    for g in GEMS:  # raised settings for the stones
+        parts.append(ellipsoid("boss", (g[0], g[1] + 0.003, g[2]), (0.0062, 0.004, 0.0062), seg=12))
     a = join(parts, "armour")
-    remesh_decimate(a, 0.0012, BUDGET["armour"], smooth=2)
+    remesh_decimate(a, 0.0011, BUDGET["armour"], smooth=2)
     return a
 
 
@@ -1072,7 +1396,7 @@ def build(which):
     mats = make_mats()
     shaman = which == "shaman"
     objs = []
-    body, cuffs = build_body()
+    body, cuffs = build_body(BUDGET["body_shaman" if shaman else "body"])
     set_material(body, mats["Robe"])
     objs.append(body)
     hood = build_hood()
@@ -1088,7 +1412,7 @@ def build(which):
         if bracer:
             set_material(bracer, mats["Armour"])
             objs.append(bracer)
-    wraps = build_wraps(cuffs)
+    wraps = build_wraps(cuffs, sleeves=not shaman)
     set_material(wraps, mats["Bandage"])
     objs.append(wraps)
     tat = build_tatters()
@@ -1119,10 +1443,12 @@ def build(which):
 def report(model):
     me = model.data
     per = {}
+    tris = 0
     for p in me.polygons:
         n = me.materials[p.material_index].name
-        per[n] = per.get(n, 0) + 1
-    print(f"{model.name}: {len(me.vertices)} vertices, {len(me.polygons)} faces, per slot {per}")
+        per[n] = per.get(n, 0) + len(p.vertices) - 2
+        tris += len(p.vertices) - 2
+    print(f"{model.name}: {len(me.vertices)} vertices, {tris} triangles, per slot {per}")
 
 
 # ---------------------------------------------------------------------------- render
@@ -1147,9 +1473,10 @@ def render(which):
     cam.data.type = "ORTHO"
     views = [
         ("front", V((0, 0, -0.03)), V((0, -1, 0.0001)), 0.46),
-        ("side", V((0, 0, -0.03)), V((1, 0, 0.0001)), 0.46),
         ("persp", V((0, 0, -0.03)), V((-0.7, -1, 0.35)), 0.46),
-        ("head", V((0, -0.005, 0.125)), V((-0.5, -1, 0.15)), 0.075),
+        ("headfront", V((0, -0.01, 0.128)), V((0, -1, 0.05)), 0.07),
+        ("head", V((0, -0.01, 0.128)), V((-0.6, -1, 0.15)), 0.07),
+        ("headside", V((0, 0.0, 0.128)), V((-1, 0, 0.05)), 0.08),
     ]
     for name, c, d, scale in views:
         d = d.normalized()
@@ -1170,18 +1497,97 @@ VARIANTS = {
     "shaman": ("shaman", "mage", "deathmageshaman(h)2", "Death Mage shaman", "deathmage_shaman.json", "height"),
 }
 # texel density per slot (linear scale before packing): the face and the hood opening read at game distance
-UV_WEIGHTS = {"Skull": 3.0, "Hood": 1.3, "Bone": 1.0, "Tatter": 0.75}
+UV_ANGLES = {"Skull": 70, "Hood": 55}  # smart projection angle per slot (default 45)
+UV_WEIGHTS = {"Skull": 3.2, "Hood": 1.3, "Bone": 0.9, "Tatter": 0.7, "Bandage": 0.85, "Armour": 1.1}
+
+
+def _split_copy(model, keep):
+    """A copy of the model with only the faces whose material is (keep=True) or is not (keep=False) in LOOSE."""
+    o = model.copy()
+    o.data = model.data.copy()
+    link(o)
+    bm = bmesh.new()
+    bm.from_mesh(o.data)
+    names = [m.name.split(".")[0] for m in o.data.materials]
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if (names[f.material_index] in LOOSE) != keep], context="FACES")
+    bm.to_mesh(o.data)
+    bm.free()
+    return o
+
+
+def _uv_mask(obj, size, grow=2):
+    """Pixels (bottom-up rows, as Blender stores them) covered by the object's UV triangles, grown by `grow` px."""
+    import numpy as np
+
+    mask = np.zeros((size, size), dtype=bool)
+    uv = obj.data.uv_layers["atlas"].data
+    obj.data.calc_loop_triangles()
+    for t in obj.data.loop_triangles:
+        q = np.array([uv[i].uv[:] for i in t.loops]) * size - 0.5
+        x0, y0 = np.floor(q.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(q.max(axis=0)).astype(int)
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, size - 1), min(y1, size - 1)
+        if x1 < x0 or y1 < y0:
+            continue
+        gx, gy = np.meshgrid(np.arange(x0, x1 + 1), np.arange(y0, y1 + 1))
+        (ax_, ay), (bx, by), (cx, cy) = q
+        d = (by - cy) * (ax_ - cx) + (cx - bx) * (ay - cy)
+        if abs(d) < 1e-12:
+            continue
+        l1 = ((by - cy) * (gx - cx) + (cx - bx) * (gy - cy)) / d
+        l2 = ((cy - ay) * (gx - cx) + (ax_ - cx) * (gy - cy)) / d
+        e = 0.6 / max(abs(d), 1.0) ** 0.5
+        inside = (l1 >= -e) & (l2 >= -e) & (1 - l1 - l2 >= -e)
+        mask[y0 : y1 + 1, x0 : x1 + 1] |= inside
+    for _ in range(grow):
+        g = mask.copy()
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            g |= np.roll(mask, (dy, dx), axis=(0, 1))
+        mask = g
+    return mask
+
+
+def bake_split(model, path):
+    """Bake the body and the loose strips separately into one atlas (the UVs are shared) and combine the two pictures
+    by the strips' UV coverage."""
+    import numpy as np
+    from own_texture import bake_atlas
+
+    body = _split_copy(model, keep=False)
+    loose = _split_copy(model, keep=True)
+    model.hide_render = True
+    tmp = OUT / "bake"
+    bake_atlas(body, tmp / "body.png", size=ARGS.size)
+    bake_atlas(loose, tmp / "loose.png", size=ARGS.size)
+    model.hide_render = False
+    size = ARGS.size
+    px = []
+    for name in ("body", "loose"):
+        img = bpy.data.images.load(str(tmp / f"{name}.png"))
+        a = np.empty(size * size * 4, dtype=np.float32)
+        img.pixels.foreach_get(a)
+        px.append(a.reshape(size, size, 4))
+    mask = _uv_mask(loose, size)
+    out = np.where(mask[:, :, None], px[1], px[0])
+    img = bpy.data.images.new(Path(path).stem, size, size, alpha=True)
+    img.pixels.foreach_set(out.reshape(-1))
+    img.filepath_raw = str(Path(path).resolve())
+    img.file_format = "PNG"
+    img.save()
+    remove(body)
+    remove(loose)
+    print(f"baked {model.name} into {path} (strips separately)")
+    return {m.name: {"texture": "image", "image": Path(path).name} for m in model.data.materials}
 
 
 def export(model, which):
     _geo, palette, pc_model, label, fname, fit = VARIANTS[which]
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from authored_export import export_authored
-    from own_texture import bake_atlas
 
     folder = Path(ARGS.authored).resolve()
     paint(model, palette)
-    slots = bake_atlas(model, folder / fname.replace(".json", ".png"), size=ARGS.size)
+    slots = bake_split(model, folder / fname.replace(".json", ".png"))
     extra = {"landmarks": {n: list(JOINTS[n]) for n in LANDMARKS}} if fit == "joints" else {}
     export_authored(model, folder / fname, model=pc_model, label=label, fit=fit, slots=slots, extra=extra)
 
@@ -1198,7 +1604,7 @@ def main():
             bpy.ops.wm.save_as_mainfile(filepath=str(OUT / f"deathmage_{geo}.blend"))
             if not ARGS.no_render:
                 paint(model, VARIANTS[w][1])
-                render(geo)
+                render(f"{geo}_{w}")
             built[geo] = True
         else:
             bpy.ops.wm.open_mainfile(filepath=str(OUT / f"deathmage_{geo}.blend"))

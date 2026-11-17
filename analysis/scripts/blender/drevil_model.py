@@ -6,9 +6,11 @@ fits it on the PC skeleton (a nine-joint spine, the head, a two-joint jaw and a 
 weights from the player's own disc (editor/packages/formats/src/ootfauthored.ts); the texture is the model's own. This
 script reads no game data: the segmented body with its ring ridges and dorsal spines, the long horned head with three
 eyes a side, the open jaw with its teeth and the tongue are lofted from rounded proportions measured on the reference
-(joint positions, heights and widths), merged per part with a voxel remesh and decimated to a triangle budget. Every
-slot is painted with procedural shader nodes (olive scales with dark crevices and blotches, a pale plated belly, amber
-eyes with slit pupils, a red ridged mouth, ivory horns and teeth) and baked into one atlas by own_texture.bake_atlas,
+(joint positions, heights and widths); the head is sculpted (a domed, tapered snout, brow ridges into the horns, eye
+sockets, cheekbones, jaw muscles, nostrils). Parts are merged with a voxel remesh and decimated to a triangle budget.
+Every slot is painted with procedural shader nodes (scales growing from the face to the back, layered camouflage
+mottling, a dark back stripe, a pale plated belly and throat, scowling amber eyes, a red mouth, ivory horns and teeth)
+and baked into one atlas by own_texture.bake_atlas,
 saved beside the JSON (original art; run scripts/buildtool/pin_model_textures.py).
 
     blender -b --factory-startup -P analysis/scripts/blender/drevil_model.py -- \
@@ -83,31 +85,81 @@ BODY = [
     (-11.2, 0.480, 0.30, 0.34),
 ]
 
-# Upper head (skull and snout): (y, top, bottom, half width). Lower jaw: the same, open about 0.15 at the front.
-SKULL = [
-    (-10.30, 0.70, 0.12, 0.30),
-    (-10.70, 0.90, 0.10, 0.39),
-    (-11.05, 1.02, 0.28, 0.46),
-    (-11.60, 0.98, 0.34, 0.44),
-    (-12.10, 0.90, 0.37, 0.38),
-    (-12.60, 0.83, 0.36, 0.34),
-    (-13.10, 0.75, 0.34, 0.29),
-    (-13.50, 0.65, 0.32, 0.23),
-    (-13.78, 0.54, 0.32, 0.14),
-    (-13.90, 0.46, 0.33, 0.05),
+# Head profiles along y, (y, value) from the neck to the snout tip. The upper head (skull and snout): its top, its lip
+# (the underside of the upper jaw) and its half width; the neck end matches the body section so the head grows out of
+# the neck. The lower jaw: its top (the gum line), its bottom and its half width; the mouth is open about 0.2 at the
+# front as on the reference rig. Both taper to a rounded point (a wedge from above, sloping from the side).
+SKULL_TOP = [
+    (-9.9, 0.71),
+    (-10.5, 0.90),
+    (-11.1, 1.08),
+    (-11.7, 1.09),
+    (-12.3, 1.01),
+    (-12.8, 0.90),
+    (-13.2, 0.76),
+    (-13.55, 0.62),
+    (-13.8, 0.52),
+    (-13.97, 0.42),
 ]
-JAW = [
-    (-10.75, 0.26, -0.08, 0.30),
-    (-11.10, 0.26, -0.24, 0.41),
-    (-11.60, 0.20, -0.23, 0.38),
-    (-12.20, 0.13, -0.19, 0.33),
-    (-12.80, 0.10, -0.15, 0.28),
-    (-13.30, 0.10, -0.12, 0.23),
-    (-13.68, 0.12, -0.09, 0.15),
-    (-13.86, 0.15, -0.03, 0.05),
+SKULL_LIP = [
+    (-9.9, -0.06),
+    (-10.5, -0.02),
+    (-11.1, 0.26),
+    (-11.6, 0.31),
+    (-12.1, 0.35),
+    (-12.6, 0.37),
+    (-13.1, 0.37),
+    (-13.5, 0.355),
+    (-13.8, 0.35),
+    (-13.97, 0.38),
+]
+SKULL_W = [
+    (-9.9, 0.35),
+    (-10.5, 0.40),
+    (-11.1, 0.47),
+    (-11.6, 0.46),
+    (-12.1, 0.41),
+    (-12.6, 0.355),
+    (-13.1, 0.295),
+    (-13.5, 0.225),
+    (-13.8, 0.14),
+    (-13.97, 0.035),
+]
+JAW_TOP = [
+    (-10.3, 0.12),
+    (-10.8, 0.24),
+    (-11.2, 0.26),
+    (-11.6, 0.20),
+    (-12.2, 0.13),
+    (-12.8, 0.10),
+    (-13.3, 0.10),
+    (-13.68, 0.12),
+    (-13.9, 0.15),
+]
+JAW_BOT = [
+    (-10.3, -0.05),
+    (-10.8, -0.20),
+    (-11.2, -0.29),
+    (-11.6, -0.30),
+    (-12.2, -0.235),
+    (-12.8, -0.155),
+    (-13.3, -0.115),
+    (-13.68, -0.08),
+    (-13.9, -0.01),
+]
+JAW_W = [
+    (-10.3, 0.30),
+    (-10.8, 0.40),
+    (-11.2, 0.43),
+    (-11.6, 0.40),
+    (-12.2, 0.34),
+    (-12.8, 0.28),
+    (-13.3, 0.215),
+    (-13.68, 0.14),
+    (-13.9, 0.045),
 ]
 
-BUDGET = {"body": 1150, "head": 760, "horns": 240, "spines": 200, "teeth": 140}
+BUDGET = {"body": 1000, "head": 1180, "horns": 260, "spines": 190, "teeth": 220}
 
 # ---------------------------------------------------------------------------- helpers
 
@@ -303,6 +355,187 @@ def outward(obj):
     bm.free()
 
 
+# ---------------------------------------------------------------------------- head shape
+# The head is two lofts (the upper head and the lower jaw) with rounded, non-boxy sections: a domed crown that narrows
+# toward the top, a lip edge with a soft corner, a U-shaped jaw with a slight keel. Sculpted features (brow ridges that
+# run back into the horn bases, eye sockets, cheekbones, cheek plates, jaw muscles, nostrils, a groove between the
+# brows) are gaussian displacements along the normals of the dense lofts, before the remesh merges and smooths them.
+
+
+class Profile:
+    """A smooth (Catmull-Rom) function of y through (y, value) pairs given from the neck (high y) to the snout."""
+
+    def __init__(self, table):
+        self.s = catmull(table, 10)
+
+    def __call__(self, y):
+        s = self.s
+        if y >= s[0][0]:
+            return s[0][1]
+        for (y0, v0), (y1, v1) in itertools.pairwise(s):
+            if y1 <= y <= y0:
+                return v0 + (v1 - v0) * (y0 - y) / max(y0 - y1, 1e-9)
+        return s[-1][1]
+
+
+S_TOP, S_LIP, S_W = Profile(SKULL_TOP), Profile(SKULL_LIP), Profile(SKULL_W)
+J_TOP, J_BOT, J_W = Profile(JAW_TOP), Profile(JAW_BOT), Profile(JAW_W)
+SKULL_Y = (SKULL_TOP[0][0], SKULL_TOP[-1][0])
+JAW_Y = (JAW_TOP[0][0], JAW_TOP[-1][0])
+
+
+def _sp(v, e):
+    return math.copysign(abs(v) ** e, v)
+
+
+def skull_section(y, c, s):
+    """A point of the upper head at y for the section angle (cos c, sin s), right side for c > 0."""
+    top, lip, w = S_TOP(y), S_LIP(y), S_W(y)
+    cz, h = (top + lip) / 2, (top - lip) / 2
+    if s >= 0:  # domed crown, narrower toward the top
+        x, z = c * (1.0 - 0.30 * s * s), s
+    else:  # the upper lip: a flatter palate with a soft corner
+        x, z = _sp(c, 0.72), -(abs(s) ** 0.72)
+    return V((w * x, y, cz + h * z))
+
+
+def jaw_section(y, c, s):
+    top, bot, w = J_TOP(y), J_BOT(y), J_W(y)
+    cz, h = (top + bot) / 2, (top - bot) / 2
+    if s >= 0:  # the gum line: a soft corner where the teeth stand
+        x, z = _sp(c, 0.72), abs(s) ** 0.72
+    else:  # rounded underside narrowing to a slight keel
+        x, z = c * (1.0 - 0.22 * s * s), s
+    return V((w * x, y, cz + h * z))
+
+
+def surface_frame(fn, y, s):
+    """Point and outward normal of a section function at y and sin(angle) s on the right side."""
+    a = math.asin(max(-1.0, min(1.0, s)))
+    p = fn(y, math.cos(a), math.sin(a))
+    dy = fn(y + 0.01, math.cos(a), math.sin(a)) - fn(y - 0.01, math.cos(a), math.sin(a))
+    da = fn(y, math.cos(a + 0.01), math.sin(a + 0.01)) - fn(y, math.cos(a - 0.01), math.sin(a - 0.01))
+    n = dy.cross(da).normalized()
+    if n.x < 0:
+        n = -n
+    return p, n
+
+
+def section_loft(name, fn, y0, y1, rings, sides):
+    """Closed loft of the section function from y0 to y1; the ends are capped."""
+    bm = bmesh.new()
+    loops = []
+    for i in range(rings + 1):
+        y = y0 + (y1 - y0) * i / rings
+        loops.append([bm.verts.new(fn(y, math.cos(a), math.sin(a))) for a in _angles(sides)])
+    for r0, r1 in itertools.pairwise(loops):
+        for k in range(sides):
+            k1 = (k + 1) % sides
+            bm.faces.new((r0[k], r0[k1], r1[k1], r1[k]))
+    bm.faces.new(loops[0])
+    bm.faces.new(list(reversed(loops[-1])))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return bm
+
+
+# three eyes a side, set into sockets under the brow: (y, sin of the section angle on the upper head, radius)
+EYE_ROW = [(-12.62, 0.30, 0.094), (-12.97, 0.27, 0.082), (-13.30, 0.22, 0.070)]
+
+
+def eye_frames():
+    """(surface point, outward normal, radius) per right eye; the left ones mirror x."""
+    out = []
+    for y, s, r in EYE_ROW:
+        p, n = surface_frame(skull_section, y, s)
+        n = (n + V((0, -0.35, 0.10))).normalized()  # look a little forward and up
+        out.append((p, n, r))
+    return out
+
+
+def _seg_dist(p, a, b):
+    ab = b - a
+    t = max(0.0, min(1.0, (p - a).dot(ab) / max(ab.length_squared, 1e-12)))
+    return (p - (a + ab * t)).length, t
+
+
+def head_features():
+    """Sculpted features as (kind, data, sigma, amplitude) in right-side coordinates (|x|)."""
+    feats = []
+    # heavy brow ridges over the eyes, sweeping back up into the horn bases
+    brow = [(-13.50, 0.50, 0.07), (-13.15, 0.60, 0.15), (-12.75, 0.66, 0.20), (-12.25, 0.69, 0.18)]
+    brow += [(-11.75, 0.72, 0.12), (-11.30, 0.74, 0.07)]
+    pts = [(surface_frame(skull_section, y, s)[0], amp) for y, s, amp in brow]
+    feats.append(("line", pts, 0.07))
+    # eye sockets: pits the eyeballs sit in
+    for p, _n, r in eye_frames():
+        feats.append(("point", p, (r * 1.25, r * 1.55, r * 1.25), -0.075))
+    # cheekbones under the eye row and a cheek plate running back to the jaw hinge
+    feats.append(("point", surface_frame(skull_section, -12.15, -0.10)[0], (0.10, 0.30, 0.09), 0.065))
+    plate = [(-12.45, -0.15, 0.03), (-11.95, -0.28, 0.08), (-11.40, -0.40, 0.085), (-11.0, -0.45, 0.04)]
+    feats.append(("line", [(surface_frame(skull_section, y, s)[0], a) for y, s, a in plate], 0.05))
+    # jaw muscles at the hinge (both lofts), the chin
+    feats.append(("point", V((0.44, -11.15, 0.20)), (0.12, 0.24, 0.16), 0.08))
+    feats.append(("point", surface_frame(jaw_section, -13.45, -0.6)[0], (0.08, 0.20, 0.06), 0.03))
+    # the mandible edge: a ridge along each side of the lower jaw, strongest at the hinge
+    mand = [(-13.6, -0.15, 0.015), (-12.9, -0.25, 0.04), (-12.1, -0.32, 0.05), (-11.4, -0.30, 0.06)]
+    feats.append(("line", [(surface_frame(jaw_section, y, s)[0], a) for y, s, a in mand], 0.045))
+    # nostrils: a raised rim round a pit near the tip of the snout
+    nose, _ = surface_frame(skull_section, -13.80, 0.55)
+    feats.append(("point", nose, (0.055, 0.075, 0.05), 0.03))
+    feats.append(("point", nose, (0.028, 0.040, 0.026), -0.05))
+    # a shallow groove down the middle of the snout between the brows
+    groove = [(V((0.0, y, S_TOP(y))), a) for y, a in ((-13.5, -0.015), (-12.8, -0.04), (-12.0, -0.04), (-11.4, 0))]
+    feats.append(("line", groove, 0.07))
+    return feats
+
+
+def feature_offset(p, feats):
+    q = V((abs(p.x), p.y, p.z))
+    off = 0.0
+    for kind, data, sig, amp in ((f[0], f[1], f[2], f[3] if len(f) > 3 else None) for f in feats):
+        if kind == "point":
+            d = q - data
+            off += amp * math.exp(-0.5 * ((d.x / sig[0]) ** 2 + (d.y / sig[1]) ** 2 + (d.z / sig[2]) ** 2))
+        else:
+            best = None
+            for (a, aa), (b, ab) in itertools.pairwise(data):
+                dist, t = _seg_dist(q, a, b)
+                if best is None or dist < best[0]:
+                    best = (dist, aa + (ab - aa) * t)
+            off += best[1] * math.exp(-0.5 * (best[0] / sig) ** 2)
+    return off
+
+
+def sculpt(bm, feats):
+    bm.normal_update()
+    moves = [(v, v.normal.copy() * feature_offset(v.co, feats)) for v in bm.verts]
+    for v, m in moves:
+        v.co += m
+
+
+def mouth_faces(obj):
+    """Indices of the head faces inside the mouth: the palate, the jaw bed, the inner walls and the throat."""
+    out = []
+    for p in obj.data.polygons:
+        c, n = p.center, p.normal
+        y = c.y
+        if y > -11.05 or y < -13.95:
+            continue
+        lip, top = S_LIP(y), S_TOP(y)
+        jt, jb = J_TOP(y), J_BOT(y)
+        hs, hj = (top - lip) / 2, (jt - jb) / 2
+        ws, wj = S_W(y), J_W(y)
+        ax = abs(c.x)
+        inward = n.x * math.copysign(1.0, c.x) < -0.25
+        gap = jt - 0.02 < c.z < lip + 0.02 and ax < 0.80 * max(ws, wj)
+        palate = lip - 0.05 < c.z < lip + 0.35 * hs and n.z < -0.15 and ax < 0.74 * ws
+        bed = jt - 0.35 * hj < c.z < jt + 0.05 and n.z > 0.15 and ax < 0.72 * wj
+        walls = inward and (lip - 0.05 < c.z < lip + 0.3 * hs or jt - 0.3 * hj < c.z < jt + 0.05)
+        if gap or palate or bed or walls:
+            out.append(p.index)
+    return out
+
+
 # ---------------------------------------------------------------------------- materials (slots)
 
 ORDER = ["Body", "Head", "Mouth", "Horn", "Teeth"]
@@ -318,25 +551,42 @@ def make_mats():
 # the 1999 skin; it was only looked at for the colour scheme (olive green scales with darker blotches, a paler belly,
 # a red mouth, a row of pale eyes a side).
 
+# Linear albedo. The bake multiplies by a light that averages about 0.45, so these are about twice the target tones.
 PAL = {
-    "scale_dark": (0.022, 0.026, 0.010),
-    "scale": (0.085, 0.095, 0.032),
-    "scale_hi": (0.230, 0.225, 0.090),
-    "blotch": (0.028, 0.036, 0.014),
-    "belly": (0.30, 0.26, 0.13),
-    "belly_lo": (0.13, 0.11, 0.05),
-    "mouth": (0.20, 0.022, 0.018),
-    "mouth_lo": (0.060, 0.006, 0.006),
-    "tongue": (0.32, 0.07, 0.06),
-    "horn": (0.36, 0.31, 0.20),
-    "horn_lo": (0.09, 0.075, 0.045),
-    "eye": (0.62, 0.42, 0.08),
-    "eye_glow": (1.0, 0.55, 0.08),
+    "crevice": (0.020, 0.026, 0.010),
+    "scale": (0.150, 0.165, 0.055),
+    "scale_hi": (0.300, 0.295, 0.110),
+    "olive_lt": (0.330, 0.340, 0.130),
+    "tan": (0.500, 0.380, 0.170),
+    "tan_edge": (0.045, 0.045, 0.018),
+    "green_dk": (0.018, 0.038, 0.012),
+    "stripe": (0.026, 0.034, 0.013),
+    "plate": (0.300, 0.310, 0.125),
+    "belly": (0.560, 0.470, 0.250),
+    "belly_lo": (0.240, 0.195, 0.090),
+    "mouth": (0.330, 0.035, 0.028),
+    "mouth_lo": (0.090, 0.010, 0.010),
+    "gum": (0.460, 0.120, 0.090),
+    "tongue": (0.420, 0.090, 0.075),
+    "horn": (0.520, 0.450, 0.300),
+    "horn_lo": (0.120, 0.100, 0.060),
+    "eye": (0.900, 0.620, 0.080),
+    "eye_dk": (0.360, 0.120, 0.010),
+    "eye_glow": (1.0, 0.60, 0.08),
     "pupil": (0.010, 0.006, 0.004),
+    "socket": (0.012, 0.010, 0.006),
+    "lid": (0.050, 0.060, 0.022),
 }
 
-# the eyes as build_head places them: (y, z, x) per eye, x mirrored, and the eyeball radius
-EYES = [((-12.55, 0.68, 0.345), 0.085), ((-12.88, 0.64, 0.32), 0.075), ((-13.20, 0.60, 0.285), 0.065)]
+
+def eye_balls():
+    """(centre, radii) of every eyeball as build_head places it, both sides."""
+    out = []
+    for sx in (1, -1):
+        for p, n, r in eye_frames():
+            c = p + n * (0.28 * r - 0.075)
+            out.append(((c.x * sx, c.y, c.z), (r * 0.9, r * 1.3, r * 0.95)))
+    return out
 
 
 class Painter:
@@ -387,13 +637,23 @@ class Painter:
         n.inputs["Location"].default_value = loc
         return n.outputs[0]
 
-    def noise(self, scale, detail=3.0, rough=0.55, vec=None):
+    def noise(self, scale, detail=3.0, rough=0.55, vec=None, loc=None, distortion=0.0):
         n = self.node("ShaderNodeTexNoise")
-        self.link(vec or self.pos, n.inputs["Vector"])
+        self.link(vec or (self.mapped(loc=loc) if loc else self.pos), n.inputs["Vector"])
         n.inputs["Scale"].default_value = scale
         n.inputs["Detail"].default_value = detail
         n.inputs["Roughness"].default_value = rough
+        n.inputs["Distortion"].default_value = distortion
         return n.outputs["Factor"]
+
+    def lerpf(self, fac, a, b):
+        """a + (b - a) * fac for float sockets."""
+        n = self.node("ShaderNodeMix", data_type="FLOAT", clamp_factor=True)
+        ins = {s.identifier: s for s in n.inputs}
+        self.link(fac, ins["Factor_Float"])
+        self.link(a, ins["A_Float"])
+        self.link(b, ins["B_Float"])
+        return next(s for s in n.outputs if s.identifier == "Result_Float")
 
     def cells(self, scale, vec=None, randomness=0.85):
         """Voronoi scales: (distance to the cell edge, a random value per cell)."""
@@ -449,71 +709,107 @@ class Painter:
             self.link(self.math("MULTIPLY", glow_mask, strength), self.bsdf.inputs["Emission Strength"])
 
 
-def scale_skin(p, size, belly_plates=True):
-    """Olive scales: dark crevices between the cells, a lighter rim on each scale, per-scale tone, large dark blotches
-    over the back, a darker dorsal stripe and a pale plated belly."""
-    edge, rnd = p.cells(1.0 / size, vec=p.mapped(scale=(1.0, 0.75, 1.0)))
-    col = p.mix(p.math("MULTIPLY", rnd, 0.7), PAL["scale"], PAL["scale_hi"])
-    blot = p.step(p.noise(0.11 / size, 3, 0.6, vec=p.mapped(scale=(1.0, 0.6, 1.0))), 0.48, 0.56)
-    col = p.mix(p.math("MULTIPLY", blot, 0.85), col, PAL["blotch"])
-    col = p.mix(p.math("MULTIPLY", p.step(p.nz, 0.55, 0.95), 0.5), col, PAL["blotch"])
-    # rim light on each scale, dark crevice at its edge
-    col = p.mix(p.math("MULTIPLY", p.step(edge, 0.10, 0.20), 0.35), col, PAL["scale_hi"])
-    col = p.mix(p.step(edge, 0.08, 0.0), col, PAL["scale_dark"])
-    if not belly_plates:
-        return col
-    plates = p.bands(p.y, 0.314 / (size * 1.6), 0.0)
-    belly = p.mix(p.step(plates, 0.12, 0.0), PAL["belly"], PAL["belly_lo"])
-    belly = p.mix(p.math("MULTIPLY", p.noise(6, 3, 0.6), 0.5), belly, PAL["belly_lo"])
-    return p.mix(p.step(p.nz, -0.30, -0.55), col, belly)
+def skin(p):
+    """The serpent's hide, one function over the body and the head so the neck joins without a seam: voronoi scales
+    whose size grows from the face (fine) over the neck to the back (large), layered camouflage mottling (light olive
+    patches, dark-edged tan blotches, broad dark green blotches, speckles), a dark dorsal stripe, lighter carapace
+    plates on top of the head, and a pale belly and throat with plates across."""
+    face = p.step(p.y, -10.7, -11.5)  # 1 on the head
+    back = p.step(p.y, -9.8, -8.6)  # 1 on the body behind the neck
+    vec = p.mapped(scale=(1.0, 0.8, 1.0))
+    e1, r1 = p.cells(1 / 0.048, vec=vec)
+    e2, r2 = p.cells(1 / 0.090, vec=vec)
+    e3, r3 = p.cells(1 / 0.155, vec=vec)
+    edge = p.lerpf(back, p.lerpf(face, e2, e1), e3)
+    rnd = p.lerpf(back, p.lerpf(face, r2, r1), r3)
+    col = p.mix(p.math("MULTIPLY", rnd, 0.8), PAL["scale"], PAL["scale_hi"])
+    # camouflage at several scales
+    lt = p.step(p.noise(3.0, 4, 0.6, loc=(3.1, 0.0, 1.7)), 0.52, 0.58)
+    col = p.mix(p.math("MULTIPLY", lt, 0.75), col, PAL["olive_lt"])
+    tn = p.noise(1.9, 4, 0.62, loc=(-5.0, 2.0, 0.3), distortion=0.5)
+    tan = p.step(tn, 0.555, 0.58)
+    ring = p.math("MULTIPLY", p.step(tn, 0.51, 0.54), p.math("SUBTRACT", 1.0, tan))
+    col = p.mix(p.math("MULTIPLY", ring, 0.85), col, PAL["tan_edge"])
+    col = p.mix(p.math("MULTIPLY", tan, 0.85), col, p.mix(p.math("MULTIPLY", rnd, 0.6), PAL["tan"], PAL["olive_lt"]))
+    dk = p.noise(1.1, 4, 0.6, vec=p.mapped(scale=(1.0, 0.7, 1.0), loc=(0.0, 7.0, 0.0)), distortion=0.4)
+    col = p.mix(p.math("MULTIPLY", p.step(dk, 0.475, 0.445), 0.9), col, PAL["green_dk"])
+    col = p.mix(p.math("MULTIPLY", p.step(p.noise(8.0, 2, 0.5), 0.66, 0.72), 0.6), col, PAL["crevice"])
+    # dark stripe down the back (fading out over the crown)
+    stripe = p.math("MULTIPLY", p.step(p.math("ABSOLUTE", p.x), 0.20, 0.07), p.step(p.nz, 0.35, 0.75))
+    stripe = p.math("MULTIPLY", stripe, p.math("SUBTRACT", 1.0, p.math("MULTIPLY", face, 0.8)))
+    col = p.mix(p.math("MULTIPLY", stripe, 0.8), col, PAL["stripe"])
+    # scale rims and crevices
+    col = p.mix(p.math("MULTIPLY", p.step(edge, 0.10, 0.22), 0.30), col, PAL["scale_hi"])
+    col = p.mix(p.step(edge, 0.075, 0.0), col, PAL["crevice"])
+    # carapace plates over the crown and snout, outlined dark
+    top = p.math("MULTIPLY", face, p.step(p.nz, 0.30, 0.60))
+    pe, pr = p.cells(1 / 0.13, vec=p.mapped(scale=(1.0, 0.7, 1.0)))
+    plate = p.mix(p.math("MULTIPLY", pr, 0.5), PAL["plate"], PAL["olive_lt"])
+    plate = p.mix(p.math("MULTIPLY", p.step(p.noise(3.0, 3, 0.6), 0.55, 0.65), 0.6), plate, PAL["tan"])
+    plate = p.mix(p.step(pe, 0.06, 0.0), plate, PAL["crevice"])
+    col = p.mix(p.math("MULTIPLY", top, 0.35), col, plate)
+    # pale belly and throat, plated across (narrower plates under the jaw)
+    bands = p.lerpf(face, p.bands(p.y, 0.314 / 0.24), p.bands(p.y, 0.314 / 0.11))
+    belly = p.mix(p.step(bands, 0.13, 0.0), PAL["belly"], PAL["belly_lo"])
+    belly = p.mix(p.math("MULTIPLY", p.noise(5, 3, 0.6), 0.45), belly, PAL["belly_lo"])
+    under = p.step(p.nz, -0.22, -0.50)  # on the head only under the jaw, not under the upper lip
+    under = p.math("MULTIPLY", under, p.math("SUBTRACT", 1.0, p.math("MULTIPLY", face, p.step(p.z, 0.10, 0.22))))
+    return p.mix(under, col, belly)
 
 
 def paint_body(mat):
     p = Painter(mat)
-    p.out(scale_skin(p, 0.20))
+    p.out(skin(p))
 
 
 def paint_head(mat):
-    """Head: finer scales, the eyes (amber with a slit pupil, a dark lid rim, a faint glow), dark nostrils."""
+    """Head: the hide, a dark band along the eye row, the eyes in dark sockets (amber, brighter at the centre, a slit
+    pupil and a faint glow), dark nostrils."""
     p = Painter(mat)
-    col = scale_skin(p, 0.10, belly_plates=False)
+    col = skin(p)
+    balls = eye_balls()
+    right = [c for c, _ in balls if c[0] > 0]
+    (y0, z0), (y1, z1) = (right[0][1], right[0][2]), (right[-1][1], right[-1][2])
+    zl = p.math("ADD", z1, p.math("MULTIPLY", p.math("SUBTRACT", p.y, y1), (z0 - z1) / (y0 - y1)))
+    band = p.step(p.math("ABSOLUTE", p.math("SUBTRACT", p.z, zl)), 0.10, 0.04)
+    band = p.math("MULTIPLY", band, p.math("MULTIPLY", p.step(p.y, -11.75, -12.1), p.step(p.y, -13.62, -13.45)))
+    band = p.math("MULTIPLY", band, p.step(p.math("ABSOLUTE", p.x), 0.12, 0.20))
+    col = p.mix(p.math("MULTIPLY", band, 0.75), col, PAL["crevice"])
     glow = None
+    for c, r in balls:
+        v = p.ellipsoid_value(c, tuple(k * 1.04 for k in r))
+        sock = p.step(v, 1.55, 1.10)
+        ball = p.step(v, 1.07, 1.0)
+        iris = p.mix(p.step(v, 1.0, 0.75), PAL["eye_dk"], PAL["eye"])
+        pupil = p.step(p.ellipsoid_value(c, (r[0] * 1.6, r[1] * 0.17, r[2] * 0.85)), 1.0, 0.82)
+        col = p.mix(sock, col, PAL["socket"])
+        col = p.mix(ball, col, iris)
+        col = p.mix(pupil, col, PAL["pupil"])
+        # heavy lids: the upper one slants down toward the snout, so the eyes narrow into a scowl
+        d = p.math("SUBTRACT", p.math("SUBTRACT", p.z, c[2]), p.math("MULTIPLY", p.math("SUBTRACT", p.y, c[1]), 0.5))
+        lid = p.math("MAXIMUM", p.step(d, 0.45 * r[2], 0.57 * r[2]), p.step(d, -0.55 * r[2], -0.68 * r[2]))
+        lid = p.math("MULTIPLY", lid, p.step(v, 1.25, 1.10))
+        col = p.mix(lid, col, PAL["lid"])
+        ball = p.math("MULTIPLY", ball, p.math("SUBTRACT", 1.0, lid))
+        g = p.math("MULTIPLY", ball, p.math("SUBTRACT", 1.0, pupil))
+        glow = g if glow is None else p.math("MAXIMUM", glow, g)
+    nose, _ = surface_frame(skull_section, -13.80, 0.55)
     for sx in (1, -1):
-        for (y, z, w), r in EYES:
-            c = (w * sx, y, z)
-            v = p.ellipsoid_value(c, (r * 0.95, r * 1.25, r * 1.05))
-            rim = p.step(v, 1.30, 1.05)
-            ball = p.step(v, 1.06, 0.98)
-            pupil = p.step(p.ellipsoid_value(c, (r * 1.2, r * 0.22, r * 0.85)), 1.0, 0.85)
-            col = p.mix(rim, col, PAL["scale_dark"])
-            col = p.mix(ball, col, PAL["eye"])
-            col = p.mix(pupil, col, PAL["pupil"])
-            g = p.math("MULTIPLY", ball, p.math("SUBTRACT", 1.0, pupil))
-            glow = g if glow is None else p.math("MAXIMUM", glow, g)
-        col = p.mix(
-            p.step(p.ellipsoid_value((0.08 * sx, -13.82, 0.52), (0.045, 0.07, 0.035)), 1.0, 0.8), col, (0, 0, 0)
-        )
-    # inside the mouth (the lining and the inner faces of the jaws): red, darker toward the throat
-    inner = p.math("ADD", 0.31, p.math("MULTIPLY", p.math("ADD", p.y, 11.6), 0.11))
-    m = p.step(p.math("SUBTRACT", inner, p.math("ABSOLUTE", p.x)), 0.0, 0.04)
-    m = p.math("MULTIPLY", m, p.math("MULTIPLY", p.step(p.z, -0.06, 0.0), p.step(p.z, 0.40, 0.34)))
-    m = p.math("MULTIPLY", m, p.math("MULTIPLY", p.step(p.y, -11.0, -11.3), p.step(p.y, -13.72, -13.58)))
-    # not on the underside of the lower jaw
-    m = p.math("MULTIPLY", m, p.math("MAXIMUM", p.step(p.z, 0.10, 0.16), p.step(p.nz, -0.5, -0.2)))
-    ridges = p.bands(p.y, 0.314 / 0.09, 0.0)
-    red = p.mix(p.step(ridges, 0.25, 0.0), PAL["mouth"], PAL["mouth_lo"])
-    red = p.mix(p.step(p.y, -12.2, -11.2), red, PAL["mouth_lo"])
-    col = p.mix(m, col, red)
-    p.out(col, PAL["eye_glow"], glow, 0.6)
+        v = p.ellipsoid_value((nose.x * sx, nose.y, nose.z), (0.04, 0.055, 0.035))
+        col = p.mix(p.step(v, 1.0, 0.75), col, PAL["socket"])
+    p.out(col, PAL["eye_glow"], glow, 0.7)
 
 
 def paint_mouth(mat):
-    """Mouth lining and tongue: deep red with palate ridges across, the tongue paler on top."""
+    """Mouth lining, palate, jaw bed and tongue: deep red with ridges across, pinker gums toward the lips, darker toward
+    the throat, the tongue paler on top."""
     p = Painter(mat)
-    ridges = p.bands(p.y, 0.314 / 0.09, 0.0)
+    ridges = p.bands(p.y, 0.314 / 0.09)
     col = p.mix(p.step(ridges, 0.25, 0.0), PAL["mouth"], PAL["mouth_lo"])
     col = p.mix(p.math("MULTIPLY", p.noise(9, 3, 0.6), 0.5), col, PAL["mouth_lo"])
-    tongue = p.math("MULTIPLY", p.step(p.math("ABSOLUTE", p.x), 0.10, 0.06), p.step(p.z, 0.15, 0.20))
+    col = p.mix(p.math("MULTIPLY", p.step(p.math("ABSOLUTE", p.x), 0.14, 0.26), 0.7), col, PAL["gum"])
+    col = p.mix(p.math("MULTIPLY", p.step(p.y, -11.9, -11.2), 0.7), col, PAL["mouth_lo"])
+    tongue = p.math("MULTIPLY", p.step(p.math("ABSOLUTE", p.x), 0.10, 0.06), p.step(p.z, 0.15, 0.22))
     tongue = p.math("MULTIPLY", tongue, p.step(p.y, -11.9, -12.1))
     p.out(p.mix(tongue, col, PAL["tongue"]))
 
@@ -612,7 +908,7 @@ def unwrap_weighted(obj, weights, margin=0.004, reach=0.6):
     me.uv_layers.active = me.uv_layers["atlas"]
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=margin, area_weight=1.0)
+    bpy.ops.uv.smart_project(angle_limit=math.radians(58), island_margin=margin, area_weight=1.0)
     bpy.ops.object.mode_set(mode="OBJECT")
     bm = bmesh.new()
     bm.from_mesh(me)
@@ -681,35 +977,26 @@ def build_spines():
 
 
 def build_head():
-    """Skull and snout, the open lower jaw and the mouth lining, brow ridges over three eyes a side, nostrils."""
-    parts = [
-        yloft("skull", head_sections(SKULL), sides=24, per=4, sq=0.85),
-        yloft("jaw", head_sections(JAW), sides=20, per=4, sq=0.8),
-        # the throat and palate between the jaws, set back from their edges
-        yloft(
-            "lining",
-            [
-                (-11.2, 0.28, 0.22, 0.11),
-                (-12.2, 0.25, 0.15, 0.09),
-                (-13.2, 0.23, 0.10, 0.07),
-                (-13.6, 0.23, 0.05, 0.05),
-            ],
-            sides=14,
-            per=3,
-        ),
-        ellipsoid("cheekL", (0.36, -11.35, 0.40), (0.14, 0.34, 0.20)),
-        ellipsoid("cheekR", (-0.36, -11.35, 0.40), (0.14, 0.34, 0.20)),
-    ]
+    """Upper head and lower jaw lofted from the profiles and sculpted, the throat lining between them, the eyeballs in
+    their sockets; merged by a voxel remesh and decimated. The faces inside the mouth take the Mouth slot."""
+    feats = head_features()
+    parts = []
+    for name, fn, (y0, y1), rings in (("skull", skull_section, SKULL_Y, 150), ("jaw", jaw_section, JAW_Y, 130)):
+        bm = section_loft(name, fn, y0, y1, rings, 56)
+        sculpt(bm, feats)
+        parts.append(mesh_from_bm(name, bm))
+    # the throat and palate wall between the jaws, set well back from their edges
+    lining = []
+    for y in (-11.1, -11.6, -12.2, -12.8, -13.3, -13.6):
+        lo, hi = J_TOP(y), S_LIP(y)
+        lining.append((y, (lo + hi) / 2, 0.45 * min(S_W(y), J_W(y)), max((hi - lo) / 2 + 0.03, 0.05)))
+    parts.append(yloft("lining", lining, sides=14, per=3))
     for sx in (1, -1):
-        # brow ridge over the row of eyes and the three eyes, highest at the back
-        parts.append(ellipsoid("brow", (0.29 * sx, -12.85, 0.80), (0.07, 0.50, 0.05)))
-        for k, (y, z, w) in enumerate(((-12.55, 0.68, 0.345), (-12.88, 0.64, 0.32), (-13.20, 0.60, 0.285))):
-            r = 0.085 - 0.01 * k
-            parts.append(ellipsoid("eye", (w * sx, y, z), (r * 0.7, r, r * 0.8), seg=12))
-        parts.append(ellipsoid("nostril", (0.08 * sx, -13.80, 0.52), (0.05, 0.07, 0.04), seg=10))
-        parts.append(ellipsoid("chin", (0.22 * sx, -11.5, -0.18), (0.12, 0.40, 0.08)))
+        for p, n, r in eye_frames():
+            c = p + n * (0.28 * r - 0.075)
+            parts.append(ellipsoid("eye", (c.x * sx, c.y, c.z), (r * 0.9, r * 1.3, r * 0.95), seg=14))
     head = join(parts, "head")
-    return remesh_decimate(head, 0.022, BUDGET["head"], smooth=2)
+    return remesh_decimate(head, 0.018, BUDGET["head"], smooth=2)
 
 
 def build_horns():
@@ -719,8 +1006,14 @@ def build_horns():
         parts.append(
             horn(
                 "horn",
-                [V((0.20 * sx, -11.15, 0.92)), V((0.25 * sx, -10.90, 1.18)), V((0.29 * sx, -10.55, 1.34))],
-                0.12,
+                [
+                    V((0.24 * sx, -11.25, 0.90)),
+                    V((0.29 * sx, -10.90, 1.13)),
+                    V((0.33 * sx, -10.45, 1.29)),
+                    V((0.35 * sx, -10.0, 1.35)),
+                ],
+                0.135,
+                per=2,
             )
         )
         parts.append(
@@ -747,10 +1040,15 @@ def build_horns():
         parts.append(
             horn(
                 "jawspike",
-                [V((0.20 * sx, -13.55, -0.05)), V((0.24 * sx, -13.50, -0.15)), V((0.26 * sx, -13.40, -0.22))],
+                [V((0.13 * sx, -13.55, -0.05)), V((0.17 * sx, -13.50, -0.15)), V((0.19 * sx, -13.40, -0.22))],
                 0.04,
             )
         )
+        for y, s_, ln in ((-13.12, 0.62, 0.16), (-12.70, 0.68, 0.20)):  # spikes on the brow ridges
+            b, n = surface_frame(skull_section, y, s_)
+            b = V((b.x * sx, b.y, b.z + 0.10))
+            d = V((n.x * sx * 0.5, 0.75, 0.75)).normalized()
+            parts.append(horn("brow", [b, b + d * ln * 0.5, b + d * ln + V((0, 0.04, 0))], 0.05, 5, 1))
     parts.append(horn("nose", [V((0.0, -12.15, 0.86)), V((0.0, -12.05, 0.98)), V((0.0, -11.92, 1.05))], 0.07, flat=0.6))
     parts.append(
         horn("snout", [V((0.0, -13.45, 0.62)), V((0.0, -13.42, 0.72)), V((0.0, -13.35, 0.78))], 0.05, flat=0.6)
@@ -759,23 +1057,35 @@ def build_horns():
 
 
 def build_teeth():
-    """Fangs along the upper jaw pointing down and along the lower jaw pointing up, longest at the front corners."""
+    """Fangs along the curved lip lines: the upper row hangs from the gum line of the upper head, the lower row stands
+    on the jaw's, offset half a tooth; the longest are near the front corners, all curve back a little."""
     parts = []
-    for y0, y1, z0, z1, w0, w1, down in (
-        (-11.8, -13.75, 0.36, 0.34, 0.30, 0.10, True),
-        (-11.9, -13.70, 0.17, 0.11, 0.27, 0.10, False),
-    ):
-        n = 7
+    rows = (
+        (-11.70, -13.80, 9, True, (1, 7)),
+        (-11.85, -13.78, 8, False, (2, 6)),
+    )
+    for y0, y1, n, upper, fangs in rows:
         for k in range(n):
             f = k / (n - 1)
             y = y0 + (y1 - y0) * f
-            z = z0 + (z1 - z0) * f
-            w = w0 + (w1 - w0) * f
-            length = 0.10 + 0.06 * math.sin(math.pi * f) + (0.06 if k == n - 2 else 0.0)
+            if upper:
+                w, lip, h = S_W(y), S_LIP(y), (S_TOP(y) - S_LIP(y)) / 2
+                base = V((0.80 * w, y, lip + 0.20 * h))
+                down = -1.0
+            else:
+                w, lip, h = J_W(y), J_TOP(y), (J_TOP(y) - J_BOT(y)) / 2
+                base = V((0.78 * w, y, lip - 0.20 * h))
+                down = 1.0
+            fang = k in fangs
+            length = 0.06 + 0.04 * math.sin(math.pi * f) + 0.025 * ((k * 5) % 3) + (0.13 if fang else 0.0)
             for sx in (1, -1):
-                base = V((w * sx, y, z))
-                tip = base + V((0.0, 0.0, -length if down else length))
-                parts.append(horn("tooth", [base, base.lerp(tip, 0.5), tip], 0.032, 4, 1))
+                b = V((base.x * sx, base.y, base.z))
+                tip = b + V((0.012 * sx, 0.03, down * length))
+                if fang:
+                    mid = b.lerp(tip, 0.5) + V((0, -0.02, 0))
+                    parts.append(horn("fang", [b, mid, tip], 0.042, 3, 1))
+                else:
+                    parts.append(horn("tooth", [b, tip], 0.028, 3, 1))
     return decimate(join(parts, "teeth"), BUDGET["teeth"])
 
 
@@ -807,6 +1117,12 @@ def build():
     for o, m in parts:
         set_material(o, mats[m])
         outward(o)
+        if m == "Head":  # the faces inside the mouth take the Mouth slot
+            o.data.materials.append(mats["Mouth"])
+            inside = mouth_faces(o)
+            for i in inside:
+                o.data.polygons[i].material_index = 1
+            print(f"head: {len(inside)} faces in the mouth")
         print(f"part {o.name}: {len(o.data.polygons)} faces")
         for p in o.data.polygons:
             p.use_smooth = True
@@ -871,7 +1187,7 @@ def render():
 
 
 # texel density per slot (linear scale before packing): the head and its eyes read at game distance
-UV_WEIGHTS = {"Head": 2.2, "Mouth": 1.2, "Horn": 0.8, "Teeth": 0.7}
+UV_WEIGHTS = {"Body": 0.85, "Head": 3.0, "Mouth": 1.0, "Horn": 0.7, "Teeth": 0.5}
 
 
 def main():
