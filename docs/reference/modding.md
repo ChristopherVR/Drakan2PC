@@ -1012,7 +1012,7 @@ channels and the synthetic jaw keep working:
   1999 head and face texture on the new body.
 * `kit/models` holds the models the build uses (Delon, the Boss Blade and Ebon Dragons, the goblin, tick, drone, the
   human villagers, slaves and scene characters, and with their own baked textures the Crimson and Ebon Knights, Tuiri,
-  the Succubus, Queen Shillah, the Death Mages and Dr. Evil); `kit/models-draft` is for models that do not yet beat the
+  the Succubus, Queen Shillah and the Death Mages, and Dr. Evil as a faithful remake wearing the 1999 skin); `kit/models-draft` is for models that do not yet beat the
   1999 ones and is not loaded (empty now). See the 2026-11-17 journal.
 * A slot can carry the model's own texture (`texture: "image"`, `image: <PNG beside the file>`, the file's own `uvs`):
   original art baked with `analysis/scripts/blender/own_texture.py`, written 8 bpp at 256 px. The PNGs are accepted by

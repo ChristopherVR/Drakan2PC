@@ -142,3 +142,13 @@ Owner: finish the draft items. Three builders reworked the last drafts against t
 | Queen Shillah | 86 feather cards in shoulder, arm and flank rows sharing four painted feather tiles (they read at 256 px), skin with painted form, veined wings, a gold collar on the neck seam, girdle and bracelets | Succubus Lair: flying and moving around Rynn |
 
 Still to see in game: Dr. Evil in his scene, the ghost mages (Rift World), and the Queen's feather cards while she flaps.
+
+## Dr. Evil, rebuilt to follow the 1999 head
+
+The owner judged the fourth-round Dr. Evil "insanely bad and childish" next to the 1999 one (cell-like outlined scales,
+cartoon eyes with slit pupils, a puffy boxy snout) and asked for it to look like the original. It was pulled from the
+shipped models, then rebuilt: the mesh follows the 1999 head view by view (wedge head, gabled forehead plate with a centre
+ridge, fins and back-swept skull spikes, cheek and jaw spikes, lean V-keeled jaw), built without a remesh so nothing comes
+out puffy, with modelled teeth, gullet and forked tongue; every slot projects the 1999 texture (no own texture) with
+`radialJoints: []`, so the six pale eye ovals land intact on the plate-edge crease. The owner approved it and it ships.
+Lesson: for a boss with a strong 1999 identity, a faithful remake with the 1999 skin projected beats a redesign.
