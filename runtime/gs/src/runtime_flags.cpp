@@ -58,6 +58,8 @@ RuntimeFlags parse() {
     }
     f.surfaceGpuVerify = present("GSR_SURFACE_GPU_VERIFY");
     f.vertexSurfaceVerify = present("GSR_VERTEX_SURFACE_VERIFY");
+    f.surfaceStreamFused = unsetOrNotZero("GSR_SURFACE_SO_FUSED");
+    f.surfaceGpuFastDivide = setAndNotZero("GSR_SURFACE_GPU_FAST_DIV");
     f.rayReflections = setAndNotZero("GSR_RAY_REFLECTIONS");
     f.rayShadows = setAndNotZero("GSR_RAY_SHADOWS");
     f.rayGlobalIllumination = setAndNotZero("GSR_RAY_GI");
@@ -385,6 +387,24 @@ bool cpuOffloadToggledOff() {
     long long seen = logged.load(std::memory_order_relaxed);
     if (seen != phase && logged.compare_exchange_strong(seen, phase))
         std::fprintf(stderr, "[cpu-offload] now %s at %lld us\n", phase % 2 ? "old" : "new",
+                     (long long)std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
+    return phase % 2 == 1;
+}
+
+bool surfaceGpuToggledOff() {
+    static const double period = [] {
+        const char* v = env("GSR_SURFACE_GPU_TOGGLE");
+        return v ? std::max(0.0, std::atof(v)) : 0.0;
+    }();
+    if (period <= 0)
+        return false;
+    static const auto start = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    const long long phase = (long long)(std::chrono::duration<double>(now - start).count() / period);
+    static std::atomic<long long> logged{-1};
+    long long seen = logged.load(std::memory_order_relaxed);
+    if (seen != phase && logged.compare_exchange_strong(seen, phase))
+        std::fprintf(stderr, "[surface-gpu] now %s at %lld us\n", phase % 2 ? "old" : "new",
                      (long long)std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count());
     return phase % 2 == 1;
 }

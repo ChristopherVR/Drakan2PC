@@ -31,13 +31,15 @@ enum class Pass : uint8_t {
     Display,     // display circuits composed into the display image
     PresentBlit, // display image scaled into the window
     Overlay,     // host overlay (settings, FPS counter)
+    Surfaces,    // GSR_VERTEX_SURFACE=gpu: the ray-surface kernel of the streamed draws (surface_gpu.h)
     Count
 };
 constexpr size_t kPassCount = static_cast<size_t>(Pass::Count);
 
 constexpr const char* name(Pass pass) {
-    constexpr const char* names[kPassCount] = {"frame",   "world",   "worldEntry", "guides",  "modelMotion", "evaluate",
-                                               "convert", "compose", "afterWorld", "display", "presentBlit", "overlay"};
+    constexpr const char* names[kPassCount] = {"frame",       "world",   "worldEntry", "guides",     "modelMotion",
+                                               "evaluate",    "convert", "compose",    "afterWorld", "display",
+                                               "presentBlit", "overlay", "surfaces"};
     return static_cast<size_t>(pass) < kPassCount ? names[static_cast<size_t>(pass)] : "?";
 }
 

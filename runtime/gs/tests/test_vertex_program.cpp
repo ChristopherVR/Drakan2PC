@@ -317,6 +317,119 @@ uint64_t entryPointDiffers(const Gpu& gpu, const char* library, ID3DBlob* progra
     return differ;
 }
 
+// The fused colour-and-surface entry point (VSProgramSurface, GSR_SURFACE_SO_FUSED): its VSOut part must equal
+// VSProgram's outputs and its RAW part VSProgramRaw's, bit for bit, through a stream-output object made as the
+// renderer makes it (stream 0 rasterised). Returns the differing vertices (or 1 after a set-up failure).
+uint64_t surfaceEntryDiffers(const Gpu& gpu, const char* library, const std::string& programText, ID3DBlob* programBlob,
+                             const std::vector<uint32_t>& rawWords, UINT rawStrideWords, ID3D11Buffer* vb,
+                             ID3D11ShaderResourceView* constants, UINT count) {
+    ID3D11Device* dev = gpu.dev.Get();
+    ID3D11DeviceContext* ctx = gpu.ctx.Get();
+    const std::string source = std::string(kHlslMain) + programText;
+    const D3D_SHADER_MACRO macros[] = {{"HW_BLEND", "0"}, {"VP_MOTION", "1"}, {nullptr, nullptr}};
+    ComPtr<ID3DBlob> blob, err;
+    if (FAILED(D3DCompile(source.c_str(), source.size(), "gs_vertex_program", macros, nullptr, "VSProgramSurface",
+                          "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &err))) {
+        std::printf("  [FAIL] %s: compile of VSProgramSurface: %s\n", library,
+                    err ? (const char*)err->GetBufferPointer() : "?");
+        return 1;
+    }
+    static const D3D11_SO_DECLARATION_ENTRY kColour[] = {
+        {0, "SV_Position", 0, 0, 4, 0},
+        {0, "COLOR", 0, 0, 4, 0},
+        {0, "TEXCOORD", 0, 0, 3, 0},
+        {0, "TEXCOORD", 1, 0, 1, 0},
+    };
+    static const D3D11_SO_DECLARATION_ENTRY kBoth[] = {
+        {0, "SV_Position", 0, 0, 4, 0}, {0, "COLOR", 0, 0, 4, 0},    {0, "TEXCOORD", 0, 0, 3, 0},
+        {0, "TEXCOORD", 1, 0, 1, 0},    {0, "RAWPLACE", 0, 0, 4, 0}, {0, "RAWCOLOUR", 0, 0, 4, 0},
+        {0, "RAWSTQ", 0, 0, 4, 0},
+    };
+    static const D3D11_SO_DECLARATION_ENTRY kRaw[] = {
+        {0, "RAWPLACE", 0, 0, 4, 0}, {0, "RAWCOLOUR", 0, 0, 4, 0}, {0, "RAWSTQ", 0, 0, 4, 0}};
+    const UINT colourStride = 48, bothStride = 96, rawStride = 48, zero = 0;
+    const int32_t offsets[4] = {27648, 29184, 0, 0};
+    float consts[48] = {};
+    consts[0] = 640.0f;
+    consts[1] = 448.0f;
+    consts[2] = 16777215.0f;
+    consts[3] = 3.0f;
+    ComPtr<ID3D11VertexShader> surfaceVs, programVs;
+    ComPtr<ID3D11GeometryShader> bothSo, fusedSo, programSo;
+    ComPtr<ID3D11InputLayout> layout;
+    ComPtr<ID3D11Buffer> cb0, cb5, out[3], staging[3];
+    if (FAILED(dev->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &surfaceVs)) ||
+        FAILED(dev->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(), kBoth, 7,
+                                                         &bothStride, 1, D3D11_SO_NO_RASTERIZED_STREAM, nullptr,
+                                                         &bothSo)) ||
+        FAILED(dev->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(), kRaw, 3,
+                                                         &rawStride, 1, 0, nullptr, &fusedSo)) ||
+        FAILED(dev->CreateVertexShader(programBlob->GetBufferPointer(), programBlob->GetBufferSize(), nullptr,
+                                       &programVs)) ||
+        FAILED(dev->CreateGeometryShaderWithStreamOutput(programBlob->GetBufferPointer(), programBlob->GetBufferSize(),
+                                                         kColour, 4, &colourStride, 1, D3D11_SO_NO_RASTERIZED_STREAM,
+                                                         nullptr, &programSo)) ||
+        FAILED(dev->CreateInputLayout(kProgramLayout, 4, blob->GetBufferPointer(), blob->GetBufferSize(), &layout)) ||
+        !gpu.buffer(sizeof(consts), D3D11_BIND_CONSTANT_BUFFER, consts, cb0) ||
+        !gpu.buffer(16, D3D11_BIND_CONSTANT_BUFFER, offsets, cb5) ||
+        !gpu.buffer(count * bothStride, D3D11_BIND_STREAM_OUTPUT, nullptr, out[0]) ||
+        !gpu.buffer(count * colourStride, D3D11_BIND_STREAM_OUTPUT, nullptr, out[1]) ||
+        !gpu.buffer(count * rawStride, D3D11_BIND_STREAM_OUTPUT, nullptr, out[2]) ||
+        !gpu.buffer(count * bothStride, 0, nullptr, staging[0], D3D11_USAGE_STAGING) ||
+        !gpu.buffer(count * colourStride, 0, nullptr, staging[1], D3D11_USAGE_STAGING) ||
+        !gpu.buffer(count * rawStride, 0, nullptr, staging[2], D3D11_USAGE_STAGING)) {
+        std::printf("  [FAIL] %s: set-up of the fused surface entry point comparison\n", library);
+        return 1;
+    }
+    ID3D11Buffer* none = nullptr;
+    const UINT stride = sizeof(GpuVertex);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    ctx->IASetInputLayout(layout.Get());
+    ctx->IASetVertexBuffers(0, 1, &vb, &stride, &zero);
+    ctx->VSSetConstantBuffers(0, 1, cb0.GetAddressOf());
+    ctx->VSSetConstantBuffers(5, 1, cb5.GetAddressOf());
+    ctx->VSSetShaderResources(8, 1, &constants);
+    const struct {
+        ID3D11VertexShader* vs;
+        ID3D11GeometryShader* so;
+    } passes[3] = {
+        {surfaceVs.Get(), bothSo.Get()}, {programVs.Get(), programSo.Get()}, {surfaceVs.Get(), fusedSo.Get()}};
+    for (int k = 0; k < 3; ++k) {
+        ctx->VSSetShader(passes[k].vs, nullptr, 0);
+        ctx->GSSetShader(passes[k].so, nullptr, 0);
+        ctx->SOSetTargets(1, out[k].GetAddressOf(), &zero);
+        ctx->Draw(count, 0);
+    }
+    ctx->SOSetTargets(1, &none, &zero);
+    ctx->GSSetShader(nullptr, nullptr, 0);
+    D3D11_MAPPED_SUBRESOURCE ms[3]{};
+    for (int k = 0; k < 3; ++k) {
+        ctx->CopyResource(staging[k].Get(), out[k].Get());
+        if (FAILED(ctx->Map(staging[k].Get(), 0, D3D11_MAP_READ, 0, &ms[k]))) {
+            std::printf("  [FAIL] %s: read back of the fused surface entry point comparison\n", library);
+            return 1;
+        }
+    }
+    const auto* both = static_cast<const uint32_t*>(ms[0].pData);
+    const auto* colour = static_cast<const uint32_t*>(ms[1].pData);
+    const auto* fused = static_cast<const uint32_t*>(ms[2].pData);
+    uint64_t differ = 0;
+    for (UINT i = 0; i < count; ++i) {
+        const uint32_t* b = both + size_t(i) * 24;
+        const uint32_t* raw = rawWords.data() + size_t(i) * rawStrideWords;
+        const bool same = std::memcmp(b, colour + size_t(i) * 12, 48) == 0 && std::memcmp(b + 12, raw, 48) == 0 &&
+                          std::memcmp(fused + size_t(i) * 12, raw, 48) == 0;
+        if (!same && ++differ <= 4)
+            std::printf("  [FAIL] fused surface entry point (%s), vertex %u differs\n", library, i);
+    }
+    for (int k = 0; k < 3; ++k)
+        ctx->Unmap(staging[k].Get(), 0);
+    std::printf("%s: the fused colour and surface entry point against VSProgram and VSProgramRaw (stream 0 "
+                "rasterised): %u vertices, %llu differ\n",
+                library, count, (unsigned long long)differ);
+    return differ;
+}
+
 // One arithmetic library: compile, run every vertex with stream output, compare. Returns the differing vertices
 // (or 1 after a failure).
 uint64_t runLibrary(const Gpu& gpu, vp::Arithmetic arithmetic, const Cases& cases, const std::vector<vp::ir::Raw>& want,
@@ -393,6 +506,8 @@ uint64_t runLibrary(const Gpu& gpu, vp::Arithmetic arithmetic, const Cases& case
         return 1;
     }
     uint64_t bad = vpcases::compareShader(library, cases, want, previous, static_cast<const uint32_t*>(ms.pData));
+    std::vector<uint32_t> rawWords(static_cast<const uint32_t*>(ms.pData),
+                                   static_cast<const uint32_t*>(ms.pData) + size_t(count) * outStride / 4);
     ctx->Unmap(staging.Get(), 0);
     std::printf("%s: generated HLSL against the CPU evaluation (the packet, and the position again with the previous "
                 "frame's constants): %u vertices, %llu differ\n",
@@ -438,6 +553,7 @@ uint64_t runLibrary(const Gpu& gpu, vp::Arithmetic arithmetic, const Cases& case
         return bad + 1;
     bad += entryPointDiffers(gpu, library, programBlob.Get(), plainBlob, cases, want, vb, ksrv, false);
     bad += entryPointDiffers(gpu, library, programBlob.Get(), plainBlob, cases, want, vb, ksrv, true);
+    bad += surfaceEntryDiffers(gpu, library, text, programBlob.Get(), rawWords, outStride / 4, vb, ksrv, count);
     return bad;
 }
 } // namespace

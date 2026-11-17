@@ -47,10 +47,12 @@ class SurfaceGpuKernel {
     std::string error;
     bool failed = false;
 
-    static bool compileShader(ID3D11Device* dev, Ptr<ID3DBlob>& binary, std::string* why, const char* entry = "main") {
+    static bool compileShader(ID3D11Device* dev, Ptr<ID3DBlob>& binary, std::string* why, bool fastDivide,
+                              const char* entry = "main") {
         Ptr<ID3DBlob> errors;
+        const D3D_SHADER_MACRO macros[] = {{"SURFACE_FAST_DIV", fastDivide ? "1" : "0"}, {nullptr, nullptr}};
         const HRESULT hr = shader_compile::compile(
-            kSurfaceGpuHlsl, sizeof(kSurfaceGpuHlsl) - 1, "surface_gpu", nullptr, entry, "cs_5_0",
+            kSurfaceGpuHlsl, sizeof(kSurfaceGpuHlsl) - 1, "surface_gpu", macros, entry, "cs_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3 | D3DCOMPILE_IEEE_STRICTNESS, &binary, &errors);
         if (FAILED(hr) && why)
             *why = errors ? std::string(static_cast<const char*>(errors->GetBufferPointer()), errors->GetBufferSize())
@@ -97,13 +99,15 @@ public:
                o.ExtendedDoublesShaderInstructions;
     }
     // Compile into the blob cache only (start-up prewarm thread).
-    static void prewarm(ID3D11Device* dev) {
+    static void prewarm(ID3D11Device* dev, bool fastDivide) {
         Ptr<ID3DBlob> binary, alpha;
         if (supported(dev)) {
-            compileShader(dev, binary, nullptr);
-            compileShader(dev, alpha, nullptr, "drawAlpha");
+            compileShader(dev, binary, nullptr, fastDivide);
+            compileShader(dev, alpha, nullptr, fastDivide, "drawAlpha");
         }
     }
+    // GSR_SURFACE_GPU_FAST_DIV: set before init.
+    bool fastDivide = false;
     bool ready() const { return shader && !failed; }
     const std::string& why() const { return error; }
     bool init(ID3D11Device* dev) {
@@ -115,7 +119,8 @@ public:
             return false;
         }
         Ptr<ID3DBlob> binary, alpha;
-        if (!compileShader(dev, binary, &error) || !compileShader(dev, alpha, &error, "drawAlpha") ||
+        if (!compileShader(dev, binary, &error, fastDivide) ||
+            !compileShader(dev, alpha, &error, fastDivide, "drawAlpha") ||
             FAILED(dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr, &shader)) ||
             FAILED(
                 dev->CreateComputeShader(alpha->GetBufferPointer(), alpha->GetBufferSize(), nullptr, &alphaShader))) {
@@ -248,7 +253,35 @@ public:
         return readResults(ctx, (counterNext + 3) % 4, 0, lost, emitted, records, overflow);
     }
 
+    // The tests: fdiv of `pairs` (a, b as float bits) on the GPU, waiting for it. `out` = an output texture view.
+    bool divide(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* pairs, uint32_t count,
+                ID3D11UnorderedAccessView* out) {
+        if (!ready())
+            return false;
+        if (!divisionShader) {
+            Ptr<ID3DBlob> binary;
+            if (!compileShader(dev, binary, &error, fastDivide, "divisionTest") ||
+                FAILED(dev->CreateComputeShader(binary->GetBufferPointer(), binary->GetBufferSize(), nullptr,
+                                                &divisionShader)))
+                return false;
+        }
+        const Constants k{{0, 0, 0}, 0, 0, 0, count, 0, 0, {0, 0, 0}};
+        ctx->UpdateSubresource(constants.Get(), 0, nullptr, &k, 0, 0);
+        ctx->CSSetConstantBuffers(0, 1, constants.GetAddressOf());
+        ctx->CSSetShaderResources(0, 1, &pairs);
+        ctx->CSSetUnorderedAccessViews(0, 1, &out, nullptr);
+        ctx->CSSetShader(divisionShader.Get(), nullptr, 0);
+        ctx->Dispatch((count + 63) / 64, 1, 1);
+        ID3D11ShaderResourceView* noSrv = nullptr;
+        ID3D11UnorderedAccessView* noUav = nullptr;
+        ctx->CSSetShaderResources(0, 1, &noSrv);
+        ctx->CSSetUnorderedAccessViews(0, 1, &noUav, nullptr);
+        ctx->CSSetShader(nullptr, nullptr, 0);
+        return true;
+    }
+
 private:
+    Ptr<ID3D11ComputeShader> divisionShader;
     bool readResults(ID3D11DeviceContext* ctx, unsigned i, UINT flags, uint32_t& lost, uint32_t& emitted,
                      std::vector<GpuObserve>* records, uint32_t* overflow) {
         D3D11_MAPPED_SUBRESOURCE m{};

@@ -494,5 +494,8 @@ bool cpuOffloadToggledOff();
 // GSR_TERRAIN_BATCHING_TOGGLE=<s> (test only): [video] terrain_batching is on in the first and off in every second
 // period of s seconds (latched at the vblank), so it is measured in one run; logs "[terrain-batching] now old|new".
 bool terrainBatchingToggledOff();
+// GSR_SURFACE_GPU_TOGGLE=<s> (test only): the same for the GPU water changes of 17 November 2026 (the colour pass that
+// streams the ray surfaces out as it draws); logs "[surface-gpu] now old|new at <us>".
+bool surfaceGpuToggledOff();
 
 } // namespace gsr

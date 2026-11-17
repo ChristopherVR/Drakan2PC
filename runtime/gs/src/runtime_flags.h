@@ -50,6 +50,12 @@ struct RuntimeFlags {
     // GSR_VERTEX_SURFACE_VERIFY: presence. Every streamed-out surface vertex is also evaluated on the CPU and compared
     // bit for bit (counts in the `[gsr] vertex surfaces` line); the CPU values are submitted.
     bool vertexSurfaceVerify = false;
+    // GSR_SURFACE_SO_FUSED=0: a streamed strip batch is drawn a second time through VSProgramRaw for the surface stream
+    // (the first implementation). Default: its first colour pass streams the same outputs out as it draws.
+    bool surfaceStreamFused = true;
+    // GSR_SURFACE_GPU_FAST_DIV=1 (opt-in): the GPU surface kernel forms its float quotients by an integer long division
+    // instead of a double division. The same bits (unit tests), but no measured gain. Default: the double division.
+    bool surfaceGpuFastDivide = false;
     bool rayReflections = false;        // GSR_RAY_REFLECTIONS: not-"0"; default off
     bool rayGlobalIllumination = false; // GSR_RAY_GI: not-"0"; default off
     bool rayGpuTiming = false;          // GSR_RAY_GPU_TIMING: presence; delayed DXR stage timestamps

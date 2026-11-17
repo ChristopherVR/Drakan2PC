@@ -39,6 +39,11 @@ struct D3D11Backend::Impl::ProgramGpu {
         ComPtr<ID3D11GeometryShader> soRaw;
         ComPtr<ID3D11InputLayout> rawLayout;
         bool rawReady = false;
+        // Strips only: the colour pass that also streams the raw outputs out (VSProgramSurface with a stream-output
+        // stage whose stream 0 is rasterised), so a streamed batch is drawn once instead of twice.
+        ComPtr<ID3D11VertexShader> vsSurface;
+        ComPtr<ID3D11GeometryShader> soSurface;
+        bool surfaceReady = false;
         ~Shaders() {
             if (worker.joinable())
                 worker.join();
@@ -82,7 +87,7 @@ struct D3D11Backend::Impl::ProgramGpu {
         // The batch being drawn: its range, and whether drawProgramVertices streamed it yet.
         bool pending = false, streamed = false;
         uint32_t first = 0, count = 0;
-        uint64_t batches = 0, vertices = 0, cpuFallbacks = 0, reads = 0;
+        uint64_t batches = 0, fusedBatches = 0, vertices = 0, cpuFallbacks = 0, reads = 0;
     } surfaceStream;
     ComPtr<ID3D11ShaderResourceView> constantsSrv;
     ComPtr<ID3D11Buffer> cb, cbMotion;
@@ -238,6 +243,31 @@ bool buildRawProgramShader(ID3D11Device* dev, vp::Arithmetic arithmetic, ComPtr<
     }
     return true;
 }
+
+// VSProgramSurface with a stream-output stage over its RAW* outputs whose stream 0 goes on to the rasteriser: the
+// colour pass of a streamed strip batch writes the surface stream as it draws (GSR_SURFACE_SO_FUSED, default on).
+bool buildSurfaceProgramShader(ID3D11Device* dev, vp::Arithmetic arithmetic, ComPtr<ID3D11VertexShader>& vs,
+                               ComPtr<ID3D11GeometryShader>& so, std::string& error) {
+    const std::string source = std::string(kHlslMain) + vertexProgramHlsl(arithmetic, vp::gameStages(), true);
+    static const D3D_SHADER_MACRO kMacros[] = {{"HW_BLEND", "0"}, {"VP_MOTION", "1"}, {nullptr, nullptr}};
+    ComPtr<ID3DBlob> blob, err;
+    if (FAILED(shader_compile::compile(source.c_str(), source.size(), "gs_vertex_program", kMacros, "VSProgramSurface",
+                                       "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, &blob, &err)) ||
+        !blob) {
+        error = err ? std::string((const char*)err->GetBufferPointer(), err->GetBufferSize()) : "compile";
+        return false;
+    }
+    static const D3D11_SO_DECLARATION_ENTRY kOut[] = {
+        {0, "RAWPLACE", 0, 0, 4, 0}, {0, "RAWCOLOUR", 0, 0, 4, 0}, {0, "RAWSTQ", 0, 0, 4, 0}};
+    const UINT stride = sizeof(surface::RawVertex);
+    if (FAILED(dev->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &vs)) ||
+        FAILED(dev->CreateGeometryShaderWithStreamOutput(blob->GetBufferPointer(), blob->GetBufferSize(), kOut, 3,
+                                                         &stride, 1, 0, nullptr, &so))) {
+        error = "the device refused the fused stream-out shader";
+        return false;
+    }
+    return true;
+}
 } // namespace
 
 D3D11Backend::Impl::ProgramGpu& D3D11Backend::Impl::programState() {
@@ -299,6 +329,16 @@ bool D3D11Backend::Impl::programTakes(vpath::Fallback* why, bool batchPath) {
                                  "[gsr] vertex programs: the surface stream-out shader failed (%s); the ray surfaces "
                                  "of shader-drawn records are evaluated on the CPU\n",
                                  rawError.c_str());
+                else if (runtimeFlags().surfaceStreamFused) {
+                    std::string fusedError;
+                    target->surfaceReady = buildSurfaceProgramShader(device.Get(), arithmetic, target->vsSurface,
+                                                                     target->soSurface, fusedError);
+                    if (!target->surfaceReady)
+                        std::fprintf(stderr,
+                                     "[gsr] vertex programs: the fused surface stream-out shader failed (%s); streamed "
+                                     "batches are drawn a second time for the stream\n",
+                                     fusedError.c_str());
+                }
             }
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
             const char* kind = batchPath ? "batch path" : "strips";
@@ -571,6 +611,25 @@ void D3D11Backend::Impl::drawProgramVertices(const VertexProgramBatch& batch) {
     if (sh.state.load(std::memory_order_relaxed) != ProgramGpu::Ready || g.lost.load(std::memory_order_relaxed))
         return;
     auto& st = g.surfaceStream;
+    if (st.pending && !st.streamed && !batch.batchPath && sh.surfaceReady && st.buffer && !surfaceGpuToggledOff()) {
+        // The first colour pass of a streamed batch writes the stream as it draws (one pass instead of two). Stream
+        // output keeps primitive order, so the stream holds the same triangle list as the separate pass below.
+        ctx->VSSetShader(sh.vsSurface.Get(), nullptr, 0);
+        ctx->GSSetShader(sh.soSurface.Get(), nullptr, 0);
+        const UINT offset = st.first * (UINT)sizeof(surface::RawVertex);
+        ctx->SOSetTargets(1, st.buffer.GetAddressOf(), &offset);
+        ctx->DrawIndexed(batch.indexCount, g.drawFirstIndex, 0);
+        ID3D11Buffer* none = nullptr;
+        const UINT zero = 0;
+        ctx->SOSetTargets(1, &none, &zero);
+        ctx->GSSetShader(nullptr, nullptr, 0);
+        ctx->VSSetShader(sh.vs.Get(), nullptr, 0);
+        st.streamed = true;
+        ++st.batches;
+        ++st.fusedBatches;
+        st.vertices += batch.indexCount;
+        return;
+    }
     if (st.pending && !st.streamed && !batch.batchPath && sh.rawReady && st.buffer) {
         // The ray surfaces of this batch (submitProgramSurface reserved the range): the same vertices and indices
         // through the raw entry point into the stream, once, before its first colour pass. In index order, so the
@@ -668,6 +727,7 @@ bool D3D11Backend::Impl::reserveProgramSurface(uint32_t count, uint32_t& first) 
 bool D3D11Backend::Impl::gpuSurfacesOn() {
     if (!runtimeFlags().vertexSurfaceGpu)
         return false;
+    surfaceKernel.fastDivide = runtimeFlags().surfaceGpuFastDivide;
     if (!surfaceKernel.init(dev.Get())) {
         static bool warned = false;
         if (!warned)
@@ -788,10 +848,20 @@ bool D3D11Backend::Impl::gpuSurfaceTriangles(RT& rt, surface::GpuFrameTriangles&
     const unsigned mode = 0;
 #endif
     if (G.match.serial == 0 || G.match.geometryVersion != residentScene.geometryVersion || G.match.mathMode != mode) {
+        const auto t0 = std::chrono::steady_clock::now();
         surface::buildMatchTable(residentScene, G.match);
         G.match.geometryVersion = residentScene.geometryVersion;
         G.match.mathMode = mode;
         ++G.match.serial;
+        size_t longest = 0;
+        for (const auto& c : G.match.cells)
+            longest = std::max<size_t>(longest, c.count);
+        std::fprintf(
+            stderr,
+            "[gsr] gpu surfaces: resident match table %zu cells, %zu entries (at most %zu in a cell), built in "
+            "%.1f ms\n",
+            G.match.cells.size(), G.match.entries.size(), longest,
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
     }
     out.slots = slots;
     out.write = [this](ID3D11UnorderedAccessView* view, ID3D11Texture2D* texture, surface::Point origin,
@@ -811,8 +881,11 @@ bool D3D11Backend::Impl::writeGpuSurfaces(ID3D11UnorderedAccessView* view, ID3D1
         slots = std::max(slots, g.slot + g.count / 3);
     const surface::GpuSurfaceLayout layout{slots};
     static const float packedMaterial = surface::packRayMaterial(.75f, .04f);
-    if (!surfaceKernel.dispatch(dev.Get(), ctx.raw(), st.srv.Get(), gpuSurfaceBatch, G.cameras, G.match, view, layout,
-                                origin, textures, packedMaterial))
+    gpuPasses.mark(gpupass::Pass::Surfaces); // GSR_GPU_PASS_TIMING: the kernel's own pass
+    const bool dispatched = surfaceKernel.dispatch(dev.Get(), ctx.raw(), st.srv.Get(), gpuSurfaceBatch, G.cameras,
+                                                   G.match, view, layout, origin, textures, packedMaterial);
+    gpuPasses.mark(gpupass::Pass::Guides);
+    if (!dispatched)
         return false;
     ++G.worlds;
     uint32_t lost = 0, emitted = 0, overflow = 0;
@@ -918,19 +991,20 @@ void D3D11Backend::Impl::logGpuSurfaces() {
     last = now;
     const auto& G = gpuSurfaces;
     const auto& st = programState().surfaceStream;
-    std::fprintf(stderr,
-                 "[gsr] gpu surfaces: %llu worlds, %llu draws (%llu triangles) built on the GPU, %llu draws on the CPU "
-                 "path, %llu stream overflows, %llu draws dropped, %llu resident observes applied late, %llu left out; "
-                 "verify: %llu "
-                 "worlds, %llu slots (%llu triangles) compared, %llu differ, %llu left-out observes would have "
-                 "changed a projection%s\n",
-                 (unsigned long long)G.worlds, (unsigned long long)G.draws, (unsigned long long)G.triangles,
-                 (unsigned long long)G.cpuDraws, (unsigned long long)st.overflows, (unsigned long long)G.droppedRecords,
-                 (unsigned long long)G.lateObserves, (unsigned long long)G.lostObserves,
-                 (unsigned long long)G.verifyWorlds, (unsigned long long)G.verifiedSlots,
-                 (unsigned long long)G.verifyActive, (unsigned long long)G.verifyDifferences,
-                 (unsigned long long)G.verifyChanging,
-                 runtimeFlags().surfaceGpuVerify ? "" : " (GSR_SURFACE_GPU_VERIFY off)");
+    std::fprintf(
+        stderr,
+        "[gsr] gpu surfaces: %llu worlds, %llu draws (%llu triangles) built on the GPU, %llu draws on the CPU "
+        "path, %llu of %llu batches streamed by their colour pass, %llu stream overflows, %llu draws dropped, "
+        "%llu resident observes applied late, %llu left out; "
+        "verify: %llu "
+        "worlds, %llu slots (%llu triangles) compared, %llu differ, %llu left-out observes would have "
+        "changed a projection%s\n",
+        (unsigned long long)G.worlds, (unsigned long long)G.draws, (unsigned long long)G.triangles,
+        (unsigned long long)G.cpuDraws, (unsigned long long)st.fusedBatches, (unsigned long long)st.batches,
+        (unsigned long long)st.overflows, (unsigned long long)G.droppedRecords, (unsigned long long)G.lateObserves,
+        (unsigned long long)G.lostObserves, (unsigned long long)G.verifyWorlds, (unsigned long long)G.verifiedSlots,
+        (unsigned long long)G.verifyActive, (unsigned long long)G.verifyDifferences,
+        (unsigned long long)G.verifyChanging, runtimeFlags().surfaceGpuVerify ? "" : " (GSR_SURFACE_GPU_VERIFY off)");
 }
 
 bool D3D11Backend::Impl::readProgramSurfaces(const surface::RawVertex*& vertices, uint32_t& count) {

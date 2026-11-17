@@ -145,6 +145,40 @@ VSOut VSProgram(VpIn i)
     o.stq = float3(asfloat(r.stq.x), asfloat(r.stq.y), asfloat(r.stq.z));
     return VSMain(o);
 }
+// The colour pass and the ray-surface stream in one draw (GSR_VERTEX_SURFACE): VSProgram's outputs for the
+// rasteriser, then the raw words of the same evaluation, which a stream-output stage writes to the surface stream.
+// The pixel shaders read only the leading VSOut part.
+struct VSOutSurface
+{
+    float4 pos : SV_Position;
+    noperspective float4 col : COLOR;
+    noperspective float3 stq : TEXCOORD0;
+    noperspective float fog : TEXCOORD1;
+    nointerpolation uint4 place : RAWPLACE;
+    nointerpolation uint4 colour : RAWCOLOUR;
+    nointerpolation uint4 rawStq : RAWSTQ;
+};
+VSOutSurface VSProgramSurface(VpIn i)
+{
+    VpRaw r = vpEvaluate(i);
+    VSIn o;
+    o.pf.x = (float)((int)r.place.x - vp_offset.x) * (1.0 / 16.0);
+    o.pf.y = (float)((int)r.place.y - vp_offset.y) * (1.0 / 16.0);
+    o.pf.z = vpDepth(r.place.z);
+    o.pf.w = (float)((r.place.w >> 4) & 0xFFu);
+    o.col = float4(r.colour);
+    o.stq = float3(asfloat(r.stq.x), asfloat(r.stq.y), asfloat(r.stq.z));
+    VSOut v = VSMain(o);
+    VSOutSurface s;
+    s.pos = v.pos;
+    s.col = v.col;
+    s.stq = v.stq;
+    s.fog = v.fog;
+    s.place = r.place;
+    s.colour = r.colour;
+    s.rawStq = r.stq;
+    return s;
+}
 #endif
 #ifdef VP_MOTION
 // Motion vectors of a strip draw. The second vertex stream carries what motion::ProgramHistory kept of the reference

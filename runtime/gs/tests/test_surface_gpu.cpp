@@ -49,6 +49,24 @@ SceneGeometry grid() {
                     t.water = layer;
                     g.triangles.push_back(t);
                 }
+    // Slivers (long, a unit or two wide, at any angle).
+    for (unsigned k = 0; k < 64; ++k) {
+        SceneTriangle t;
+        const float x = (random01() - .5f) * 9000, z = (random01() - .5f) * 9000, angle = random01() * 6.2831853f;
+        const float length = 300 + random01() * 1700, width = 1 + random01() * 2;
+        const float dx = std::cos(angle), dz = std::sin(angle);
+        const float corners[3][2] = {{0, 0}, {length, 0}, {length * random01(), width}};
+        for (unsigned v = 0; v < 3; ++v) {
+            t.position[v][0] = x + corners[v][0] * dx - corners[v][1] * dz;
+            t.position[v][1] = 40 + random01() * 10;
+            t.position[v][2] = z + corners[v][0] * dz + corners[v][1] * dx;
+            for (unsigned c = 0; c < 3; ++c)
+                t.color[v][c] = .5f;
+        }
+        t.layer = 5000 + k;
+        t.water = false;
+        g.triangles.push_back(t);
+    }
     return g;
 }
 
@@ -104,6 +122,116 @@ RawVertex project(const SceneGuideCamera& c, uint64_t xyoffset, float x, float y
     std::memcpy(&r.stq[2], &q, 4);
     return r;
 }
+// fdiv on the GPU, both forms, against the CPU's float division: random operands over the whole exponent range,
+// quotients next to the overflow and subnormal limits, mantissa extremes, exact quotients, and zero, subnormal,
+// infinite and NaN operands. Both forms must give the same bits everywhere (NaN: any NaN); where operands and quotient
+// are normal, the bits of the CPU's correctly rounded quotient.
+bool testDivision(ID3D11Device* dev, ID3D11DeviceContext* ctx, SurfaceGpuKernel& fast) {
+    const uint32_t count = 1u << 20;
+    std::vector<uint32_t> pairs(size_t(count) * 2);
+    const uint32_t specials[] = {0u,          0x80000000u, 1u,          0x807FFFFFu, 0x00800000u, 0x7F7FFFFFu,
+                                 0x7F800000u, 0xFF800000u, 0x7FC00000u, 0x3F800000u, 0xBF7FFFFFu, 0x3FFFFFFFu};
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t a = random32(), b = random32();
+        switch (i % 8) {
+            case 0: // similar exponents: the game's divisions
+                a = (a & 0x807FFFFFu) | ((120u + random32() % 16u) << 23);
+                b = (b & 0x807FFFFFu) | ((120u + random32() % 16u) << 23);
+                break;
+            case 1: // quotient near the top of the range
+                a = (a & 0x807FFFFFu) | ((250u + random32() % 5u) << 23);
+                b = (b & 0x807FFFFFu) | ((random32() & 1 ? 127u : 1u + random32() % 5u) << 23);
+                break;
+            case 2: // quotient near the bottom (normal and subnormal)
+                a = (a & 0x807FFFFFu) | ((1u + random32() % 8u) << 23);
+                b = (b & 0x807FFFFFu) | ((124u + random32() % 8u) << 23);
+                break;
+            case 3: // mantissa extremes
+                a = (a & 0xFF800000u) | (random32() & 1 ? 0x7FFFFFu : random32() % 4u);
+                b = (b & 0xFF800000u) | (random32() & 1 ? 0x7FFFFFu : random32() % 4u);
+                break;
+            case 4: // special operands
+                if (random32() & 1)
+                    a = specials[random32() % 12];
+                else
+                    b = specials[random32() % 12];
+                break;
+            case 5: { // exact quotients
+                b = (b & 0x807FFFFFu) | ((110u + random32() % 30u) << 23);
+                float fb = 0;
+                std::memcpy(&fb, &b, 4);
+                const float fa = fb * float(1 + random32() % 4096);
+                std::memcpy(&a, &fa, 4);
+                break;
+            }
+            default: // anything
+                break;
+        }
+        pairs[size_t(i) * 2] = a;
+        pairs[size_t(i) * 2 + 1] = b;
+    }
+    ComPtr<ID3D11Buffer> buffer;
+    ComPtr<ID3D11ShaderResourceView> srv;
+    D3D11_BUFFER_DESC d{};
+    d.ByteWidth = UINT(pairs.size() * 4);
+    d.Usage = D3D11_USAGE_DEFAULT;
+    d.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA init{pairs.data(), 0, 0};
+    D3D11_SHADER_RESOURCE_VIEW_DESC v{};
+    v.Format = DXGI_FORMAT_R32_UINT;
+    v.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+    v.Buffer.NumElements = UINT(pairs.size());
+    SurfaceGpuKernel slow;
+    slow.fastDivide = false;
+    const GpuSurfaceLayout room{uint32_t(uint64_t(count) * 4 / 148 + 1)};
+    ComPtr<ID3D11Texture2D> outFast, outSlow;
+    ComPtr<ID3D11UnorderedAccessView> uavFast, uavSlow;
+    std::vector<uint32_t> gotFast, gotSlow;
+    if (FAILED(dev->CreateBuffer(&d, &init, &buffer)) ||
+        FAILED(dev->CreateShaderResourceView(buffer.Get(), &v, &srv)) || !slow.init(dev) ||
+        !createOutputTexture(dev, room, 0, outFast, uavFast) || !createOutputTexture(dev, room, 0, outSlow, uavSlow) ||
+        !fast.divide(dev, ctx, srv.Get(), count, uavFast.Get()) ||
+        !slow.divide(dev, ctx, srv.Get(), count, uavSlow.Get()) ||
+        !readWordsNow(dev, ctx, outFast.Get(), count, gotFast) ||
+        !readWordsNow(dev, ctx, outSlow.Get(), count, gotSlow)) {
+        std::puts("surface_gpu: FAIL the division test could not run");
+        return false;
+    }
+    const auto isNan = [](uint32_t w) { return (w & 0x7F800000u) == 0x7F800000u && (w & 0x7FFFFFu); };
+    const auto normal = [](uint32_t w) { return ((w >> 23) & 0xFFu) != 0 && ((w >> 23) & 0xFFu) != 255u; };
+    uint64_t formsDiffer = 0, checked = 0, cpuDiffer = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t a = pairs[size_t(i) * 2], b = pairs[size_t(i) * 2 + 1];
+        if (gotFast[i] != gotSlow[i] && !(isNan(gotFast[i]) && isNan(gotSlow[i]))) {
+            if (!formsDiffer)
+                std::printf("surface_gpu: division %08x / %08x: integer %08x, double %08x\n", a, b, gotFast[i],
+                            gotSlow[i]);
+            ++formsDiffer;
+        }
+        float fa = 0, fb = 0;
+        std::memcpy(&fa, &a, 4);
+        std::memcpy(&fb, &b, 4);
+        const float q = fa / fb;
+        uint32_t want = 0;
+        std::memcpy(&want, &q, 4);
+        if (normal(a) && normal(b) && normal(want)) {
+            ++checked;
+            if (gotFast[i] != want) {
+                if (!cpuDiffer)
+                    std::printf("surface_gpu: division %08x / %08x: GPU %08x, CPU %08x\n", a, b, gotFast[i], want);
+                ++cpuDiffer;
+            }
+        }
+    }
+    std::printf("surface_gpu: division: %u pairs, integer and double forms differ in %llu; %llu normal quotients "
+                "checked against the CPU, %llu differ\n",
+                count, (unsigned long long)formsDiffer, (unsigned long long)checked, (unsigned long long)cpuDiffer);
+    if (formsDiffer || cpuDiffer || checked < count / 2) {
+        std::puts("surface_gpu: FAIL division");
+        return false;
+    }
+    return true;
+}
 } // namespace
 
 int main() {
@@ -119,7 +247,8 @@ int main() {
         std::puts("surface_gpu: no double-precision division on this adapter, skipped");
         return 77;
     }
-    SurfaceGpuKernel kernel;
+    SurfaceGpuKernel kernel; // the integer division (GSR_SURFACE_GPU_FAST_DIV=1), checked against the CPU path
+    kernel.fastDivide = true;
     if (!kernel.init(dev.Get())) {
         std::printf("surface_gpu: FAIL kernel: %s\n", kernel.why().c_str());
         return 1;
@@ -247,34 +376,47 @@ int main() {
     D3D11_QUERY_DESC disjointDesc{D3D11_QUERY_TIMESTAMP_DISJOINT}, stampDesc{D3D11_QUERY_TIMESTAMP};
     const bool timed = SUCCEEDED(dev->CreateQuery(&disjointDesc, &disjoint)) &&
                        SUCCEEDED(dev->CreateQuery(&stampDesc, &begin)) && SUCCEEDED(dev->CreateQuery(&stampDesc, &end));
-    double best = 1e9;
-    for (unsigned round = 0; round < (timed ? 5u : 1u); ++round) {
-        if (timed) {
-            ctx->Begin(disjoint.Get());
-            ctx->End(begin.Get());
-        }
-        if (!kernel.dispatch(dev.Get(), ctx.Get(), streamSrv.Get(), draws, cameras, match, outUav.Get(), layout, origin,
-                             textures, packedMaterial)) {
-            std::puts("surface_gpu: FAIL dispatch");
-            return 1;
-        }
-        if (timed) {
-            ctx->End(end.Get());
-            ctx->End(disjoint.Get());
-            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT f{};
-            UINT64 t0 = 0, t1 = 0;
-            while (ctx->GetData(disjoint.Get(), &f, sizeof(f), 0) == S_FALSE) {
+    SurfaceGpuKernel doubleDivision; // the first implementation, timed beside it
+    doubleDivision.fastDivide = false;
+    if (!doubleDivision.init(dev.Get())) {
+        std::puts("surface_gpu: FAIL the double-division kernel");
+        return 1;
+    }
+    const auto time = [&](SurfaceGpuKernel& k, double& best) {
+        best = 1e9;
+        for (unsigned round = 0; round < (timed ? 9u : 1u); ++round) {
+            if (timed) {
+                ctx->Begin(disjoint.Get());
+                ctx->End(begin.Get());
             }
-            while (ctx->GetData(begin.Get(), &t0, sizeof(t0), 0) == S_FALSE) {
+            if (!k.dispatch(dev.Get(), ctx.Get(), streamSrv.Get(), draws, cameras, match, outUav.Get(), layout, origin,
+                            textures, packedMaterial))
+                return false;
+            if (timed) {
+                ctx->End(end.Get());
+                ctx->End(disjoint.Get());
+                D3D11_QUERY_DATA_TIMESTAMP_DISJOINT f{};
+                UINT64 t0 = 0, t1 = 0;
+                while (ctx->GetData(disjoint.Get(), &f, sizeof(f), 0) == S_FALSE) {
+                }
+                while (ctx->GetData(begin.Get(), &t0, sizeof(t0), 0) == S_FALSE) {
+                }
+                while (ctx->GetData(end.Get(), &t1, sizeof(t1), 0) == S_FALSE) {
+                }
+                if (!f.Disjoint)
+                    best = std::min(best, double(t1 - t0) * 1000.0 / double(f.Frequency));
             }
-            while (ctx->GetData(end.Get(), &t1, sizeof(t1), 0) == S_FALSE) {
-            }
-            if (!f.Disjoint)
-                best = std::min(best, double(t1 - t0) * 1000.0 / double(f.Frequency));
         }
+        return true;
+    };
+    double bestDouble = 0, best = 0;
+    if (!time(doubleDivision, bestDouble) || !time(kernel, best)) {
+        std::puts("surface_gpu: FAIL dispatch");
+        return 1;
     }
     if (timed)
-        std::printf("surface_gpu: kernel GPU time %.3f ms for %u slots (best of 5)\n", best, slot);
+        std::printf("surface_gpu: kernel GPU time %.3f ms for %u slots (double division: %.3f ms; best of 9)\n", best,
+                    slot, bestDouble);
     std::vector<uint32_t> words;
     uint32_t lost = 0, emittedGpu = 0, overflow = 0;
     std::vector<GpuObserve> records;
@@ -341,6 +483,34 @@ int main() {
         std::puts("surface_gpu: FAIL the synthetic draws do not cover appended, matched and refused triangles");
         return 1;
     }
+
+    // The first implementation (every float division through a double division, GSR_SURFACE_GPU_FAST_DIV=0) on the
+    // same draws: the same words.
+    {
+        SurfaceGpuKernel slow;
+        slow.fastDivide = false;
+        ComPtr<ID3D11Texture2D> slowTexture;
+        ComPtr<ID3D11UnorderedAccessView> slowUav;
+        std::vector<uint32_t> slowWords;
+        if (!slow.init(dev.Get()) || !createOutputTexture(dev.Get(), layout, 0, slowTexture, slowUav) ||
+            !slow.dispatch(dev.Get(), ctx.Get(), streamSrv.Get(), draws, cameras, match, slowUav.Get(), layout, origin,
+                           textures, packedMaterial) ||
+            !readWordsNow(dev.Get(), ctx.Get(), slowTexture.Get(), layout.bytes() / 4, slowWords)) {
+            std::puts("surface_gpu: FAIL the double-division kernel");
+            return 1;
+        }
+        size_t wordsDiffer = 0;
+        for (size_t i = 0; i < words.size(); ++i)
+            wordsDiffer += words[i] != slowWords[i];
+        std::printf("surface_gpu: integer division against double division: %zu of %zu words differ\n", wordsDiffer,
+                    words.size());
+        if (wordsDiffer) {
+            std::puts("surface_gpu: FAIL the two divisions differ");
+            return 1;
+        }
+    }
+    if (!testDivision(dev.Get(), ctx.Get(), kernel))
+        return 1;
     std::puts("surface_gpu: PASS");
     return 0;
 }

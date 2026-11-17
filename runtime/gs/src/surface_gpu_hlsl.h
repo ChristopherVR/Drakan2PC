@@ -1,8 +1,9 @@
 #pragma once
-// The compute kernel of surface_gpu.h (cs_5_0, double-precision extensions of Direct3D 11.1). One thread group per
-// streamed draw; every line mirrors reconstructDraw, submitDraw and packFrameAttributes. Float additions,
-// subtractions and multiplications are IEEE operations (`precise`, no contraction); division and square root are
-// rounded correctly through double precision, as the CPU does them.
+// The compute kernel of surface_gpu.h (cs_5_0, double-precision extensions of Direct3D 11.1): pass 1 one thread group
+// per streamed draw (its minimum vertex alpha), pass 2 one thread per triangle; every line mirrors reconstructDraw,
+// submitDraw and packFrameAttributes. Float additions, subtractions and multiplications are IEEE operations
+// (`precise`, no contraction); float division is correctly rounded (fdiv), the un-projection is done in double
+// precision as the CPU does it, and square root is rounded correctly through double precision.
 namespace gsr::surface {
 inline constexpr char kSurfaceGpuHlsl[] = R"HLSL(
 cbuffer Constants : register(b0) {
@@ -33,7 +34,55 @@ static const uint kIip = 1, kZmask = 2, kBlend = 4, kAlpha44 = 8, kAlphaTestOn =
 groupshared uint sAlpha, sLost, sEmitted;
 
 bool finiteD(double d) { uint lo, hi; asuint(d, lo, hi); return (hi & 0x7ff00000u) != 0x7ff00000u; }
-float fdiv(float a, float b) { return (float)((double)a / (double)b); }
+float fdivDouble(float a, float b) { return (float)((double)a / (double)b); }
+// The correctly rounded quotient of two floats. SURFACE_FAST_DIV (GSR_SURFACE_GPU_FAST_DIV=1, opt-in): for normal
+// operands and a normal result, a long division of the significands in integers, eight bits per step, then the
+// rounding to nearest even (vpDivideNearest of the vertex programs, with signs); the rest (zero, subnormal, infinite,
+// NaN operands, a result that would be subnormal or overflow) through the double division. A double quotient rounded
+// to float is the correctly rounded float quotient (53 >= 2 * 24 + 2), so both give the same bits.
+float fdiv(float a, float b) {
+#if SURFACE_FAST_DIV
+    const uint ua = asuint(a), ub = asuint(b);
+    const uint ea = (ua >> 23) & 0xFFu, eb = (ub >> 23) & 0xFFu;
+    if (ea == 0u || ea == 255u || eb == 0u || eb == 255u) return fdivDouble(a, b);
+    uint ma = (ua & 0x7FFFFFu) | 0x800000u;
+    const uint mb = (ub & 0x7FFFFFu) | 0x800000u;
+    int e = (int)ea - (int)eb + 127;
+    if (ma < mb) { ma <<= 1; e -= 1; }
+    uint rem = ma - mb; // the leading quotient bit is 1
+    uint q = 1u;
+    [unroll] for (uint step = 0; step < 3; ++step) {
+        const uint t = rem << 8;
+        const uint d = t / mb;
+        rem = t - d * mb;
+        q = (q << 8) | d;
+    }
+    rem <<= 1;
+    const uint last = rem >= mb ? 1u : 0u;
+    rem -= last * mb;
+    q = (q << 1) | last; // 1 + 25 fraction bits; rem != 0: more below
+    uint mant = q >> 2;
+    const uint low = q & 3u;
+    if (low == 3u || (low == 2u && (rem != 0u || (mant & 1u) != 0u))) mant += 1u;
+    if (mant == 0x1000000u) { mant = 0x800000u; e += 1; }
+    if (e < 1 || e > 254) return fdivDouble(a, b);
+    return asfloat(((ua ^ ub) & 0x80000000u) | ((uint)e << 23) | (mant & 0x7FFFFFu));
+#else
+    return fdivDouble(a, b);
+#endif
+}
+// float(u) rounded to nearest even, as the CPU converts (float)(double)u.
+float utofNearest(uint z) {
+#if SURFACE_FAST_DIV
+    if (z < 0x1000000u) return (float)(int)z;
+    const uint shift = firstbithigh(z) - 23u;
+    const uint mant = z >> shift, rest = z & ((1u << shift) - 1u), half = 1u << (shift - 1u);
+    const uint up = (rest > half || (rest == half && (mant & 1u) != 0u)) ? 1u : 0u;
+    return asfloat(((150u + shift) << 23) + (mant & 0x7FFFFFu) + up);
+#else
+    return (float)(double)z;
+#endif
+}
 // The correctly rounded square root of a float (std::sqrt): the hardware's estimate moved to the neighbour whose
 // rounding interval holds x. The interval bounds are midpoints of two floats (25 bits), squared exactly in double.
 float fsqrt(float x) {
@@ -147,7 +196,7 @@ Vertex loadVertex(uint index, int ofx, int ofy) {
     Vertex v;
     v.x = (float)((int)(Stream[b + 0] & 0xFFFF) - ofx) * (1.0f / 16.0f);
     v.y = (float)((int)(Stream[b + 1] & 0xFFFF) - ofy) * (1.0f / 16.0f);
-    v.z = (float)(double)Stream[b + 2];
+    v.z = utofNearest(Stream[b + 2]);
     v.colour = uint4(Stream[b + 4], Stream[b + 5], Stream[b + 6], Stream[b + 7]) & 0xFF;
     v.s = asfloat(Stream[b + 8]);
     v.t = asfloat(Stream[b + 9]);
@@ -278,6 +327,12 @@ void main(uint3 group : SV_GroupID, uint thread : SV_GroupIndex) {
         if (sLost) InterlockedAdd(Counters[0], sLost);
         if (sEmitted) InterlockedAdd(Counters[1], sEmitted);
     }
+}
+
+// The tests' division check: Out row 0 = fdiv of the pairs in Stream (a, b as float bits), DrawAlpha unused.
+[numthreads(64, 1, 1)]
+void divisionTest(uint3 id : SV_DispatchThreadID) {
+    if (id.x < gDrawCount) store(id.x, asuint(fdiv(asfloat(Stream[id.x * 2]), asfloat(Stream[id.x * 2 + 1]))));
 }
 )HLSL";
 } // namespace gsr::surface

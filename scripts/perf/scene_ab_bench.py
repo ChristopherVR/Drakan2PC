@@ -78,7 +78,7 @@ GPU = re.compile(r"^\[gpu-pass\] (.*)$")
 PER_WORLD = ("rb/s", "finish_polls/s", "rb_wait_ms/s", "rb_eager/s", "rb_late/s", "rb_verified/s", "rb_diff/s",
              "vu1_syncs/s", "vu1_sync_ms/s", "dma_chains/s")  # fmt: skip
 CPU_SCOPES = ("presentCall", "draw", "drawObjectMotion", "syncRT", "readbackMap", "surfaceWait")
-GPU_PASSES = ("world", "worldEntry", "guides", "modelMotion", "evaluate", "compose", "display", "presentBlit", "overlay", "total")  # fmt: skip
+GPU_PASSES = ("world", "worldEntry", "guides", "surfaces", "modelMotion", "evaluate", "compose", "display", "presentBlit", "overlay", "total")  # fmt: skip
 
 
 def tasks() -> list[tuple[str, int]]:
