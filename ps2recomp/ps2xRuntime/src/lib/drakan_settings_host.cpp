@@ -3005,8 +3005,18 @@ struct DrakanSettingsHost final : CommonSettingsHost {
         if (n.dlssNeural != p.dlssNeural)
             drakan_dlss::setNeural(n.dlssNeural);
         if (n.modernWater != p.modernWater || n.rayReflections != p.rayReflections || n.rayShadows != p.rayShadows ||
-            n.rayGlobalIllumination != p.rayGlobalIllumination)
-            g_gs->setWaterRendering(n.modernWater, n.rayReflections, n.rayShadows, n.rayGlobalIllumination);
+            n.rayGlobalIllumination != p.rayGlobalIllumination) {
+            // One setter carries all four: a set environment variable keeps deciding its own effect (as at start,
+            // attachRenderer), so changing ray shadows live does not turn on the INI's modern water over
+            // GSR_MODERN_WATER=0.
+            auto envOr = [](const char* env, bool value) {
+                const char* e = std::getenv(env);
+                return e && *e ? drakan_cfg::getBool("video", "", env, value) : value;
+            };
+            g_gs->setWaterRendering(
+                envOr("GSR_MODERN_WATER", n.modernWater), envOr("GSR_RAY_REFLECTIONS", n.rayReflections),
+                envOr("GSR_RAY_SHADOWS", n.rayShadows), envOr("GSR_RAY_GI", n.rayGlobalIllumination));
+        }
         if (n.terrainDetail != p.terrainDetail || n.terrainCliffs != p.terrainCliffs ||
             n.terrainDetailStrength != p.terrainDetailStrength)
             g_gs->setTerrainDetail(n.terrainDetail, n.terrainCliffs, n.terrainDetailStrength);
