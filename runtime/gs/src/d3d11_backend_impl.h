@@ -723,6 +723,11 @@ struct D3D11Backend::Impl {
     std::unordered_map<TexKey, TexEntry, TexKeyHash> texCache;
     uint64_t texBytes = 0;
     uint64_t frame = 0;
+    bool cpuCutsOld = false; // GSR_CPU_OFFLOAD_TOGGLE: this frame runs the CPU cuts of 17 Nov 2026 as before
+    struct CpuCutStats {     // GSR_CPU_OFFLOAD_VERIFY: shortcuts taken and how many the old way disagreed with
+        uint64_t syncSkipped = 0, syncDiffer = 0, flushSkipped = 0, flushDiffer = 0, clutHashes = 0, clutCollide = 0;
+        std::unordered_map<uint64_t, uint64_t> clutOld; // new palette hash -> old one
+    } cpuCuts;
     bool texLog = runtimeFlags().texLog;
 
     // ---- texture upscaling / replacement / dump (core in gs_texup.{h,cpp}) ----

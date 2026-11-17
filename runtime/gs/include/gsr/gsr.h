@@ -488,5 +488,11 @@ bool dlssPathToggledOff();
 // GSR_DLSS_CANYON_TOGGLE=<s> (test only): the same for the changes of 17 November 2026 (the renderer's fused motion
 // tracking, the EE's posed-character capture in one pass); logs "[dlss-canyon] now old|new at <us>".
 bool dlssCanyonToggledOff();
+// GSR_CPU_OFFLOAD_TOGGLE=<s> (test only): the same for the CPU cuts of 17 November 2026 (the renderer's texture
+// resolve and target refresh shortcuts); logs "[cpu-offload] now old|new at <us>".
+bool cpuOffloadToggledOff();
+// GSR_TERRAIN_BATCHING_TOGGLE=<s> (test only): [video] terrain_batching is on in the first and off in every second
+// period of s seconds (latched at the vblank), so it is measured in one run; logs "[terrain-batching] now old|new".
+bool terrainBatchingToggledOff();
 
 } // namespace gsr

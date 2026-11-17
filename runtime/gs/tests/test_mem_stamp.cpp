@@ -76,7 +76,15 @@ int main() {
         }
         for (int q = 0; q < 200; ++q) {
             uint32_t first, count;
-            switch (randomValue() % 4) {
+            switch (randomValue() % 6) {
+                case 4: // a whole target: many page rows, across 32-page runs (syncRows asks this first)
+                    first = (randomValue() % (kVramBlocks / 32)) * 32;
+                    count = (1 + randomValue() % 400) * 32;
+                    break;
+                case 5: // 32-page run aligned, up to all of memory and past its end
+                    first = (randomValue() % (kVramBlocks / 1024)) * 1024;
+                    count = 1 + randomValue() % (kVramBlocks + 2048);
+                    break;
                 case 0: // whole page rows, the render-target case
                     first = (randomValue() % (kVramBlocks / 32)) * 32;
                     count = (1 + randomValue() % 8) * 32;

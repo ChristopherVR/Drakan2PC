@@ -321,6 +321,16 @@ void GSR_IMPL::endFrame() {
             if (r->dirty && r->drawFrame + 1 == frame && rt_sync::lazySyncTarget(*r))
                 prefetchReadback(*r, true);
     ++frame;
+    // GSR_CPU_CUTS=1 (opt-in until its gain is measured): the texture resolve and target refresh shortcuts.
+    cpuCutsOld = !runtimeFlags().cpuCuts || cpuOffloadToggledOff();
+    if (runtimeFlags().cpuOffloadVerify && frame % 600 == 0)
+        std::fprintf(stderr,
+                     "[cpu-offload-verify] frame %llu target refreshes skipped %llu (differ %llu), texture flushes "
+                     "skipped %llu (differ %llu), palette hashes %llu (collide %llu)\n",
+                     (unsigned long long)frame, (unsigned long long)cpuCuts.syncSkipped,
+                     (unsigned long long)cpuCuts.syncDiffer, (unsigned long long)cpuCuts.flushSkipped,
+                     (unsigned long long)cpuCuts.flushDiffer, (unsigned long long)cpuCuts.clutHashes,
+                     (unsigned long long)cpuCuts.clutCollide);
     backend_hook::frameAdvanced(*this);
     clusterHud();
     pumpUp(std::chrono::milliseconds(2));

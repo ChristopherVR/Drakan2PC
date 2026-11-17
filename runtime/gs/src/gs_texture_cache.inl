@@ -734,6 +734,28 @@ void GSR_IMPL::decodeLevel(uint32_t psm, uint32_t tbp, uint32_t tbw, uint32_t w,
 uint64_t GSR_IMPL::hashClut(const ClutBuf& c, uint32_t psm, uint32_t csa) {
     const uint32_t n = (psm == PSM_T8 || psm == PSM_T8H) ? 256u : 16u;
     const uint32_t base = (n == 16) ? csa * 16u : 0u;
+    if (!cpuCutsOld) {
+        // Four independent FNV-1a lanes (entries i, i + 1, i + 2, i + 3) instead of one chain of n dependent
+        // multiplies: the hash is only the texture cache's palette identity, a quarter of the latency per draw.
+        uint64_t l[4] = {1469598103934665603ull, 0x9e3779b97f4a7c15ull, 0xc2b2ae3d27d4eb4full, 0x165667b19e3779f9ull};
+        for (uint32_t i = 0; i < n; i += 4)
+            for (uint32_t j = 0; j < 4; ++j)
+                l[j] = (l[j] ^ c.raw[(base + i + j) & 511]) * 1099511628211ull;
+        uint64_t h = (l[0] ^ (l[1] * 31) ^ (l[2] * 961) ^ (l[3] * 29791)) * 1099511628211ull;
+        h ^= c.is16 ? 0x1111 : 0;
+        h ^= (uint64_t)c.cpsm << 40;
+        if (runtimeFlags().cpuOffloadVerify) { // a new hash must stand for one old hash (one palette) only
+            cpuCutsOld = true;
+            const uint64_t old = hashClut(c, psm, csa);
+            cpuCutsOld = false;
+            ++cpuCuts.clutHashes;
+            const auto [it, added] = cpuCuts.clutOld.emplace(h, old);
+            cpuCuts.clutCollide += !added && it->second != old;
+            if (cpuCuts.clutOld.size() > (1u << 20))
+                cpuCuts.clutOld.clear();
+        }
+        return h;
+    }
     uint64_t h = 1469598103934665603ull;
     for (uint32_t i = 0; i < n; ++i) {
         h ^= c.raw[(base + i) & 511];
@@ -839,8 +861,50 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
         // fallback (e.g. a shifted-row alias) can reuse pre-draw pixels.
         {
             CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCoherenceFlush);
-            RT* aliased = aliasedTarget(psm, mxl, e.spans);
-            if (aliased) {
+            // Both the alias search and every level's flush act only on a dirty target whose rows overlap a span. One
+            // pass over the targets with the spans' union says whether any can (most draws: none), instead of one pass
+            // per mip level and one for the alias.
+            bool touched = true;
+            if (!cpuCutsOld && !e.spans.empty()) {
+                uint32_t ulo = ~0u, uhi = 0;
+                bool ordered = true;
+                for (const auto& sp : e.spans) {
+                    ordered &= sp.first <= sp.second;
+                    ulo = std::min(ulo, sp.first);
+                    uhi = std::max(uhi, sp.second);
+                }
+                if (ordered) {
+                    touched = false;
+                    for (const auto& r : rts) {
+                        if (!r->dirty)
+                            continue;
+                        uint32_t lo, hi;
+                        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
+                        if (!(hi < ulo || lo > uhi)) {
+                            touched = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            RT* aliased = touched ? aliasedTarget(psm, mxl, e.spans) : nullptr;
+            if (!touched && runtimeFlags().cpuOffloadVerify) {
+                ++cpuCuts.flushSkipped;
+                bool any = aliasedTarget(psm, mxl, e.spans) != nullptr;
+                for (const auto& r : rts) {
+                    if (!r->dirty)
+                        continue;
+                    uint32_t lo, hi;
+                    rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
+                    for (const auto& sp : e.spans)
+                        any |= !(hi < sp.first || lo > sp.second);
+                }
+                cpuCuts.flushDiffer += any;
+            }
+            if (!touched) {
+                if (e.aliasTarget)
+                    valid = false; // the target was read back: memory is authoritative again
+            } else if (aliased) {
                 // Built from the target's GPU copy: current until the target changes again.
                 if (e.aliasTarget != aliased || e.aliasWrites != aliased->writes)
                     valid = false;

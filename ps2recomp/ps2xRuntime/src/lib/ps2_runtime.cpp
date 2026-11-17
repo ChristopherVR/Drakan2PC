@@ -2228,10 +2228,48 @@ inline void aliasAccess(R5900Context* ctx, uint32_t& vaddr, uint32_t bytes, bool
         vaddr &= ~kPs2AliasMask;
     }
 }
+
+// DRAKAN_SLOW_MEM_STATS=1 (diagnostic): the guest accesses that leave the generated code's RAM fast path, by region,
+// printed every 5 s ([slow-mem]).
+struct SlowMemStats {
+    bool on = [] {
+        const char* e = std::getenv("DRAKAN_SLOW_MEM_STATS");
+        return e && e[0] == '1';
+    }();
+    std::atomic<uint64_t> n[6] = {}; // scratchpad, I/O 0x1000xxxx, VU 0x1100xxxx, GS 0x1200xxxx, RAM, other
+    std::atomic<uint64_t> total{0};
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+    void count(uint32_t vaddr, bool write) {
+        const uint32_t p = vaddr & 0x1FFFFFFFu;
+        const int r = ps2IsScratchpadAddress(vaddr)               ? 0
+                      : (p >> 16) >= 0x1000 && (p >> 16) < 0x1100 ? 1
+                      : (p >> 16) >= 0x1100 && (p >> 16) < 0x1200 ? 2
+                      : (p >> 16) >= 0x1200 && (p >> 16) < 0x1300 ? 3
+                      : p < PS2_RAM_SIZE                          ? 4
+                                                                  : 5;
+        n[r].fetch_add(1, std::memory_order_relaxed);
+        (void)write;
+        if ((total.fetch_add(1, std::memory_order_relaxed) & 0xFFFF) == 0) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last > std::chrono::seconds(5)) {
+                last = now;
+                std::fprintf(stderr, "[slow-mem] scratch=%llu io=%llu vu=%llu gs=%llu ram=%llu other=%llu\n",
+                             (unsigned long long)n[0].load(), (unsigned long long)n[1].load(),
+                             (unsigned long long)n[2].load(), (unsigned long long)n[3].load(),
+                             (unsigned long long)n[4].load(), (unsigned long long)n[5].load());
+            }
+        }
+    }
+};
+SlowMemStats g_slowMem;
+#define PS2X_SLOW_MEM(addr, write)                                                                                     \
+    if (g_slowMem.on)                                                                                                  \
+    g_slowMem.count(addr, write)
 } // namespace
 
 uint8_t PS2Runtime::Load8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     aliasAccess(ctx, vaddr, 1, false);
+    PS2X_SLOW_MEM(vaddr, false);
     try {
         return m_memory.read8(vaddr);
     } catch (const std::exception&) {
@@ -2242,6 +2280,7 @@ uint8_t PS2Runtime::Load8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 uint16_t PS2Runtime::Load16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     aliasAccess(ctx, vaddr, 2, false);
+    PS2X_SLOW_MEM(vaddr, false);
     try {
         return m_memory.read16(vaddr);
     } catch (const std::exception&) {
@@ -2252,6 +2291,7 @@ uint16_t PS2Runtime::Load16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     aliasAccess(ctx, vaddr, 4, false);
+    PS2X_SLOW_MEM(vaddr, false);
     try {
         // VIF1 / GIF status read by the flip routine's readiness test with the frame queue on: see
         // runtime/ps2_readback.h.
@@ -2278,6 +2318,7 @@ uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 uint64_t PS2Runtime::Load64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     aliasAccess(ctx, vaddr, 8, false);
+    PS2X_SLOW_MEM(vaddr, false);
     try {
         // GS CSR read by the FINISH poll of a store-image routine: see runtime/ps2_readback.h.
         if (vaddr == 0x12001000u && ctx && ps2x_readback::eagerFinish(ctx->pc))
@@ -2291,6 +2332,7 @@ uint64_t PS2Runtime::Load64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 __m128i PS2Runtime::Load128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     aliasAccess(ctx, vaddr, 16, false);
+    PS2X_SLOW_MEM(vaddr, false);
     try {
         return m_memory.read128(vaddr);
     } catch (const std::exception&) {
@@ -2301,6 +2343,7 @@ __m128i PS2Runtime::Load128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 
 void PS2Runtime::Store8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint8_t value) {
     aliasAccess(ctx, vaddr, 1, true);
+    PS2X_SLOW_MEM(vaddr, true);
     ps2TraceGuestWrite(rdram, vaddr, 1u, value, 0u, "WRITE8", ctx);
     try {
         m_memory.write8(vaddr, value);
@@ -2311,6 +2354,7 @@ void PS2Runtime::Store8(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint8
 
 void PS2Runtime::Store16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint16_t value) {
     aliasAccess(ctx, vaddr, 2, true);
+    PS2X_SLOW_MEM(vaddr, true);
     ps2TraceGuestWrite(rdram, vaddr, 2u, value, 0u, "WRITE16", ctx);
     try {
         m_memory.write16(vaddr, value);
@@ -2321,6 +2365,7 @@ void PS2Runtime::Store16(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
 
 void PS2Runtime::Store32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint32_t value) {
     aliasAccess(ctx, vaddr, 4, true);
+    PS2X_SLOW_MEM(vaddr, true);
     ps2TraceGuestWrite(rdram, vaddr, 4u, value, 0u, "WRITE32", ctx);
     try {
         m_memory.write32(vaddr, value);
@@ -2332,6 +2377,7 @@ void PS2Runtime::Store32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
 
 void PS2Runtime::Store64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint64_t value) {
     aliasAccess(ctx, vaddr, 8, true);
+    PS2X_SLOW_MEM(vaddr, true);
     ps2TraceGuestWrite(rdram, vaddr, 8u, value, 0u, "WRITE64", ctx);
     try {
         m_memory.write64(vaddr, value);
@@ -2342,6 +2388,7 @@ void PS2Runtime::Store64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
 
 void PS2Runtime::Store128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, __m128i value) {
     aliasAccess(ctx, vaddr, 16, true);
+    PS2X_SLOW_MEM(vaddr, true);
     alignas(16) uint64_t _parts[2];
     _mm_storeu_si128(reinterpret_cast<__m128i*>(_parts), value);
     ps2TraceGuestWrite(rdram, vaddr, 16u, _parts[0], _parts[1], "WRITE128", ctx);

@@ -230,6 +230,7 @@ struct Renderer::Impl {
     bool batchActive = false;
     // [video] terrain_batching (draw_join.h): draws that differ only in their texture stay in the batch as segments.
     bool joinOn = false;
+    bool joinToggle = false; // GSR_TERRAIN_BATCHING_TOGGLE: joinOn follows the toggle at each vblank
     draw_join::Segments joinSegments;
     std::vector<DrawSegment> joinViews;
     std::vector<motion::Note> joinNotes;
@@ -936,6 +937,8 @@ struct Renderer::Impl {
     }
 
     void signalVblank() {
+        if (joinToggle) // decides only later joins; segments already joined are drawn as joined
+            joinOn = !terrainBatchingToggledOff();
         csr |= (1ull << 3);
         ++vsyncCount;
         csr ^= (1ull << 13);
@@ -2167,6 +2170,8 @@ std::unique_ptr<Renderer> Renderer::create(const Config& cfg) {
     r->m_impl = std::make_unique<Impl>();
     r->m_impl->cfg = cfg;
     r->m_impl->joinOn = runtimeFlags().terrainBatching.value_or(cfg.terrainBatching);
+    if (const char* t = std::getenv("GSR_TERRAIN_BATCHING_TOGGLE"); t && std::atof(t) > 0)
+        r->m_impl->joinToggle = true;
     r->m_impl->modelNeuralRequested.store(cfg.neuralRendering);
     r->m_impl->modelSrRequested.store(cfg.upscaleMode != 0);
     r->m_impl->terrainGeometryRequested.store(cfg.terrainCliffs || runtimeFlags().terrainCliffs.value_or(false));

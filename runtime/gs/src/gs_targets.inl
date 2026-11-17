@@ -603,6 +603,29 @@ void GSR_IMPL::syncRows(RT& rt, rt_sync::Rows rows) {
         return;
     const uint32_t ph = rt.pageH();
     const uint32_t pagesPerRow = rt.fbw;
+    if (!cpuCutsOld) {
+        // Most draws find no row the CPU wrote since: ask the rows' whole block range once (whole 32-page runs are one
+        // read, gs_mem.h) against the oldest row stamp. Not newer than that means no row is newer than its own stamp,
+        // which is exactly what the row loop would find.
+        const uint32_t end = std::min<uint32_t>(rows.end, (uint32_t)rt.rowStamp.size());
+        uint32_t last = rows.first; // rows [first, last) start inside memory, as the loop below takes them
+        uint64_t oldest = ~uint64_t{0};
+        while (last < end && rt.base() + last * pagesPerRow * 32u < kVramBlocks)
+            oldest = std::min(oldest, rt.rowStamp[last++]);
+        if (last > rows.first &&
+            mem.maxStamp(rt.base() + rows.first * pagesPerRow * 32u, (last - rows.first) * pagesPerRow * 32u) <=
+                oldest) {
+            if (runtimeFlags().cpuOffloadVerify) {
+                ++cpuCuts.syncSkipped;
+                for (uint32_t r = rows.first; r < last; ++r)
+                    if (mem.maxStamp(rt.base() + r * pagesPerRow * 32u, pagesPerRow * 32u) > rt.rowStamp[r]) {
+                        ++cpuCuts.syncDiffer;
+                        break;
+                    }
+            }
+            rows.end = rows.first; // the loop finds nothing; the bookkeeping after it is the same
+        }
+    }
     for (uint32_t r = rows.first; r < rows.end && r < rt.rowStamp.size(); ++r) {
         const uint32_t lo = rt.base() + r * pagesPerRow * 32u;
         if (lo >= kVramBlocks)

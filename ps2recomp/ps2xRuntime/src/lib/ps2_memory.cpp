@@ -30,10 +30,20 @@
 #endif
 
 namespace {
+// The throw (a string built per call) is kept out of line so the check itself inlines into every access: the EE's
+// scratchpad and I/O accesses go through here, and the out-of-line check was about 3 % of the EE thread's samples in
+// Wartok Canyons.
+#if defined(_MSC_VER)
+[[noreturn]] __declspec(noinline)
+#else
+[[noreturn]] __attribute__((noinline))
+#endif
+void outOfRange(const char* op, uint32_t address) {
+    throw std::runtime_error(std::string(op) + " out-of-bounds at address: 0x" + std::to_string(address));
+}
 inline void inRange(uint32_t offset, size_t bytes, size_t regionSize, const char* op, uint32_t address) {
-    if (static_cast<uint64_t>(offset) + static_cast<uint64_t>(bytes) > static_cast<uint64_t>(regionSize)) {
-        throw std::runtime_error(std::string(op) + " out-of-bounds at address: 0x" + std::to_string(address));
-    }
+    if (static_cast<uint64_t>(offset) + static_cast<uint64_t>(bytes) > static_cast<uint64_t>(regionSize)) [[unlikely]]
+        outOfRange(op, address);
 }
 
 template <typename T>

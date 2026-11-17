@@ -296,7 +296,9 @@ inline void spanBlocks(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint3
 
 class LocalMemory {
 public:
-    LocalMemory() : m_data(kVramSize, 0), m_stamp(kVramBlocks, 0), m_pageStamp(kVramBlocks / 32, 0) {}
+    LocalMemory()
+        : m_data(kVramSize, 0), m_stamp(kVramBlocks, 0), m_pageStamp(kVramBlocks / 32, 0),
+          m_superStamp(kVramBlocks / 1024, 0) {}
 
     uint8_t* data() { return m_data.data(); }
     const uint8_t* data() const { return m_data.data(); }
@@ -307,11 +309,17 @@ public:
     // Largest stamp in blocks [firstBlock, firstBlock + count), wrapping at the end of memory. A page (32 blocks) keeps
     // the largest stamp of its blocks, so aligned whole pages cost one read instead of 32: render targets ask about
     // whole page rows for every draw (syncRT), which was thousands of block reads per draw.
+    // A run of 32 pages (1024 blocks, `m_superStamp`) costs one read in the same way, which lets a whole target be
+    // asked first (syncRows).
     uint64_t maxStamp(uint32_t firstBlock, uint32_t count) const {
         uint64_t m = 0;
         uint32_t b = firstBlock & (kVramBlocks - 1);
         while (count) {
-            if ((b & 31u) == 0 && count >= 32) {
+            if ((b & 1023u) == 0 && count >= 1024) {
+                m = std::max(m, m_superStamp[b >> 10]);
+                b = (b + 1024) & (kVramBlocks - 1);
+                count -= 1024;
+            } else if ((b & 31u) == 0 && count >= 32) {
                 m = std::max(m, m_pageStamp[b >> 5]);
                 b = (b + 32) & (kVramBlocks - 1);
                 count -= 32;
@@ -346,6 +354,7 @@ public:
             const uint32_t b = (firstBlock + i) & (kVramBlocks - 1);
             m_stamp[b] = m_clock;
             m_pageStamp[b >> 5] = m_clock;
+            m_superStamp[b >> 10] = m_clock;
         }
     }
     void touchRect(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
@@ -358,6 +367,7 @@ public:
                 const uint32_t b = blockOf(psm, bp, bw, bx, by);
                 m_stamp[b] = m_clock;
                 m_pageStamp[b >> 5] = m_clock;
+                m_superStamp[b >> 10] = m_clock;
             }
     }
 
@@ -472,7 +482,8 @@ public:
 private:
     std::vector<uint8_t> m_data;
     std::vector<uint64_t> m_stamp;
-    std::vector<uint64_t> m_pageStamp; // max of m_stamp over each 32-block page
+    std::vector<uint64_t> m_pageStamp;  // max of m_stamp over each 32-block page
+    std::vector<uint64_t> m_superStamp; // max of m_stamp over each 1024-block run of 32 pages
     uint64_t m_clock = 1;
 };
 
