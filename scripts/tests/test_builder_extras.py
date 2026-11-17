@@ -72,13 +72,23 @@ class GpuTests(unittest.TestCase):
 class EstimateTests(unittest.TestCase):
     def test_plan_steps(self):
         self.assertEqual(extras.plan(None, False), [])
+        self.assertEqual(
+            extras.plan("install", False, generate_subtitles=True), ["ootf-subtitles", "ootf-data", "ootf-convert"]
+        )
         self.assertEqual(extras.plan("install", False), ["ootf-data", "ootf-convert"])
         self.assertEqual(extras.plan("image", False), ["ootf-source", "ootf-data", "ootf-convert"])
         self.assertEqual(extras.plan(None, True), ["hd-tools", "hd-index", "hd-upscale", "hd-materials"])
         self.assertEqual(extras.plan(None, True, tools_ready=True), ["hd-index", "hd-upscale", "hd-materials"])
         self.assertEqual(
             extras.plan("install", True, True),
-            ["ootf-data", "ootf-convert", "hd-index", "hd-upscale", "hd-upscale-ootf", "hd-materials"],
+            [
+                "ootf-data",
+                "ootf-convert",
+                "hd-index",
+                "hd-upscale",
+                "hd-upscale-ootf",
+                "hd-materials",
+            ],
         )
 
     def test_only_upscale_steps_scale_with_the_graphics_card(self):
@@ -534,6 +544,11 @@ class ConverterTests(unittest.TestCase):
         self.iso = self.dir / "game.iso"
         self.iso.write_bytes(b"iso")
         self.work = self.root / "build/ootf"
+        self.generated = self.dir / "generated.json"
+        self.generated.write_text("generated")
+        bundled = self.root / "scripts/buildtool/kit/subtitles/english.json"
+        bundled.parent.mkdir()
+        bundled.write_text("bundled")
 
     def fake_data(self):
         class Data:
@@ -586,7 +601,7 @@ class ConverterTests(unittest.TestCase):
         (mods / "ootf-levels.zip").unlink()
         self.assertTrue(extras.convert_needed(self.work, state), "the pack is gone")
 
-    def run_convert(self, runs: list, code: int = 0, hd: bool = False, **kwargs):
+    def run_convert(self, runs: list, code: int = 0, hd: bool = False, source=None, **kwargs):
         def fake_run(cmd, log_file, cwd, env=None):
             runs.append((cmd, cwd, env))
             out = Path(cmd[cmd.index("--out") + 1])
@@ -603,9 +618,12 @@ class ConverterTests(unittest.TestCase):
         with (
             mock.patch.object(extras, "ps2_data", self.fake_data),
             mock.patch.object(extras, "ensure_node_modules", lambda *a, **k: []),
+            mock.patch.object(extras, "generate_scene_subtitles", return_value=self.generated),
             mock.patch.object(extras, "run_logged", fake_run),
         ):
-            return extras.convert_ootf(self.install, self.iso, self.work, "node", hd=hd, root=self.root, **kwargs)
+            return extras.convert_ootf(
+                source or self.install, self.iso, self.work, "node", hd=hd, root=self.root, **kwargs
+            )
 
     def test_convert_writes_the_pack_the_mod_list_and_state_and_skips_when_unchanged(self):
         runs: list = []
@@ -630,6 +648,91 @@ class ConverterTests(unittest.TestCase):
         self.assertIn("--hd", runs[1][0])
         self.run_convert(runs, hd=True)
         self.assertEqual(len(runs), 2)
+
+    def test_changing_adding_or_removing_a_transcript_rebuilds_the_pack(self):
+        runs = []
+        mods = self.run_convert(runs)
+        transcript = self.install / "ootf-subtitles.json"
+        transcript.write_text("first")
+        self.run_convert(runs)
+        cmd = runs[-1][0]
+        self.assertTrue(transcript.samefile(cmd[cmd.index("--subtitles") + 1]))
+        self.run_convert(runs)
+        self.assertEqual(len(runs), 2)
+        transcript.write_text("other")
+        with self.assertRaises(extras.ExtrasError):
+            self.run_convert(runs, code=1)
+        self.assertEqual((mods / "ootf-levels.zip").read_bytes(), b"zip")
+        self.run_convert(runs)
+        transcript.unlink()
+        self.run_convert(runs)
+        self.assertEqual(len(runs), 5)
+        self.assertNotIn("--subtitles", runs[-1][0])  # converter chooses the bundle by install language
+
+    def test_explicit_generation_overrides_a_supplied_transcript(self):
+        runs = []
+        self.run_convert(runs)
+        self.assertNotIn("--subtitles", runs[-1][0])
+        (self.install / "ootf-subtitles.json").write_text("supplied")
+        self.run_convert(runs, generate_subtitles=True)
+        self.assertIn(str(self.generated), runs[-1][0])
+
+    def test_a_failed_generation_keeps_the_existing_captioned_pack(self):
+        self.run_convert([])
+        out = self.work / "mods/ootf-levels.zip"
+        before = out.read_bytes()
+        with (
+            mock.patch.object(extras, "generate_scene_subtitles", side_effect=extras.ExtrasError("offline")),
+            mock.patch.object(sys, "stderr", io.StringIO()),
+            self.assertRaisesRegex(extras.ExtrasError, "offline"),
+        ):
+            extras.convert_ootf(self.install, self.iso, self.work, "node", root=self.root, generate_subtitles=True)
+        self.assertEqual(out.read_bytes(), before)
+
+    def test_cached_generation_is_offline_and_distinguishes_dubbed_audio(self):
+        for rel in ("analysis/scripts/ootf_subtitles.py", "editor/scripts/ootf-speech.ts"):
+            tool = self.root / rel
+            tool.parent.mkdir(parents=True)
+            tool.touch()
+        bank = self.install / "sample.sdb"
+        bank.write_bytes(b"voice A")
+        spec = extras.load_lock(self.root / "scripts/buildtool/kit/installer.lock.json")
+
+        def write_transcript(command, log, root):
+            Path(command[command.index("--out") + 1]).write_text('{"lines":[{"id":12}]}')
+            return 0
+
+        with (
+            mock.patch.object(extras.shutil, "which", return_value="whisper-cli"),
+            mock.patch.object(extras, "download", return_value=self.dir / "download") as fetch,
+            mock.patch.object(extras, "safe_extract_zip"),
+            mock.patch.object(extras, "ensure_node_modules"),
+            mock.patch.object(extras, "run_logged", side_effect=write_transcript) as recognize,
+        ):
+
+            def generate():
+                return extras.generate_scene_subtitles(self.install, self.work, "node", self.root, spec)
+
+            first = generate()
+            fetch.reset_mock()
+            self.assertEqual(generate(), first)
+            fetch.assert_not_called()
+            bank.write_bytes(b"voice B")
+            self.assertNotEqual(generate(), first)
+            self.assertEqual(recognize.call_count, 2)
+
+    def test_the_transcript_can_stay_beside_the_original_disc_image_or_in_the_disc_folder(self):
+        image = make_iso(self.dir / "disc.iso")
+        disc = self.dir / "Disc copy"
+        (disc / "SETUP").mkdir(parents=True)
+        (disc / "SETUP/DATA1.CAB").touch()
+        for source, transcript in [(image, self.dir / "disc.iso.subtitles.json"), (disc, disc / "ootf-subtitles.json")]:
+            with self.subTest(source=source), mock.patch.object(extras, "prepare_source", return_value=self.install):
+                transcript.write_text("captions")
+                runs = []
+                self.run_convert(runs, source=source, force=True)
+                cmd = runs[0][0]
+                self.assertTrue(transcript.samefile(cmd[cmd.index("--subtitles") + 1]))
 
     def test_a_failing_converter_reports_the_log_and_leaves_no_state(self):
         with self.assertRaises(extras.ExtrasError) as caught:
@@ -945,6 +1048,8 @@ class PolicyTests(unittest.TestCase):
         text = ISS.read_text(encoding="utf-8")
         for needle in (
             "-OotfSource",
+            "-OotfSubtitles bundled",
+            "-OotfSubtitles generate",
             "-HdTextures on",
             "-HdTextures off",
             "-OotfSource none",

@@ -28,6 +28,8 @@ param(
     # installed in the play folder (the title menu then offers "Drakan: Order of the Flame"). 'none' removes a remembered
     # choice. Asked for on the first interactive run; remembered in build/build-options.json.
     [string]$OotfSource,
+    # Scene captions for Order of the Flame. The setup choice is remembered for later rebuilds.
+    [ValidateSet('', 'bundled', 'generate')][string]$OotfSubtitles = '',
     # HD textures, optional: after the build every texture of the disc (and of Order of the Flame, when chosen) is
     # upscaled 4x with Real-ESRGAN into <play folder>	extures. 'on' | 'off'; asked for (with the estimated time on this PC)
     # when omitted on the first interactive run, then remembered. Needs a Vulkan graphics card.
@@ -84,6 +86,7 @@ function Get-GpuNames {
 function Show-ExtrasEstimate([string]$Python, [string]$Extras, [bool]$Ootf, [string]$Source, [bool]$Hd) {
     $estimateArgs = @($Extras, 'estimate', '--timings', (Join-Path $RepoRoot 'build/extras-timings.json'), '--gpu-names', (Get-GpuNames))
     if ($Ootf) { $estimateArgs += '--ootf' }
+    if ($OotfSubtitles -eq 'generate') { $estimateArgs += '--generate-subtitles' }
     if ($Source) { $estimateArgs += @('--source', $Source) }
     if ($Hd) { $estimateArgs += '--hd' }
     & $Python @estimateArgs
@@ -194,6 +197,7 @@ try {
     $hdKnown = [bool]($saved -and $saved.PSObject.Properties['hdTextures'])
     if (-not $PSBoundParameters.ContainsKey('OotfSource') -and $extrasKnown) { $OotfSource = [string]$saved.ootfSource }
     if ($OotfSource -eq 'none') { $OotfSource = '' }
+    if (-not $OotfSubtitles) { $OotfSubtitles = if ($saved -and $saved.ootfSubtitles -eq 'generate') { 'generate' } else { 'bundled' } }
     if (-not $HdTextures -and $hdKnown) { $HdTextures = if ($saved.hdTextures) { 'on' } else { 'off' } }
     if ($HdGpu -eq -2) { $HdGpu = if ($saved -and $null -ne $saved.hdGpu) { [int]$saved.hdGpu } else { -1 } }
     if ($DistDirectory) {
@@ -214,7 +218,7 @@ try {
         $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory
                       vuBlocks = $VuBlocks; hdGpu = $HdGpu }
         # Only answered questions are remembered, so a run that never got to ask still asks the next time.
-        if ($extrasKnown) { $options.ootfSource = $OotfSource }
+        if ($extrasKnown) { $options.ootfSource = $OotfSource; $options.ootfSubtitles = $OotfSubtitles }
         if ($hdKnown) { $options.hdTextures = ($HdTextures -eq 'on') }
         $options | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
     }
@@ -319,6 +323,7 @@ try {
         Write-Host "`nOptional: Drakan: Order of the Flame (Drakan 1) as a second campaign. It is converted from your own PC copy"
         Write-Host '(install folder, disc folder, .mdx / .iso disc image or Drakan.zip) into a mod pack on this PC; the title menu then'
         Write-Host 'offers it next to Drakan: The Ancients'' Gates. Nothing is uploaded.'
+        Write-Host 'English scene captions are included. Use -OotfSubtitles generate to transcribe your recordings locally.'
         Show-ExtrasEstimate $python $extras $true '' $false
         $answer = (Read-Host 'Path to your Order of the Flame copy (drag it into this window), or Enter to skip').Trim().Trim('"')
         if ($answer) {
@@ -448,6 +453,7 @@ try {
         # (-ModDirectory) and pictures its maps. A failure here does not stop the game build.
         Write-Step 'Converting Drakan: Order of the Flame'
         $ootfArgs = @($extras, 'ootf', '--iso', $IsoPath, '--source', $OotfSource, '--work', (Join-Path $RepoRoot 'build/ootf'))
+        if ($OotfSubtitles -eq 'generate') { $ootfArgs += '--generate-subtitles' }
         if ($HdTextures -eq 'on') { $ootfArgs += '--hd' }
         & $python @ootfArgs
         if ($LASTEXITCODE -eq 0) {

@@ -81,8 +81,11 @@ OPTIONAL EXTRAS
   with the reason shown, and the game is still built. The builder converts
   its 13 levels and 10 multiplayer arenas, with scenes and music, into a mod pack
   before the game build and installs it; the title menu then offers both
-  games. About 3 to 8 minutes and 1 GB. It is made on this PC from your own files and
-  never uploaded. -OotfSource none removes it from later rebuilds.
+  games. Allow 3 to 8 minutes and about 1 GB with the included English subtitles.
+  Choose "Generate subtitles from my own recordings" in setup or pass -OotfSubtitles generate
+  to transcribe on this PC (about 145 MiB to download and 5 to 15 minutes the first time).
+  -OotfSubtitles bundled restores the default. -OotfSource none removes
+  the campaign from later rebuilds.
 * HD textures: tick "Make HD textures after the build" in the setup (or run
   Build-Drakan.cmd -HdTextures on). Every texture of the disc, and of Order of
   the Flame when chosen, is upscaled 4x with the free Real-ESRGAN AI upscaler on

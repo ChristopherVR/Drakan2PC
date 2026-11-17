@@ -373,6 +373,7 @@ function openDialog(host: OotfHost): void {
         intro,
         ...(warn ? [warn] : []),
         h('div', { class: 'od-row' }, pickBtn, folderLabel, picker),
+        h('p', { class: 'od-dim' }, 'English scene subtitles are included. To use a different transcript, put ootf-subtitles.json in the selected folder.'),
         h(
             'div',
             { class: 'od-row' },

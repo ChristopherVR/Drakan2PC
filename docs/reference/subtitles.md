@@ -208,6 +208,13 @@ The option "Show Subtitles" (word 0x4fb740, default 1) gates both the game's bar
 
 ## 10. Voice clips of mod packs: timed pages (2026-11-12)
 
+For Order of the Flame, the guided Windows builder and editor include English subtitles for 295 clips.
+Setup also offers to generate captions from the player's own recordings and caches the result for later builds.
+The editor importer and the guided builder's default mode accept a custom
+`ootf-subtitles.json` from the install. The guided build also accepts a transcript beside a disc image and checks
+its contents when deciding whether to reuse a pack. See [the build instructions](../../BUILDING.md#optional-extras-order-of-the-flame-and-hd-textures)
+for transcription and file locations. In a converted pack, `story/subtitles.json` lists the included lines.
+
 Finding (Order of the Flame campaign, `docs/journal/2026-11-12/ootf-church-cinematic.md`): the engine's own bar only shows
 descriptor text for a sound that an actor's speech controller plays. With a test text on all 617 converted sounds, the
 Ruined Village opening showed a bar for exactly the two lines the player speaks and none for the other actors or for a

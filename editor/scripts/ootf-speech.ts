@@ -7,7 +7,7 @@
 // subtitle tool marks so it gets no subtitle). The output is the player's own game audio: keep it out of the repository (use a folder under build/).
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
-import { listObjectSounds, listSequenceSounds, objectSoundUseText, parsePcSounds, pcmWav, type PcFileSource, type PcSoundBank } from '@drakan/formats';
+import { detectOotfInstallLanguage, listObjectSounds, listSequenceSounds, objectSoundUseText, parsePcSounds, pcmWav, resamplePcm, type PcFileSource, type PcSoundBank } from '@drakan/formats';
 
 const args = process.argv.slice(2);
 const opt: Record<string, string> = {};
@@ -45,7 +45,9 @@ for (const s of await listSequenceSounds(src)) {
     const snd = bank?.sounds.find((x) => x.id === s.id);
     if (!snd || !snd.pcm.length) continue;
     const file = `clips/${String(n++).padStart(4, '0')}.wav`;
-    writeFileSync(join(out, file), pcmWav(snd.pcm, snd.rate));
+    // Both subtitle recognisers consume mono 16 kHz PCM. Other callers can still request the original export.
+    const rate = opt['rate'] === '16000' ? 16000 : snd.rate;
+    writeFileSync(join(out, file), pcmWav(resamplePcm(snd.pcm, snd.rate, rate), rate));
     rows.push({
         bank: s.bank,
         id: s.id,
@@ -57,5 +59,6 @@ for (const s of await listSequenceSounds(src)) {
         uses: s.uses.map((u) => ({ ...u, time: Math.round(u.time * 1000) / 1000, duration: Math.round(u.duration * 1000) / 1000 })),
     });
 }
-writeFileSync(join(out, 'manifest.json'), JSON.stringify({ clips: rows }, null, 1));
+const { language } = await detectOotfInstallLanguage(src);
+writeFileSync(join(out, 'manifest.json'), JSON.stringify({ language: language.language, clips: rows }, null, 1));
 console.log(`wrote ${rows.length} clip(s) of ${banks.size} bank(s) to ${out}`);

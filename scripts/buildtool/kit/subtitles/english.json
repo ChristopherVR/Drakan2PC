@@ -1,0 +1,4622 @@
+{
+  "format": "drakan-subtitles",
+  "version": 1,
+  "language": "english",
+  "lines": [
+    {
+      "bank": "common/fx/fx",
+      "id": 891,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.9,
+          "text": "Oh, no way! Oh, heh, heh, heh!"
+        }
+      ],
+      "duration": 4.011
+    },
+    {
+      "bank": "common/system/system",
+      "id": 331,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.58,
+          "text": "Ah, the Lava Rune."
+        }
+      ],
+      "duration": 1.844
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 228,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.4,
+          "text": "Her Soul Shadow."
+        }
+      ],
+      "duration": 2.107
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 229,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.88,
+          "text": "Hail from one once known as Turi, bonded of the Dragon Takora,"
+        },
+        {
+          "start": 5.74,
+          "end": 9.14,
+          "text": "Guardian of Alwarren, who enters this long -dead place."
+        }
+      ],
+      "duration": 9.476
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 230,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.28,
+          "text": "I'm Rynn. This is Arokh. What happened here?"
+        }
+      ],
+      "duration": 3.521
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 231,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.88,
+          "text": "In the last days of Alwarren, the city was under siege,"
+        },
+        {
+          "start": 4.58,
+          "end": 9.8,
+          "text": "flanked by a regiment of the Dark Union to one side, and Tultal, the war giant,"
+        },
+        {
+          "start": 10.06,
+          "end": 10.66,
+          "text": "on the other."
+        },
+        {
+          "start": 11.5,
+          "end": 13.7,
+          "text": "I couldn't defend the city against both,"
+        },
+        {
+          "start": 14.2,
+          "end": 17.18,
+          "text": "so I sent my dragon to fight the war giant,"
+        },
+        {
+          "start": 17.6,
+          "end": 20.46,
+          "text": "while I attempted the Great Spell of Protection."
+        }
+      ],
+      "duration": 21.072
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 232,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.72,
+          "text": "Were you not aware of the great danger that lies in casting such a powerful spell?"
+        }
+      ],
+      "duration": 4.976
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 233,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2,
+          "text": "I learned this lesson the hard way."
+        },
+        {
+          "start": 2.76,
+          "end": 5.06,
+          "text": "Once I placed the runes to invoke the spell,"
+        },
+        {
+          "start": 5.76,
+          "end": 10.02,
+          "text": "half the city became encased in an impenetrable enchanted barrier."
+        }
+      ],
+      "duration": 10.628
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 234,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.28,
+          "text": "What happened to your dragon?"
+        }
+      ],
+      "duration": 1.666
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 235,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.14,
+          "text": "Sadly, she was trapped inside the barrier and slain by the war giant before I could"
+        },
+        {
+          "start": 6.14,
+          "end": 7.22,
+          "text": "undo the spell."
+        },
+        {
+          "start": 8.16,
+          "end": 10.2,
+          "text": "Being bonded, I died with her."
+        },
+        {
+          "start": 10.8,
+          "end": 16.94,
+          "text": "Now I am but a soul shadow doomed to walk this tomb of a city and reflect on my"
+        },
+        {
+          "start": 16.94,
+          "end": 18.2,
+          "text": "terrible mistake."
+        },
+        {
+          "start": 19.28,
+          "end": 22.06,
+          "text": "Tell me, Rynn, why have you come to Alwarren?"
+        }
+      ],
+      "duration": 22.354
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 236,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.26,
+          "text": "We're looking for the Bell Hammer."
+        }
+      ],
+      "duration": 1.505
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 237,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.02,
+          "text": "Hmm, that's quite a challenge, you know."
+        },
+        {
+          "start": 2.92,
+          "end": 3.5,
+          "text": "Listen carefully."
+        },
+        {
+          "start": 4.22,
+          "end": 6.42,
+          "text": "You'll find it within the Enchanted Barrier,"
+        },
+        {
+          "start": 6.9,
+          "end": 10.06,
+          "text": "along with the War Giant and the Bones of my dragon."
+        },
+        {
+          "start": 10.72,
+          "end": 14.04,
+          "text": "But first, you must bring me my dragon Soul Crystal,"
+        },
+        {
+          "start": 14.56,
+          "end": 18.6,
+          "text": "so that I can disarm the ward I placed on the entrance to the city."
+        }
+      ],
+      "duration": 19.035
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 239,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.36,
+          "text": "Hurry, one has got your scent already."
+        }
+      ],
+      "duration": 2.655
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 240,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.36,
+          "text": "About time you showed up."
+        }
+      ],
+      "duration": 1.457
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 241,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.66,
+          "text": "All that's left of Tultal is bones and dust."
+        }
+      ],
+      "duration": 3.025
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 242,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.34,
+          "text": "Honestly, I think Turi lost track of just how long she'd been here."
+        }
+      ],
+      "duration": 3.541
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 244,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.94,
+          "text": "Hmm, maybe you should have finished your errands a little faster."
+        },
+        {
+          "start": 4.68,
+          "end": 6.1,
+          "text": "If you're through being witty,"
+        },
+        {
+          "start": 6.54,
+          "end": 8.88,
+          "text": "perhaps we should think about retrieving the Bell Hammer."
+        },
+        {
+          "start": 9.48,
+          "end": 12.06,
+          "text": "It would be best to avoid Toltol if we can."
+        }
+      ],
+      "duration": 12.706
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 245,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "Nothing could have lived that long."
+        }
+      ],
+      "duration": 1.884
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 246,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.42,
+          "text": "Tultal's masters imbued him with tremendous vitality during the Dark Wars."
+        },
+        {
+          "start": 5,
+          "end": 10.02,
+          "text": "He has endured the long centuries of his imprisonment with only madness and hunger"
+        },
+        {
+          "start": 10.02,
+          "end": 10.88,
+          "text": "for companions."
+        },
+        {
+          "start": 11.74,
+          "end": 14.54,
+          "text": "I am certain he will be quite eager to kill again."
+        }
+      ],
+      "duration": 14.878
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 247,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.88,
+          "text": "This is good. You found the Soul Crystal."
+        },
+        {
+          "start": 3.62,
+          "end": 5.68,
+          "text": "The entrance is now open to you."
+        }
+      ],
+      "duration": 5.851
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 248,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.38,
+          "text": "You must now break the Great Spell of Protection."
+        },
+        {
+          "start": 3.02,
+          "end": 7.02,
+          "text": "The spell is powered by six magic runes which surround the city."
+        },
+        {
+          "start": 7.48,
+          "end": 10.1,
+          "text": "Collect all six and place them in the city seal."
+        },
+        {
+          "start": 10.74,
+          "end": 14.16,
+          "text": "Once the runes are placed, the bellhammer can be retrieved,"
+        },
+        {
+          "start": 14.8,
+          "end": 17.86,
+          "text": "but I fear ancient Tultal will also be freed."
+        }
+      ],
+      "duration": 18.177
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 249,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.72,
+          "text": "Total? You mean it's still alive?"
+        }
+      ],
+      "duration": 3.08
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 250,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.1,
+          "text": "I ask one more favor of you, Rynn."
+        },
+        {
+          "start": 2.52,
+          "end": 4.64,
+          "text": "There lies my last tie to this world."
+        },
+        {
+          "start": 5.44,
+          "end": 8.1,
+          "text": "Place the Soul Crystal on my bones, if you will."
+        }
+      ],
+      "duration": 8.287
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 251,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.06,
+          "text": "The two become as sides of a coin, as one do beat two hearts,"
+        },
+        {
+          "start": 5.7,
+          "end": 10.3,
+          "text": "whence Drakan and Warrior join, the whole transcends the parts."
+        },
+        {
+          "start": 11.06,
+          "end": 15.46,
+          "text": "Behold the Dragonstone, once lost it has been found,"
+        },
+        {
+          "start": 16.62,
+          "end": 21.28,
+          "text": "Soul Shadow joins its mate, and bones to dust are ground."
+        },
+        {
+          "start": 21.28,
+          "end": 23.34,
+          "text": "I thank you, Rynn."
+        },
+        {
+          "start": 24.16,
+          "end": 24.64,
+          "text": "Farewell."
+        }
+      ],
+      "duration": 25.019
+    },
+    {
+      "bank": "islands world/alwarren/alwarren",
+      "id": 252,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.6,
+          "text": "You do not have the Soul Crystal."
+        },
+        {
+          "start": 2.46,
+          "end": 2.88,
+          "text": "Well,"
+        },
+        {
+          "start": 3.66,
+          "end": 5.66,
+          "text": "perhaps the task is too great for you."
+        }
+      ],
+      "duration": 6.001
+    },
+    {
+      "bank": "islands world/islands night/islands night",
+      "id": 394,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.94,
+          "text": "Arokh!"
+        }
+      ],
+      "duration": 1.841
+    },
+    {
+      "bank": "islands world/islands night/islands night",
+      "id": 395,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.78,
+          "text": "Ambushed, overwhelmed,"
+        },
+        {
+          "start": 3.54,
+          "end": 5.96,
+          "text": "they took him to the cage of runes,"
+        },
+        {
+          "start": 6.82,
+          "end": 8.78,
+          "text": "inescapable without the key."
+        }
+      ],
+      "duration": 9.016
+    },
+    {
+      "bank": "islands world/islands night/islands night",
+      "id": 396,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.92,
+          "text": "Succubi,"
+        },
+        {
+          "start": 2.02,
+          "end": 2.8,
+          "text": "Queen Shilla,"
+        },
+        {
+          "start": 3.56,
+          "end": 6.92,
+          "text": "more powerful than I knew, darkness spreads."
+        }
+      ],
+      "duration": 7.319
+    },
+    {
+      "bank": "islands world/islands night/islands night",
+      "id": 397,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.52,
+          "text": "You are all that remains to keep the Flame alive."
+        }
+      ],
+      "duration": 8.008
+    },
+    {
+      "bank": "islands world/islands night/islands night",
+      "id": 398,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.26,
+          "text": "What of him? Rimril, where did he go?"
+        }
+      ],
+      "duration": 2.608
+    },
+    {
+      "bank": "islands world/islands night/islands night",
+      "id": 399,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.88,
+          "text": "Who took him? Who took Arokh?"
+        }
+      ],
+      "duration": 2.065
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 258,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.66,
+          "text": "I've heard the legends."
+        },
+        {
+          "start": 2.36,
+          "end": 3.3,
+          "text": "Efir Dragon has."
+        }
+      ],
+      "duration": 3.59
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 259,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.24,
+          "text": "Huh, just an old dragon she rides."
+        }
+      ],
+      "duration": 2.532
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 267,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.92,
+          "text": "Uh, thank you. Listen, I'm looking for a little boy, my brother."
+        },
+        {
+          "start": 4.42,
+          "end": 7.68,
+          "text": "He may have been brought to these islands with a shipment of grimstone."
+        }
+      ],
+      "duration": 8.154
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 268,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.44,
+          "text": "Well, give her our best. I'm Rynn, and this is..."
+        }
+      ],
+      "duration": 3.479
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 271,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.8,
+          "text": "I don't trust them. A little too friendly, if you know what I mean."
+        },
+        {
+          "start": 4.26,
+          "end": 7,
+          "text": "So what's this rift crystal you seem familiar with?"
+        }
+      ],
+      "duration": 7.07
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 273,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.74,
+          "text": "I'm impressed. You know a lot of history."
+        }
+      ],
+      "duration": 3.261
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 275,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.74,
+          "text": "Then maybe we need to get this ripped crystal thing."
+        }
+      ],
+      "duration": 3.006
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 277,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.82,
+          "text": "What were those things, anyway?"
+        }
+      ],
+      "duration": 2.143
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 279,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.94,
+          "text": "The Rift Crystal!"
+        }
+      ],
+      "duration": 1.186
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 281,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.02,
+          "text": "A crystal of great power!"
+        },
+        {
+          "start": 2.76,
+          "end": 7.94,
+          "text": "Heron placed it in the sword room blade and used it in battle against the Unsworn"
+        },
+        {
+          "start": 7.94,
+          "end": 9.26,
+          "text": "during the Dark Wars."
+        }
+      ],
+      "duration": 9.66
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 283,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.04,
+          "text": "I've lived a lot of history."
+        }
+      ],
+      "duration": 2.502
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 285,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.7,
+          "text": "Succubi, perplexing creatures."
+        }
+      ],
+      "duration": 3.166
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 303,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.38,
+          "text": "You know of it."
+        }
+      ],
+      "duration": 1.562
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 304,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.28,
+          "text": "You know of it."
+        }
+      ],
+      "duration": 1.401
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 306,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.52,
+          "text": "You know of it?"
+        }
+      ],
+      "duration": 1.727
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 308,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.14,
+          "text": "But be forewarned."
+        }
+      ],
+      "duration": 1.175
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 309,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.28,
+          "text": "The Rift Crystal."
+        }
+      ],
+      "duration": 1.625
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 311,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2,
+          "text": "Do not mention our queen."
+        }
+      ],
+      "duration": 2.737
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 312,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.04,
+          "text": "The Dragon's Magnificent."
+        }
+      ],
+      "duration": 2.496
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 314,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.46,
+          "text": "His evil thwarted."
+        }
+      ],
+      "duration": 1.942
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 315,
+      "cues": [
+        {
+          "start": 0.78,
+          "end": 3.16,
+          "text": "Grimstone, ugh, stinky stuff."
+        }
+      ],
+      "duration": 3.252
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 316,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "He has been importing it."
+        }
+      ],
+      "duration": 1.811
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 317,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.82,
+          "text": "He may destroy you."
+        }
+      ],
+      "duration": 2.022
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 320,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.04,
+          "text": "He will not administer the test."
+        }
+      ],
+      "duration": 2.422
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 322,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.14,
+          "text": "Ify thinks you're in league with us."
+        }
+      ],
+      "duration": 2.466
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 325,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.92,
+          "text": "The importation of Grimstone would end."
+        }
+      ],
+      "duration": 3.323
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 326,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.68,
+          "text": "It's a powerful talisman."
+        }
+      ],
+      "duration": 2.116
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 327,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.84,
+          "text": "Rid the realm of his sorcery."
+        }
+      ],
+      "duration": 2.351
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 328,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.24,
+          "text": "Servants of the Queen."
+        }
+      ],
+      "duration": 1.725
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 330,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.08,
+          "text": "Shilla, ruler of this realm."
+        }
+      ],
+      "duration": 2.502
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 331,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.76,
+          "text": "It may have to do with the Talisman."
+        }
+      ],
+      "duration": 2.142
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 333,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.92,
+          "text": "The wizard envies her realm."
+        }
+      ],
+      "duration": 2.274
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 335,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.94,
+          "text": "The wizard keeps it in his wretched bell tower."
+        }
+      ],
+      "duration": 3.421
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 336,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.96,
+          "text": "The woman so lovely."
+        }
+      ],
+      "duration": 2.378
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 338,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.3,
+          "text": "To Hive Island."
+        }
+      ],
+      "duration": 1.76
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 339,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.8,
+          "text": "Use it to find your brother."
+        }
+      ],
+      "duration": 2.19
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 342,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.52,
+          "text": "Welcome, wondrous visitors."
+        }
+      ],
+      "duration": 2.026
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 345,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.32,
+          "text": "Which stands on an island to the north."
+        }
+      ],
+      "duration": 2.742
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 346,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.94,
+          "text": "Why, no one knows, but there are suspicions."
+        }
+      ],
+      "duration": 3.448
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 347,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.12,
+          "text": "With the Rift Crystal, Queen Shilla could do much."
+        }
+      ],
+      "duration": 3.539
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 349,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.7,
+          "text": "Without the Rift Crystal, his power would wane."
+        }
+      ],
+      "duration": 3.002
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 350,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.02,
+          "text": "The Wizard of the Ebon Fortress."
+        }
+      ],
+      "duration": 2.546
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 353,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.58,
+          "text": "Your presence is light to our eyes."
+        }
+      ],
+      "duration": 2.98
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 354,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "We are MSRIs."
+        }
+      ],
+      "duration": 1.82
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 362,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.48,
+          "text": "Our wizard, I presume?"
+        }
+      ],
+      "duration": 1.912
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 363,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.62,
+          "text": "Forgiveness, wise one, but -"
+        }
+      ],
+      "duration": 1.657
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 364,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.7,
+          "text": "Do I know you?"
+        },
+        {
+          "start": 2.4,
+          "end": 4.64,
+          "text": "Forgive me, but I have slept long."
+        }
+      ],
+      "duration": 5.101
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 365,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.02,
+          "text": "Tareth's Apprentice?"
+        }
+      ],
+      "duration": 1.423
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 366,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.58,
+          "text": "Yes, of course, but that was ages past."
+        },
+        {
+          "start": 4.2,
+          "end": 6.08,
+          "text": "Even a wizard should be long dead."
+        }
+      ],
+      "duration": 6.411
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 367,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.16,
+          "text": "We'll need the Krystleren. It's the only way."
+        }
+      ],
+      "duration": 3.523
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 368,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.38,
+          "text": "Will you give her the test, Guardian?"
+        }
+      ],
+      "duration": 1.82
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 369,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.12,
+          "text": "But, the Succubi."
+        }
+      ],
+      "duration": 1.493
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 370,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.46,
+          "text": "Delon, Arokh, we've got to go back."
+        }
+      ],
+      "duration": 2.961
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 371,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.36,
+          "text": "Perfect!"
+        }
+      ],
+      "duration": 0.788
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 373,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.7,
+          "text": "Arokh, it is you. I couldn't be certain until you spoke."
+        }
+      ],
+      "duration": 4.097
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 374,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.12,
+          "text": "You once knew me as Rimril, though you may not remember."
+        }
+      ],
+      "duration": 3.5
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 375,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.32,
+          "text": "I know why you have come, child, but you have been deceived."
+        },
+        {
+          "start": 3.96,
+          "end": 7.58,
+          "text": "Queen Shilla controls the flow of Grimstone through these islands, not I."
+        },
+        {
+          "start": 8.08,
+          "end": 9.8,
+          "text": "You will not find your brother here."
+        }
+      ],
+      "duration": 10.089
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 376,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.42,
+          "text": "Audimonic spirits, girl. They are Shilla's creatures and would have you gain for her"
+        },
+        {
+          "start": 5.42,
+          "end": 6.3,
+          "text": "what they cannot."
+        },
+        {
+          "start": 7.18,
+          "end": 9.56,
+          "text": "Queen Shilla is an agent of the Dark Union."
+        },
+        {
+          "start": 10.22,
+          "end": 12.4,
+          "text": "It is likely she has the boy as well."
+        }
+      ],
+      "duration": 12.6
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 377,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.3,
+          "text": "Shilla is strong, child, even with Arokh to aid you."
+        },
+        {
+          "start": 3.76,
+          "end": 6.04,
+          "text": "Her dark masters have given her great power."
+        }
+      ],
+      "duration": 6.433
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 378,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.8,
+          "text": "It is not so simple."
+        },
+        {
+          "start": 2.56,
+          "end": 5.24,
+          "text": "To even enter the tower requires the elemental amulet."
+        },
+        {
+          "start": 5.98,
+          "end": 8.36,
+          "text": "The island fortress where it was held has fallen,"
+        },
+        {
+          "start": 8.8,
+          "end": 11.28,
+          "text": "and a goblin horde have camped amongst the ruins."
+        },
+        {
+          "start": 11.96,
+          "end": 15.22,
+          "text": "Before you can begin the test, you must recover the amulet."
+        }
+      ],
+      "duration": 15.611
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 379,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.7,
+          "text": "There is more. To reach the Rift Crystal, you must have the Bell Hammer,"
+        },
+        {
+          "start": 4.98,
+          "end": 6.9,
+          "text": "lost in the dead city of Alwarren."
+        },
+        {
+          "start": 7.44,
+          "end": 9.42,
+          "text": "Find the hammer and return it here."
+        },
+        {
+          "start": 9.84,
+          "end": 12.48,
+          "text": "Only then can you even hope to succeed."
+        }
+      ],
+      "duration": 12.854
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 382,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.5,
+          "text": "Return when you have the amulet and the hammer, not before."
+        }
+      ],
+      "duration": 3.757
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 383,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.46,
+          "text": "The apprentice you knew is dead, Arokh."
+        },
+        {
+          "start": 2.88,
+          "end": 5.02,
+          "text": "I am the last of the Guardian Magi."
+        },
+        {
+          "start": 5.66,
+          "end": 10.4,
+          "text": "I am bound to stand watch over the Rift Crystal till the sun goes dark if need be."
+        }
+      ],
+      "duration": 10.648
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 384,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.52,
+          "text": "Apologies, Wise One. As bonded, I must go where she directs."
+        },
+        {
+          "start": 4.96,
+          "end": 6.7,
+          "text": "Be the course wise or no."
+        }
+      ],
+      "duration": 7.132
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 385,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.96,
+          "text": "Arokh, why do you bring her to me before she has completed her tasks?"
+        }
+      ],
+      "duration": 4.336
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 386,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.34,
+          "text": "Be gone, and do not return until the tasks are complete."
+        }
+      ],
+      "duration": 3.651
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 387,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.74,
+          "text": "I'll be back."
+        }
+      ],
+      "duration": 1.084
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 391,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.16,
+          "text": "Welcome Rynn, Bonded of Arokh."
+        }
+      ],
+      "duration": 2.361
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 392,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.78,
+          "text": "Your actions prove you worthy."
+        },
+        {
+          "start": 2.6,
+          "end": 5.28,
+          "text": "Enter the tower and seize the Rift Crystal if you can."
+        }
+      ],
+      "duration": 5.454
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 393,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.7,
+          "text": "Watch out! The tower itself is a test."
+        },
+        {
+          "start": 3.28,
+          "end": 6.76,
+          "text": "Keep your wit sharpened or you'll never leave this place again."
+        }
+      ],
+      "duration": 7.125
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 400,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.18,
+          "text": "The crystal was a part of Heron's sword, Rynn."
+        },
+        {
+          "start": 3.32,
+          "end": 7.06,
+          "text": "If Shilla seeks it, then she must have located the blade itself."
+        }
+      ],
+      "duration": 7.536
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 401,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.56,
+          "text": "We cannot allow the Dark Union to reassemble the Runeblade,"
+        },
+        {
+          "start": 4.14,
+          "end": 7.28,
+          "text": "but if we could unite them first..."
+        },
+        {
+          "start": 7.84,
+          "end": 8.48,
+          "text": "Yes."
+        }
+      ],
+      "duration": 9.428
+    },
+    {
+      "bank": "islands world/islands/islands",
+      "id": 405,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.84,
+          "text": "To gain the Rift Crystal, you must survive the test of the tower."
+        }
+      ],
+      "duration": 4.184
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 258,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.72,
+          "text": "I've got to get to that ship!"
+        }
+      ],
+      "duration": 1.919
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 259,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.24,
+          "text": "Just who is this master of yours, Shilla?"
+        },
+        {
+          "start": 3.8,
+          "end": 6.3,
+          "text": "And why should he care about an old dragon?"
+        }
+      ],
+      "duration": 7.018
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 260,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.98,
+          "text": "Assuming she can reach it."
+        }
+      ],
+      "duration": 2.339
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 262,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.4,
+          "text": "How do you know that name?"
+        }
+      ],
+      "duration": 3.296
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 265,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.96,
+          "text": "Oh, my magnificent thrice. You will make a fine offering."
+        },
+        {
+          "start": 4.44,
+          "end": 8.4,
+          "text": "I only hope you're enough to soften the Master's wrath since this last shipment of"
+        },
+        {
+          "start": 8.4,
+          "end": 10.08,
+          "text": "Grimstone is so late."
+        }
+      ],
+      "duration": 10.453
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 266,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.78,
+          "text": "Ha! Good try, Flame Bucket. You'll not loosen my tongue that easily."
+        }
+      ],
+      "duration": 5.23
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 268,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.86,
+          "text": "With Rimril dead, and you my guest,"
+        },
+        {
+          "start": 3.12,
+          "end": 8.4,
+          "text": "I need only wait for my minions to bring me your little Vixen and the Rift Crystal."
+        }
+      ],
+      "duration": 8.962
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 269,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.76,
+          "text": "Oh, she has it all right, otherwise you'd already be frozen in stone,"
+        },
+        {
+          "start": 5.14,
+          "end": 6.4,
+          "text": "my sweet Arokh."
+        }
+      ],
+      "duration": 6.741
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 270,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.32,
+          "text": "Oops, a slip of the tongue. I've already said too much."
+        }
+      ],
+      "duration": 4.811
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 271,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.62,
+          "text": "Hello!"
+        },
+        {
+          "start": 1.62,
+          "end": 4.4,
+          "text": "Would you cast off already, you snot bloggers?"
+        },
+        {
+          "start": 4.94,
+          "end": 7.02,
+          "text": "I'm not getting any younger here, you know."
+        }
+      ],
+      "duration": 7.427
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 272,
+      "cues": [
+        {
+          "start": 0.46,
+          "end": 2.72,
+          "text": "Though you wouldn't know it to look at me."
+        }
+      ],
+      "duration": 3.916
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 275,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.28,
+          "text": "Ah, pretty thing. You see the dragon, yes?"
+        }
+      ],
+      "duration": 5.029
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 277,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.92,
+          "text": "No, no, wait! I can help you."
+        },
+        {
+          "start": 3.7,
+          "end": 5.26,
+          "text": "Shilla took him to the sea caves."
+        },
+        {
+          "start": 5.72,
+          "end": 7.74,
+          "text": "To the docks. I can show you."
+        }
+      ],
+      "duration": 8.016
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 279,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.92,
+          "text": "Shilla is punishing me, and won't let me into the bows anymore."
+        },
+        {
+          "start": 4.58,
+          "end": 8.06,
+          "text": "If one of the others finds my mirror, she'll keep it for herself."
+        },
+        {
+          "start": 8.6,
+          "end": 12.5,
+          "text": "I know it. Find it for me, and I'll show you the way."
+        }
+      ],
+      "duration": 13.188
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 280,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.48,
+          "text": "Mmm, my mirror, you are a clever thing."
+        }
+      ],
+      "duration": 8.534
+    },
+    {
+      "bank": "islands world/succubus lair/succubus lair",
+      "id": 281,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.06,
+          "text": "Follow this, and it will take you to the Throne Room."
+        },
+        {
+          "start": 3.62,
+          "end": 6.04,
+          "text": "From there, you can find your way to the docks."
+        }
+      ],
+      "duration": 6.888
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 261,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.48,
+          "text": "By boat, I've heard the Wartoks mention her, the Eastern Acapellago."
+        }
+      ],
+      "duration": 4.693
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 262,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.26,
+          "text": "And the rest of the people here?"
+        }
+      ],
+      "duration": 1.474
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 263,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.16,
+          "text": "We're dead already. Grimstone is like a slow poison."
+        },
+        {
+          "start": 4.74,
+          "end": 9.14,
+          "text": "It heats away at your mind and your body before its magic kills you."
+        }
+      ],
+      "duration": 9.24
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 264,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.32,
+          "text": "Go find your brother. Hurry!"
+        },
+        {
+          "start": 1.6,
+          "end": 5.32,
+          "text": "If you stay here, the grimstone will rot your brain and you will want to leave."
+        }
+      ],
+      "duration": 5.486
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 265,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.18,
+          "text": "The Hider, I presume?"
+        }
+      ],
+      "duration": 1.488
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 266,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.06,
+          "text": "Yes, at least that's what the Wartoks call me."
+        },
+        {
+          "start": 3.42,
+          "end": 4.16,
+          "text": "Who are you?"
+        }
+      ],
+      "duration": 4.478
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 267,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.82,
+          "text": "Your best friend, right about now, from the looks of it."
+        },
+        {
+          "start": 3.2,
+          "end": 6.2,
+          "text": "God, you're badly hurt. How long have you been here?"
+        }
+      ],
+      "duration": 6.317
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 268,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.02,
+          "text": "Hours, maybe days, keep lucking out."
+        },
+        {
+          "start": 3.52,
+          "end": 4.72,
+          "text": "I'm not going anywhere."
+        }
+      ],
+      "duration": 4.941
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 269,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.38,
+          "text": "Sorry."
+        }
+      ],
+      "duration": 0.687
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 270,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.32,
+          "text": "If you want to get out of this place,"
+        },
+        {
+          "start": 1.88,
+          "end": 4.18,
+          "text": "you'll have to destroy the Grimstone Generator."
+        },
+        {
+          "start": 4.64,
+          "end": 7.08,
+          "text": "Yes, which powers the mine supports and barriers."
+        },
+        {
+          "start": 7.72,
+          "end": 10.18,
+          "text": "Destroy the generator, and these mines will cave in!"
+        }
+      ],
+      "duration": 10.373
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 271,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.78,
+          "text": "My little brother may be here."
+        },
+        {
+          "start": 2.02,
+          "end": 2.88,
+          "text": "That would kill him!"
+        }
+      ],
+      "duration": 3.118
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 272,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.72,
+          "text": "No, if he's just a lad, he's not here."
+        },
+        {
+          "start": 3.36,
+          "end": 7.7,
+          "text": "Every child that gets brought in gets shipped out with the next load of Grimstone."
+        }
+      ],
+      "duration": 7.995
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 273,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.42,
+          "text": "Where to? And how?"
+        }
+      ],
+      "duration": 1.672
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 277,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.46,
+          "text": "You tell now where Hider is!"
+        }
+      ],
+      "duration": 1.705
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 278,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.04,
+          "text": "The Hider is hiding."
+        },
+        {
+          "start": 3.08,
+          "end": 6.02,
+          "text": "Yes, that's it. Hiding. Hiding from all of us."
+        }
+      ],
+      "duration": 6.365
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 279,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.08,
+          "text": "You'll tell, you'll tell or you'll get no grimstone."
+        }
+      ],
+      "duration": 3.337
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 280,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.1,
+          "text": "Oh, please, no! I must have greenstone!"
+        },
+        {
+          "start": 3.64,
+          "end": 3.9,
+          "text": "Please!"
+        }
+      ],
+      "duration": 4.593
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 281,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.6,
+          "text": "You tell, tell, and we give, Grunstone."
+        }
+      ],
+      "duration": 2.869
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 282,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.06,
+          "text": "The Hider, um, the Hider is..."
+        },
+        {
+          "start": 3.06,
+          "end": 4.12,
+          "text": "in the East Tunnel!"
+        }
+      ],
+      "duration": 4.393
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 283,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.38,
+          "text": "You lie! There is no East Tunnel!"
+        }
+      ],
+      "duration": 2.583
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 287,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.74,
+          "text": "Mmm, need no save."
+        }
+      ],
+      "duration": 2.28
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 289,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.34,
+          "text": "Human!"
+        }
+      ],
+      "duration": 0.763
+    },
+    {
+      "bank": "mountain world/grimstone mines/grimstone mines",
+      "id": 299,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.18,
+          "text": "Oh my god!"
+        }
+      ],
+      "duration": 1.457
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 194,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.6,
+          "text": "Can it be, Arokh? I thought you were lost in Stony's sleep forever."
+        }
+      ],
+      "duration": 5.244
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 195,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.84,
+          "text": "I thought the same of you, Arokh."
+        },
+        {
+          "start": 2.14,
+          "end": 4.9,
+          "text": "I feared I was the only Dragon of the Order left."
+        }
+      ],
+      "duration": 5.177
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 196,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.52,
+          "text": "Oh, but you are our old friend."
+        },
+        {
+          "start": 1.94,
+          "end": 3.96,
+          "text": "I learn my lesson in the Dark Wars."
+        },
+        {
+          "start": 4.32,
+          "end": 6.32,
+          "text": "I will not bond with a human again,"
+        },
+        {
+          "start": 6.76,
+          "end": 10.4,
+          "text": "only to become frozen stone when their fire goes out."
+        }
+      ],
+      "duration": 10.582
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 197,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.8,
+          "text": "You are not bonded, then who awakened you?"
+        }
+      ],
+      "duration": 2.903
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 198,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.4,
+          "text": "Man, one who appreciates our strength without polluting us with human weaknesses."
+        }
+      ],
+      "duration": 6.186
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 199,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.16,
+          "text": "I'm sad for you, Wirak. You have forgotten everything."
+        }
+      ],
+      "duration": 3.725
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 200,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.9,
+          "text": "It is you who should be pitied."
+        },
+        {
+          "start": 2.16,
+          "end": 5.64,
+          "text": "You, once the Bonded of Heron, victor of the Dark Wars,"
+        },
+        {
+          "start": 5.92,
+          "end": 8.04,
+          "text": "now mounted by a peasant wench."
+        }
+      ],
+      "duration": 8.288
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 201,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.98,
+          "text": "This one may surprise you, Wirak."
+        }
+      ],
+      "duration": 2.085
+    },
+    {
+      "bank": "mountain world/grotto/grotto",
+      "id": 202,
+      "cues": [
+        {
+          "start": 2.12,
+          "end": 6.5,
+          "text": "Wahahahaha! Unlikely! It was good to see you one last time, Arokh."
+        },
+        {
+          "start": 6.96,
+          "end": 9.54,
+          "text": "But now, it is time for you to sleep again."
+        },
+        {
+          "start": 10.88,
+          "end": 11.4,
+          "text": "FOREVER!"
+        }
+      ],
+      "duration": 12.032
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 9,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.9,
+          "text": "There are legends from times long past, of an age without kings,"
+        },
+        {
+          "start": 5.3,
+          "end": 10.32,
+          "text": "when the world was united by an alliance between the races of Drakan and man."
+        }
+      ],
+      "duration": 10.713
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 10,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.88,
+          "text": "These are the legends of the Order of the Flame."
+        }
+      ],
+      "duration": 3.392
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 11,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.16,
+          "text": "A brotherhood of roaming protectors, bound together through holy magic,"
+        },
+        {
+          "start": 5.52,
+          "end": 10,
+          "text": "so that the soul of each man was joined with that of a single dragon."
+        },
+        {
+          "start": 10.64,
+          "end": 16.5,
+          "text": "By their strength and wisdom, the world was led and peace reigned for centuries."
+        }
+      ],
+      "duration": 17.1
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 12,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.28,
+          "text": "But, as in all times, there were those whose hearts held only hatred and darkness."
+        },
+        {
+          "start": 7.02,
+          "end": 13.42,
+          "text": "In secrecy, they gathered to plot and scheme, and in time, the Dark Union was born."
+        }
+      ],
+      "duration": 13.847
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 13,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.32,
+          "text": "Sworn to overthrow the Order,"
+        },
+        {
+          "start": 2.8,
+          "end": 6.56,
+          "text": "the Dark Union slowly spread its web throughout the world,"
+        },
+        {
+          "start": 6.9,
+          "end": 10.98,
+          "text": "working from the shadows to sow dissension and unrest."
+        }
+      ],
+      "duration": 11.48
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 14,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.56,
+          "text": "At last, through bloody deception,"
+        },
+        {
+          "start": 3.12,
+          "end": 7.16,
+          "text": "control of the Dark Union was seized by the Warmage, Navaros,"
+        },
+        {
+          "start": 7.62,
+          "end": 9.62,
+          "text": "and his ancient dragon, Kyros."
+        },
+        {
+          "start": 10.34,
+          "end": 15.64,
+          "text": "Together, they betrayed and murdered an assembly of the Order's greatest minds,"
+        },
+        {
+          "start": 15.98,
+          "end": 19.58,
+          "text": "leading the Dark Union, at last, into open revolt."
+        }
+      ],
+      "duration": 20.091
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 15,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.7,
+          "text": "The first blow had been struck, and the dark wars had begun."
+        }
+      ],
+      "duration": 5.333
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 16,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.04,
+          "text": "Through black sorcery and unholy alliances,"
+        },
+        {
+          "start": 3.6,
+          "end": 6.32,
+          "text": "the Dark Union had amassed a Nightmare Army,"
+        },
+        {
+          "start": 6.68,
+          "end": 10.2,
+          "text": "which swarmed forth from the dark places beneath the earth."
+        }
+      ],
+      "duration": 10.569
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 17,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.78,
+          "text": "Magic of unimaginable destruction was unleashed upon the world."
+        },
+        {
+          "start": 5.62,
+          "end": 7.28,
+          "text": "Seas boiled away to deserts."
+        },
+        {
+          "start": 8.12,
+          "end": 13.32,
+          "text": "Mountains lay shattered. In battle after battle, the Order were driven back,"
+        },
+        {
+          "start": 13.78,
+          "end": 16.36,
+          "text": "and their great cities ground to dust."
+        }
+      ],
+      "duration": 16.675
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 18,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.8,
+          "text": "No longer content to share the reigns of power, Navaros betrayed the dragon Kyros."
+        },
+        {
+          "start": 6.46,
+          "end": 9.04,
+          "text": "In a perversion of the ancient bonding ritual,"
+        },
+        {
+          "start": 9.52,
+          "end": 14.34,
+          "text": "he devoured the dragon's soul, melding its body into his own."
+        }
+      ],
+      "duration": 14.76
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 19,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.62,
+          "text": "Now grown monstrous and nearly invincible,"
+        },
+        {
+          "start": 4.38,
+          "end": 9.34,
+          "text": "Navaros prepared to lead his armies against the last remnants of the Order of the"
+        },
+        {
+          "start": 9.34,
+          "end": 9.64,
+          "text": "Flame."
+        }
+      ],
+      "duration": 10.151
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 20,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.96,
+          "text": "With one desperate hope, the surviving mages of the Order invested their power in a"
+        },
+        {
+          "start": 5.96,
+          "end": 8.56,
+          "text": "single weapon, the Runeblade."
+        },
+        {
+          "start": 9.44,
+          "end": 14.9,
+          "text": "Surrounded and outnumbered, the Order's only chance lay in this sword borne by the"
+        },
+        {
+          "start": 14.9,
+          "end": 18,
+          "text": "warrior Heron and the dragon Arokh."
+        }
+      ],
+      "duration": 18.48
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 21,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.98,
+          "text": "As the armies clashed, Navaros entered a mystic trance,"
+        },
+        {
+          "start": 4.42,
+          "end": 8.02,
+          "text": "drawing power for one final devastating spell."
+        }
+      ],
+      "duration": 8.576
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 22,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.9,
+          "text": "With the words of destruction on his lips,"
+        },
+        {
+          "start": 3.48,
+          "end": 6.58,
+          "text": "the Betrayer was struck through the heart with a rune blade,"
+        },
+        {
+          "start": 6.96,
+          "end": 12.22,
+          "text": "and the tremendous forces gathered within him were unleashed upon the field."
+        }
+      ],
+      "duration": 12.561
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 23,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.28,
+          "text": "When at last the smoke cleared, both armies lay decimated."
+        },
+        {
+          "start": 4.84,
+          "end": 10.52,
+          "text": "Where Navaros had stood, a jagged rip had been torn in the very fabric of space."
+        }
+      ],
+      "duration": 10.974
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 24,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.98,
+          "text": "In the smoldering crater below, Heron lay dead,"
+        },
+        {
+          "start": 4.46,
+          "end": 7.14,
+          "text": "the Runeblade broken in two at his side."
+        },
+        {
+          "start": 7.76,
+          "end": 12.64,
+          "text": "On that blackened hill, only the dragon Arokh still clung to life."
+        }
+      ],
+      "duration": 12.936
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 25,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.22,
+          "text": "The Order was no more, but the Dark Union's dreams of conquest had been shattered."
+        },
+        {
+          "start": 5.88,
+          "end": 10.9,
+          "text": "With the fall of Navaros, the Dark Union's hold on its monstrous armies collapsed."
+        }
+      ],
+      "duration": 11.427
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 26,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.88,
+          "text": "Chaos spread across the land."
+        },
+        {
+          "start": 2.6,
+          "end": 6.06,
+          "text": "Mankind banded once more into many tribes and kingdoms,"
+        },
+        {
+          "start": 6.54,
+          "end": 10.4,
+          "text": "and the great achievements of the Order of the Flame were forgotten."
+        }
+      ],
+      "duration": 10.955
+    },
+    {
+      "bank": "mountain world/ruined village/ruin book",
+      "id": 27,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.96,
+          "text": "The dragons weary at last of the world of men, withdrew into timeless slumber,"
+        },
+        {
+          "start": 6.44,
+          "end": 7.9,
+          "text": "never again to return."
+        },
+        {
+          "start": 8.86,
+          "end": 13.32,
+          "text": "The age without kings had ended, and of that brief golden era,"
+        },
+        {
+          "start": 14.02,
+          "end": 15.6,
+          "text": "only the legends remain."
+        }
+      ],
+      "duration": 15.912
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 286,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.32,
+          "text": "I did. You may call me Rynn."
+        }
+      ],
+      "duration": 3.342
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 287,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.32,
+          "text": "Inferior Upstart!"
+        }
+      ],
+      "duration": 1.545
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 288,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.12,
+          "text": "Where did you get that cursed stone?"
+        }
+      ],
+      "duration": 2.61
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 289,
+      "cues": [
+        {
+          "start": 0.42,
+          "end": 2.42,
+          "text": "No need to get your scales in a twist."
+        },
+        {
+          "start": 3,
+          "end": 4.2,
+          "text": "I'm not your enemy, you know."
+        }
+      ],
+      "duration": 4.381
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 290,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.32,
+          "text": "You see, Atimar sent me. He said something about the Order of the Flame."
+        }
+      ],
+      "duration": 4.651
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 291,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.58,
+          "text": "The Order?"
+        },
+        {
+          "start": 1.44,
+          "end": 2.7,
+          "text": "How presumptuous!"
+        }
+      ],
+      "duration": 2.982
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 292,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.52,
+          "text": "What makes you think you're worthy?"
+        },
+        {
+          "start": 2.32,
+          "end": 3.8,
+          "text": "Why have you awakened me?"
+        }
+      ],
+      "duration": 3.948
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 293,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.52,
+          "text": "You see, my brother was captured in a Wartok raid."
+        }
+      ],
+      "duration": 3.738
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 294,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.38,
+          "text": "What? You awaken me, Arokh? Bonded dragon of Heron?"
+        }
+      ],
+      "duration": 4.573
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 295,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.68,
+          "text": "Defeater of the Dark Union and savor of all Drakan for that?!"
+        }
+      ],
+      "duration": 4.708
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 296,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.98,
+          "text": "Listen here, you wretched reptile!"
+        },
+        {
+          "start": 2.4,
+          "end": 4.74,
+          "text": "That's the life of my brother you're talking about!"
+        }
+      ],
+      "duration": 4.969
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 297,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.72,
+          "text": "Very well, Rynn. I will listen."
+        }
+      ],
+      "duration": 2.927
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 298,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.16,
+          "text": "Yes, but will you help me, Arokh?"
+        }
+      ],
+      "duration": 2.33
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 299,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.04,
+          "text": "I do not have much choice."
+        },
+        {
+          "start": 2.8,
+          "end": 4.7,
+          "text": "You brought my soul, Crystal."
+        }
+      ],
+      "duration": 5.008
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 300,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.2,
+          "text": "If you choose to bond with me, it will be done."
+        }
+      ],
+      "duration": 3.502
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 301,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.76,
+          "text": "So what do we have to do to bond?"
+        }
+      ],
+      "duration": 2.043
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 302,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.04,
+          "text": "Say, by fire and by blood I'd join with thee."
+        }
+      ],
+      "duration": 4.218
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 303,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.68,
+          "text": "In the Order of the Flame."
+        }
+      ],
+      "duration": 2.062
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 306,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.3,
+          "text": "Once bound, we are as one."
+        }
+      ],
+      "duration": 2.626
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 307,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.22,
+          "text": "Whatever hurt I suffer, you will share."
+        },
+        {
+          "start": 3.72,
+          "end": 7.66,
+          "text": "And if I die, your fate will be worse than death."
+        }
+      ],
+      "duration": 7.899
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 309,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.8,
+          "text": "By fire and by blood, I join with thee in the Order of the Flame."
+        }
+      ],
+      "duration": 4.157
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 318,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.16,
+          "text": "Huh? Who has awakened me?"
+        }
+      ],
+      "duration": 2.323
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 319,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.54,
+          "text": "For a little brother, you're not half bad, Delon."
+        },
+        {
+          "start": 2.94,
+          "end": 5.52,
+          "text": "The way you found Atimar's dagger was clever indeed."
+        }
+      ],
+      "duration": 6.211
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 320,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.28,
+          "text": "Quick, get behind me!"
+        }
+      ],
+      "duration": 1.524
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 321,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.74,
+          "text": "I hope his reward is better than that last book of proverbs he gave me."
+        }
+      ],
+      "duration": 3.971
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 323,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.68,
+          "text": "There were a couple of funny ones, though."
+        },
+        {
+          "start": 2.14,
+          "end": 5.58,
+          "text": "Like, your tongue weighs practically nothing, so how come you can't hold it?"
+        },
+        {
+          "start": 6.52,
+          "end": 8.04,
+          "text": "And... Uh -oh..."
+        }
+      ],
+      "duration": 8.13
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 329,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.88,
+          "text": "Atimar, my god, Atimar, what happened?"
+        }
+      ],
+      "duration": 3.252
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 330,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.62,
+          "text": "Don't move. Try to be still."
+        }
+      ],
+      "duration": 1.85
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 331,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.08,
+          "text": "If they even so much as touched him,"
+        },
+        {
+          "start": 2.28,
+          "end": 5.62,
+          "text": "I'll hunt them down and kill every one of those filthy beasts."
+        }
+      ],
+      "duration": 6.042
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 333,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.14,
+          "text": "The Order? That's a myth,"
+        },
+        {
+          "start": 2.88,
+          "end": 3.4,
+          "text": "isn't it?"
+        }
+      ],
+      "duration": 3.515
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 334,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.6,
+          "text": "Delon?"
+        },
+        {
+          "start": 1.84,
+          "end": 2.92,
+          "text": "Delon?!"
+        }
+      ],
+      "duration": 3.107
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 335,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.58,
+          "text": "Rynn, help me, Rynn."
+        }
+      ],
+      "duration": 3.603
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 336,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "Despicable Wartoks."
+        }
+      ],
+      "duration": 2.235
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 337,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.5,
+          "text": "They came to my house."
+        }
+      ],
+      "duration": 2.504
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 339,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.46,
+          "text": "They're using me as an example."
+        }
+      ],
+      "duration": 2.926
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 340,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2,
+          "text": "I saw Delon told him to run."
+        }
+      ],
+      "duration": 2.576
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 342,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.54,
+          "text": "But I think they caught him."
+        },
+        {
+          "start": 2.18,
+          "end": 2.98,
+          "text": "Not sure."
+        }
+      ],
+      "duration": 3.381
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 343,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.28,
+          "text": "There's darkness afoot, Rynn."
+        }
+      ],
+      "duration": 2.4
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 344,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.1,
+          "text": "This is only part of, I mean,"
+        },
+        {
+          "start": 2.88,
+          "end": 5.54,
+          "text": "only the Order of the Flame can confront it."
+        }
+      ],
+      "duration": 5.737
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 346,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.36,
+          "text": "The book. You need the book."
+        },
+        {
+          "start": 3,
+          "end": 5.48,
+          "text": "Locked in my house across the river."
+        },
+        {
+          "start": 6.18,
+          "end": 11.48,
+          "text": "An orc stole the key. I last saw him entering the tavern."
+        },
+        {
+          "start": 12.34,
+          "end": 16.32,
+          "text": "Find the key. Get the book. Enter the temple."
+        },
+        {
+          "start": 16.96,
+          "end": 18.54,
+          "text": "Get the soul crystal."
+        },
+        {
+          "start": 19.9,
+          "end": 21.82,
+          "text": "Find Arokh."
+        },
+        {
+          "start": 22.76,
+          "end": 23.28,
+          "text": "Arokh."
+        }
+      ],
+      "duration": 23.692
+    },
+    {
+      "bank": "mountain world/ruined village/ruined village",
+      "id": 348,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.86,
+          "text": "Let's get going!"
+        }
+      ],
+      "duration": 1.093
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 267,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.22,
+          "text": "Rynn, you ride a dragon. I thought the Order of the Flame was just one of Atimar's"
+        },
+        {
+          "start": 6.22,
+          "end": 6.44,
+          "text": "stories."
+        }
+      ],
+      "duration": 6.842
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 268,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.86,
+          "text": "So did I. What happened?"
+        }
+      ],
+      "duration": 2.171
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 269,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.02,
+          "text": "A Wartok raid."
+        },
+        {
+          "start": 1.9,
+          "end": 5.56,
+          "text": "I thought you were killed. I tried to fight them, but there were too many."
+        },
+        {
+          "start": 6.74,
+          "end": 9.92,
+          "text": "All the survivors were captured to work in the Wartok mines,"
+        },
+        {
+          "start": 10.1,
+          "end": 12.32,
+          "text": "but by the time we got here,"
+        },
+        {
+          "start": 13.1,
+          "end": 16.14,
+          "text": "I was so weak, they left me to die."
+        }
+      ],
+      "duration": 16.314
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 270,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.36,
+          "text": "Did you see my brother? He's but a child."
+        }
+      ],
+      "duration": 2.614
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 271,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.04,
+          "text": "They had all the children at the front of the line."
+        },
+        {
+          "start": 2.54,
+          "end": 5.26,
+          "text": "He may have been among the sorry lot of new slaves."
+        }
+      ],
+      "duration": 5.611
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 273,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.92,
+          "text": "I've got to find him. How do I get in these mines?"
+        }
+      ],
+      "duration": 3.154
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 274,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.9,
+          "text": "You'll never get through the front gate, but there is another way."
+        },
+        {
+          "start": 4.32,
+          "end": 5.66,
+          "text": "You can reach it with the dragon."
+        },
+        {
+          "start": 6.38,
+          "end": 9.12,
+          "text": "There's a secret entrance behind the waterfall."
+        },
+        {
+          "start": 11.04,
+          "end": 13.46,
+          "text": "You're the only hope we have, Rynn."
+        },
+        {
+          "start": 13.62,
+          "end": 16.46,
+          "text": "You've got to find a way to save the villagers."
+        }
+      ],
+      "duration": 19.772
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 277,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2,
+          "text": "Hey, did you ever hear a knockin'?"
+        }
+      ],
+      "duration": 2.025
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 278,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.84,
+          "text": "Sorry, I thought this place was deserted."
+        },
+        {
+          "start": 2.4,
+          "end": 3.74,
+          "text": "I need some weapons and supplies."
+        },
+        {
+          "start": 4.32,
+          "end": 4.66,
+          "text": "Got any?"
+        }
+      ],
+      "duration": 4.807
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 279,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "You won't find much around here."
+        },
+        {
+          "start": 2.04,
+          "end": 4.8,
+          "text": "The Wartoks carted off everything, and everyone."
+        },
+        {
+          "start": 5.56,
+          "end": 7.52,
+          "text": "Nears, I can tell I'm the only one left."
+        }
+      ],
+      "duration": 7.666
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 280,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.8,
+          "text": "So, why didn't they take you?"
+        }
+      ],
+      "duration": 2.029
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 281,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.24,
+          "text": "As a lad, I apprenticed with the mage of Osso -Ojou."
+        },
+        {
+          "start": 3.6,
+          "end": 8.14,
+          "text": "Oh, I'm no wizard, but I know enough magic to give the Wartoks a scare."
+        }
+      ],
+      "duration": 8.36
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 282,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.94,
+          "text": "Hmm, how did you know about the dragon anyway?"
+        }
+      ],
+      "duration": 3.392
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 283,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.5,
+          "text": "Ascension spell. It's how I know when the Wartoks are coming,"
+        },
+        {
+          "start": 3.9,
+          "end": 6.12,
+          "text": "and how I know you came here with the dragon."
+        }
+      ],
+      "duration": 6.605
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 284,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.4,
+          "text": "Well, good luck, old man. I've got to -"
+        }
+      ],
+      "duration": 2.437
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 286,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "You said you were looking for weapons."
+        },
+        {
+          "start": 2.28,
+          "end": 3.98,
+          "text": "I know where a sword can be found,"
+        },
+        {
+          "start": 4.32,
+          "end": 6.96,
+          "text": "but you'll have to do a little chore for me first."
+        }
+      ],
+      "duration": 7.192
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 287,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.3,
+          "text": "Why am I not surprised?"
+        }
+      ],
+      "duration": 1.612
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 288,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.92,
+          "text": "There's mine back up the hill from here."
+        },
+        {
+          "start": 2.42,
+          "end": 5.2,
+          "text": "I'd hide out there, but it's infested with spiders."
+        },
+        {
+          "start": 5.82,
+          "end": 8.5,
+          "text": "Clean them out, and I'll tell you how to get the sword."
+        }
+      ],
+      "duration": 8.711
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 289,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.24,
+          "text": "Hmm, pest control."
+        },
+        {
+          "start": 2,
+          "end": 3.5,
+          "text": "You're starting to bug me, old man."
+        },
+        {
+          "start": 3.86,
+          "end": 4.68,
+          "text": "Give me a challenge!"
+        }
+      ],
+      "duration": 5.037
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 290,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.16,
+          "text": "Oh, I have. You'll see."
+        }
+      ],
+      "duration": 3.489
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 291,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.54,
+          "text": "Here, take this key. You'll need it."
+        }
+      ],
+      "duration": 2.577
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 292,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.26,
+          "text": "What's the matter, lass? You got arachnophobia?"
+        }
+      ],
+      "duration": 3.436
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 293,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.64,
+          "text": "My sentence bell tells me there are still spiders in the mine,"
+        },
+        {
+          "start": 4.08,
+          "end": 6.5,
+          "text": "you got to kill them all or no sword."
+        }
+      ],
+      "duration": 6.728
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 294,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.54,
+          "text": "What do you know, lass? You did it!"
+        }
+      ],
+      "duration": 1.618
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 295,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.8,
+          "text": "Don't act so surprised. Now where's that sword?"
+        }
+      ],
+      "duration": 2.938
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 296,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.36,
+          "text": "Got a map we can use."
+        }
+      ],
+      "duration": 1.516
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 297,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.14,
+          "text": "What you're looking for is a ledge high up the mountainside."
+        }
+      ],
+      "duration": 3.229
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 298,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.3,
+          "text": "You're sending me after a rusty sword on some ledge?"
+        }
+      ],
+      "duration": 3.526
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 299,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.92,
+          "text": "Nah, the ledge is where you use this."
+        }
+      ],
+      "duration": 3.102
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 302,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.86,
+          "text": "That's a rune of stone. Use it on the ledge and you'll find the sword quick enough."
+        }
+      ],
+      "duration": 5.141
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 303,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.34,
+          "text": "I mark the location of the ledge on your map."
+        }
+      ],
+      "duration": 2.462
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 304,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.18,
+          "text": "Thanks. Keep your eyes open for Wartoks with hostages."
+        },
+        {
+          "start": 3.8,
+          "end": 4.66,
+          "text": "They may have my brother."
+        }
+      ],
+      "duration": 4.972
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 305,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.48,
+          "text": "We'll do less. Good luck."
+        }
+      ],
+      "duration": 1.637
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 306,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.68,
+          "text": "And to you. you"
+        }
+      ],
+      "duration": 0.779
+    },
+    {
+      "bank": "mountain world/wartok canyons/wartok canyons",
+      "id": 307,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.74,
+          "text": "How's that, Drakan Dam?"
+        }
+      ],
+      "duration": 2.001
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 10,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.78,
+          "text": "Navaros may be Sasa, Domasa nichi -chi, Kandala."
+        }
+      ],
+      "duration": 8.223
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 12,
+      "cues": [
+        {
+          "start": 0,
+          "end": 8.68,
+          "text": "Navaros, Minigosha, Apoma, Mini, Ziyaka, Yoma, Usa."
+        }
+      ],
+      "duration": 9.571
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 13,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.06,
+          "text": "Ego, Se, Ego, Tusa, Se, Eyo, Efini, Umo."
+        }
+      ],
+      "duration": 7.734
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 15,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.64,
+          "text": "DELON!"
+        }
+      ],
+      "duration": 1.016
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 17,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.94,
+          "text": "Leave my brother alone, you beast!"
+        }
+      ],
+      "duration": 2.274
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 23,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.26,
+          "text": "At last, I am darkness made flesh."
+        },
+        {
+          "start": 4.1,
+          "end": 6,
+          "text": "You have done well, Sirlek."
+        }
+      ],
+      "duration": 6.269
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 34,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.74,
+          "text": "My dear, dear Delon, I am so sorry."
+        }
+      ],
+      "duration": 4.141
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 38,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.64,
+          "text": "Arokh!"
+        }
+      ],
+      "duration": 0.729
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 41,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.3,
+          "text": "There is no time for tears, Rynn."
+        },
+        {
+          "start": 2.4,
+          "end": 3.82,
+          "text": "Draw strength from your anger."
+        },
+        {
+          "start": 4.3,
+          "end": 7.76,
+          "text": "We must avenge Delon, or all Drakan may suffer his fate."
+        }
+      ],
+      "duration": 7.984
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 42,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.38,
+          "text": "Arokh,"
+        },
+        {
+          "start": 2.86,
+          "end": 3.88,
+          "text": "Rynn!"
+        }
+      ],
+      "duration": 4.156
+    },
+    {
+      "bank": "rift world/rift world/riftworld",
+      "id": 45,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.38,
+          "text": "Rynn, let's go now, while it's open."
+        }
+      ],
+      "duration": 2.613
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 3,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.44,
+          "text": "Attention!"
+        },
+        {
+          "start": 1.14,
+          "end": 6.28,
+          "text": "Attention! The meeting will begin as getruled in the Great Hall of Darkness."
+        },
+        {
+          "start": 7.22,
+          "end": 11.86,
+          "text": "Attendance is mandatory for all thralls of evil, dead or undead,"
+        },
+        {
+          "start": 12.4,
+          "end": 16,
+          "text": "possessed on a permanent part -time or temporary basis."
+        },
+        {
+          "start": 17.24,
+          "end": 21.5,
+          "text": "A reminder for those individuals who arrived late to the previous meeting,"
+        },
+        {
+          "start": 21.86,
+          "end": 27.34,
+          "text": "you are responsible for providing the post -meeting blood sacrifices for those of us"
+        },
+        {
+          "start": 27.34,
+          "end": 29.42,
+          "text": "who understand punctuality."
+        }
+      ],
+      "duration": 30.292
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 5,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.64,
+          "text": "Shhh, I have the Rift Crystal."
+        }
+      ],
+      "duration": 1.905
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 6,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.16,
+          "text": "If I didn't know better, I'd think you were sucking up to me."
+        }
+      ],
+      "duration": 3.26
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 8,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.06,
+          "text": "Eh, I'm not looking forward to that."
+        },
+        {
+          "start": 2.38,
+          "end": 4.14,
+          "text": "Well, don't worry. I'll be back for you."
+        }
+      ],
+      "duration": 4.559
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 9,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.56,
+          "text": "Oh, well, thanks for the confidence, pal, but I've got to get you out of there."
+        }
+      ],
+      "duration": 3.712
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 11,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.84,
+          "text": "I have every confidence."
+        }
+      ],
+      "duration": 2.436
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 12,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.72,
+          "text": "Ah, I knew you wouldn't fail."
+        }
+      ],
+      "duration": 3.027
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 14,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.52,
+          "text": "This is a rune cage. The only way to open it is with the rune Shilla carries."
+        }
+      ],
+      "duration": 5.854
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 16,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.74,
+          "text": "Great Lord of the Rift, Master of Darkness."
+        },
+        {
+          "start": 4.2,
+          "end": 9.28,
+          "text": "We, your humble servants, seek your counsel at this meeting of the Dark Union"
+        },
+        {
+          "start": 9.28,
+          "end": 9.94,
+          "text": "reborn."
+        }
+      ],
+      "duration": 10.59
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 18,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.28,
+          "text": "I have captured the dragon Arokh, Mount of Heron,"
+        },
+        {
+          "start": 3.54,
+          "end": 6.94,
+          "text": "ancient foe of Navaros the Mighty and the Dark Union."
+        }
+      ],
+      "duration": 7.479
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 19,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.54,
+          "text": "Oh, well, we, your servants, eagerly anticipate witnessing your judgement upon him."
+        }
+      ],
+      "duration": 6.786
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 20,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.26,
+          "text": "Servants of darkness can't pass the test required to take the Rift Crystal,"
+        },
+        {
+          "start": 4.5,
+          "end": 7.78,
+          "text": "so I deceived an innocent into taking it for us."
+        }
+      ],
+      "duration": 7.95
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 22,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.38,
+          "text": "I expect her any moment now."
+        },
+        {
+          "start": 2.74,
+          "end": 5.92,
+          "text": "Without the dragon's power, she'll be easily dealt with,"
+        },
+        {
+          "start": 6.12,
+          "end": 9.08,
+          "text": "and then the Rift Crystal will be..."
+        }
+      ],
+      "duration": 9.264
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 24,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.26,
+          "text": "What news have you, Shilla, Queen of the Succubi?"
+        }
+      ],
+      "duration": 4.194
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 25,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.82,
+          "text": "You have done well, my beautiful queen."
+        }
+      ],
+      "duration": 3.55
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 26,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.78,
+          "text": "Silence!"
+        }
+      ],
+      "duration": 2.017
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 28,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.82,
+          "text": "The remains of matter of the Riftcrest Star."
+        }
+      ],
+      "duration": 3.319
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 29,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.76,
+          "text": "Mine!"
+        },
+        {
+          "start": 1.64,
+          "end": 6.98,
+          "text": "See to it that you get it. The full power of the Sword of Heron and the Rift Crystal"
+        },
+        {
+          "start": 6.98,
+          "end": 9.6,
+          "text": "must be in my hands when I cross over."
+        },
+        {
+          "start": 10.52,
+          "end": 14.8,
+          "text": "Zirlik, High Priest of Deathmatch, I stand for her."
+        }
+      ],
+      "duration": 15.37
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 30,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.46,
+          "text": "The Sword of Heron?"
+        }
+      ],
+      "duration": 2.077
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 31,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.2,
+          "text": "And the preparations for my return?"
+        }
+      ],
+      "duration": 2.963
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 32,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.6,
+          "text": "Prepare the grimstone gate and bring the boy to me."
+        },
+        {
+          "start": 4.3,
+          "end": 7.66,
+          "text": "I have waited long to wear warm flesh again."
+        },
+        {
+          "start": 8.68,
+          "end": 9.94,
+          "text": "Rejoice my subjects!"
+        },
+        {
+          "start": 10.82,
+          "end": 12.62,
+          "text": "Soon I shall walk amongst you,"
+        },
+        {
+          "start": 12.88,
+          "end": 18.04,
+          "text": "and the Dark Union will at last rule all of Drakan and beyond!"
+        }
+      ],
+      "duration": 20.1
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 34,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.9,
+          "text": "Girl, you are in for one hell of a disappointment."
+        }
+      ],
+      "duration": 3.263
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 35,
+      "cues": [
+        {
+          "start": 0,
+          "end": 0.9,
+          "text": "Delon!"
+        }
+      ],
+      "duration": 1.089
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 36,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.92,
+          "text": "I stand ready to serve, O Master of Darkness."
+        }
+      ],
+      "duration": 4.519
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 37,
+      "cues": [
+        {
+          "start": 0,
+          "end": 6.04,
+          "text": "Safe as ever, my lord, the sword room guards answer to me alone."
+        }
+      ],
+      "duration": 6.836
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 38,
+      "cues": [
+        {
+          "start": 0,
+          "end": 5.46,
+          "text": "We have found the suitable vessel for your inhabitation, my master."
+        }
+      ],
+      "duration": 5.984
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 40,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.32,
+          "text": "Shilla, give me the rune that opens the cage, now!"
+        }
+      ],
+      "duration": 3.684
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 41,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.04,
+          "text": "The only thing you're going to get is a funeral if you don't give me that rune right"
+        },
+        {
+          "start": 4.04,
+          "end": 4.46,
+          "text": "now."
+        }
+      ],
+      "duration": 4.639
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 43,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.24,
+          "text": "No, no, no, my little strumpet."
+        },
+        {
+          "start": 2.62,
+          "end": 5.02,
+          "text": "You're the one who's gonna give me something."
+        },
+        {
+          "start": 5.54,
+          "end": 6.44,
+          "text": "The Rift Crystal."
+        }
+      ],
+      "duration": 6.889
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 44,
+      "cues": [
+        {
+          "start": 0,
+          "end": 3.18,
+          "text": "Arokh, we've got to hurry. Shilla, the Wartoks, the goblins,"
+        },
+        {
+          "start": 3.66,
+          "end": 6.82,
+          "text": "they're all trying to bring some Lord of the Rift to Drakan."
+        }
+      ],
+      "duration": 7.049
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 45,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.94,
+          "text": "He's why Shilla wanted the Rift Crystal."
+        },
+        {
+          "start": 2.36,
+          "end": 5,
+          "text": "He plans to use it with some sword they have."
+        }
+      ],
+      "duration": 5.148
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 48,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.86,
+          "text": "All right then, let's get the sword."
+        }
+      ],
+      "duration": 2.12
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 51,
+      "cues": [
+        {
+          "start": 0,
+          "end": 4.9,
+          "text": "Navaros, gah, I had a bad feeling this might happen."
+        }
+      ],
+      "duration": 5.195
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 53,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.08,
+          "text": "No! I have the room, Glide!"
+        }
+      ],
+      "duration": 2.545
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 54,
+      "cues": [
+        {
+          "start": 0,
+          "end": 2.1,
+          "text": "If your brother has been taken into the Rift,"
+        },
+        {
+          "start": 2.52,
+          "end": 5.2,
+          "text": "then we'll have no choice but to battle Navaros."
+        },
+        {
+          "start": 5.6,
+          "end": 9.36,
+          "text": "To do that, we'll need the Rift Crystal AND the Rune Blade."
+        }
+      ],
+      "duration": 9.776
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 55,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.16,
+          "text": "This is bad."
+        },
+        {
+          "start": 1.9,
+          "end": 3.46,
+          "text": "Navaros knows their power well."
+        },
+        {
+          "start": 4.02,
+          "end": 6.44,
+          "text": "Heron used them both to drive Navaros into the Rift."
+        },
+        {
+          "start": 7.14,
+          "end": 12.56,
+          "text": "With them, the Dark Lord would have even more terrible power than he did long ago."
+        }
+      ],
+      "duration": 13.027
+    },
+    {
+      "bank": "volcanic world/volcano/volcano",
+      "id": 57,
+      "cues": [
+        {
+          "start": 0,
+          "end": 1.88,
+          "text": "They're taking my brother to him now!"
+        }
+      ],
+      "duration": 2.106
+    }
+  ]
+}

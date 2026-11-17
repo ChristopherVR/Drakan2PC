@@ -1,7 +1,14 @@
 // The heavy half of "Import Order of the Flame levels": reading the install, converting the levels and building the mod
 // pack. It runs in `ootfworker.ts` so the editor stays responsive; the dialog only shows the progress and the result.
 
-import { buildOotfPack, ootfArenaFromPc, previewFileName, type ModMeta, type OotfPack } from '@drakan/editor-core';
+import {
+    buildOotfPack,
+    ootfArenaFromPc,
+    ootfSubtitleTable,
+    previewFileName,
+    type ModMeta,
+    type OotfPack,
+} from '@drakan/editor-core';
 import {
     SrscReader,
     ps2BlobFor,
@@ -140,6 +147,7 @@ export async function runConversion(
         { ...context, readPs2Txd: readDisc },
         {
             ...OOTF_DIALOG_OPTIONS,
+            subtitles: await ootfSubtitleTable(src, undefined, progress),
             ps2Textures: req.ps2Textures,
             ps2Models: req.ps2Models,
             authoredModels: await authoredModels(),

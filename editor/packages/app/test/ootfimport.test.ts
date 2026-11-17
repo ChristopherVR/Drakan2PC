@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { ootfSubtitleTable } from '@drakan/editor-core';
+import { writePs2Srsc, xorRrcString } from '@drakan/formats';
 import {
     installFilesOf,
     languageNote,
@@ -50,6 +52,33 @@ describe('install language note', () => {
 });
 
 describe('install files for the conversion worker', () => {
+    it('uses the included captions only when the install identifies as English', async () => {
+        for (const [sample, expected] of [
+            ['the and you of to is your with this are for have not from', 295],
+            ['der die das und nicht ist sie mit der die das und', undefined],
+        ] as const) {
+            const data = xorRrcString(new TextEncoder().encode(sample));
+            const rrc = writePs2Srsc([{ type: 0x400, id: 1, sub: 0, data }]);
+            const src = { list: async () => ['Dragon.rrc'], read: async (p: string) => p === 'Dragon.rrc' ? rrc : null };
+            expect((await ootfSubtitleTable(src))?.size).toBe(expected);
+        }
+    });
+
+    it('reads scene captions from the selected install, including on a rebuild with edited text', async () => {
+        expect(await ootfSubtitleTable(filesSource([]))).toBeUndefined();
+        for (const text of ['First line', 'Edited line']) {
+            const transcript = {
+                format: 'drakan-subtitles',
+                version: 1,
+                language: 'english',
+                lines: [{ bank: 'village', id: 2, cues: [{ start: 0, end: 2, text }] }],
+            };
+            const file = new File([JSON.stringify(transcript)], 'ootf-subtitles.json');
+            const table = await ootfSubtitleTable(filesSource(installFilesOf([file])));
+            expect(table?.clipText('village', 2)).toContain(text);
+        }
+    });
+
     it('drops the picked folder name and reads files case-insensitively', async () => {
         const f = new File([new Uint8Array([1, 2, 3])], 'Ruined Village.lvl');
         Object.defineProperty(f, 'webkitRelativePath', {

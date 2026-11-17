@@ -170,6 +170,28 @@ class ClipKind(unittest.TestCase):
         self.assertEqual(kind, {"kind": "bark", "kindReason": "played by Grunt . Ambient Sounds"})
 
 
+class CliCaptions(unittest.TestCase):
+    def test_pages_fit_the_recording_and_noisy_recognition_is_discarded(self):
+        clip = {"bank": "village", "id": 15, "name": "response", "duration": 4.0}
+        parts = [
+            {"text": "We have time.", "offsets": {"from": 100, "to": 1750}, "tokens": [{"text": " have", "p": 0.9}]},
+            {"text": "We should go.", "offsets": {"from": 1700, "to": 4800}, "tokens": [{"text": " go", "p": 0.9}]},
+        ]
+        line = SUB.cli_line(clip, parts, -0.45)
+        self.assertEqual(line["cues"], [{"start": 0.1, "end": 4.0, "text": "We have time. We should go."}])
+        self.assertNotIn("review", line)
+        for part in parts:
+            part["tokens"] = [{"text": " noise", "p": 0.02}, {"text": "[_BEG_]", "p": 1.0}]
+        self.assertIsNone(SUB.cli_line(clip, parts, -0.45))
+        for label in [
+            "*Growling* *Growling*",
+            "Huh. (laughs)",
+            "the Dark Union, the Order of the Flame, the Bond, Drakan",
+        ]:
+            parts[0].update(text=label, tokens=[{"text": label, "p": 0.99}])
+            self.assertIsNone(SUB.cli_line(clip, parts[:1], -0.45))
+
+
 class ModelNotice(unittest.TestCase):
     def test_a_missing_model_is_named_with_source_licence_and_size(self):
         with tempfile.TemporaryDirectory() as tmp:

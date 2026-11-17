@@ -73,6 +73,7 @@ var
   IsoPage: TInputFileWizardPage;
   PlayPage: TInputDirWizardPage;
   OotfPage: TWizardPage;
+  SubtitlePage: TInputOptionWizardPage;
   OotfEdit: TNewEdit;
   DlssPage: TInputOptionWizardPage;
   HdPage: TInputOptionWizardPage;
@@ -117,8 +118,7 @@ begin
     'multiplayer arenas, with their cut scenes and music, into a mod pack for this game. The title menu then offers ' +
     'both games. Choose its install folder (the one holding Dragon.rrc), a copy of the disc, its disc image ' +
     '(.mdx or .iso) or the Drakan.zip that holds the image. Leave the field empty to skip it.' + #13#10#13#10 +
-    'The conversion runs on this PC from your own files, adds about 3 to 8 min to the build and needs about 1 GB ' +
-    'of disk space. Nothing is uploaded and no game data is included in this setup.';
+    'Allow 3 to 8 min and about 1 GB for the conversion with the included English scene subtitles.';
   OotfEdit := TNewEdit.Create(OotfPage);
   OotfEdit.Parent := OotfPage.Surface;
   OotfEdit.Top := Info.Top + Info.Height + ScaleY(16);
@@ -172,7 +172,17 @@ begin
 
   CreateOotfPage;
 
-  DlssPage := CreateInputOptionPage(OotfPage.ID,
+  SubtitlePage := CreateInputOptionPage(OotfPage.ID,
+    'Order of the Flame subtitles', 'Choose the source of the scene captions.',
+    'The included captions match the English recordings. You can also put ootf-subtitles.json beside your game files. ' +
+    'To transcribe another language or create a fresh transcript, choose local generation. The first run downloads ' +
+    'about 145 MiB and adds roughly 5 to 15 minutes. Your recordings stay on this PC.', True, False);
+  SubtitlePage.Add('Use included English subtitles or my supplied transcript');
+  SubtitlePage.Add('Generate subtitles from my own recordings');
+  SubtitlePage.Values[1] := GetPreviousData('OotfSubtitles', 'bundled') = 'generate';
+  SubtitlePage.Values[0] := not SubtitlePage.Values[1];
+
+  DlssPage := CreateInputOptionPage(SubtitlePage.ID,
     'NVIDIA DLSS (optional)',
     'AI upscaling and frame generation on NVIDIA RTX graphics cards.',
     'DLSS works only on NVIDIA RTX graphics cards; on any other card leave it off. Its SDK is downloaded from ' +
@@ -188,7 +198,7 @@ begin
     'After the build every texture of the game (and of Order of the Flame, when you chose it) is upscaled 4x with the ' +
     'free Real-ESRGAN AI upscaler. It runs on any graphics card with Vulkan drivers and downloads about 75 MB of tools ' +
     'once, checked against pinned hashes. About 17 to 32 min on a fast graphics card (about 2 GB), ' +
-    '23 to 43 min together with Order of the Flame (about 4 GB); several times longer on an older card and ' +
+    '23 to 43 min together with Order of the Flame (about 4 GB) before optional caption generation; several times longer on an older card and ' +
     'hours on integrated graphics. The game plays without them, the step can be stopped and resumed, and the build can ' +
     'be run again to make them later. The build window shows the estimate for your own PC before it starts.',
     False, False);
@@ -265,6 +275,10 @@ end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
+  if SubtitlePage.Values[1] then
+    SetPreviousData(PreviousDataKey, 'OotfSubtitles', 'generate')
+  else
+    SetPreviousData(PreviousDataKey, 'OotfSubtitles', 'bundled');
   SetPreviousData(PreviousDataKey, 'PlayFolder', GetPlayDir(''));
   if OptionsPage.Values[3] then
     SetPreviousData(PreviousDataKey, 'VuBlocks', 'Whole')
@@ -305,6 +319,11 @@ begin
       Result := 'That file is too small to be the game disc. For a .cue / .bin rip choose the .cue sheet or Track 1.';
   end else
     Result := 'That file or folder does not exist.';
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = SubtitlePage.ID) and (Trim(OotfEdit.Text) = '');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -475,9 +494,13 @@ begin
   else
     Result := Result + ' -VuBlocks Chunked';
   // Always passed, so a reinstall replaces what an earlier one remembered. The builder checks the source and says so.
-  if (Trim(OotfEdit.Text) <> '') and not OotfRejected then
-    Result := Result + ' -OotfSource "' + Trim(OotfEdit.Text) + '"'
-  else
+  if (Trim(OotfEdit.Text) <> '') and not OotfRejected then begin
+    Result := Result + ' -OotfSource "' + Trim(OotfEdit.Text) + '"';
+    if SubtitlePage.Values[1] then
+      Result := Result + ' -OotfSubtitles generate'
+    else
+      Result := Result + ' -OotfSubtitles bundled';
+  end else
     Result := Result + ' -OotfSource none';
   // Always passed, so a reinstall applies what this page says; a plain rebuild leaves the settings alone.
   if DefaultsPage.Values[0] then

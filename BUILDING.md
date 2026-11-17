@@ -222,10 +222,20 @@ on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers th
   `--cover`, so the pack ships `previews/campaign-ootf.png` and `background-ootf.png`. A rebuild converts again only when the source, the ISO, the cover, the converter
   code (`KIT-VERSION.txt` or the Git revision) or the need for HD sources changed (`build/ootf/convert-state.json`). A
   failed conversion is reported and the game build goes on without it.
-* **Subtitles of the Order of the Flame scenes** (a manual step for now; the guided builder does not run it): the PC game
-  has no subtitle text, so the text is made on your machine from the install's own voice clips and handed to the converter:
-  `python analysis/scripts/ootf_subtitles.py --ootf <install> --out build/ootf-subtitles/english.json --review build/ootf-subtitles/review.txt`,
-  then `ootf-convert.ts ... --subtitles "build/ootf-subtitles/english.json;<corrected file>"` (a later file's lines replace an
+* **Order of the Flame scene subtitles.** Setup and the editor include English captions for 295 clips (510 timed
+  pages). The converter selects them for an English PC install. Enable **Show Subtitles** in the game.
+  To transcribe your own recordings, select **Generate subtitles from my own recordings** in setup, or pass
+  `-OotfSubtitles generate` to the guided builder. The first run downloads about 145 MiB for whisper.cpp and its
+  multilingual model. The recordings stay on your computer. Rebuilds reuse the generated file in `build/ootf/subtitles`.
+  Select **Use included English subtitles or my supplied transcript** or pass `-OotfSubtitles bundled` to switch back.
+  In that mode both the guided builder and the editor prefer a supplied `ootf-subtitles.json` in the chosen install folder.
+  For a disc folder put it at the folder root. For an image or archive put it beside the file with
+  `.subtitles.json` appended to its complete name, e.g. `Drakan.iso.subtitles.json`. Adding, editing or removing
+  the file rebuilds the guided builder's pack. You can review and correct a cached transcript and supply it here.
+  To transcribe the recordings yourself with faster-whisper, run
+  `python analysis/scripts/ootf_subtitles.py --ootf "<install>" --out "<install>/ootf-subtitles.json" --work build/ootf-subtitles/speech --review build/ootf-subtitles/review.txt`.
+  For an image, use the extracted install at `build/ootf/cab_disc` with the output path beside the image.
+  The CLI also accepts `ootf-convert.ts ... --subtitles "<transcript>;<corrected file>"` (a later file's lines replace an
   earlier one's, so a corrected file from you or a pack author wins; the tool also keeps the lines of an existing `--out`
   file and only transcribes clips it does not hold). The tool needs `pip install faster-whisper numpy` (a venv is enough)
   and one speech model in the Hugging Face cache (`~/.cache/huggingface/hub`). It never downloads silently: when the model
@@ -237,7 +247,7 @@ on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers th
   | `base.en` (faster, less accurate) | `https://huggingface.co/Systran/faster-whisper-base.en` | MIT | 141 MiB |
   | `small` (other languages, with `--language german` ...) | `https://huggingface.co/Systran/faster-whisper-small` | MIT | about 464 MiB |
 
-  The subtitle file is game text made from game audio: keep it under `build/` or `local/`, never commit it. See
+  Keep the transcript private alongside your game source. See
   `docs/reference/modding.md` ("Subtitles of a pack's voice clips").
 * **HD textures** (`-HdTextures on`): after the game build `analysis/scripts/hd_pack.py` decodes every disc texture and
   every texture of the converted pack, then Real-ESRGAN (`realesrgan-ncnn-vulkan`, any Vulkan GPU) upscales them 4x into

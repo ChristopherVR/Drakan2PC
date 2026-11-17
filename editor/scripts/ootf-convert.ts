@@ -35,7 +35,14 @@ import {
 import { spawnSync } from 'node:child_process';
 import { join, relative, sep } from 'node:path';
 import { strToU8, unzipSync } from 'fflate';
-import { buildManifestToml, buildOotfPack, ootfArenaFromPc, previewFileName, zipOotfPack } from '@drakan/editor-core';
+import {
+    buildManifestToml,
+    buildOotfPack,
+    ootfArenaFromPc,
+    ootfSubtitleTable,
+    previewFileName,
+    zipOotfPack,
+} from '@drakan/editor-core';
 import {
     addedLevelObjects,
     chooseSaveBuild,
@@ -49,10 +56,6 @@ import {
     readSaveRevisions,
     Iso9660,
     SrscReader,
-    SubtitleTable,
-    classifySubtitleLines,
-    listObjectSounds,
-    mergeSubtitleFiles,
     parseSubtitleFile,
     convertOotfLevels,
     chunkTextureLimit,
@@ -279,25 +282,18 @@ const readPs2Txd = async (discPath: string): Promise<Uint8Array | null> => {
 const prefix = opt['prefix'] ?? 'OotF - ';
 const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
 // --subtitles <json>: the subtitle lines of the PC voice clips (analysis/scripts/ootf_subtitles.py makes the file on this
-// machine from the install's own audio; the PC game has no subtitle text). Without it the pack has no scene subtitles.
+// machine from the install's own audio; the PC game has no subtitle text). Defaults to ootf-subtitles.json in the install.
 // Several files separated by `;`: a later file's lines replace an earlier one's, so a hand-corrected file (the player's or a pack
 // author's) listed last wins over a fresh transcription.
 // Only dialogue and narration are subtitled: a line whose clip a class or an object plays by itself (an idle mumble, a pain or
 // attack list, a waypoint's sound) is a bark and gets no text, unless a file gives the line a kind (`kind` in the line).
-const subtitles = await (async () => {
-    if (!opt['subtitles']) return undefined;
-    const merged = mergeSubtitleFiles(
-        opt['subtitles']
-            .split(';')
-            .filter(Boolean)
-            .map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8')))),
-    );
-    for (const l of classifySubtitleLines(merged, await listObjectSounds(src)))
-        console.warn(`subtitles: ${l.bank} #${l.id} (${l.name ?? ''}) is a bark, no subtitle: ${l.kindReason}`);
-    const table = new SubtitleTable(merged);
-    console.warn(`subtitles: ${table.size} line(s) shown, ${table.withheld.length} withheld by their kind`);
-    return table;
-})();
+const subtitleArg = opt['subtitles'];
+const subtitlePaths = subtitleArg && (existsSync(subtitleArg) ? [subtitleArg] : subtitleArg.split(';').filter(Boolean));
+const subtitles = await ootfSubtitleTable(
+    src,
+    subtitlePaths ? subtitlePaths.map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8')))) : undefined,
+    console.warn,
+);
 // Saves across rebuilds (docs/reference/modding.md "Saves and pack builds"): the previous build of the pack (--previous <zip>,
 // default the --out file when it exists; --previous none = start afresh) hands its class ids on, so classes the conversion
 // adds do not renumber the others, and the new pack keeps its `build` while nothing a save names changed.

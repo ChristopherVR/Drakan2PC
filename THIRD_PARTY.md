@@ -6,6 +6,8 @@ part of the source repository or compiler artifacts.
 
 | Component | Notice |
 | --- | --- |
+| Order of the Flame English scene subtitles (`scripts/buildtool/kit/subtitles/english.json`) | This project transcription of the English game dialogue contains 295 clips with timed pages. The project owner approved including this file in the builder and editor. Its SHA-256 is pinned in `scripts/repository_guard.py`. The original dialogue belongs to its respective rights holders. |
+| Optional local subtitle generation | Setup can download the [whisper.cpp Windows CLI](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.8.2) and the [multilingual Whisper base model](https://huggingface.co/ggerganov/whisper.cpp). Both downloads are hash-checked against `scripts/buildtool/kit/installer.lock.json`. |
 | PS2Recomp compiler and runtime (`ps2recomp/`) | In-repo fork of [ran-j/PS2Recomp](https://github.com/ran-j/PS2Recomp) at upstream commit `eb8688b`, with the Drakan changes applied directly; GPL-3.0 ([ps2recomp/LICENSE](ps2recomp/LICENSE), [copy](licenses/PS2Recomp-GPL-3.0.md)). |
 | Dear ImGui | Vendored with its [MIT license](third_party/imgui/LICENSE.txt). |
 | Gelasio Regular / Bold (`third_party/fonts/gelasio/`) | [SIL Open Font License 1.1](third_party/fonts/gelasio/OFL.txt) (no Reserved Font Name); instanced from the variable font at weights 400 / 700, subset to Latin-1 / Latin Extended-A and compressed into sources. The UI text face (metric-compatible with Georgia). |

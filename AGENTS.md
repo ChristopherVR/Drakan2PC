@@ -46,6 +46,8 @@ Generated output goes under `build/` (gitignored).
 - The only currently permitted tracked binaries are the SHA-pinned original `drakan.ico` and the two game covers
   `scripts/buildtool/kit/art/{ootf,d2}-cover.png` and the 13 map pictures `scripts/buildtool/kit/art/maps/*.png` and the 106
   settings pictures `scripts/buildtool/kit/art/settings/` (listed in `settings.sha256`) in `scripts/repository_guard.py`; NVIDIA SDK/runtime binaries must stay under ignored `local/` or `tools/`.
+  The approved English scene transcript is `scripts/buildtool/kit/subtitles/english.json`, pinned in the same guard.
+  Keep source recordings and other generated transcripts under ignored build directories.
   HD textures stay uncommitted and are regenerated with `analysis/scripts/hd_pack.py`.
 
 ## Conventions

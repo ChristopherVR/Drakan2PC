@@ -8,14 +8,46 @@ import {
     ps2LevelTag,
     LVL_TYPE_LAYERS,
     pcLevelName,
+    SubtitleTable,
+    classifySubtitleLines,
+    detectOotfInstallLanguage,
+    listObjectSounds,
+    mergeSubtitleFiles,
+    parseSubtitleFile,
     terrainHeightAt,
     type BlobBuilder,
     type PcLevel,
+    type PcFileSource,
+    type SubtitleFile,
     type Ps2LevelParts,
     type SrscReader,
 } from '@drakan/formats';
 import { newDraft, previewFileName, serializeMapFile, slugify, type ArenaDraft, type MarkerKind, type Vec3 } from './arena.ts';
 import { buildManifestToml, ModError, MOD_MAX_ENTRY, zipModFiles, type ModMeta } from './mod.ts';
+
+/** Explicit transcripts take precedence over the install's own file and the matching bundled language. */
+export async function ootfSubtitleTable(src: PcFileSource, explicit?: SubtitleFile[], log?: (s: string) => void) {
+    if (!explicit) {
+        const bytes = await src.read('ootf-subtitles.json');
+        if (bytes) {
+            explicit = [parseSubtitleFile(JSON.parse(new TextDecoder().decode(bytes)))];
+        } else {
+            const { language } = await detectOotfInstallLanguage(src);
+            if (language.language !== 'english') {
+                log?.(`No bundled subtitles for this ${language.language} install. Supply a transcript or generate one in setup.`);
+                return undefined;
+            }
+            const bundled = await import('../../../../scripts/buildtool/kit/subtitles/english.json', { with: { type: 'json' } });
+            explicit = [parseSubtitleFile(bundled.default)];
+        }
+    }
+    const merged = mergeSubtitleFiles(explicit);
+    for (const l of classifySubtitleLines(merged, await listObjectSounds(src)))
+        log?.(`subtitles: ${l.bank} #${l.id} (${l.name ?? ''}) is a bark, no subtitle: ${l.kindReason}`);
+    const table = new SubtitleTable(merged);
+    log?.(`subtitles: ${table.size} line(s) shown, ${table.withheld.length} withheld by their kind`);
+    return table;
+}
 
 /**
  * Pack a converted Order of the Flame level as a mod (docs/reference/modding.md "custom levels"): the LVL ships under

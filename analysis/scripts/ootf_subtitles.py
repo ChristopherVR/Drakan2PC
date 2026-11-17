@@ -9,7 +9,7 @@ converter reads it with `ootf-convert.ts --subtitles <file>` and stores the text
 
     pip install faster-whisper numpy      (in a venv; the first run downloads the model, about 0.5 GB for small.en)
 
-The result is game text made from game audio: it must stay out of the repository (write it under build/ or local/).
+Write generated transcripts under build/ or local/. The builder kit includes one approved English transcript.
 Review it before a release build: names are spelled by ear. The file is plain JSON and can be corrected by hand; a line
 whose cues are emptied gets no subtitle.
 
@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -273,15 +274,103 @@ def transcribe(
     return lines
 
 
+def cli_line(clip: dict, segments: list[dict], review_below: float) -> dict | None:
+    """Build timed pages from whisper-cli's word-split segments. The offsets are milliseconds."""
+    words = []
+    scores = []
+    for segment in segments:
+        text = clean_text(segment["text"])
+        start = max(0, segment["offsets"]["from"] / 1000, words[-1][1] if words else 0)
+        end = min(clip["duration"], segment["offsets"]["to"] / 1000)
+        if not text or end <= start:
+            continue
+        words.append((start, end, text))
+        for token in segment["tokens"]:
+            if not token["text"].startswith("[_"):  # control and timestamp tokens
+                scores.append(math.log(max(1e-9, token["p"])))
+    confidence = sum(scores) / len(scores) if scores else -math.inf
+    spoken = " ".join(w[2] for w in words)
+    # The recogniser can describe growls in stage directions or repeat a string of names from its prompt.
+    plain = re.sub(r"\*[^*]+\*|\([^()]*\)|\[[^\[\]]*\]", "", spoken).strip()
+    prompt_words = re.findall(r"\w+", PROMPT.lower())
+    recognized = re.findall(r"\w+", plain.lower())
+    echoes_prompt = any(
+        recognized[i : i + 8] == prompt_words[j : j + 8]
+        for i in range(len(recognized) - 7)
+        for j in range(len(prompt_words) - 7)
+    )
+    if echoes_prompt or not is_speech(plain, clip["duration"], 0.0, confidence, clip["name"]):
+        return None
+    return {
+        "bank": clip["bank"],
+        "id": clip["id"],
+        "name": clip["name"],
+        "duration": clip["duration"],
+        "confidence": round(confidence, 3),
+        **({"review": True} if confidence < review_below else {}),
+        "cues": build_cues(words),
+    }
+
+
+def transcribe_cli(
+    work: Path,
+    cli: Path,
+    model: Path,
+    language: str,
+    min_seconds: float,
+    skip: frozenset[tuple[str, int]],
+    review_below: float,
+) -> list[dict]:
+    manifest = json.loads((work / "manifest.json").read_text(encoding="utf-8"))
+    clips = [
+        c
+        for c in manifest["clips"]
+        if not c["loop"]
+        and not c.get("played_by")
+        and c["duration"] >= min_seconds
+        and (c["bank"], c["id"]) not in skip
+    ]
+    command = [
+        str(cli.resolve()),
+        "-m",
+        str(model.resolve()),
+        "-ng",
+        "-l",
+        language,
+        "-ojf",
+        "-sow",
+        "-ml",
+        "1",  # one word per timed segment; build_cues joins them into readable pages
+        "--prompt",
+        PROMPT,
+    ]
+    lines = []
+    for offset in range(0, len(clips), 24):
+        batch = clips[offset : offset + 24]
+        # Keep one model loaded across a batch without exceeding Windows' command-line length limit.
+        for clip in batch:
+            (work / (clip["file"] + ".json")).unlink(missing_ok=True)
+        subprocess.run([*command, *(c["file"] for c in batch)], cwd=work, check=True)
+        for clip in batch:
+            result = json.loads((work / (clip["file"] + ".json")).read_text(encoding="utf-8"))
+            line = cli_line(clip, result["transcription"], review_below)
+            if line:
+                lines.append(line)
+        print(f"Transcribed {offset + len(batch)} of {len(clips)} clips", flush=True)
+    return lines
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ootf", help="Order of the Flame install folder (clips are exported from it)")
+    ap.add_argument("--node", default="node", help="Node executable for exporting clips")
+    ap.add_argument("--whisper-cli", type=Path, help="use whisper.cpp with the local --model file")
     ap.add_argument("--work", type=Path, help="folder for the exported clips (default: <out folder>/speech)")
     ap.add_argument("--out", type=Path, required=True, help="subtitle file to write (keep it under build/ or local/)")
     ap.add_argument(
-        "--model", default="small.en", help="faster-whisper model (small.en; small / medium for other languages)"
+        "--model", help="faster-whisper model (default small.en for English, small otherwise) or whisper.cpp model file"
     )
-    ap.add_argument("--language", default="english", help="language name stored in the file (drakan.ini spelling)")
+    ap.add_argument("--language", help="recording language (default: detect it from the install)")
     ap.add_argument("--min-seconds", type=float, default=0.6, help="shorter clips are effects, not lines")
     ap.add_argument("--refilter", type=Path, help="apply the speech filter to an existing subtitle file instead")
     ap.add_argument("--retranscribe", action="store_true", help="ignore an existing --out file and start over")
@@ -307,31 +396,45 @@ def main() -> int:
     work = a.work or a.out.parent / "speech"
     if a.ootf:
         work.mkdir(parents=True, exist_ok=True)
-        cmd = ["node", "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-speech.ts"]
-        subprocess.run([*cmd, "--ootf", a.ootf, "--out", str(work.resolve())], cwd=ROOT, check=True)
+        cmd = [a.node, "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-speech.ts"]
+        subprocess.run(
+            [*cmd, "--ootf", str(Path(a.ootf).resolve()), "--out", str(work.resolve()), "--rate", "16000"],
+            cwd=ROOT,
+            check=True,
+        )
     if not (work / "manifest.json").is_file():
         raise SystemExit(f"{work}/manifest.json not found: pass --ootf <install folder>")
     codes = {"english": "en", "german": "de", "french": "fr", "italian": "it", "spanish": "es"}
+    language = a.language or json.loads((work / "manifest.json").read_text(encoding="utf-8")).get("language", "english")
     kept: list[dict] = []
     if a.out.is_file() and not a.retranscribe:
         kept = json.loads(a.out.read_text(encoding="utf-8"))["lines"]
         print(
             f"{a.out} exists: its {len(kept)} line(s) are kept; only other clips are transcribed (--retranscribe to redo)"
         )
-    notice = model_notice(a.model)
+    if a.whisper_cli and not a.model:
+        ap.error("--whisper-cli requires a local --model file")
+    model = a.model or ("small.en" if language == "english" else "small")
+    notice = None if a.whisper_cli else model_notice(model)
     if notice:
         print(notice)
         if not a.allow_download:
             raise SystemExit("nothing was downloaded; run again with --allow-download to fetch the model")
         print("downloading it now (--allow-download)")
     skip = frozenset((line["bank"], line["id"]) for line in kept)
-    lines = merge_reviewed(kept, transcribe(work, a.model, codes.get(a.language), a.min_seconds, skip, a.review_below))
+    if a.whisper_cli:
+        fresh = transcribe_cli(
+            work, a.whisper_cli, Path(model), codes.get(language, "auto"), a.min_seconds, skip, a.review_below
+        )
+    else:
+        fresh = transcribe(work, model, codes.get(language), a.min_seconds, skip, a.review_below)
+    lines = merge_reviewed(kept, fresh)
     if a.review:
         a.review.parent.mkdir(parents=True, exist_ok=True)
         a.review.write_text(review_text(lines, a.review_all), encoding="utf-8")
         print(f"wrote the lines to check to {a.review}")
     a.out.parent.mkdir(parents=True, exist_ok=True)
-    doc = {"format": FORMAT, "version": VERSION, "language": a.language, "lines": lines}
+    doc = {"format": FORMAT, "version": VERSION, "language": language, "lines": lines}
     a.out.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"wrote {len(lines)} line(s) to {a.out}")
     return 0

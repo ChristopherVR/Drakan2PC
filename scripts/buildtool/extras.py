@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.request
 import zipfile
@@ -65,6 +66,7 @@ STEPS: dict[str, Step] = {
     step.key: step
     for step in (
         Step("ootf-source", "Read the Drakan 1 files from your disc image", 0.5, 2.0, basis="InstallShield cabinet, 307 MB"),
+        Step("ootf-subtitles", "Generate missing scene subtitles on this PC (first build)", 5.0, 15.0, once=True, basis="373 candidate clips on four CPU threads"),
         Step("ootf-data", "Read the level template from your Drakan 2 ISO", 0.1, 0.5, basis="127 MB read from the ISO"),
         Step("ootf-convert", "Convert the 23 levels (terrain, models, creatures, scenes, music)", 2.5, 5.0, basis="168 s measured"),
         Step("hd-tools", "Download the HD tools (about 75 MB, once)", 0.5, 3.0, once=True, basis="Real-ESRGAN, numpy, Pillow"),
@@ -124,12 +126,20 @@ def best_gpu(names: list[str]) -> Gpu:
     return min(usable, key=lambda gpu: gpu.factor) if usable else candidates[0]
 
 
-def plan(source_kind: str | None, hd: bool, tools_ready: bool = False, ootf_in_hd: bool | None = None) -> list[str]:
+def plan(
+    source_kind: str | None,
+    hd: bool,
+    tools_ready: bool = False,
+    ootf_in_hd: bool | None = None,
+    generate_subtitles: bool = False,
+) -> list[str]:
     """The step keys a run performs, in order. source_kind is None (no Order of the Flame), install, disc-folder or image."""
     keys: list[str] = []
     if source_kind:
         if source_kind != "install":
             keys.append("ootf-source")
+        if generate_subtitles:
+            keys.append("ootf-subtitles")
         keys += ["ootf-data", "ootf-convert"]
     if hd:
         if not tools_ready:
@@ -612,7 +622,13 @@ def code_version(root: Path = ROOT) -> str:
 
 
 def convert_state(
-    install: Path, iso: Path, hd: bool, version: str, cover: Path | None = None, models: Path | None = None
+    install: Path,
+    iso: Path,
+    hd: bool,
+    version: str,
+    cover: Path | None = None,
+    models: Path | None = None,
+    subtitles: Path | None = None,
 ) -> dict:
     rrc = child(install, "Dragon.rrc")
     state = {"install": str(install), "rrc": file_stamp(rrc) if rrc else None, "iso": [str(iso), file_stamp(iso)],
@@ -620,6 +636,8 @@ def convert_state(
              "cover": hashlib.sha1(cover.read_bytes()).hexdigest() if cover and cover.is_file() else None}  # fmt: skip
     if models:
         state["models"] = models_digest(models)
+    if subtitles:
+        state["subtitles"] = hashlib.sha256(subtitles.read_bytes()).hexdigest()
     return state
 
 
@@ -647,6 +665,7 @@ def converter_command(
     cover: Path | None = None,
     previous: Path | None = None,
     models: Path | None = None,
+    subtitles: Path | None = None,
 ) -> list[str]:
     cmd = [
         node, "--experimental-transform-types", "--no-warnings", CONVERTER,
@@ -659,6 +678,8 @@ def converter_command(
     if models:
         # authored replacement meshes (Delon, the Boss Blade and Ebon Dragons): formats ootfauthored.ts
         cmd += ["--authored", str(models)]
+    if subtitles:
+        cmd += ["--subtitles", str(subtitles)]
     if hd:
         # lossless sources of the textures the converter has to quantise or resize, next to the pack (<out>.hdsrc); the HD step
         # indexes and upscales them itself, so the converter does not start its own HD run
@@ -686,8 +707,76 @@ def write_mods_ini(directory: Path) -> None:
     (directory / "mods.ini").write_text(f"[mods]\n{PACK_ID} = on\n", encoding="utf-8", newline="\n")
 
 
+def generate_scene_subtitles(install: Path, work: Path, node: str, root: Path, lock: dict) -> Path:
+    """Transcribe this installation's recordings locally. A completed transcript is reusable offline."""
+    spec = lock["subtitles"]
+    script = root / "analysis/scripts/ootf_subtitles.py"
+    exporter = root / "editor/scripts/ootf-speech.ts"
+    digest = hashlib.sha256()
+    digest.update(json.dumps(spec, sort_keys=True).encode())
+    for tool in (script, exporter):
+        digest.update(tool.read_bytes())
+    # A different recording of the same scene has the same bank and id. Include the actual source bytes and
+    # the records that identify which sounds are speech, so localized or edited copies cannot share wrong cues.
+    extensions = {".rrc", ".sdb", ".ssd", ".lvl", ".odb", ".db"}
+    for path in sorted(p for p in install.rglob("*") if p.suffix.lower() in extensions and p.is_file()):
+        digest.update(path.relative_to(install).as_posix().lower().encode("utf-8") + b"\0")
+        digest.update(bytes.fromhex(sha256_of(path)))
+    target = work / "subtitles" / (digest.hexdigest() + ".json")
+    if target.is_file():
+        return target
+    started = time.monotonic()
+    cache = work.parent / "extras-cache"
+    cli = shutil.which("whisper-cli") if os.name != "nt" else None
+    if os.name != "nt" and not cli:
+        raise ExtrasError(
+            "Install whisper-cli or supply ootf-subtitles.json to generate scene captions on this platform."
+        )
+    print("Creating scene subtitles from your recordings. The first run downloads about 145 MiB.", flush=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=target.parent) as temp:
+        scratch = Path(temp).resolve()
+        if not cli:
+            safe_extract_zip(download(spec["cli"], cache), scratch)
+            cli = str(scratch / "Release/whisper-cli.exe")
+        model = download(spec["model"], cache).resolve()
+        fresh = scratch / "transcript.json"
+        log = work / "subtitles.log"
+        command = [
+            sys.executable,
+            "-I",
+            str(script),
+            "--ootf",
+            str(install.resolve()),
+            "--node",
+            node,
+            "--out",
+            str(fresh),
+            "--whisper-cli",
+            cli,
+            "--model",
+            str(model),
+        ]
+        ensure_node_modules(root, lock, cache)
+        print(f"Transcribing the campaign dialogue. Progress is in {log}", flush=True)
+        if run_logged(command, log, root) or not fresh.is_file():
+            raise ExtrasError(f"Subtitle generation stopped. See {log}.\n{tail(log)}")
+        if not json.loads(fresh.read_text(encoding="utf-8")).get("lines"):
+            raise ExtrasError(f"No dialogue was recognized. See {log}.")
+        fresh.replace(target)
+    Timings(work.parent / "extras-timings.json").record("ootf-subtitles", time.monotonic() - started)
+    return target
+
+
 def convert_ootf(
-    source: str | Path, iso: Path, work: Path, node: str, hd: bool = False, force: bool = False, root: Path = ROOT
+    source: str | Path,
+    iso: Path,
+    work: Path,
+    node: str,
+    hd: bool = False,
+    force: bool = False,
+    root: Path = ROOT,
+    generate_subtitles: bool = False,
 ) -> Path:
     """Source -> <work>/mods/ootf-levels.zip (+ mods.ini). Returns the mods folder to pass as Build-LocalGame -ModDirectory."""
     timings = Timings(work.parent / "extras-timings.json")
@@ -701,7 +790,27 @@ def convert_ootf(
     mods = work / "mods"
     cover = bundled_cover(root)
     models = bundled_models(root)
-    state = convert_state(install, iso, hd, code_version(root), cover, models)
+    source_path = install if kind == "install" else Path(source)
+    transcript = (
+        source_path.with_name(source_path.name + ".subtitles.json")
+        if kind == "image"
+        else source_path / "ootf-subtitles.json"
+    )
+    # The CLI also looks inside the install (including an unpacked cabinet). Fingerprint the same file it reads.
+    candidate = child(transcript.parent, transcript.name) or child(install, "ootf-subtitles.json")
+    subtitles = candidate.resolve() if candidate and candidate.is_file() else None
+    lock = load_lock(root / "scripts/buildtool/kit/installer.lock.json")
+    if generate_subtitles:
+        try:
+            subtitles = generate_scene_subtitles(install, work, node, root, lock)
+        except (OSError, ValueError, ExtrasError) as error:
+            raise ExtrasError(
+                f"Could not generate the selected subtitles: {error}. Rebuild to retry or select bundled subtitles."
+            ) from error
+    state = convert_state(install, iso, hd, code_version(root), cover, models, subtitles)
+    if not subtitles:
+        # The converter selects these only when Dragon.rrc identifies an English installation.
+        state["bundledSubtitles"] = sha256_of(root / "scripts/buildtool/kit/subtitles/english.json")
     if not convert_needed(work, state, force):
         print(f"Order of the Flame pack is up to date: {mods / (PACK_ID + '.zip')}")
         write_mods_ini(mods)
@@ -715,9 +824,7 @@ def convert_ootf(
         if not module.is_complete(data, TEMPLATE):
             raise ExtrasError("The ISO lacks the level template files; is it the Drakan: The Ancients' Gates disc?")
     timings.record("ootf-data", time.time() - mark)
-    ensure_node_modules(
-        root, load_lock(root / "scripts/buildtool/kit/installer.lock.json"), work.parent / "extras-cache"
-    )
+    ensure_node_modules(root, lock, work.parent / "extras-cache")
     mods.mkdir(parents=True, exist_ok=True)
     out = mods / f"{PACK_ID}.zip"
     # The pack being replaced stays beside it until the new one is written: the converter reads its class ids and build.
@@ -734,10 +841,14 @@ def convert_ootf(
     mark = time.time()
     environment = dict(os.environ, DRAKAN_ISO=str(iso))
     command = converter_command(
-        node, install, data, iso, out, hd, cover, previous if previous.is_file() else None, models
+        node, install, data, iso, out, hd, cover, previous if previous.is_file() else None, models, subtitles
     )
     code = run_logged(command, log_file, root, environment)
     if code or not out.is_file():
+        if previous.is_file():
+            previous.replace(out)
+        if hd:  # the converter may have written only part of the HD sources before it stopped
+            (work / "convert-state.json").unlink(missing_ok=True)
         raise ExtrasError(f"The converter stopped (exit code {code}). Last lines of {log_file}:\n{tail(log_file)}")
     timings.record("ootf-convert", time.time() - mark)
     previous.unlink(missing_ok=True)
@@ -916,7 +1027,12 @@ def cmd_estimate(args) -> int:
                 print(f"note: {error}", file=sys.stderr)
     gpu = classify_gpu(args.gpu) if not args.gpu_names else best_gpu(args.gpu_names.split("|"))
     tools_ready = args.tools_ready or (args.hd and hd_tools_ready())
-    keys = plan(kind or ("image" if args.ootf else None), args.hd, tools_ready)
+    keys = plan(
+        kind or ("image" if args.ootf else None),
+        args.hd,
+        tools_ready,
+        generate_subtitles=args.generate_subtitles,
+    )
     measured = Timings(Path(args.timings)).load() if args.timings else {}
     result = estimate(keys, gpu, measured, ootf=bool(args.ootf))
     if args.json:
@@ -955,6 +1071,7 @@ def cmd_ootf(args) -> int:
             args.node or shutil.which("node") or "node",
             args.hd,
             args.force,
+            generate_subtitles=args.generate_subtitles,
         )
     except ExtrasError as error:
         print(f"Order of the Flame was not converted: {error}", file=sys.stderr)
@@ -984,6 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("estimate", help="time and disk an extra costs")
     p.add_argument("--ootf", action="store_true")
+    p.add_argument("--generate-subtitles", action="store_true", help="include the first-build transcription estimate")
     p.add_argument("--source", help="the Drakan 1 source, to know whether it must be unpacked")
     p.add_argument("--hd", action="store_true")
     p.add_argument("--gpu", help="graphics adapter name, as Windows reports it")
@@ -1002,6 +1120,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--work", default=str(ROOT / "build/ootf"))
     p.add_argument("--node")
     p.add_argument("--hd", action="store_true", help="keep lossless texture sources for the HD step")
+    p.add_argument(
+        "--generate-subtitles",
+        action="store_true",
+        help="generate a transcript from this copy's recordings instead of using bundled or supplied captions",
+    )
     p.add_argument("--force", action="store_true", help="convert again even when nothing changed")
     p.set_defaults(func=cmd_ootf)
     p = sub.add_parser("hd", help="build the HD texture pack")
