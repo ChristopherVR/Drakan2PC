@@ -35,7 +35,9 @@ def export_authored(
     digits: int = 4,
 ) -> dict:
     """Triangulate `obj` (modifiers applied, world transform baked) and write it. `slots` maps a material name to extra
-    slot fields (e.g. {"Skin": {"pcTextures": [0]}}); every slot projects UVs from the PC model (`texture: "pc"`).
+    slot fields (e.g. {"Skin": {"pcTextures": [0]}}); a slot projects UVs and texture from the PC model (`texture: "pc"`,
+    the default) or shows the model's own texture with the mesh's active UV map
+    (`{"texture": "image", "image": "knight_armour.png"}`, a PNG saved beside the JSON, original art).
     `extra` adds top-level fields: `landmarks` (PC joint name -> Blender position, with fit="joints"), `keepPcJoints`,
     `radialJoints`. Returns a summary (vertices, triangles)."""
     dg = bpy.context.evaluated_depsgraph_get()
@@ -49,17 +51,25 @@ def export_authored(
     names = [m.name if m else "default" for m in me.materials] or ["default"]
     used: list[str] = []
     tris: list[int] = []
+    uvs: list[float] = []
+    uv_layer = bm.loops.layers.uv.active
     for f in bm.faces:
         name = names[min(f.material_index, len(names) - 1)]
         if name not in used:
             used.append(name)
         tris += [f.verts[0].index, f.verts[1].index, f.verts[2].index, used.index(name)]
+        for loop in f.loops:
+            uv = loop[uv_layer].uv if uv_layer is not None else (0.0, 0.0)
+            uvs += [round(uv[0], 5), round(uv[1], 5)]
     pos: list[float] = []
     for v in bm.verts:
         pos += [round(c, digits) for c in v.co]
     bm.free()
     bpy.data.meshes.remove(me)
     slot_extra = slots or {}
+    own = any(slot_extra.get(n, {}).get("texture") == "image" for n in used)
+    if own and uv_layer is None:
+        raise ValueError(f"{model}: image slots need a UV map on the mesh")
     data = {
         "format": FORMAT,
         "model": model,
@@ -69,6 +79,7 @@ def export_authored(
         "slots": [{"name": n, "texture": "pc", **slot_extra.get(n, {})} for n in used],
         "positions": pos,
         "triangles": tris,
+        **({"uvs": uvs} if own else {}),
     }
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -144,6 +144,10 @@ def _pin_manifest(prefix: str, manifest: str) -> None:
 
 # The PC Settings help panel's pictures (106 screenshots, previews/settings/<row key>/<value>.png). See THIRD_PARTY.md.
 _pin_manifest("scripts/buildtool/kit/art/settings/", "scripts/buildtool/kit/art/settings.sha256")
+# The authored models' own textures (original art baked in Blender by analysis/scripts/blender/*_model.py; the meshes are
+# JSON beside them). Refresh the lists with scripts/buildtool/pin_model_textures.py after a bake.
+_pin_manifest("scripts/buildtool/kit/models/", "scripts/buildtool/kit/models.sha256")
+_pin_manifest("scripts/buildtool/kit/models-draft/", "scripts/buildtool/kit/models-draft.sha256")
 TOKEN_PATTERNS = [
     re.compile(rb"-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----"),
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9]{30,}\b"),

@@ -65,6 +65,8 @@ import {
     ps2TextureSwapFromEdits,
     type PcFileSource,
     authoredProblem,
+    decodePng,
+    type RgbaImage,
     type AuthoredModel,
     type Ps2ModelSwapOptions,
     type Ps2TextureSwapOptions,
@@ -94,8 +96,18 @@ function loadAuthored(dir: string | undefined): AuthoredModel[] | undefined {
         .sort()) {
         const m = JSON.parse(readFileSync(join(dir, f), 'utf-8')) as unknown;
         const why = authoredProblem(m);
-        if (why) console.warn(`authored ${f}: skipped (${why})`);
-        else out.push(m as AuthoredModel);
+        if (why) {
+            console.warn(`authored ${f}: skipped (${why})`);
+            continue;
+        }
+        // the model's own textures: PNG files beside it
+        const model = m as AuthoredModel;
+        const images: Record<string, RgbaImage> = {};
+        for (const slot of model.slots) {
+            if (slot.texture !== 'image' || !slot.image || images[slot.image]) continue;
+            images[slot.image] = decodePng(new Uint8Array(readFileSync(join(dir, slot.image))));
+        }
+        out.push({ ...model, images });
     }
     return out;
 }

@@ -14,7 +14,9 @@ import {
     type LevelMapOverride,
     type Ps2TextureSwapOptions,
     type AuthoredModel,
+    type RgbaImage,
     authoredProblem,
+    decodePng,
 } from '@drakan/formats';
 import { OOTF_DIALOG_OPTIONS, ootfDiscContext } from './ootfdisc.ts';
 
@@ -24,9 +26,29 @@ const AUTHORED_FILES = import.meta.glob<AuthoredModel>('../../../../../scripts/b
     import: 'default',
 });
 
+const AUTHORED_IMAGES = import.meta.glob<string>('../../../../../scripts/buildtool/kit/models/*.png', {
+    query: '?url',
+    import: 'default',
+});
+
 async function authoredModels(): Promise<AuthoredModel[]> {
     const all = await Promise.all(Object.values(AUTHORED_FILES).map((load) => load()));
-    return all.filter((m) => authoredProblem(m) === null);
+    const imageUrl = new Map(Object.entries(AUTHORED_IMAGES).map(([path, load]) => [path.split('/').pop()!, load]));
+    const out: AuthoredModel[] = [];
+    for (const model of all) {
+        if (authoredProblem(model) !== null) continue;
+        // the model's own textures: PNG files beside it
+        const images: Record<string, RgbaImage> = {};
+        for (const slot of model.slots) {
+            if (slot.texture !== 'image' || !slot.image || images[slot.image]) continue;
+            const load = imageUrl.get(slot.image);
+            if (!load) throw new Error(`authored model ${model.label}: texture ${slot.image} is missing`);
+            const bytes = new Uint8Array(await (await fetch(await load())).arrayBuffer());
+            images[slot.image] = decodePng(bytes);
+        }
+        out.push({ ...model, images });
+    }
+    return out;
 }
 
 /** One file of the player's install: its path below the chosen folder and the file itself. */
