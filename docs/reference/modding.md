@@ -995,8 +995,8 @@ See [the model survey](../journal/2026-11-08/ootf-ps2-model-substitution.md).
 ## Authored models for converted OotF characters
 
 Characters with no Drakan 2 counterpart can be drawn with a new mesh built in Blender (formats `ootfauthored.ts`). The
-files are `drakan-authored-model/1` JSON in `scripts/buildtool/kit/models/` (Delon, the Boss Blade Dragon, the Ebon
-Dragon), written by `analysis/scripts/blender/*_model.py` through `authored_export.py`. They hold geometry only: positions
+files are `drakan-authored-model/1` JSON in `scripts/buildtool/kit/models/` (the Boss Blade Dragon, the Ebon Dragon
+and others), written by `analysis/scripts/blender/*_model.py` through `authored_export.py`. They hold geometry only: positions
 in Blender space (metres, Z up), triangles counter-clockwise from outside, one slot per material.
 
 At convert time the converter replaces the named PC model's LOD 0 on the PC skeleton, so the PC clips, hit spheres, scene
@@ -1010,10 +1010,11 @@ channels and the synthetic jaw keep working:
 * **Weights** are the barycentric mix of the closest PC surface point, capped at 4 joints, unless the file carries its own.
 * `keepPcJoints`: the PC part of those joints stays (smoothed once) in place of the authored triangles: Delon keeps his
   1999 head and face texture on the new body.
-* `kit/models` holds the models the build uses (the Boss Blade and Ebon Dragons, the goblin, tick, drone, the
-  human villagers, slaves and scene characters, and with their own baked textures the Crimson and Ebon Knights, Tuiri,
-  the Succubus, Queen Shillah and the Death Mages, and Dr. Evil as a faithful remake wearing the 1999 skin); `kit/models-draft` is for models that do not yet beat the
-  1999 ones and is not loaded (Delon: the owner kept the 1999 model, his authored shoulders read awkward). See the 2026-11-17 journal.
+* `kit/models` holds the models the build uses (the Boss Blade and Ebon Dragons, the goblin, tick and drone, and with
+  their own baked textures the Crimson and Ebon Knights, the Succubus, Queen Shillah and the Death Mages, and Dr. Evil as a
+  faithful remake wearing the 1999 skin); `kit/models-draft` is for models that do not yet beat the 1999 ones and is not
+  loaded. Every authored human is a draft: the owner kept the 1999 Delon, Julian, villagers, slaves, farmer, Rimril,
+  wounded, rack victim and Tuiri, because the remodels read blockier than the 1999 ones up close (necks, hands, shoulders). See the 2026-11-17 journal.
 * A slot can carry the model's own texture (`texture: "image"`, `image: <PNG beside the file>`, the file's own `uvs`):
   original art baked with `analysis/scripts/blender/own_texture.py`, written 8 bpp at 256 px. The PNGs are accepted by
   the repository guard through `kit/models.sha256` and `kit/models-draft.sha256`

@@ -268,3 +268,12 @@ opening runs with the owner's video settings (scale auto, texture upscale auto, 
 
 Open: the villagers' hands are thinner and crumple more than the 1999 ones when they hold them to the face; Tuiri and the
 mine slaves still need an in-game look in Alwarren and Grimstone Mines.
+
+## Every authored human back to the 1999 model
+
+After Delon and Julian, the owner chose to revert every authored human: in same-shot comparisons the remodelled villagers
+still read blockier than the 1999 ones up close (crumpled hands, a small step from neck into the kept head). Moved to
+`kit/models-draft` (not loaded): the male and female villagers, the three mine slaves, the farmer, Rimril, the wounded
+wizard and warrior, the rack victim and Tuiri. The creatures (goblin, tick, drone), the dragons, the knights, the
+Succubus, Queen Shillah, the Death Mages and Dr. Evil stay. Lesson: a human with a kept 1999 head needs its own painted
+body that matches the head's style and resolution before it can replace the 1999 model.
