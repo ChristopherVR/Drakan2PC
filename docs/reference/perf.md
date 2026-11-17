@@ -862,3 +862,14 @@ larger differences are single alpha-test flips in foliage. GPU: a full 5120x4096
 were measured and dropped (no gain, or a different picture). Uncapped frame time could not be measured GPU-bound that
 day (presentation through Remote Desktop and the integrated GPU). Details:
 [journal](../journal/2026-11-17/perf-aniso-filter.md).
+
+## CPU per frame at the owner's settings, first cuts (2026-11-17)
+
+Baseline CPU per world frame with DLSS off (another GPU program held the GPU at 92 to 97 %, so frame times of that day
+are not results): Surdana EE 5.5, VU1 worker 7.1, GS worker 5.5 ms (water on: process 44 against 25 ms); Wartok
+Canyons EE 15.7 to 17.1, VU1 13.8 to 15.2, GS 13.5 to 15.0 ms; Ruined Village EE 14.5 to 16.1, VU1 6.5 to 7.3, GS 6.9
+to 7.4 ms. In the canyon half of the GS worker's draw time is the texture resolve (coherence flush and target row
+check); about a fifth of the EE's samples are guest accesses off the RAM fast path. `GSR_MODERN_WATER` and the other
+ray variables now also win over a live change of any water key (it reverted to the ini's water before). Texture
+resolve and target refresh shortcuts exist as `GSR_CPU_CUTS=1` (opt-in, verified to take the same decisions, gain not
+measured). Details and what is open: [journal](../journal/2026-11-17/perf-cpu-offload.md).
