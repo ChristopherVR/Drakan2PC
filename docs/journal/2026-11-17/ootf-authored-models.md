@@ -229,3 +229,9 @@ no gap, no robe over the jaw, shoulders and arms like the 1999 ones in the same 
 
 Open: his hand nearest the camera takes the blood of the 1999 wrist (the authored hand is smaller than the 1999 one and
 projects from its bloody end); the other humans were measured, not looked at in game after the weight change.
+
+## Delon back to the 1999 model
+
+Owner, after playing the own-texture Delon: the shoulders still look awkward; revert his model entirely. `delon.json` and
+`delon.png` moved to `kit/models-draft` (not loaded), so the converter uses the 1999 `Delon(h)` again. The other authored
+models are unchanged.
