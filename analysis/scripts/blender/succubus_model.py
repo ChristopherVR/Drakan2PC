@@ -39,6 +39,7 @@ def parse_args():
     ap.add_argument("--out", default="build/authored/succubus-model")
     ap.add_argument("--authored", help="folder for the authored model files (succubus.json, queen_shillah.json)")
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--size", type=int, default=512, help="atlas size in pixels")
     ap.add_argument("--res", type=int, default=900, help="render height in pixels")
     return ap.parse_args(argv)
 
@@ -764,6 +765,478 @@ def build_queen():
     return finish(objs, "queen_shillah", ["Body", "Wing", "Bone"], mats)
 
 
+# ---------------------------------------------------------------------------- own textures (procedural, baked)
+#
+# Drakan 2 characters carry painted-in shading and a clean, earthy surface. The body materials below are procedural in
+# the model's own coordinates (object space, the PC units): regions (bodysuit, skin, feathers, bands) are masks on the
+# position, patterns are Voronoi scales and stretched noise, creases are tinted through an ambient occlusion node. They
+# are baked by own_texture.bake_atlas into one atlas per character. Nothing is taken from the 1999 textures; the 1999
+# colours only guided the palette (the succubus red and dark, the queen pale with grey-brown feathers).
+
+
+LIFT = 0.3
+
+
+class Shade:
+    """A small expression builder over a material's node tree. Values are floats, colour tuples or output sockets."""
+
+    def __init__(self, mat):
+        mat.use_nodes = True
+        self.nt = mat.node_tree
+        self.nt.nodes.clear()
+        self.out = self.nt.nodes.new("ShaderNodeOutputMaterial")
+        tc = self.nt.nodes.new("ShaderNodeTexCoord")
+        self.P = tc.outputs["Object"]
+        sep = self.nt.nodes.new("ShaderNodeSeparateXYZ")
+        self.nt.links.new(self.P, sep.inputs[0])
+        self.x, self.y, self.z = sep.outputs[0], sep.outputs[1], sep.outputs[2]
+
+    def _set(self, sock, v):
+        if isinstance(v, bpy.types.NodeSocket):
+            self.nt.links.new(v, sock)
+        elif isinstance(v, (tuple, list)):
+            sock.default_value = (*v, 1.0)[: len(sock.default_value)] if len(v) == 3 else v
+        else:
+            sock.default_value = v
+
+    def node(self, kind, **props):
+        n = self.nt.nodes.new(kind)
+        for k, v in props.items():
+            setattr(n, k, v)
+        return n
+
+    def math(self, op, a, b=0.0, c=None, clamp=False):
+        n = self.node("ShaderNodeMath", operation=op, use_clamp=clamp)
+        self._set(n.inputs[0], a)
+        self._set(n.inputs[1], b)
+        if c is not None:
+            self._set(n.inputs[2], c)
+        return n.outputs[0]
+
+    def add(self, a, b):
+        return self.math("ADD", a, b)
+
+    def mul(self, a, b):
+        return self.math("MULTIPLY", a, b)
+
+    def sub(self, a, b):
+        return self.math("SUBTRACT", a, b)
+
+    def maxf(self, a, b):
+        return self.math("MAXIMUM", a, b)
+
+    def minf(self, a, b):
+        return self.math("MINIMUM", a, b)
+
+    def absf(self, a):
+        return self.math("ABSOLUTE", a)
+
+    def inv(self, a):
+        return self.math("SUBTRACT", 1.0, a, clamp=True)
+
+    def step(self, v, lo, hi):
+        """Smoothstep of v from lo (0) to hi (1); hi < lo flips it."""
+        n = self.node("ShaderNodeMapRange", interpolation_type="SMOOTHSTEP", clamp=True)
+        self._set(n.inputs["Value"], v)
+        a, b = (lo, hi) if hi > lo else (hi, lo)
+        self._set(n.inputs["From Min"], a)
+        self._set(n.inputs["From Max"], b)
+        n.inputs["To Min"].default_value = 0.0 if hi > lo else 1.0
+        n.inputs["To Max"].default_value = 1.0 if hi > lo else 0.0
+        return n.outputs["Result"]
+
+    def band(self, v, centre, half, soft):
+        """1 where |v - centre| < half, fading over `soft`."""
+        d = self.absf(self.sub(v, centre))
+        return self.step(d, half + soft, half)
+
+    def vec(self, x, y, z):
+        n = self.node("ShaderNodeCombineXYZ")
+        for i, v in enumerate((x, y, z)):
+            self._set(n.inputs[i], v)
+        return n.outputs[0]
+
+    def vmath(self, op, a, b=None, out="Vector"):
+        n = self.node("ShaderNodeVectorMath", operation=op)
+        self._set(n.inputs[0], a)
+        if b is not None:
+            self._set(n.inputs[1], b)
+        return n.outputs[out]
+
+    def scaled(self, sx, sy, sz, vec=None):
+        """The position scaled per axis (stretched patterns)."""
+        return self.vmath("MULTIPLY", vec if vec is not None else self.P, (sx, sy, sz))
+
+    def dist(self, centre, vec=None):
+        return self.vmath("DISTANCE", vec if vec is not None else self.P, tuple(centre), out="Value")
+
+    def along(self, origin, direction):
+        """Signed distance of the position past `origin` along the unit `direction`."""
+        d = self.vmath("SUBTRACT", self.P, tuple(origin))
+        return self.vmath("DOT_PRODUCT", d, tuple(direction), out="Value")
+
+    def noise(self, scale, vec=None, detail=3.0, rough=0.55, distortion=0.0, out="Fac"):
+        n = self.node("ShaderNodeTexNoise")
+        self._set(n.inputs["Vector"], vec if vec is not None else self.P)
+        n.inputs["Scale"].default_value = scale
+        n.inputs["Detail"].default_value = detail
+        n.inputs["Roughness"].default_value = rough
+        n.inputs["Distortion"].default_value = distortion
+        return n.outputs[out]
+
+    def voronoi(self, scale, vec=None, feature="F1", rand=1.0):
+        n = self.node("ShaderNodeTexVoronoi", feature=feature)
+        self._set(n.inputs["Vector"], vec if vec is not None else self.P)
+        n.inputs["Scale"].default_value = scale
+        n.inputs["Randomness"].default_value = rand
+        return n.outputs
+
+    def mix(self, fac, a, b, blend="MIX"):
+        n = self.node("ShaderNodeMix", data_type="RGBA", blend_type=blend, clamp_factor=True)
+        ins = {s.identifier: s for s in n.inputs}
+        self._set(ins["Factor_Float"], fac)
+        self._set(ins["A_Color"], a)
+        self._set(ins["B_Color"], b)
+        return {s.identifier: s for s in n.outputs}["Result_Color"]
+
+    def ramp(self, fac, stops):
+        """Colour ramp over (position, colour) stops."""
+        n = self.node("ShaderNodeValToRGB")
+        self._set(n.inputs[0], fac)
+        els = n.color_ramp.elements
+        while len(els) < len(stops):
+            els.new(0.5)
+        for e, (pos, col) in zip(els, stops, strict=True):
+            e.position = pos
+            e.color = (*col, 1.0)
+        return n.outputs[0]
+
+    def ao(self, distance, samples=16):
+        n = self.node("ShaderNodeAmbientOcclusion", samples=samples)
+        n.inputs["Distance"].default_value = distance
+        return n.outputs["AO"]
+
+    def surface(self, colour, rough=0.7, glow=LIFT):
+        """The bake light (a soft sky, about 0.45 on average) is dim: `glow` adds the colour as emission so the baked
+        picture lands at the intended brightness while keeping the light's shading."""
+        b = self.node("ShaderNodeBsdfPrincipled")
+        self._set(b.inputs["Base Color"], colour)
+        self._set(b.inputs["Emission Color"], colour)
+        b.inputs["Emission Strength"].default_value = glow
+        b.inputs["Roughness"].default_value = rough
+        self.nt.links.new(b.outputs[0], self.out.inputs["Surface"])
+
+
+def lerpf(s, a, b, t):
+    return s.add(a, s.mul(t, b - a))
+
+
+def skin(s, base, warm, crease, scale, occ_dist, occ_k=0.85, form=0.35, cool=None):
+    """Skin: a soft mottle between `base` and `warm`, a faint pore grain, creases (occlusion) tinted toward `crease`."""
+    mott = s.noise(scale, detail=4.0, rough=0.6)
+    col = s.mix(s.step(mott, 0.36, 0.68), base, warm)
+    if cool is not None:  # broad cool patches (veins showing through pale skin)
+        col = s.mix(s.mul(s.step(s.noise(scale * 0.4, detail=3.0), 0.45, 0.75), 0.3), col, cool)
+    grain = s.noise(scale * 7, detail=2.0)
+    col = s.mix(s.mul(s.step(grain, 0.45, 0.7), 0.06), col, tuple(c * 0.8 for c in base))
+    occ = s.ao(occ_dist)
+    col = s.mix(s.mul(s.inv(occ), occ_k), col, crease)
+    # painted form: the undersides (belly, breasts, buttocks) a shade darker, toward the crease colour
+    nz = s.vmath("DOT_PRODUCT", s.node("ShaderNodeNewGeometry").outputs["Normal"], (0.0, 0.0, 1.0), out="Value")
+    return s.mix(s.mul(s.step(nz, 0.1, -0.7), form), col, crease)
+
+
+def side_value(s, right, left):
+    """`right` on the +x side (the rig's R), `left` on the -x side."""
+    return lerpf(s, left, right, s.step(s.x, -0.001, 0.001))
+
+
+SUCC_SKIN = (0.84, 0.25, 0.08)
+
+
+def succubus_body_material(mat):
+    """Skin (the warm orange of the kept 1999 face) and a high-cut bodysuit of dark crimson scales with long sleeves,
+    bronze piping on its edges, bronze bracelets and anklets."""
+    s = Shade(mat)
+    ax = s.absf(s.x)
+    back = s.step(s.y, -0.004, 0.012)
+    # leg openings: a high V at the front, lower over the seat
+    leg_d = s.sub(s.z, s.add(s.mul(ax, lerpf(s, 1.15, 0.6, back)), lerpf(s, -0.022, -0.03, back)))
+    # the collar round the neck base, rising over the shoulders
+    neck_d = s.sub(s.add(0.0965, s.mul(s.maxf(s.sub(ax, 0.010), 0.0), 1.3)), s.z)
+    # a narrow plunge between the breasts
+    front = s.step(s.y, -0.004, -0.010)
+    v_d = s.add(s.sub(ax, s.mul(s.maxf(s.sub(s.z, 0.06), 0.0), 0.28)), 0.003)
+    v_d = s.add(v_d, s.mul(s.inv(front), 1.0))
+    suit_d = s.minf(s.minf(leg_d, neck_d), v_d)
+    cuffs = 0.0
+    for el, wr in (("Rforearm", "RHand"), ("LForearm", "LHand")):
+        e, w = V(SUCC_JOINTS[el]), V(SUCC_JOINTS[wr])
+        d = (w - e).normalized()
+        near = s.step(s.dist(w), 0.03, 0.022)
+        t = s.along(w - d * 0.001, d)
+        suit_d = s.minf(suit_d, s.add(s.mul(t, -1.0), s.mul(s.inv(near), 1.0)))
+        cuffs = s.add(cuffs, s.mul(s.band(t, -0.0045, 0.0017, 0.0003), near))
+    suit = s.step(suit_d, -0.0003, 0.0003)
+    trim = s.band(suit_d, 0.0008, 0.00065, 0.00025)
+    ankle_z = side_value(s, SUCC_JOINTS["RFoot"][2] + 0.0085, SUCC_JOINTS["LFoot"][2] + 0.0085)
+    anklet = s.mul(s.band(s.z, ankle_z, 0.0007, 0.00025), s.step(s.z, -0.15, -0.17))
+
+    # scales: Voronoi cells, each lit from above (lighter at its top), dark lines between them
+    sc = 230.0
+    cells = s.voronoi(sc)
+    edge = s.voronoi(sc, feature="DISTANCE_TO_EDGE")["Distance"]
+    rel = s.vmath("SUBTRACT", s.P, cells["Position"])
+    up = s.vmath("DOT_PRODUCT", rel, (0.0, 0.0, sc), out="Value")
+    lit = s.add(s.mul(up, 0.55), s.mul(s.inv(cells["Distance"]), 0.35))
+    scol = s.ramp(lit, [(0.0, (0.03, 0.006, 0.006)), (0.5, (0.12, 0.016, 0.012)), (1.0, (0.36, 0.07, 0.04))])
+    scol = s.mix(0.18, scol, cells["Color"], blend="OVERLAY")
+    scol = s.mix(s.step(edge, 0.10, 0.02), scol, (0.012, 0.006, 0.006))
+    # a broad sheen across the suit so it is not one flat dark
+    sheen = s.noise(45.0, detail=2.0)
+    scol = s.mix(s.mul(s.step(sheen, 0.45, 0.75), 0.35), scol, (0.24, 0.06, 0.045))
+
+    skin_c = skin(s, SUCC_SKIN, (0.86, 0.22, 0.075), (0.45, 0.10, 0.045), 140.0, 0.006, 0.5)
+    col = s.mix(suit, skin_c, scol)
+    bronze = s.mix(s.step(s.noise(900.0), 0.3, 0.7), (0.30, 0.17, 0.06), (0.46, 0.30, 0.10))
+    col = s.mix(s.mul(trim, 0.95), col, s.mix(0.5, bronze, (0.10, 0.04, 0.02)))
+    col = s.mix(s.minf(s.add(cuffs, anklet), 1.0), col, bronze)
+    s.surface(col, rough=0.6)
+
+
+def horn_material(mat, dark, light, scale):
+    """Wing bones and claws: mottled horn."""
+    s = Shade(mat)
+    m = s.noise(scale, detail=4.0, distortion=0.4)
+    col = s.ramp(m, [(0.3, dark), (0.7, light)])
+    occ = s.ao(0.006)
+    col = s.mix(s.mul(s.inv(occ), 0.7), col, tuple(c * 0.4 for c in dark))
+    s.surface(col)
+
+
+def membrane_material(mat, base, light, vein, scale):
+    """Bat-wing membrane: a mottled leathery skin with wandering veins (contour lines of a warped noise, a coarse and a
+    fine set) and a faint pale rim beside the coarse ones."""
+    s = Shade(mat)
+    warp = s.noise(scale * 0.5, detail=2.0, out="Color")
+    q = s.vmath("ADD", s.P, s.vmath("MULTIPLY", warp, (0.03, 0.03, 0.03)))
+    coarse = s.noise(scale, vec=q, detail=1.0)
+    fine = s.noise(scale * 2.8, vec=q, detail=1.0)
+    m = s.noise(scale * 1.5, detail=4.0)
+    col = s.mix(s.step(m, 0.35, 0.7), base, light)
+    col = s.mix(s.mul(s.band(coarse, 0.5, 0.012, 0.012), 0.35), col, tuple(min(1.0, c * 1.3) for c in light))
+    col = s.mix(s.mul(s.band(fine, 0.5, 0.006, 0.006), 0.6), col, vein)
+    col = s.mix(s.band(coarse, 0.5, 0.007, 0.007), col, vein)
+    occ = s.ao(0.02)
+    col = s.mix(s.mul(s.inv(occ), 0.6), col, tuple(c * 0.5 for c in base))
+    s.surface(col)
+
+
+QUEEN_SKIN = (0.80, 0.60, 0.47)
+
+
+def feathers(s, stretch, axis, sign, barbs):
+    """Overlapping feathers: Voronoi cells stretched by `stretch` (long along `axis`), each lighter toward its tip
+    (the `axis` end, times `sign`) so the rows read as overlapping, with a pale shaft, fine barbs and dark gaps."""
+    fv = s.scaled(*stretch)
+    cells = s.voronoi(1.0, vec=fv, rand=0.8)
+    edge = s.voronoi(1.0, vec=fv, feature="DISTANCE_TO_EDGE", rand=0.8)["Distance"]
+    rel = s.vmath("SUBTRACT", fv, cells["Position"])
+    tip = s.mul(s.vmath("DOT_PRODUCT", rel, axis, out="Value"), sign)
+    across = s.vmath("LENGTH", s.vmath("MULTIPLY", rel, tuple(1.0 - abs(a) for a in axis)), out="Value")
+    f = s.add(s.add(0.45, s.mul(tip, 0.45)), s.mul(s.sub(barbs, 0.5), 0.7))
+    f = s.add(f, s.mul(s.band(across, 0.0, 0.03, 0.03), s.mul(s.step(tip, -0.45, 0.1), 0.25)))
+    col = s.ramp(
+        f,
+        [(0.1, (0.06, 0.045, 0.035)), (0.5, (0.15, 0.12, 0.09)), (0.8, (0.30, 0.26, 0.21)), (0.97, (0.52, 0.47, 0.40))],
+    )
+    col = s.mix(s.mul(s.step(edge, 0.08, 0.02), 0.4), col, (0.04, 0.03, 0.024))
+    return s.mix(s.mul(s.step(s.noise(20.0, detail=2.0), 0.4, 0.7), 0.3), col, (0.16, 0.11, 0.07))
+
+
+def queen_body_material(mat):
+    """Pale ashen skin with lilac creases; overlapping grey-brown feathers on the arms, down the flanks and over the
+    shoulders like a mantle, and a soft downy patch at the groin."""
+    s = Shade(mat)
+    ax = s.absf(s.x)
+    rag = s.mul(s.sub(s.noise(70.0, detail=3.0), 0.5), 0.03)
+    # arms and shoulders: the line moves inward over the shoulders
+    thr = s.sub(0.094, s.mul(s.step(s.z, 0.10, 0.145), 0.034))
+    arm_d = s.sub(s.add(ax, rag), thr)
+    arm = s.mul(s.step(arm_d, -0.002, 0.004), s.step(ax, 0.203, 0.196))  # the hands stay skin
+    arm = s.mul(arm, s.step(s.add(s.z, rag), 0.0, 0.02))  # down the flanks to the waist, not over the hips
+    mantle = s.mul(s.step(s.add(s.z, rag), 0.150, 0.158), s.step(s.y, -0.035, -0.01))
+    fmask = s.minf(s.add(arm, mantle), 1.0)
+    groin_r = s.dist((0.0, -0.09, -0.07), vec=s.scaled(1.0, 1.0, 1.7))
+    down = s.mul(s.step(s.add(groin_r, s.mul(rag, 0.5)), 0.03, 0.018), 0.75)
+
+    # feathers: two sets, lying along the arm (pointing to the hand) and down the flanks and back (pointing down)
+    barbs = s.noise(1.0, vec=s.scaled(90.0, 700.0, 700.0), detail=2.0)
+    along_arm = s.step(ax, 0.104, 0.124)
+    fcol = s.mix(
+        along_arm,
+        feathers(s, (55.0, 55.0, 24.0), (0.0, 0.0, -1.0), 1.0, barbs),
+        feathers(s, (24.0, 60.0, 60.0), (1.0, 0.0, 0.0), s.math("SIGN", s.x), barbs),
+    )
+
+    skin_c = skin(s, QUEEN_SKIN, (0.76, 0.52, 0.44), (0.36, 0.29, 0.36), 60.0, 0.05, 0.9, 0.65, (0.60, 0.53, 0.55))
+    # the skin greys toward the feathers, like down
+    halo = s.mul(s.step(arm_d, -0.02, -0.002), 0.45)
+    skin_c = s.mix(halo, skin_c, (0.46, 0.38, 0.32))
+    skin_c = s.mix(s.mul(down, s.add(0.5, s.mul(barbs, 0.5))), skin_c, (0.36, 0.28, 0.22))
+    col = s.mix(fmask, skin_c, fcol)
+    s.surface(col, rough=0.65)
+
+
+ANGLE = 45.0
+
+
+def own_unwrap(obj, baked, density, margin=0.012):
+    """The "atlas" UV map for bake_atlas over the baked slots only (a slot not baked keeps its 1999 projection and takes
+    no room), each slot's islands scaled by `density` (relative texel density) before the final packing."""
+    me = obj.data
+    names = [m.name for m in me.materials]
+    if "atlas" not in me.uv_layers:
+        me.uv_layers.new(name="atlas")
+    me.uv_layers.active = me.uv_layers["atlas"]
+    for p in me.polygons:
+        p.select = names[p.material_index] in baked
+    bpy.context.view_layer.objects.active = obj
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(ANGLE), island_margin=margin, area_weight=1.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    uv = me.uv_layers["atlas"].data
+    for p in me.polygons:
+        k = density.get(names[p.material_index], 1.0) if p.select else 0.0
+        for li in p.loop_indices:
+            uv[li].uv = uv[li].uv * k if p.select else V((0.999, 0.999))
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(margin=margin, rotate=True, scale=True)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def part_copy(model, keep):
+    """A copy of the model with only the faces for which `keep(face)` holds."""
+    dup = model.copy()
+    dup.data = model.data.copy()
+    link(dup)
+    bm = bmesh.new()
+    bm.from_mesh(dup.data)
+    bm.faces.ensure_lookup_table()
+    flags = [keep(f) for f in bm.faces]
+    bmesh.ops.delete(bm, geom=[f for f, k in zip(bm.faces, flags, strict=True) if not k], context="FACES")
+    bm.to_mesh(dup.data)
+    bm.free()
+    return dup
+
+
+def body_faces(model):
+    """Indices of the faces of the largest connected piece (the body without hands, wing bones and membranes)."""
+    bm = bmesh.new()
+    bm.from_mesh(model.data)
+    bm.faces.ensure_lookup_table()
+    seen = [False] * len(bm.faces)
+    best = []
+    for f0 in bm.faces:
+        if seen[f0.index]:
+            continue
+        part, stack = [], [f0]
+        seen[f0.index] = True
+        while stack:
+            f = stack.pop()
+            part.append(f.index)
+            for e in f.edges:
+                for g in e.link_faces:
+                    if not seen[g.index]:
+                        seen[g.index] = True
+                        stack.append(g)
+        if len(part) > len(best):
+            best = part
+    bm.free()
+    return set(best)
+
+
+def uv_mask(obj, size):
+    """Pixels (Blender image rows, bottom up) whose centre lies in a triangle of the object's atlas, grown by one pixel."""
+    import numpy as np
+
+    mask = np.zeros((size, size), dtype=bool)
+    uv = obj.data.uv_layers["atlas"].data
+    for p in obj.data.polygons:
+        t = np.array([tuple(uv[li].uv) for li in p.loop_indices][:3]) * size - 0.5
+        lo = np.maximum(np.floor(t.min(0)).astype(int), 0)
+        hi = np.minimum(np.ceil(t.max(0)).astype(int), size - 1)
+        if (hi < lo).any():
+            continue
+        xs, ys = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1))
+        (x0, y0), (x1, y1), (x2, y2) = t
+        den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(den) < 1e-12:
+            continue
+        a = ((y1 - y2) * (xs - x2) + (x2 - x1) * (ys - y2)) / den
+        b = ((y2 - y0) * (xs - x2) + (x0 - x2) * (ys - y2)) / den
+        inside = (a >= -0.02) & (b >= -0.02) & (1 - a - b >= -0.02)
+        mask[ys[inside], xs[inside]] = True
+    grown = mask.copy()
+    for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        grown |= np.roll(mask, (dy, dx), axis=(0, 1))
+    return grown
+
+
+def bake_parts(model, path, baked, size, rings=24):
+    """Bake the body and the other pieces (hands, wing bones, claws, membranes) apart, so they cast no shadows on each
+    other (fingers and wing bones hanging by the thighs), merge the two pictures by their UV coverage and grow the
+    islands into the empty atlas (edge padding: the converter's downscale to 256 px would otherwise mix the empty pixels
+    into the island borders). The bake writes every pixel opaque, so the coverage comes from the UVs. The slots not
+    baked are left out (a 1999 wing membrane must not shade the body either). Returns the exporter's slot fields."""
+    import numpy as np
+    from own_texture import bake_atlas
+
+    names = [m.name for m in model.data.materials]
+    body = body_faces(model)
+    rgb = np.zeros((size, size, 3), dtype=np.float32)
+    filled = np.zeros((size, size), dtype=bool)
+    slots = {}
+    for k, inside in enumerate((True, False)):
+        part = part_copy(
+            model, lambda f, inside=inside: (f.index in body) == inside and names[f.material_index] in baked
+        )
+        tmp = path.with_name(f"{path.stem}_part{k}.png")
+        slots.update(bake_atlas(part, tmp, materials=list(baked), size=size))
+        mask = uv_mask(part, size) & ~filled
+        bpy.data.objects.remove(part)
+        img = bpy.data.images.load(str(tmp), check_existing=False)
+        px = np.empty(size * size * 4, dtype=np.float32)
+        img.pixels.foreach_get(px)
+        bpy.data.images.remove(img)
+        tmp.unlink()
+        rgb[mask] = px.reshape(size, size, 4)[mask][:, :3]
+        filled |= mask
+    for _ in range(rings):
+        acc = np.zeros_like(rgb)
+        cnt = np.zeros((size, size), dtype=np.float32)
+        for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            m = np.roll(filled, (dy, dx), axis=(0, 1))
+            acc += np.roll(rgb * filled[..., None], (dy, dx), axis=(0, 1)) * m[..., None]
+            cnt += m
+        grow = (~filled) & (cnt > 0)
+        rgb[grow] = acc[grow] / cnt[grow][:, None]
+        filled |= grow
+    rgb[~filled] = rgb[filled].mean(0)
+    out = bpy.data.images.new(path.stem, size, size, alpha=True)
+    out.pixels.foreach_set(np.concatenate([rgb, np.ones((size, size, 1), dtype=np.float32)], axis=2).ravel())
+    out.filepath_raw = str(path)
+    out.file_format = "PNG"
+    out.save()
+    bpy.data.images.remove(out)
+    return {n: {"texture": "image", "image": path.name} for n in slots}
+
+
 # ---------------------------------------------------------------------------- report, render, export
 
 
@@ -818,8 +1291,10 @@ CHARACTERS = {
         "joints": SUCC_JOINTS,
         "landmarks": SUCC_LANDMARKS,
         "keep": SUCC_KEEP,
-        "slots": {"Wing": {"pcTextures": [4]}, "Bone": {"pcTextures": [4]}},
+        "slots": {"Wing": {"pcTextures": [4]}},
         "frame": ((0, 0, -0.04), 0.45),
+        # the wings keep the 1999 cut-out membranes (ragged hems); body and bones get the own atlas
+        "bake": {"Body": 1.0, "Bone": 0.5},
     },
     "queen": {
         "build": build_queen,
@@ -829,10 +1304,24 @@ CHARACTERS = {
         "joints": QUEEN_JOINTS,
         "landmarks": QUEEN_LANDMARKS,
         "keep": QUEEN_KEEP,
-        "slots": {"Body": {"pcTextures": [1]}, "Wing": {"pcTextures": [0, 2]}, "Bone": {"pcTextures": [0]}},
+        "slots": {},
         "frame": ((0, 0, 0.02), 1.4),
+        # the 1999 wings are opaque, so the whole body, wings and bones are baked (wings at a lower texel density)
+        "bake": {"Body": 1.0, "Wing": 0.55, "Bone": 0.35},
     },
 }
+
+
+def dressing(model, key):
+    """The procedural materials of the baked slots; a slot that is not baked lets the bake's light through."""
+    mats = {m.name: m for m in model.data.materials}
+    if key == "succubus":
+        succubus_body_material(mats["Body"])
+        horn_material(mats["Bone"], (0.035, 0.022, 0.02), (0.16, 0.09, 0.07), 900.0)
+    else:
+        queen_body_material(mats["Body"])
+        membrane_material(mats["Wing"], (0.13, 0.065, 0.05), (0.22, 0.12, 0.09), (0.045, 0.022, 0.018), 22.0)
+        horn_material(mats["Bone"], (0.16, 0.11, 0.075), (0.42, 0.34, 0.25), 300.0)
 
 
 def main():
@@ -847,13 +1336,17 @@ def main():
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             from authored_export import export_authored
 
+            folder = Path(ARGS.authored).resolve()
+            dressing(model, key)
+            own_unwrap(model, set(ch["bake"]), ch["bake"])
+            baked = bake_parts(model, folder / ch["file"].replace(".json", ".png"), set(ch["bake"]), ARGS.size)
             export_authored(
                 model,
                 Path(ARGS.authored).resolve() / ch["file"],
                 model=ch["model"],
                 label=ch["label"],
                 fit="joints",
-                slots=ch["slots"],
+                slots={**ch["slots"], **baked},
                 extra={
                     "landmarks": {n: list(ch["joints"][n]) for n in ch["landmarks"]},
                     "keepPcJoints": ch["keep"],

@@ -1,19 +1,23 @@
-"""Build an original Dr. Evil (the Order of the Flame final boss, a giant horned serpent) in Blender, headless.
+"""Build an original Dr. Evil (the Order of the Flame final boss, a giant horned serpent) in Blender, headless, with
+its own baked texture.
 
 The 1999 PC model `drevil(h)` (Common/NPC/NPCs, 539 polygons) is replaced at convert time by this mesh: the converter
-fits it on the PC skeleton (a nine-joint spine, the head, a two-joint jaw and a three-joint tongue) and takes UVs,
-textures (the 1999 scaled skin, the red mouth and the cut-out teeth) and skin weights from the player's own disc
-(editor/packages/formats/src/ootfauthored.ts). This script reads no game data: the segmented body with its belly
-plates, ring ridges and dorsal spines, the long horned head with three eyes a side, the open jaw with its teeth and the
-tongue are lofted from rounded proportions measured on the reference (joint positions, heights and widths), merged
-per part with a voxel remesh and decimated to a triangle budget.
+fits it on the PC skeleton (a nine-joint spine, the head, a two-joint jaw and a three-joint tongue) and takes the skin
+weights from the player's own disc (editor/packages/formats/src/ootfauthored.ts); the texture is the model's own. This
+script reads no game data: the segmented body with its ring ridges and dorsal spines, the long horned head with three
+eyes a side, the open jaw with its teeth and the tongue are lofted from rounded proportions measured on the reference
+(joint positions, heights and widths), merged per part with a voxel remesh and decimated to a triangle budget. Every
+slot is painted with procedural shader nodes (olive scales with dark crevices and blotches, a pale plated belly, amber
+eyes with slit pupils, a red ridged mouth, ivory horns and teeth) and baked into one atlas by own_texture.bake_atlas,
+saved beside the JSON (original art; run scripts/buildtool/pin_model_textures.py).
 
     blender -b --factory-startup -P analysis/scripts/blender/drevil_model.py -- \
-        --out build/authored/drevil-model [--authored scripts/buildtool/kit/models/drevil.json] [--no-render]
+        --out build/authored/drevil-model [--authored scripts/buildtool/kit/models-draft/drevil.json] [--size 512] \
+        [--no-render]
 
 Coordinates: the PC model's own units in Blender axes (x to the side, y toward the tail, z up; the serpent faces -Y and
 is about 14 units long), so the `landmarks` are the PC joint positions and the converter's joint fit is the identity.
-Outputs under --out (gitignored): drevil.blend and clay renders render_<view>.png.
+Outputs under --out (gitignored): drevil.blend and renders of the procedural paint render_<view>.png.
 """
 
 import argparse
@@ -36,6 +40,7 @@ def parse_args():
     ap.add_argument("--authored", help="write the mesh as an authored model for the converter (.json)")
     ap.add_argument("--no-render", action="store_true")
     ap.add_argument("--res", type=int, default=900, help="render height in pixels")
+    ap.add_argument("--size", type=int, default=512, help="baked atlas size in pixels")
     return ap.parse_args(argv)
 
 
@@ -300,26 +305,335 @@ def outward(obj):
 
 # ---------------------------------------------------------------------------- materials (slots)
 
-SLOT_COLOURS = {
-    "Body": (0.18, 0.17, 0.08),
-    "Head": (0.20, 0.20, 0.09),
-    "Mouth": (0.30, 0.05, 0.04),
-    "Horn": (0.45, 0.42, 0.30),
-    "Teeth": (0.80, 0.78, 0.65),
-}
-ORDER = list(SLOT_COLOURS)
+ORDER = ["Body", "Head", "Mouth", "Horn", "Teeth"]
 
 
 def make_mats():
-    mats = {}
-    for name, col in SLOT_COLOURS.items():
-        m = bpy.data.materials.new(name)
-        m.use_nodes = True
-        b = m.node_tree.nodes["Principled BSDF"]
-        b.inputs["Base Color"].default_value = (*col, 1.0)
-        b.inputs["Roughness"].default_value = 0.6
-        mats[name] = m
-    return mats
+    return {name: bpy.data.materials.new(name) for name in ORDER}
+
+
+# ---------------------------------------------------------------------------- painting (the model's own textures)
+# Every slot is painted procedurally with shader nodes in object space (the serpent sits at the origin in PC units) and
+# baked into one atlas by own_texture.bake_atlas: base colour x occlusion x a soft top light. Nothing is sampled from
+# the 1999 skin; it was only looked at for the colour scheme (olive green scales with darker blotches, a paler belly,
+# a red mouth, a row of pale eyes a side).
+
+PAL = {
+    "scale_dark": (0.022, 0.026, 0.010),
+    "scale": (0.085, 0.095, 0.032),
+    "scale_hi": (0.230, 0.225, 0.090),
+    "blotch": (0.028, 0.036, 0.014),
+    "belly": (0.30, 0.26, 0.13),
+    "belly_lo": (0.13, 0.11, 0.05),
+    "mouth": (0.20, 0.022, 0.018),
+    "mouth_lo": (0.060, 0.006, 0.006),
+    "tongue": (0.32, 0.07, 0.06),
+    "horn": (0.36, 0.31, 0.20),
+    "horn_lo": (0.09, 0.075, 0.045),
+    "eye": (0.62, 0.42, 0.08),
+    "eye_glow": (1.0, 0.55, 0.08),
+    "pupil": (0.010, 0.006, 0.004),
+}
+
+# the eyes as build_head places them: (y, z, x) per eye, x mirrored, and the eyeball radius
+EYES = [((-12.55, 0.68, 0.345), 0.085), ((-12.88, 0.64, 0.32), 0.075), ((-13.20, 0.60, 0.285), 0.065)]
+
+
+class Painter:
+    """Small helper over a material's node tree: object-space position, noise, cells, bands, masks and mixes."""
+
+    def __init__(self, mat):
+        self.nt = mat.node_tree
+        self.bsdf = self.nt.nodes["Principled BSDF"]
+        self.bsdf.inputs["Roughness"].default_value = 0.9
+        self.pos = self.node("ShaderNodeTexCoord").outputs["Object"]
+        sep = self.node("ShaderNodeSeparateXYZ")
+        self.link(self.pos, sep.inputs[0])
+        self.x, self.y, self.z = sep.outputs[0], sep.outputs[1], sep.outputs[2]
+        nsep = self.node("ShaderNodeSeparateXYZ")
+        self.link(self.node("ShaderNodeNewGeometry").outputs["Normal"], nsep.inputs[0])
+        self.nz = nsep.outputs[2]
+
+    def node(self, kind, **props):
+        n = self.nt.nodes.new(kind)
+        for k, v in props.items():
+            setattr(n, k, v)
+        return n
+
+    def link(self, a, b):
+        if isinstance(a, (int, float)):
+            b.default_value = a
+        elif isinstance(a, tuple):
+            b.default_value = (*a, 1.0) if len(a) == 3 and b.type == "RGBA" else a
+        else:
+            self.nt.links.new(a, b)
+
+    def math(self, op, a, b=0.0):
+        n = self.node("ShaderNodeMath", operation=op)
+        self.link(a, n.inputs[0])
+        self.link(b, n.inputs[1])
+        return n.outputs[0]
+
+    def vec(self, x, y, z):
+        n = self.node("ShaderNodeCombineXYZ")
+        for i, s in enumerate((x, y, z)):
+            self.link(s, n.inputs[i])
+        return n.outputs[0]
+
+    def mapped(self, scale=(1, 1, 1), loc=(0, 0, 0), vec=None):
+        n = self.node("ShaderNodeMapping")
+        self.link(vec or self.pos, n.inputs["Vector"])
+        n.inputs["Scale"].default_value = scale
+        n.inputs["Location"].default_value = loc
+        return n.outputs[0]
+
+    def noise(self, scale, detail=3.0, rough=0.55, vec=None):
+        n = self.node("ShaderNodeTexNoise")
+        self.link(vec or self.pos, n.inputs["Vector"])
+        n.inputs["Scale"].default_value = scale
+        n.inputs["Detail"].default_value = detail
+        n.inputs["Roughness"].default_value = rough
+        return n.outputs["Factor"]
+
+    def cells(self, scale, vec=None, randomness=0.85):
+        """Voronoi scales: (distance to the cell edge, a random value per cell)."""
+        e = self.node("ShaderNodeTexVoronoi", feature="DISTANCE_TO_EDGE")
+        c = self.node("ShaderNodeTexVoronoi", feature="F1")
+        for n in (e, c):
+            self.link(vec or self.pos, n.inputs["Vector"])
+            n.inputs["Scale"].default_value = scale
+            n.inputs["Randomness"].default_value = randomness
+        sep = self.node("ShaderNodeSeparateColor")
+        self.link(c.outputs["Color"], sep.inputs[0])
+        return e.outputs["Distance"], sep.outputs[0]
+
+    def bands(self, u, scale, distortion=0.0):
+        """Sine bands (0..1) along the coordinate `u` (a float socket)."""
+        n = self.node("ShaderNodeTexWave", wave_type="BANDS", bands_direction="X")
+        self.link(self.vec(u, self.x, self.z), n.inputs["Vector"])
+        n.inputs["Scale"].default_value = scale
+        n.inputs["Distortion"].default_value = distortion
+        return n.outputs["Factor"]
+
+    def step(self, a, lo, hi):
+        """0 at lo, 1 at hi, smooth in between (hi < lo inverts)."""
+        n = self.node("ShaderNodeMapRange", interpolation_type="SMOOTHSTEP")
+        self.link(a, n.inputs["Value"])
+        n.inputs["From Min"].default_value = lo
+        n.inputs["From Max"].default_value = hi
+        return n.outputs["Result"]
+
+    def ellipsoid_value(self, centre, r):
+        """|(p - centre) / r|: 1 on the ellipsoid's surface."""
+        v = self.mapped(scale=tuple(1 / k for k in r), loc=tuple(-c / k for c, k in zip(centre, r)))
+        n = self.node("ShaderNodeVectorMath", operation="LENGTH")
+        self.link(v, n.inputs[0])
+        return n.outputs["Value"]
+
+    def mix(self, fac, a, b, blend="MIX"):
+        n = self.node("ShaderNodeMix", data_type="RGBA", blend_type=blend, clamp_factor=True)
+        ins = {s.identifier: s for s in n.inputs}
+        self.link(fac, ins["Factor_Float"])
+        self.link(a, ins["A_Color"])
+        self.link(b, ins["B_Color"])
+        return next(s for s in n.outputs if s.identifier == "Result_Color")
+
+    def shade(self, col, k):
+        g = (k, k, k) if isinstance(k, (int, float)) else self.vec(k, k, k)
+        return self.mix(1.0, col, g, "MULTIPLY")
+
+    def out(self, col, glow=None, glow_mask=None, strength=1.0):
+        self.link(col, self.bsdf.inputs["Base Color"])
+        if glow is not None:
+            self.link(glow, self.bsdf.inputs["Emission Color"])
+            self.link(self.math("MULTIPLY", glow_mask, strength), self.bsdf.inputs["Emission Strength"])
+
+
+def scale_skin(p, size, belly_plates=True):
+    """Olive scales: dark crevices between the cells, a lighter rim on each scale, per-scale tone, large dark blotches
+    over the back, a darker dorsal stripe and a pale plated belly."""
+    edge, rnd = p.cells(1.0 / size, vec=p.mapped(scale=(1.0, 0.75, 1.0)))
+    col = p.mix(p.math("MULTIPLY", rnd, 0.7), PAL["scale"], PAL["scale_hi"])
+    blot = p.step(p.noise(0.11 / size, 3, 0.6, vec=p.mapped(scale=(1.0, 0.6, 1.0))), 0.48, 0.56)
+    col = p.mix(p.math("MULTIPLY", blot, 0.85), col, PAL["blotch"])
+    col = p.mix(p.math("MULTIPLY", p.step(p.nz, 0.55, 0.95), 0.5), col, PAL["blotch"])
+    # rim light on each scale, dark crevice at its edge
+    col = p.mix(p.math("MULTIPLY", p.step(edge, 0.10, 0.20), 0.35), col, PAL["scale_hi"])
+    col = p.mix(p.step(edge, 0.08, 0.0), col, PAL["scale_dark"])
+    if not belly_plates:
+        return col
+    plates = p.bands(p.y, 0.314 / (size * 1.6), 0.0)
+    belly = p.mix(p.step(plates, 0.12, 0.0), PAL["belly"], PAL["belly_lo"])
+    belly = p.mix(p.math("MULTIPLY", p.noise(6, 3, 0.6), 0.5), belly, PAL["belly_lo"])
+    return p.mix(p.step(p.nz, -0.30, -0.55), col, belly)
+
+
+def paint_body(mat):
+    p = Painter(mat)
+    p.out(scale_skin(p, 0.20))
+
+
+def paint_head(mat):
+    """Head: finer scales, the eyes (amber with a slit pupil, a dark lid rim, a faint glow), dark nostrils."""
+    p = Painter(mat)
+    col = scale_skin(p, 0.10, belly_plates=False)
+    glow = None
+    for sx in (1, -1):
+        for (y, z, w), r in EYES:
+            c = (w * sx, y, z)
+            v = p.ellipsoid_value(c, (r * 0.95, r * 1.25, r * 1.05))
+            rim = p.step(v, 1.30, 1.05)
+            ball = p.step(v, 1.06, 0.98)
+            pupil = p.step(p.ellipsoid_value(c, (r * 1.2, r * 0.22, r * 0.85)), 1.0, 0.85)
+            col = p.mix(rim, col, PAL["scale_dark"])
+            col = p.mix(ball, col, PAL["eye"])
+            col = p.mix(pupil, col, PAL["pupil"])
+            g = p.math("MULTIPLY", ball, p.math("SUBTRACT", 1.0, pupil))
+            glow = g if glow is None else p.math("MAXIMUM", glow, g)
+        col = p.mix(
+            p.step(p.ellipsoid_value((0.08 * sx, -13.82, 0.52), (0.045, 0.07, 0.035)), 1.0, 0.8), col, (0, 0, 0)
+        )
+    # inside the mouth (the lining and the inner faces of the jaws): red, darker toward the throat
+    inner = p.math("ADD", 0.31, p.math("MULTIPLY", p.math("ADD", p.y, 11.6), 0.11))
+    m = p.step(p.math("SUBTRACT", inner, p.math("ABSOLUTE", p.x)), 0.0, 0.04)
+    m = p.math("MULTIPLY", m, p.math("MULTIPLY", p.step(p.z, -0.06, 0.0), p.step(p.z, 0.40, 0.34)))
+    m = p.math("MULTIPLY", m, p.math("MULTIPLY", p.step(p.y, -11.0, -11.3), p.step(p.y, -13.72, -13.58)))
+    # not on the underside of the lower jaw
+    m = p.math("MULTIPLY", m, p.math("MAXIMUM", p.step(p.z, 0.10, 0.16), p.step(p.nz, -0.5, -0.2)))
+    ridges = p.bands(p.y, 0.314 / 0.09, 0.0)
+    red = p.mix(p.step(ridges, 0.25, 0.0), PAL["mouth"], PAL["mouth_lo"])
+    red = p.mix(p.step(p.y, -12.2, -11.2), red, PAL["mouth_lo"])
+    col = p.mix(m, col, red)
+    p.out(col, PAL["eye_glow"], glow, 0.6)
+
+
+def paint_mouth(mat):
+    """Mouth lining and tongue: deep red with palate ridges across, the tongue paler on top."""
+    p = Painter(mat)
+    ridges = p.bands(p.y, 0.314 / 0.09, 0.0)
+    col = p.mix(p.step(ridges, 0.25, 0.0), PAL["mouth"], PAL["mouth_lo"])
+    col = p.mix(p.math("MULTIPLY", p.noise(9, 3, 0.6), 0.5), col, PAL["mouth_lo"])
+    tongue = p.math("MULTIPLY", p.step(p.math("ABSOLUTE", p.x), 0.10, 0.06), p.step(p.z, 0.15, 0.20))
+    tongue = p.math("MULTIPLY", tongue, p.step(p.y, -11.9, -12.1))
+    p.out(p.mix(tongue, col, PAL["tongue"]))
+
+
+def paint_horn(mat):
+    """Horns and spines: ivory with lengthwise streaks and dark grime."""
+    p = Painter(mat)
+    streak = p.noise(14, 3, 0.6, vec=p.mapped(scale=(3.0, 1.0, 0.6)))
+    col = p.mix(p.step(streak, 0.35, 0.75), PAL["horn_lo"], PAL["horn"])
+    p.out(p.mix(p.math("MULTIPLY", p.noise(4, 2, 0.5), 0.4), col, PAL["horn_lo"]))
+
+
+def paint_teeth(mat):
+    p = Painter(mat)
+    col = p.mix(p.step(p.noise(30, 2, 0.5), 0.3, 0.8), (0.30, 0.26, 0.17), (0.48, 0.44, 0.33))
+    p.out(col)
+
+
+PAINT = {"Body": paint_body, "Head": paint_head, "Mouth": paint_mouth, "Horn": paint_horn, "Teeth": paint_teeth}
+
+
+def paint(model):
+    for mat in model.data.materials:
+        mat.use_nodes = True
+        nt = mat.node_tree
+        nt.nodes.clear()
+        bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+        bsdf.name = "Principled BSDF"
+        out = nt.nodes.new("ShaderNodeOutputMaterial")
+        nt.links.new(bsdf.outputs[0], out.inputs[0])
+        PAINT[mat.name.split(".")[0]](mat)
+
+
+def uv_islands(bm, uv):
+    """Faces grouped by UV connectivity (edges whose two sides share their UVs)."""
+    bm.faces.ensure_lookup_table()
+    parent = list(range(len(bm.faces)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for e in bm.edges:
+        if len(e.link_faces) != 2:
+            continue
+        f0, f1 = e.link_faces
+        same = True
+        for v in e.verts:
+            a = next(lo[uv].uv for lo in f0.loops if lo.vert == v)
+            b = next(lo[uv].uv for lo in f1.loops if lo.vert == v)
+            same &= (a - b).length < 1e-6
+        if same:
+            parent[find(f0.index)] = find(f1.index)
+    groups = {}
+    for f in bm.faces:
+        groups.setdefault(find(f.index), []).append(f)
+    return list(groups.values())
+
+
+def hidden_faces(bm, reach):
+    """Indices of faces that cannot be seen: of nine rays (the normal and eight tilted ones) eight hit the model nearby
+    (six when the one along the normal does)."""
+    from mathutils.bvhtree import BVHTree
+
+    tree = BVHTree.FromBMesh(bm)
+    out = set()
+    for f in bm.faces:
+        n = f.normal
+        if n.length < 0.5:
+            continue
+        t = n.orthogonal().normalized()
+        b = n.cross(t)
+        o = f.calc_center_median() + n * 2e-5
+        dirs = [n]
+        for k in range(8):
+            a = k * math.pi / 4
+            dirs.append((n + (t * math.cos(a) + b * math.sin(a)) * 1.5).normalized())
+        hits = [tree.ray_cast(o, d, reach)[0] is not None for d in dirs]
+        if sum(hits) >= (6 if hits[0] else 8):
+            out.add(f.index)
+    return out
+
+
+def unwrap_weighted(obj, weights, margin=0.004, reach=0.6):
+    """The "atlas" UV map, as own_texture.unwrap makes it, but with a texel density per slot: the skull's face gets more
+    of the picture than its area would (the converter keeps 256 px of it); faces nobody sees get little."""
+    bpy.context.view_layer.objects.active = obj
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    me = obj.data
+    if "atlas" not in me.uv_layers:
+        me.uv_layers.new(name="atlas")
+    me.uv_layers.active = me.uv_layers["atlas"]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.smart_project(angle_limit=math.radians(60), island_margin=margin, area_weight=1.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    uv = bm.loops.layers.uv["atlas"]
+    names = [m.name.split(".")[0] for m in me.materials]
+    hidden = hidden_faces(bm, reach)
+    for isl in uv_islands(bm, uv):
+        area = sum(f.calc_area() for f in isl) or 1.0
+        k = weights.get(names[isl[0].material_index], 1.0)
+        if sum(f.calc_area() for f in isl if f.index in hidden) / area > 0.85:
+            k *= 0.25  # inside the hood or buried in the robe: never seen
+        if k != 1.0:
+            for f in isl:
+                for lo in f.loops:
+                    lo[uv].uv = lo[uv].uv * k
+    bm.to_mesh(me)
+    bm.free()
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(rotate=True, margin=margin)
+    bpy.ops.object.mode_set(mode="OBJECT")
 
 
 # ---------------------------------------------------------------------------- parts
@@ -507,9 +821,7 @@ def build():
         model.data.materials.append(mats[n])
     for p, i in zip(model.data.polygons, idx):
         p.material_index = i
-    model.modifiers.new("tri", "TRIANGULATE")
-    apply_modifiers(model)
-    return model
+    return model  # quads kept for the unwrap (fewer islands); the exporter triangulates
 
 
 def report(model):
@@ -518,7 +830,7 @@ def report(model):
     for p in me.polygons:
         n = me.materials[p.material_index].name
         per[n] = per.get(n, 0) + 1
-    print(f"drevil: {len(me.vertices)} vertices, {len(me.polygons)} triangles, per slot {per}")
+    print(f"drevil: {len(me.vertices)} vertices, {len(me.polygons)} faces, per slot {per}")
 
 
 # ---------------------------------------------------------------------------- render
@@ -558,23 +870,32 @@ def render():
         bpy.ops.render.render(write_still=True)
 
 
+# texel density per slot (linear scale before packing): the head and its eyes read at game distance
+UV_WEIGHTS = {"Head": 2.2, "Mouth": 1.2, "Horn": 0.8, "Teeth": 0.7}
+
+
 def main():
     model = build()
     report(model)
+    unwrap_weighted(model, UV_WEIGHTS)
+    paint(model)
     if ARGS.authored:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from authored_export import export_authored
+        from own_texture import bake_atlas
 
-        # the teeth are the 1999 cut-out tooth cards (entry 2); everything else uses the opaque skin and mouth sheets
+        out = Path(ARGS.authored).resolve()
+        slots = bake_atlas(model, out.with_suffix(".png"), size=ARGS.size)
         export_authored(
             model,
-            Path(ARGS.authored).resolve(),
+            out,
             model="drevil(h)",
             label="Dr. Evil",
             fit="joints",
-            slots={"Teeth": {"pcTextures": [2]}},
+            slots=slots,
             extra={"landmarks": {n: list(p) for n, p in JOINTS.items()}},
         )
+        paint(model)  # the bake left its image nodes; repaint for the renders
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "drevil.blend"))
     if not ARGS.no_render:
         render()

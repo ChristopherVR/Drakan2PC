@@ -102,3 +102,30 @@ netting). The builders also noted: radial head projection paints the face on a h
 cannot be limited to the 1999 triangles of given joints (Succubus wing bones took skin from the feet), and transferred
 weights cannot blend a skirt across both thighs. Lifting the drafts needs the models' own UVs and textures (painted or
 baked in Blender: original art, committed like the kit pictures) rather than the 1999 paint.
+
+## Third round: own textures (original art baked in Blender)
+
+Owner: continue with own textures. New support: a slot can be `texture: "image"` with the model's own UVs and a PNG
+beside the file (formats `ootfauthored.ts`, `png.ts`, `OotfAssetBuilder.addImageTexture`; 8 bpp square, 256 px in game);
+`analysis/scripts/blender/own_texture.py` unwraps and bakes (base colour x occlusion x a soft top light); the PNGs are
+pinned by `scripts/buildtool/pin_model_textures.py` (`kit/models.sha256`, `kit/models-draft.sha256`). Four builders
+retextured the drafts, painting procedurally (no 1999 pixels sampled); kept 1999 heads stay projected.
+
+| Model | Verdict | Where |
+| --- | --- | --- |
+| Crimson and Ebon Knights | clear gain, a redesign: clean plate with brass or silver trims, enamel helm stripes, glowing eye slits, mail, emblem tabards; in game (Alwarren) they fight with no seam holes | `kit/models` |
+| Tuiri | gain: black suit with designed gold flames, girdle, gauntlets, knee guard; the bust is plainer than the 1999 gold relief; in game in her scene pose | `kit/models` |
+| Succubus | gain: a crimson scaled bodysuit with bronze trims (more covered than 1999), the 1999 cut-out wings kept; in game (Succubus Lair) flying and fighting | `kit/models` |
+| Queen Shillah | beats the projected draft, about even with 1999 (plumage reads as soft down at 256 px) | `kit/models-draft` |
+| Death Mage, shaman, ghost | readable again (hood, wraps, 30 hanging strips), clean, but reads more like a cartoon mummy; the small painted skull is less menacing than the 1999 one | `kit/models-draft` |
+| Dr. Evil | crisp scales and clear eyes, but the snout became boxy | `kit/models-draft` |
+
+Tool fixes found by the builders:
+* The bake left partial alpha on island borders; the converter cuts alpha at 50 %, so seams would have opened: the
+  helper now grows the colours 6 px and writes the picture opaque.
+* The bake let every other object in the scene cast occlusion on the model: only the target is visible during the bake.
+* Seam hole under kept heads: an authored triangle was dropped when its dominant joint was kept, so the triangles that
+  straddle the neck seam went and left a hole (the Queen's chin, Delon's dark neck patches). Now a triangle is dropped
+  only when all three corners belong to kept joints.
+* Open: per-part baking (loose pieces shade the body), texel weights per slot in `unwrap`, and an unwrap angle of 45
+  degrees instead of 66 (stretching on faces seen edge-on) are done in the builders' scripts, not yet in the helper.
