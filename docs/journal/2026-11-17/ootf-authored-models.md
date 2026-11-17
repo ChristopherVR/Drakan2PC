@@ -152,3 +152,36 @@ ridge, fins and back-swept skull spikes, cheek and jaw spikes, lean V-keeled jaw
 out puffy, with modelled teeth, gullet and forked tongue; every slot projects the 1999 texture (no own texture) with
 `radialJoints: []`, so the six pale eye ovals land intact on the plate-edge crease. The owner approved it and it ships.
 Lesson: for a boss with a strong 1999 identity, a faithful remake with the 1999 skin projected beats a redesign.
+
+## Delon with his own texture
+
+Owner: the converted Delon "looks odd and not like the remodelled one". Cause: every slot of `kit/models/delon.json`
+projected the 1999 texture onto the new body (blotchy smeared clothes, gore-red specks, pale patches at the top of the
+legs from the 1999 hem strip, a hem strip on the trousers, a dark neck seam), so only the silhouette was the remodel.
+
+What `delon_model.py --authored` does now (scratch and runs under `build/delon-model/own`, `build/authored/delon-own*`,
+`build/ootf-run/delon-own*`):
+* The authored mesh is the body only (2,234 triangles): the Blender head, ears, eyes, lids, scalp and hair are left out,
+  the 1999 head is kept (`keepPcJoints: ["head"]`), and the new neck runs up under it. No neck seam is left, in the
+  previews or in game.
+* Every body slot is `texture: "image"`: one 512 px atlas (`kit/models/delon.png`, pinned in `kit/models.sha256`),
+  painted per texel from the 3D position (no 1999 pixels) with the remodel's material colours as they render: linen
+  tunic with folds, gathered skirt and a stitched, turned hem, shoulder and side seams, cuffs; a V-neck band painted by
+  position; a stitched belt with a brass buckle; leggings with cross lacing up the outer thigh; knee boots with a
+  turned-down top, ankle creases and a back seam; dark shoes. The skin tone was matched by eye to the kept face.
+* Fixes found on the way: the hem ring is built downwards, so its faces pointed inwards (normals are now recalculated
+  outwards before the bake and export); the V-neck cords decimated to a few long triangles that cut zigzags through the
+  chest (left out, the trim is painted); the stepped body material border at the V is overpainted by position; the
+  inside of the tunic skirt baked near black and showed as dark slivers when a thigh lifted it (the baked light is held
+  at 35 % of the albedo, 70 % inside the skirt).
+
+In game (`delon-own2`: Intro + Ruined Village, `DRAKAN_AUTOPRESS_STOP_AFTER_LOAD=1`, the owner's `drakan.ini` with the
+harness overrides replaced by its window 1280x960, `scale = auto` and `texture_upscale = auto`; still windowed, DLSS off as
+in the ini): Delon beside Rynn in scene 1.1 and in the fight that follows reads like the remodel: clean beige tunic with
+the dark V-neck, belt and brass buckle, brown leggings, boots, his 1999 face; no red specks, no pale thigh patches.
+
+The first run (`delon-own`, before the floor inside the skirt) showed black slivers under the hem when Delon walked; in
+`delon-own2` the hem is clean, with one small dark mark left at the back of the skirt in one frame of the fight.
+
+Open: the atlas is many small islands (smart projection on the decimated remesh), so the 256 px game texture is soft;
+a hand-made seam layout would give the tunic more texels.

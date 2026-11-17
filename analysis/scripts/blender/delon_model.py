@@ -7,6 +7,12 @@ model from scratch (no game data is read). It produces a render mesh, a rig and 
         --out build/delon-model [--clay] [--samples 64] [--views front,threequarter,side,back,face]
 
 Outputs (all under --out, gitignored): delon.blend, delon_game.glb, render_<view>.png.
+
+The shipped authored model (the body below the neck, the 1999 head kept) with its own baked texture beside it:
+
+    blender -b --factory-startup -P analysis/scripts/blender/delon_model.py -- --out build/delon-model/own         --no-render --authored scripts/buildtool/kit/models/delon.json    # also writes delon.png; then run
+    python scripts/buildtool/pin_model_textures.py
+
 Coordinates: metres, Z up, the character faces -Y, height about 1.72 m.
 """
 
@@ -32,7 +38,9 @@ def parse_args():
     ap.add_argument("--views", default="front,threequarter,side,back,face")
     ap.add_argument("--no-render", action="store_true")
     ap.add_argument("--lod", action="store_true", help="also render the game LOD")
-    ap.add_argument("--authored", help="write the game LOD as an authored model for the converter (.json)")
+    ap.add_argument(
+        "--authored", help="write the body's game mesh as an authored model for the converter (.json, + own .png)"
+    )
     return ap.parse_args(argv)
 
 
@@ -383,7 +391,7 @@ def build_body(g):
                 best, tag = d, t
         if tag in ("trousers", "leather"):
             tag = "leather" if c.z < 0.50 else "trousers"
-        if tag == "trousers" and c.z > 0.93:  # under the tunic hem
+        if tag == "trousers" and c.z > 1.0:  # under the tunic hem (leggings up to there, in case the hem lifts)
             tag = "shirt"
         if tag in ("leather", "shoe"):
             tag = "shoe" if c.z < 0.075 else "leather"
@@ -917,7 +925,7 @@ def lod_budget(name):
     return 0
 
 
-def build_game_lod(objs):
+def build_game_lod(objs, name="Delon_Game"):
     """One mesh for the game: each part decimated to its own budget, then joined."""
     dg = bpy.context.evaluated_depsgraph_get()
     bm = bmesh.new()
@@ -946,16 +954,377 @@ def build_game_lod(objs):
         bm.from_mesh(me)
         bpy.data.objects.remove(tmp)
         bpy.data.meshes.remove(me)
-    me = bpy.data.meshes.new("Delon_Game")
+    me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
     bm.free()
     for m in mats:
         me.materials.append(m)
-    lod = link(bpy.data.objects.new("Delon_Game", me))
+    lod = link(bpy.data.objects.new(name, me))
     lod.modifiers.new("tri", "TRIANGULATE")
     apply_modifiers(lod)
     shade_smooth(lod)
     return lod, len(me.polygons)
+
+
+# ---------------------------------------------------------------------------- own texture (game LOD)
+#
+# The game mesh of the body (the 1999 head is kept, so the authored head, hair and eyes are left out) gets its own atlas,
+# painted per texel from its 3D position (no game data): the remodel's materials as they render (linen tunic with folds
+# and a stitched hem, dark V-neck trim, stitched belt with a brass buckle, leggings laced up the outer thigh, knee boots
+# with a turned-down top and ankle creases, dark shoes) and a skin tone matched by eye to the kept 1999 face, so the neck
+# meets the head without a seam. own_texture.bake_atlas then adds occlusion and a soft top light.
+
+HEAD_PARTS = ("Delon_Head", "Delon_Ear", "Delon_Eye", "Delon_Lid", "Delon_Scalp", "Delon_Hair", "Delon_Brow")
+# left out of the game mesh as well: the V-neck cords decimate to a few long triangles that cut through the chest in
+# zigzags; the trim is painted along the V instead
+GAME_SKIP = (*HEAD_PARTS, "Delon_Neckline")
+PAINT_RES = 1024  # painted at twice the bake size, so the bake's samples smooth the edges
+
+# sRGB of each material as the remodel renders it (render_threequarter.png, lit faces): the albedo the bake starts from
+PALETTE = {
+    "shirt": (198, 168, 128),
+    "trim": (66, 45, 32),
+    "trousers": (122, 94, 70),
+    "leather": (104, 76, 54),
+    "shoe": (64, 46, 34),
+    "belt": (88, 58, 38),
+    "metal": (214, 166, 74),
+    "skin": (222, 146, 104),
+}
+
+
+def _srgb(c):
+    import numpy as np
+
+    c = np.array(c, dtype=np.float64) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _vnoise(P, scale, seed=0):
+    """Value noise in [0, 1] at points P (n, 3), lattice spacing 1 / scale metres."""
+    import numpy as np
+
+    q = P * scale
+    i = np.floor(q).astype(np.int64)
+    f = q - i
+    f = f * f * (3 - 2 * f)
+
+    def h(ix, iy, iz):
+        v = (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791) ^ (seed * 2654435761)
+        v = (v ^ (v >> 13)) * 1274126177
+        return ((v ^ (v >> 16)) & 0xFFFF) / 65535.0
+
+    out = 0.0
+    for dx in (0, 1):
+        for dy in (0, 1):
+            for dz in (0, 1):
+                w = (
+                    (f[:, 0] if dx else 1 - f[:, 0])
+                    * (f[:, 1] if dy else 1 - f[:, 1])
+                    * (f[:, 2] if dz else 1 - f[:, 2])
+                )
+                out = out + w * h(i[:, 0] + dx, i[:, 1] + dy, i[:, 2] + dz)
+    return out
+
+
+def _fbm(P, scale, octaves=3, seed=0):
+    tot, amp, norm = 0.0, 1.0, 0.0
+    for o in range(octaves):
+        tot = tot + amp * _vnoise(P, scale * 2**o, seed + o)
+        norm += amp
+        amp *= 0.5
+    return tot / norm
+
+
+def _rasterize(lod, res):
+    """Per-texel 3D position, normal and material index of the "atlas" UV map (uncovered texels get -1)."""
+    import numpy as np
+
+    me = lod.data
+    uv = me.uv_layers["atlas"].data
+    co = np.array([v.co[:] for v in me.vertices])
+    nrm = np.array([v.normal[:] for v in me.vertices])
+    P = np.zeros((res, res, 3))
+    N = np.zeros((res, res, 3))
+    M = np.full((res, res), -1, dtype=np.int32)
+    for poly in me.polygons:
+        li = list(poly.loop_indices)
+        vi = list(poly.vertices)
+        for a, b, cc in ((0, k, k + 1) for k in range(1, len(li) - 1)):
+            uvs = np.array([uv[li[a]].uv[:], uv[li[b]].uv[:], uv[li[cc]].uv[:]]) * res - 0.5
+            lo = np.floor(uvs.min(0) - 1).astype(int).clip(0, res - 1)
+            hi = np.ceil(uvs.max(0) + 1).astype(int).clip(0, res - 1)
+            xs, ys = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1))
+            x, y = xs.ravel().astype(float), ys.ravel().astype(float)
+            (x0, y0), (x1, y1), (x2, y2) = uvs
+            den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            if abs(den) < 1e-12:
+                continue
+            l0 = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den
+            l1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den
+            l2 = 1 - l0 - l1
+            e = -0.6 / max(1.0, abs(den) ** 0.5)  # a little past the edges: no gaps between triangles
+            inside = (l0 >= e) & (l1 >= e) & (l2 >= e)
+            if not inside.any():
+                continue
+            L = np.stack([l0[inside], l1[inside], l2[inside]], 1)
+            ids = [vi[a], vi[b], vi[cc]]
+            px, py = xs.ravel()[inside], ys.ravel()[inside]
+            P[py, px] = L @ co[ids]
+            N[py, px] = L @ nrm[ids]
+            M[py, px] = poly.material_index
+    N /= np.maximum(np.linalg.norm(N, axis=2, keepdims=True), 1e-9)
+    return P, N, M
+
+
+def _dilate(img, mask, steps):
+    import numpy as np
+
+    img, mask = img.copy(), mask.copy()
+    for _ in range(steps):
+        acc = np.zeros_like(img)
+        cnt = np.zeros(mask.shape)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            m = np.roll(np.roll(mask, dy, 0), dx, 1)
+            acc += np.roll(np.roll(img, dy, 0), dx, 1) * m[..., None]
+            cnt += m
+        grow = (~mask) & (cnt > 0)
+        img[grow] = acc[grow] / cnt[grow, None]
+        mask = mask | grow
+    return img
+
+
+def delon_albedo(P, N, mat):
+    """Linear base colour (n, 3) for texels at P (Blender metres) with normals N and material names mat."""
+    import numpy as np
+
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    ax = np.abs(x)
+    n = len(P)
+    grain = _fbm(P, 140.0, 2, 1)
+    big = _fbm(P, 9.0, 2, 7)
+    folds = _fbm(P * np.array([1.0, 1.0, 0.12]), 38.0, 3, 3)  # vertical folds: noise stretched along Z
+    col = np.zeros((n, 3))
+    for k, c in PALETTE.items():
+        col[mat == k] = _srgb(c)
+    cloth = (mat == "shirt") | (mat == "trousers")
+    col *= (0.92 + 0.12 * grain)[:, None]
+    col *= (0.92 + 0.16 * big)[:, None]
+    col[cloth] *= (0.82 + 0.26 * folds[cloth])[:, None]
+
+    def darken(m, f):
+        col[m] *= f
+
+    phi = np.arctan2(x, -y)  # around the body, 0 at the front
+
+    # ---- tunic: gathered under the belt, a turned and stitched hem, seams, cuffs, elbow creases
+    sh = mat == "shirt"
+    skirt = sh & (z < 1.045) & (ax < 0.2)
+    gath = _fbm(P * np.array([1.0, 1.0, 0.05]), 70.0, 2, 11)
+    darken(skirt, (0.84 + 0.24 * gath[skirt])[:, None])
+    hem = skirt & (z < 0.912)
+    darken(hem, 0.88)
+    darken(hem & (z < 0.897), 0.76)
+    darken(hem & (np.abs(z - 0.905) < 0.0016) & (np.mod(phi * 0.11, 0.009) < 0.005), 0.6)
+    darken(sh & (z > 1.3) & (np.abs(ax - 0.182) < 0.003), 0.7)  # shoulder seams
+    cuff = sh & (ax > 0.6)
+    darken(cuff, 0.92)
+    darken(cuff & (np.abs(ax - 0.628) < 0.0025), 0.62)
+    elbow = sh & (np.abs(ax - 0.405) < 0.035) & (y < 0.0)
+    wave = np.sin((ax - 0.405) * 260 + 6.0 * _fbm(P, 50.0, 1, 5))
+    darken(elbow & (wave > 0.75), 0.84)
+    darken(sh & (ax < 0.2) & (ax > 0.06) & (np.abs(y - 0.018) < 0.0025) & (z < 1.33), 0.74)  # side seams
+
+    # ---- V-neck: painted by position over the stepped material border, skin inside and a clean dark band along it
+    half = (z - 1.31) * 0.62
+    vzone = (y < 0) & (z > 1.27) & (z < 1.445) & ((mat == "shirt") | (mat == "skin") | (mat == "trim"))
+    col[vzone & (ax < half - 0.003)] = _srgb(PALETTE["skin"])
+    col[vzone & ((ax >= half + 0.013) | (z <= 1.303))] = _srgb(PALETTE["shirt"])  # body faces stepped outside the band
+    tr = ((mat == "trim") & ~vzone) | (vzone & (z > 1.303) & (ax >= half - 0.003) & (ax < half + 0.013))
+    col[tr] = _srgb(PALETTE["trim"]) * (0.9 + 0.2 * grain[tr])[:, None]
+    col[tr] *= (0.85 + 0.35 * np.clip(N[tr] @ np.array([0.0, -0.6, 0.8]), 0, 1))[:, None]
+
+    # ---- belt: two rows of pale stitches, darker edges; the plate behind the buckle darker
+    bt = mat == "belt"
+    darken(bt & ((z < 1.049) | (z > 1.081)), 0.72)
+    rows = (np.abs(z - 1.0525) < 0.0018) | (np.abs(z - 1.0775) < 0.0018)
+    lit = bt & rows & (np.mod(phi * 0.12, 0.008) < 0.0045) & (ax > 0.02)
+    col[lit] = col[lit] * 0.4 + _srgb((176, 150, 112)) * 0.6
+    darken(bt & (y < -0.096) & (ax < 0.024), 0.62)
+
+    # ---- buckle: brass, an engraved border on the face, darker on the sides
+    mt = mat == "metal"
+    face = mt & (N[:, 1] < -0.7)
+    bd = np.maximum(ax - 0.026, np.abs(z - 1.065) - 0.022)
+    darken(face & (np.abs(bd) < 0.0022), 0.45)
+    darken(mt & ~face, 0.62)
+    col[face] += 0.15 * np.clip(1 - np.abs(bd[face]) / 0.01, 0, 1)[:, None] * _srgb((255, 220, 140))
+
+    # ---- leggings: creases behind the knees, cross lacing up the outer thigh
+    lg = mat == "trousers"
+    phil = np.arctan2(ax - 0.085, -(y - 0.008))  # around each leg: 0 front, +pi/2 outside
+    u = (phil - math.pi / 2) * 0.066  # metres around the leg from the outer line
+    knee = lg & (y > 0.0) & (np.abs(z - 0.55) < 0.05)
+    darken(knee & (np.sin(z * 380 + 4 * big) > 0.7), 0.82)
+    zone = lg & (z < 0.875) & (z > 0.595) & (np.abs(u) < 0.016)
+    q = (0.875 - z) / 0.05
+    f = q - np.floor(q)
+    slit = zone & (np.abs(u) < 0.0016)
+    darken(slit, 0.35)
+    darken(zone & (np.abs(u) < 0.006) & ~slit, 0.82)
+    eyelet = zone & (np.hypot(np.abs(u) - 0.012, np.minimum(f, 1 - f) * 0.05) < 0.0026)
+    col[eyelet] = _srgb((40, 28, 20))
+    cord = zone & (np.minimum(np.abs(u - (f - 0.5) * 0.026), np.abs(u + (f - 0.5) * 0.026)) < 0.0021)
+    col[cord] = _srgb((58, 40, 28)) * (0.9 + 0.3 * grain[cord])[:, None]
+
+    # ---- boots: a turned-down top with a stitched edge, creases at the ankle, a seam at the back, wear on the shin
+    bo = mat == "leather"
+    top = bo & (z > 0.496)
+    col[top] *= 1.08
+    darken(bo & (np.abs(z - 0.502) < 0.003), 0.6)
+    darken(top & (np.abs(z - 0.539) < 0.0016) & (np.mod(phil * 0.06, 0.008) < 0.0045), 0.55)
+    shaft = bo & ~top
+    crease = np.sin((z + 0.01 * np.sin(phil * 3 + 7 * big)) * 2 * math.pi / 0.026)
+    darken(shaft & (z < 0.24) & (z > 0.09) & (crease > 0.82), 0.74)
+    darken(shaft & (np.abs(np.abs(phil) - math.pi) < 0.05), 0.72)
+    col[shaft] *= (1.0 + 0.12 * np.clip(-N[shaft, 1], 0, 1) * big[shaft])[:, None]
+    # ---- shoes: a darker welt and sole, the toe a little worn
+    so = mat == "shoe"
+    darken(so & (z < 0.016), 0.55)
+    darken(so & (np.abs(z - 0.022) < 0.003), 0.7)
+    col[so] *= (0.92 + 0.22 * np.clip(-N[so, 1], 0, 1))[:, None]
+
+    # ---- skin: a soft shadow under the jaw, so the neck goes into the kept head without a bright band
+    neck = (mat == "skin") & (z > 1.43)
+    darken(neck, (1.0 - 0.12 * np.clip((z[neck] - 1.43) / 0.08, 0, 1))[:, None])
+
+    # painted light: a little brighter facing up, darker facing down (the bake adds occlusion on top)
+    col *= (0.86 + 0.24 * np.clip(N[:, 2] * 0.5 + 0.5, 0, 1))[:, None]
+    return np.clip(col, 0, 1)
+
+
+def paint_delon(lod, png, out):
+    """Unwrap the body's game mesh, paint its albedo per texel and bake it with occlusion and top light into `png`."""
+    import numpy as np
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from own_texture import bake_atlas, unwrap
+
+    unwrap(lod, margin=0.006, angle=48.0)
+    res = PAINT_RES
+    P, N, M = _rasterize(lod, res)
+    names = [m.name for m in lod.data.materials]
+    cover = M >= 0
+    mat = np.array([*names, ""])[M[cover]]
+    col = np.zeros((res, res, 3))
+    col[cover] = delon_albedo(P[cover], N[cover], mat)
+    col = _dilate(col, cover, 12)
+    # the inside of the tunic skirt shows when a thigh lifts it: held brighter than the bake's near-black occlusion
+    floor = np.full((res, res), 0.35)
+    Pc, Nc = P[cover], N[cover]
+    inner = (mat == "shirt") & (Pc[:, 2] < 1.045) & (np.abs(Pc[:, 0]) < 0.2)
+    inner &= Nc[:, 0] * Pc[:, 0] + Nc[:, 1] * (Pc[:, 1] - 0.01) < 0
+    fc = floor[cover]
+    fc[inner] = 0.7
+    floor[cover] = fc
+    img = bpy.data.images.new("delon_albedo", res, res, float_buffer=True)
+    rgba = np.concatenate([col, np.ones((res, res, 1))], 2).astype(np.float32)
+    img.pixels.foreach_set(rgba.ravel())
+    img.filepath_raw = str(Path(out) / "delon_albedo.exr")
+    img.file_format = "OPEN_EXR"
+    img.save()
+    for name in names:
+        nt = bpy.data.materials[name].node_tree
+        nt.nodes.clear()
+        bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+        outn = nt.nodes.new("ShaderNodeOutputMaterial")
+        nt.links.new(bsdf.outputs[0], outn.inputs["Surface"])
+        set_input(bsdf, "Roughness", 1.0)
+        set_input(bsdf, ["Specular IOR Level", "Specular"], 0.0)
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "atlas"
+        nt.links.new(uvn.outputs[0], tex.inputs["Vector"])
+        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    slots = bake_atlas(lod, png, materials=names, size=512, samples=128)
+    floor_light(png, col, floor)
+    return slots
+
+
+def floor_light(png, albedo, floor):
+    """Hold the baked light at `floor` (per texel, at the albedo's size) or more of the albedo. The occlusion under the
+    tunic skirt (the crotch, the skirt's inside) bakes near black, which shows in game as dark slivers when the legs
+    move; elsewhere the bake is left as it is."""
+    import numpy as np
+
+    img = bpy.data.images.load(str(png), check_existing=False)
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)
+    k = albedo.shape[0] // h
+    alb = albedo.reshape(h, k, w, k, 3).mean((1, 3))
+    floor = floor.reshape(h, k, w, k).max((1, 3))[:, :, None]
+
+    def lin(c):
+        return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+    def srgb(c):
+        return np.where(c <= 0.0031308, c * 12.92, 1.055 * np.power(np.maximum(c, 0), 1 / 2.4) - 0.055)
+
+    baked = lin(px[:, :, :3])
+    held = alb * floor
+    low = baked.sum(2) < held.sum(2)
+    baked[low] = held[low]
+    px[:, :, :3] = srgb(np.clip(baked, 0, 1))
+    img.pixels.foreach_set(px.reshape(-1))
+    img.save()
+    print(f"held {int(low.sum())} texels at their floor")
+
+
+def export_authored_own(char, g):
+    """The authored model for the converter: the body's game mesh with its own baked texture, the 1999 head kept."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from authored_export import export_authored
+
+    path = Path(ARGS.authored).resolve()
+    body_parts = [o for o in char if not o.name.startswith(GAME_SKIP)]
+    for o in bpy.context.scene.objects:  # nothing else may shade the game mesh in the bake
+        o.hide_render = True
+    body, _ = build_game_lod(body_parts, "Delon_Body_Game")
+    body.hide_render = False
+    # outward normals everywhere: the hem ring is built downwards, so its faces pointed inwards (they baked dark, and
+    # the converter takes the winding as it stands)
+    bm = bmesh.new()
+    bm.from_mesh(body.data)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm.to_mesh(body.data)
+    bm.free()
+    print(f"authored body: {len(body.data.vertices)} vertices, {len(body.data.polygons)} triangles")
+    slots = paint_delon(body, path.with_suffix(".png"), OUT)
+    bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "delon_game_own.blend"))  # the baked game mesh, for checks
+    # PC joint -> graph node: the converter warps the body onto the 1999 rig through these, and keeps the 1999 head
+    # (its face texture is the character; a 450-triangle head with a painted face is the Drakan 2 method)
+    pairs = {"upperbody": "pelvis", "chest": "chest", "head": "neck1"}  # no neck: the 1999 neck joint sits 4 cm higher
+    for s in "RL":
+        pairs |= {
+            f"{s}uparm": f"shoulder{s}",
+            f"{s}forearm": f"elbow{s}",
+            f"{s}thigh": f"hip{s}",
+            f"{s}calf": f"knee{s}",
+            f"{s}foot": f"ankle{s}",
+        }
+    landmarks = {j: [round(c, 4) for c in g.v[g.names[n]]] for j, n in pairs.items()}
+    export_authored(
+        body,
+        path,
+        model="Delon(h)",
+        label="Delon",
+        fit="joints",
+        slots=slots,
+        extra={"landmarks": landmarks, "keepPcJoints": ["head"]},
+    )
 
 
 # ---------------------------------------------------------------------------- scene and render
@@ -1100,34 +1469,6 @@ def main():
     except RuntimeError as exc:  # bone heat can fail on odd geometry; keep the model
         print("rig failed:", exc)
     print(f"render mesh tris {tris_hi}, game LOD tris {lod_tris}, verts {len(lod.data.vertices)}")
-    if ARGS.authored:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from authored_export import export_authored
-
-        # PC joint -> graph node: the converter warps the body onto the 1999 rig through these, and keeps the 1999 head
-        # (its face texture is the character; a 450-triangle head with a painted face is the Drakan 2 method)
-        pairs = {
-            "upperbody": "pelvis",
-            "chest": "chest",
-            "head": "neck1",
-        }  # no neck: the 1999 neck joint sits 4 cm higher
-        for s in "RL":
-            pairs |= {
-                f"{s}uparm": f"shoulder{s}",
-                f"{s}forearm": f"elbow{s}",
-                f"{s}thigh": f"hip{s}",
-                f"{s}calf": f"knee{s}",
-                f"{s}foot": f"ankle{s}",
-            }
-        landmarks = {j: [round(c, 4) for c in g.v[g.names[n]]] for j, n in pairs.items()}
-        export_authored(
-            lod,
-            Path(ARGS.authored).resolve(),
-            model="Delon(h)",
-            label="Delon",
-            fit="joints",
-            extra={"landmarks": landmarks, "keepPcJoints": ["head"]},
-        )
     bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "delon.blend"))
     # glTF of the game LOD
     try:
@@ -1147,6 +1488,8 @@ def main():
                 o.hide_render = True
             lod.hide_render = False
             render_views(cam, prefix + "_lod", views=["threequarter", "face"])
+    if ARGS.authored:  # last: the bake replaces the materials' nodes
+        export_authored_own(char, g)
 
 
 main()
