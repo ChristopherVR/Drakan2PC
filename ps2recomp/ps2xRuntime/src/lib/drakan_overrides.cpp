@@ -1741,6 +1741,30 @@ void musicPopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
     g_musicPopOrig(rdram, ctx, rt);
 }
 
+// Campaign music level (hle::CampaignMusicLevel): 0x1b30b8 (f12 gain, a0 instance) stores an instance's base gain,
+// which the engine computes with the category's gain (the Music Volume option / 100). While a campaign with its own
+// music is the current game, a music instance takes the option relative to its default 25 (full there and above, scaled
+// below). The instance's category is its descriptor's (+0x10, +0x3c, as 0x1b3098 reads it): a new instance is not
+// sorted into its category (+0x18) yet when the sort sets its gain. DRAKAN_CAMPAIGN_MUSIC_LEVEL=0 leaves the engine's
+// gain.
+PS2Runtime::RecompiledFunction g_baseGainOrig = nullptr;
+std::atomic<int> g_musicLevelLog{0};
+
+void musicBaseGainHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t inst = getRegU32(ctx, 4);
+    if (guestOk(inst, 0x20) && campaignMusic()) {
+        const uint32_t desc = gu32(rdram, inst + 0x10);
+        if (desc && guestOk(desc, 0x40) && gu32(rdram, desc + 0x3c) == kMusicCategory) {
+            const float cat = gf32(rdram, musicCategory() + 4), engine = ctx->f[12];
+            ctx->f[12] = hle::CampaignMusicLevel::baseGain(engine, cat);
+            if (ctx->f[12] != engine && g_musicLevelLog.fetch_add(1) < 16)
+                std::fprintf(stderr, "[music] campaign music level: %x at %.3f (engine %.3f, Music Volume %.0f)\n",
+                             gu32(rdram, inst + 0xc), ctx->f[12], engine, cat * 100.0f);
+        }
+    }
+    g_baseGainOrig(rdram, ctx, rt);
+}
+
 void applyTraceEnv(PS2Runtime& rt) {
     const char* e = std::getenv("DRAKAN_TRACE_FN");
     if (!e)
@@ -2295,6 +2319,14 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 runtime.replaceFunction(g_soundStopAt, &soundStopHook);
                 runtime.replaceFunction(g_musicPopAt, &musicPopHook);
                 runtime.replaceFunction(g_musicPauseAt, &musicPauseHook);
+            }
+            // a campaign's music follows the Music Volume relative to its default (musicBaseGainHook)
+            const uint32_t baseGainAt = drakan_region::guestAddress(0x1b30b8u);
+            const char* level = std::getenv("DRAKAN_CAMPAIGN_MUSIC_LEVEL");
+            if (drakan_region::build().identityAddresses && (!level || level[0] != '0') && baseGainAt &&
+                runtime.hasFunction(baseGainAt)) {
+                g_baseGainOrig = runtime.lookupFunction(baseGainAt);
+                runtime.replaceFunction(baseGainAt, &musicBaseGainHook);
             }
         }
         if (g_mods && !g_mods->soundSwapFiles().empty()) {

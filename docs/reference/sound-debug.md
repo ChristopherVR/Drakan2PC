@@ -134,4 +134,7 @@ on the PC: a new track starts at once with its fade in while the old one fades o
 Triggered Music Loop's emitter then stops the held instance), and a scene neither pauses the playing music at its start,
 nor fades its own music out at its end, nor sets a music level of its own. Diagnostics: `[music]` lines in the log;
 `DRAKAN_MUSIC_CATEGORY_FIX=0` and `DRAKAN_MUSIC_HANDOVER=0` restore the engine's behaviour for comparisons. Evidence:
-`docs/journal/2026-11-15/ootf-opening-scenes.md` section 9.
+`docs/journal/2026-11-15/ootf-opening-scenes.md` section 9. Since 17 November a campaign's music also takes the Music Volume
+relative to its default 25 (full there and above, scaled below; `musicBaseGainHook` on `0x1b30b8`,
+`hle::CampaignMusicLevel`, `DRAKAN_CAMPAIGN_MUSIC_LEVEL=0` turns it off): at 13 the scenes' music was buried under their
+speech (`docs/journal/2026-11-17/ootf-scene-music.md`).

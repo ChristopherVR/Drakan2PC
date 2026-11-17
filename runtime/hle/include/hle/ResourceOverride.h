@@ -167,6 +167,23 @@ public:
     static bool patch(std::vector<u8>& data);
 };
 
+// ---- campaign music level
+// ----------------------------------------------------------------------------------------------------------------
+// The sound manager gives a sound instance the base gain `category gain * (1 - global level) * (1 - category level) *
+// sound gain` (0x1b30b8 from 0x1b7758, 0x1b6e28 and 0x1b6800); the music category's gain is the Music Volume option /
+// 100, default 25. The PC plays a campaign's music and its sound with separate volumes, at full by default, and Order
+// of the Flame's music played at full gain until 15 November 2026 (it sat in the effects category). In the music
+// category it played at a quarter of that at the default, and under the scenes' speech it could not be heard (Ruined
+// Village 1.1 and 1.2a, the Book's backstory, Volcanic 9.1; docs/journal/2026-11-17/ootf-scene-music.md). While a
+// campaign is the current game its music therefore takes the Music Volume relative to the default: the default and
+// above play at full, below it the option scales as before (13 -> 0.52). Drakan 2's music is left alone.
+struct CampaignMusicLevel {
+    // the music category gain that plays a campaign's music at full: the Music Volume option's default (25 of 100)
+    static constexpr float kFullAt = 0.25f;
+    // The base gain to give a campaign music instance for the engine's `engineGain` (which includes `categoryGain`).
+    static float baseGain(float engineGain, float categoryGain);
+};
+
 // ---- XDB text
 // ----------------------------------------------------------------------------------------------------------------
 namespace xdb {

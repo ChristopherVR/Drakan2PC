@@ -73,6 +73,12 @@ def main() -> int:
     )
     ap.add_argument("--env", action="append", default=[])
     ap.add_argument(
+        "--keep-cutscene",
+        action="store_true",
+        help="let the level's cut scenes play out (play_run.py --keep-cutscene: the taps stop once the level has loaded)",
+    )
+    ap.add_argument("--audio", action="store_true", help="keep audio on (play_run.py --audio; off by default)")
+    ap.add_argument(
         "--exe", type=Path, help="game executable (default dist/DrakanPC/drakan.exe); lets a run use its own build"
     )
     ap.add_argument(
@@ -108,6 +114,7 @@ def main() -> int:
         sys.executable, str(ROOT / "scripts" / "harness" / "play_run.py"),
         "--name", "run", "--out-root", str(work), "--recipe", str(recipe),
         "--timeout", str(a.timeout), "--attempts", "1", *(["--exe", str(a.exe)] if a.exe else []),
+        *(["--keep-cutscene"] if a.keep_cutscene else []), *(["--audio"] if a.audio else []),
         "--env", f"DRAKAN_MODS={mods}",
         *(["--env", "DRAKAN_GAME=d1"] if a.campaign else ["--env", f"DRAKAN_START_LEVEL={title}"]),
         "--env", "PS2X_GS_SCALE=1", "--env", "DRAKAN_FULLSCREEN=0", "--env", "DRAKAN_DLSS=off",

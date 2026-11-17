@@ -3,6 +3,7 @@
 #include <algorithm>
 #include "hle/RsrcIop.h"
 #include "hle/CampaignSoundSwaps.h"
+#include <cmath>
 #include <cstdio>
 #include <array>
 #include <cstring>
@@ -361,6 +362,21 @@ int main() {
         CHECK(mc.wants(music) && !mc.wants(chunk) && !mc.wants(other));
         std::vector<u8> e = desc(0);
         CHECK(!mc.apply(other, e) && e == desc(0) && mc.apply(music, e) && e == desc(2));
+    }
+    // a campaign's music takes the Music Volume relative to its default: 25 and above play at full, below it scales
+    {
+        auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        const float track = 0.891f; // the converted tracks' descriptor gain (-100 mB)
+        // the owner's Music Volume 13: the engine's 0.13 * 0.891 plays as 0.52 * 0.891
+        CHECK(near(CampaignMusicLevel::baseGain(0.13f * track, 0.13f), 0.52f * track));
+        CHECK(near(CampaignMusicLevel::baseGain(0.25f * track, 0.25f), track)); // the default: full
+        CHECK(near(CampaignMusicLevel::baseGain(0.5f * track, 0.5f), track));   // above the default: full
+        CHECK(near(CampaignMusicLevel::baseGain(1.0f * track, 1.0f), track));   // 100: unchanged
+        CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.0f), 0.0f));            // 0 stays silent
+        CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.13f), 0.0f));           // a silent sound stays silent
+        // the scene and global levels inside the engine's product are kept: half level at 13 -> 0.26
+        CHECK(near(CampaignMusicLevel::baseGain(0.13f * 0.5f * track, 0.13f), 0.26f * track));
+        CHECK(std::isnan(CampaignMusicLevel::baseGain(NAN, 0.13f))); // nonsense is passed through
     }
     // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at
     // read time

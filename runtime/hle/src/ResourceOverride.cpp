@@ -1,6 +1,7 @@
 #include "hle/ResourceOverride.h"
 #include "hle/GlyphMap.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -399,6 +400,15 @@ bool MusicCategoryOverride::patch(std::vector<u8>& data) {
         return false;
     data[at] = static_cast<u8>(kMusicCategory);
     return true;
+}
+
+// ---- campaign music level
+float CampaignMusicLevel::baseGain(float engineGain, float categoryGain) {
+    // engineGain = categoryGain * rest; the result is rest * min(categoryGain / kFullAt, 1)
+    if (!(categoryGain > 0.0f) || !(engineGain > 0.0f) || !std::isfinite(engineGain) || !std::isfinite(categoryGain))
+        return engineGain;
+    const float scale = std::min(1.0f / kFullAt, 1.0f / categoryGain);
+    return scale > 1.0f ? engineGain * scale : engineGain;
 }
 
 // ---- campaign credits
