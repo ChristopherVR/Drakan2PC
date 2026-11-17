@@ -82,6 +82,9 @@ CHARS = {
         "outfit": {"boots": 0.603, "boot_front": 0.04, "gauntlet": (0.375, 0.600), "pauldron": True},
         # PC texture entries: 0 suit, 1 arms, 2 boots, 3 head, 4 hair (cut-out), 5 and 6 shoulder plate
         "slots": {"boot": [2], "gauntlet": [1], "pauldron": [5, 6]},
+        # her own painted atlas (paint_tuiri): every slot of the new body is baked, only the kept 1999 head is projected
+        "own_texture": True,
+        "keep": ["neck"],
     },
     "fvillager": {
         "model": "fvillager",
@@ -803,6 +806,376 @@ def build_game_mesh(objs, name):
     return lod
 
 
+# ---------------------------------------------------------------------------- Tuiri's own texture
+#
+# Painted procedurally per atlas texel from its 3D position (no game data): a black leather suit with a painted sheen,
+# gold filigree of flame tongues (an original design: a spine line with alternating hooked tongues and a bead at each
+# tip), a low V girdle with a ruby medallion, a gold-trimmed V neckline, bare arms with gold armlets, gold-plated knee
+# guards and flame cuffs on the boots, gold-rimmed gauntlets with a flame crest, and a gold shoulder plate with engraved
+# rings. own_texture.bake_atlas then multiplies it by occlusion and a soft top light (the Drakan 2 painted shading).
+
+PAINT_RES = 1024  # the albedo is painted at twice the bake size, so the bake's samples smooth its edges
+
+
+def _srgb(r, g, b):
+    import numpy as np
+
+    c = np.array([r, g, b], dtype=np.float64) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _vnoise(P, scale, seed=0):
+    """Value noise in [0, 1] at points P (n, 3), lattice spacing 1 / scale metres."""
+    import numpy as np
+
+    q = P * scale
+    i = np.floor(q).astype(np.int64)
+    f = q - i
+    f = f * f * (3 - 2 * f)
+
+    def h(ix, iy, iz):
+        v = (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791) ^ (seed * 2654435761)
+        v = (v ^ (v >> 13)) * 1274126177
+        return ((v ^ (v >> 16)) & 0xFFFF) / 65535.0
+
+    out = 0.0
+    for dx in (0, 1):
+        for dy in (0, 1):
+            for dz in (0, 1):
+                w = (
+                    (f[:, 0] if dx else 1 - f[:, 0])
+                    * (f[:, 1] if dy else 1 - f[:, 1])
+                    * (f[:, 2] if dz else 1 - f[:, 2])
+                )
+                out = out + w * h(i[:, 0] + dx, i[:, 1] + dy, i[:, 2] + dz)
+    return out
+
+
+def _fbm(P, scale, octaves=3, seed=0):
+    tot, amp, norm = 0.0, 1.0, 0.0
+    for o in range(octaves):
+        tot = tot + amp * _vnoise(P, scale * 2**o, seed + o)
+        norm += amp
+        amp *= 0.5
+    return tot / norm
+
+
+def _flame_sdf(d, t, t0, t1, period, reach, w, phase=0.0):
+    """Gold filigree band: a spine along t (lateral offset d, metres) with hooked flame tongues alternating left and
+    right, each leaning onward (+t) and curling back, a bead at each tip. Returns an approximate signed distance."""
+    import numpy as np
+
+    tt = (t - t0) / period + phase
+    cell = np.floor(tt)
+    p = tt - cell
+    side = np.where(np.mod(cell, 2) == 0, 1.0, -1.0)
+    k = 0.8 * math.pi
+    dc = side * reach * np.sin(p * k) / 0.95
+    slope = reach * k * np.cos(p * k) / 0.95 / period
+    wid = w * (1.25 - 1.05 * p)
+    tongue = (np.abs(d - dc) - 0.5 * wid) / np.sqrt(1 + slope * slope)
+    tip = np.hypot(d - side * reach * math.sin(0.92 * k) / 0.95, (p - 0.92) * period) - 0.42 * w
+    spine = np.abs(d) - 0.32 * w
+    s = np.minimum(np.minimum(spine, tongue), tip)
+    # the band ends cleanly: shorter tongues near both ends
+    fade = np.minimum(t - t0, t1 - t)
+    s = np.where(fade < 0, 1.0, s)
+    return np.maximum(s, -fade * 0.5)
+
+
+def _crown_sdf(a, h, period, height):
+    """A row of flame tongues rising from a base line: a (metres around), h (metres above the base). Every other tongue
+    is shorter; each leans and flicks back near its tip. Returns an approximate signed distance."""
+    import numpy as np
+
+    q = a / period
+    cell = np.floor(q)
+    f = (q - cell - 0.5) * period
+    tall = np.where(np.mod(cell, 2) == 0, 1.0, 0.68) * height
+    r = np.clip(h / tall, 0, 1)
+    centre = 0.16 * period * np.sin(r * math.pi * 1.4)
+    hw = 0.5 * period * 0.86 * (1 - r) ** 0.75
+    s = np.abs(f - centre) - hw
+    s = np.where(h > tall, np.hypot(f - centre, h - tall), s)
+    return np.where(h < 0, -h * 0.0 - 0.001 + np.maximum(0, -h - 0.004), s)
+
+
+def _rasterize(lod, res):
+    """Per-texel 3D position, normal and material of the "atlas" UV map (texels no triangle covers get mat -1)."""
+    import numpy as np
+
+    me = lod.data
+    uv = me.uv_layers["atlas"].data
+    co = np.array([v.co[:] for v in me.vertices])
+    nrm = np.array([v.normal[:] for v in me.vertices])
+    P = np.zeros((res, res, 3))
+    N = np.zeros((res, res, 3))
+    M = np.full((res, res), -1, dtype=np.int32)
+    for poly in me.polygons:
+        li = list(poly.loop_indices)
+        vi = list(poly.vertices)
+        for a, b, cc in ((0, k, k + 1) for k in range(1, len(li) - 1)):
+            uvs = np.array([uv[li[a]].uv[:], uv[li[b]].uv[:], uv[li[cc]].uv[:]]) * res - 0.5
+            lo = np.floor(uvs.min(0) - 1).astype(int).clip(0, res - 1)
+            hi = np.ceil(uvs.max(0) + 1).astype(int).clip(0, res - 1)
+            xs, ys = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1))
+            x, y = xs.ravel().astype(float), ys.ravel().astype(float)
+            (x0, y0), (x1, y1), (x2, y2) = uvs
+            den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+            if abs(den) < 1e-12:
+                continue
+            l0 = ((y1 - y2) * (x - x2) + (x2 - x1) * (y - y2)) / den
+            l1 = ((y2 - y0) * (x - x2) + (x0 - x2) * (y - y2)) / den
+            l2 = 1 - l0 - l1
+            e = -0.6 / max(1.0, abs(den) ** 0.5)  # a little past the edges: no gaps between triangles
+            inside = (l0 >= e) & (l1 >= e) & (l2 >= e)
+            if not inside.any():
+                continue
+            L = np.stack([l0[inside], l1[inside], l2[inside]], 1)
+            ids = [vi[a], vi[b], vi[cc]]
+            px, py = xs.ravel()[inside], ys.ravel()[inside]
+            P[py, px] = L @ co[ids]
+            N[py, px] = L @ nrm[ids]
+            M[py, px] = poly.material_index
+    N /= np.maximum(np.linalg.norm(N, axis=2, keepdims=True), 1e-9)
+    return P, N, M
+
+
+def _dilate(img, mask, steps):
+    import numpy as np
+
+    img, mask = img.copy(), mask.copy()
+    for _ in range(steps):
+        acc = np.zeros_like(img)
+        cnt = np.zeros(mask.shape)
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
+            m = np.roll(np.roll(mask, dy, 0), dx, 1)
+            acc += np.roll(np.roll(img, dy, 0), dx, 1) * m[..., None]
+            cnt += m
+        grow = (~mask) & (cnt > 0)
+        img[grow] = acc[grow] / cnt[grow, None]
+        mask = mask | grow
+    return img
+
+
+def tuiri_albedo(c, P, N, mat):
+    """Linear base colour (n, 3) for texels at P with normals N and material names mat."""
+    import numpy as np
+
+    J, o = c["joints"], c["outfit"]
+    x, y, z = P[:, 0], P[:, 1], P[:, 2]
+    ax = np.abs(x)
+    side = np.where(x >= 0, 1.0, -1.0)
+    n = len(P)
+    col = np.zeros((n, 3))
+    grain = _fbm(P, 90.0, 3, 1)
+    big = _fbm(P, 9.0, 2, 7)
+
+    def sheen(power=6.0, strength=1.0):
+        h = np.array([0.15, -0.55, 0.82])
+        h /= np.linalg.norm(h)
+        return strength * np.clip(N @ h, 0, 1) ** power
+
+    # ---- leather (suit, boots, gauntlets): near black, warm, fine grain, broad wear and a cool painted sheen
+    leather = _srgb(28, 18, 16) * (0.82 + 0.3 * grain[:, None]) * (0.85 + 0.3 * big[:, None])
+    leather = leather + sheen(3.0, 0.09)[:, None] * _srgb(150, 140, 150)[None]
+
+    # ---- skin, a tone matched to the kept 1999 face
+    skin = _srgb(205, 80, 32) * (0.93 + 0.1 * _fbm(P, 30.0, 2, 3)[:, None])
+    skin = skin * (1 - 0.06 * np.clip((0.55 - big) * 2, 0, 1))[:, None]
+
+    suit = mat == "suit"
+    is_skin = mat == "skin"
+    # V neckline: shallow at the back, plunging to the bust at the front
+    front = 1 - np.clip((y + 0.02) / 0.08, 0, 1)
+    nbase = 1.262 * front + 1.37 * (1 - front)
+    nslope = 1.55
+    nd = (z - (nbase + nslope * ax)) / math.sqrt(1 + nslope**2)  # > 0 above the neckline
+    torso_top = suit & (ax < 0.16) & (z > 1.2)
+    is_skin |= torso_top & (nd > 0)
+    # bare arms between the shoulder cap and the gauntlet
+    armhole = 0.168
+    arm = suit & (ax > armhole - 0.02) & (z > 1.27)
+    is_skin |= arm & (ax > armhole)
+    col[:] = leather
+    col[is_skin] = skin[is_skin]
+
+    gold_sdf = np.full(n, 1.0)
+    gold_w = np.full(n, 0.01)
+
+    def put(m, sdf, w):
+        better = m & (sdf < gold_sdf)
+        gold_sdf[better] = sdf[better]
+        gold_w[better] = w
+
+    # neckline trim: a band just under the skin edge with a row of beads
+    band = np.abs(nd + 0.009) - 0.0065
+    along = (x * 0.8 + np.where(front > 0.5, 0, 0.3)) / 0.022
+    bead = np.hypot((along - np.round(along)) * 0.022, nd + 0.009) - 0.0072
+    put(torso_top & (nd < 0.002), np.minimum(band, bead), 0.016)
+    # under-bust arcs: a gold rim curving under each breast, meeting at the V tip
+    bz = J["chest"] + 0.03
+    ub = np.hypot((ax - 0.05) / 0.062, (z - bz) / 0.058) - 1.0
+    put(suit & (y < -0.02) & (z < bz) & (nd < 0), np.abs(ub * 0.06) - 0.0055, 0.011)
+    # V tip: a gold teardrop pointing down between the busts
+    tip_z = 1.262
+    tdr = np.hypot(x * 1.6, np.maximum(0, tip_z - 0.012 - z) * 0.55 + np.maximum(0, z - tip_z + 0.012) * 1.6)
+    put(suit & (y < 0) & (z < tip_z + 0.01), tdr - 0.016, 0.03)
+    # armhole trim
+    put(arm & (ax <= armhole + 0.003), np.abs(ax - armhole + 0.007) - 0.006, 0.012)
+
+    # low V girdle, higher at the back, with a medallion at the front
+    gz = (0.958 + 0.72 * ax) * front + (1.0 + 0.45 * ax) * (1 - front)
+    gd = (z - gz) / math.sqrt(1 + 0.72**2)
+    body = suit & ~arm & (ax < 0.2)
+    put(body & (np.abs(gd) < 0.03), np.abs(gd) - 0.0085, 0.017)
+    put(body & (np.abs(gd) < 0.03), np.abs(np.abs(gd) - 0.0125) - 0.0022, 0.004)  # fine outer lines
+    med = np.hypot(x, z - 0.978)
+    medal = suit & (y < -0.02) & (med < 0.04)
+    put(medal, med - 0.024, 0.048)
+    # a crown of flames rising from the girdle all round the waist
+    phi = np.arctan2(x, -y)
+    torso = body & (gd > 0.008) & (z < 1.25) & ~(torso_top & (nd > -0.03))
+    put(torso, _crown_sdf(phi * 0.105 + 0.0225, gd - 0.008, 0.045, 0.085), 0.03)
+    # princess seams from the bust arcs down to the flames: a dark seam with paler stitches either side
+    for s in (1, -1):
+        sd = x - s * (0.047 + 0.25 * (1.2 - z) * (z < 1.2))
+        on = torso & (y < 0) & (np.abs(sd) < 0.006) & (z > gz + 0.05) & (ub > 0.05)
+        dash = np.mod(z, 0.012) < 0.006
+        col[on & (np.abs(sd) < 0.0016)] *= 0.35
+        col[on & (np.abs(np.abs(sd) - 0.004) < 0.0011) & dash] *= 2.2
+    # back: a column of linked lozenges along the spine
+    back = body & (y > 0.02) & (gd > 0.01) & (z < nbase + 0.0 - 0.03)
+    q = (z - 1.03) / 0.045
+    loz = np.abs(x) * 1.9 + np.abs((q - np.round(q)) * 0.045) - 0.016
+    put(back, np.minimum(loz, np.abs(x) - 0.003), 0.02)
+
+    # legs: an outer flame band from the boot top to the girdle, a piped seam inside
+    leg = suit & ~arm & (gd < -0.006) & (z < 1.05)
+    kx = J["knee"][0]
+    phil = np.arctan2((x - side * kx) * side, -(y - 0.01))
+    r_leg = 0.06
+    ul = (phil - 1.75) * r_leg
+    # outer gold piping from the girdle down to the thigh flames
+    put(leg & (z > o["boots"] + 0.08), np.abs(ul) - 0.0045, 0.009)
+    # flames licking up the thigh from the boot top
+    put(leg & (z < o["boots"] + 0.2), _crown_sdf(phil * r_leg + 0.01, z - (o["boots"] + 0.01), 0.038, 0.13), 0.025)
+    seam = leg & (np.abs(phil + 1.45) < 0.2)
+    col[seam] *= np.where(np.abs((phil[seam] + 1.45) * r_leg) < 0.0018, 0.45, 1.0)[:, None]
+
+    # armlets on the bare upper arms
+    put(arm & (ax > 0.23) & (ax < 0.27), np.abs(ax - 0.25) - 0.0095, 0.019)
+
+    # ---- gauntlets: leather, gold rims at both ends, a flame crest on the back of the forearm, rivets
+    g = mat == "gauntlet"
+    x0, x1 = o["gauntlet"]
+    sg = (ax - x0) / (x1 + 0.022 - x0)
+    sh, wr = Vector(J["shoulder"]), Vector(J["wrist"])
+    zc = sh.z + (ax - sh.x) * (wr.z - sh.z) / (wr.x - sh.x)
+    yc = sh.y + (ax - sh.x) * (wr.y - sh.y) / (wr.x - sh.x)
+    phig = np.arctan2(z - zc, -(y - yc))
+    rg = 0.045
+    put(g, np.minimum(sg - 0.09, 0.9 - sg) * 0.25, 0.02)
+    put(g, _flame_sdf((phig - 1.5708) * rg, (1 - sg) * 0.25, 0.022, 0.21, 0.05, 0.022, 0.012, 0.0), 0.012)
+    put(g, _flame_sdf((phig + 1.5708) * rg, (1 - sg) * 0.25, 0.022, 0.21, 0.05, 0.016, 0.009, 0.5), 0.009)
+    put(g & (sg > 0.3), _crown_sdf(phig * rg + 0.01, (0.9 - sg) * 0.25, 0.034, 0.13), 0.026)
+    riv = np.hypot(np.mod(phig * rg + 0.0, 0.032) - 0.016, (sg - 0.12) * 0.25) - 0.0042
+    put(g, riv, 0.008)
+
+    # ---- boots: leather with a gold top rim, a gold knee guard, flames rising up the outer shin, a gold toe cap rim
+    b = mat == "boot"
+    top = o["boots"]
+    phib = np.arctan2((x - side * J["ankle"][0]) * side, -(y - 0.012))
+    ztop = top + o.get("boot_front", 0.0) * np.clip(np.cos(phib), 0, 1) ** 3
+    put(b & (z > 0.3), np.abs(z - (ztop - 0.012)) - 0.011, 0.022)
+    guard = b & (np.abs(phib) < 0.75) & (z > top - 0.085)
+    gsdf = np.maximum(np.abs(phib) * 0.05 - 0.032, top - 0.075 - z)
+    put(guard, gsdf, 0.05)
+    engr = guard & (np.abs(_crown_sdf(phib * 0.047 + 0.0105, z - (top - 0.07), 0.021, 0.07)) < 0.0016)
+    shin = b & (z > 0.07) & (z < top - 0.03)
+    # a crown of flames rising round the boot from a gold band over the ankle
+    put(shin, _crown_sdf(phib * 0.047, z - 0.13, 0.042, 0.2), 0.03)
+    put(b & (z > 0.10) & (z < 0.16), np.abs(z - 0.122) - 0.009, 0.018)
+    put(b & (z < 0.13), np.abs(z - 0.022) - 0.005, 0.01)  # the welt above the sole
+    sole = b & (z < 0.016)
+    col[sole] = _srgb(42, 30, 22)
+
+    # ---- the shoulder plate: burnished gold, engraved rings around the spike, darker inside
+    pl = mat == "pauldron"
+    spike = np.array([0.215, J["shoulder"][1], J["shoulder"][2] + 0.075])
+    rd = np.linalg.norm(P - spike, axis=1)
+    ring = np.abs(np.mod(rd, 0.024) - 0.012)
+    gold_plate = _srgb(228, 138, 26) * (0.85 + 0.3 * grain[:, None])
+    gold_plate = gold_plate * np.where(ring < 0.0028, 0.35, 1.0)[:, None]
+    gold_plate = gold_plate + sheen(4.0, 0.22)[:, None] * _srgb(255, 190, 70)[None]
+    inner = (N @ np.array([1.0, 0, 0.6])) < -0.2
+    gold_plate[inner] *= 0.35
+    col[pl] = gold_plate[pl]
+
+    # ---- gold: embossed (darker at the edges, raised in the middle), a painted highlight, a dark outline on leather
+    gin = gold_sdf < 0
+    t = np.clip(-gold_sdf / np.maximum(0.45 * gold_w, 1e-4), 0, 1)
+    tone = t * t * (3 - 2 * t)
+    gcol = _srgb(130, 50, 2)[None] * (1 - tone[:, None]) + _srgb(245, 155, 30)[None] * tone[:, None]
+    gcol = gcol * (0.9 + 0.2 * grain[:, None]) + sheen(6.0, 0.4)[:, None] * _srgb(255, 200, 90)[None] * tone[:, None]
+    col[gin] = gcol[gin]
+    col[engr] *= 0.4
+    rim = (gold_sdf >= 0) & (gold_sdf < 0.0018) & ~is_skin & ~pl
+    col[rim] *= 0.5
+    # the medallion's ruby and the guard's small ruby
+    gem = medal & (med < 0.011)
+    col[gem] = (_srgb(150, 18, 20) * (0.6 + 0.6 * np.clip(1 - med[gem, None] / 0.011, 0, 1))) + sheen(8.0, 0.3)[
+        gem, None
+    ] * _srgb(255, 200, 200)[None]
+    # painted light: a little brighter facing up, darker facing down (the bake adds occlusion on top)
+    col *= (0.82 + 0.3 * np.clip(N[:, 2] * 0.5 + 0.5, 0, 1))[:, None]
+    return col
+
+
+def paint_tuiri(c, lod, png, out):
+    """Unwrap the game mesh, paint Tuiri's albedo per texel, bake it with occlusion and top light into `png`."""
+    import numpy as np
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from own_texture import bake_atlas, unwrap
+
+    unwrap(lod)
+    res = PAINT_RES
+    P, N, M = _rasterize(lod, res)
+    names = [m.name for m in lod.data.materials]
+    cover = M >= 0
+    mat = np.array([*names, ""])[M[cover]]
+    col = np.zeros((res, res, 3))
+    col[cover] = tuiri_albedo(c, P[cover], N[cover], mat)
+    col = _dilate(col, cover, 12)
+    img = bpy.data.images.new("tuiri_albedo", res, res, float_buffer=True)
+    rgba = np.concatenate([col, np.ones((res, res, 1))], 2).astype(np.float32)
+    img.pixels.foreach_set(rgba.ravel())
+    img.filepath_raw = str(Path(out) / "tuiri_albedo.exr")
+    img.file_format = "OPEN_EXR"
+    img.save()
+    for name in names:
+        m = bpy.data.materials[name]
+        m.use_nodes = True
+        nt = m.node_tree
+        bsdf = nt.nodes["Principled BSDF"]
+        bsdf.inputs["Roughness"].default_value = 1.0
+        tex = nt.nodes.new("ShaderNodeTexImage")
+        tex.image = img
+        uvn = nt.nodes.new("ShaderNodeUVMap")
+        uvn.uv_map = "atlas"
+        nt.links.new(uvn.outputs[0], tex.inputs["Vector"])
+        nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    # the source parts sit on the game mesh: hidden, or they shadow it in the bake
+    others = [ob for ob in bpy.context.scene.objects if ob is not lod and not ob.hide_render]
+    for ob in others:
+        ob.hide_render = True
+    slots = bake_atlas(lod, png, materials=names, size=512, samples=128)
+    for ob in others:
+        ob.hide_render = False
+    return slots
+
+
 # ---------------------------------------------------------------------------- one character
 
 
@@ -868,13 +1241,16 @@ def build_character(key):
                 f"{s}calf": (kn.x * sx, kn.y, kn.z),
                 f"{s}foot": (an.x * sx, an.y, an.z),
             }
+        slots = {k: {"pcTextures": v} for k, v in c["slots"].items()}
+        if c.get("own_texture"):
+            slots = paint_tuiri(c, lod, Path(ARGS.models).resolve() / f"{key}.png", out)
         export_authored(
             lod,
             Path(ARGS.models).resolve() / f"{key}.json",
             model=c["model"],
             label=c["label"],
             fit="joints",
-            slots={k: {"pcTextures": v} for k, v in c["slots"].items()},
+            slots=slots,
             extra={
                 "landmarks": {k: [round(x, 4) for x in v] for k, v in landmarks.items()},
                 "keepPcJoints": ["head", "hair1", "hair2", "hair3", *c.get("keep", [])],

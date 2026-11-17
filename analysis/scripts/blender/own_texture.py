@@ -69,6 +69,33 @@ def _ensure_light_rig() -> None:
     nt.links.new(bg.outputs[0], out.inputs[0])
 
 
+def make_opaque(img, grow: int = 6) -> None:
+    """Grow the baked colours `grow` px into the empty space around each island, then make every pixel opaque. The bake
+    leaves partial alpha along island borders, and the converter cuts alpha at 50 % (hardAlpha): those borders would open
+    as holes along the texture seams in game."""
+    import numpy as np
+
+    w, h = img.size
+    px = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    px = px.reshape(h, w, 4)
+    filled = px[:, :, 3] > 0.5
+    rgb = px[:, :, :3] * filled[:, :, None]
+    for _ in range(grow):
+        acc = np.zeros_like(rgb)
+        cnt = np.zeros((h, w), dtype=np.float32)
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            m = np.roll(filled, (dy, dx), axis=(0, 1))
+            acc += np.roll(rgb, (dy, dx), axis=(0, 1)) * m[:, :, None]
+            cnt += m
+        grow_here = ~filled & (cnt > 0)
+        rgb[grow_here] = acc[grow_here] / cnt[grow_here][:, None]
+        filled = filled | grow_here
+    px[:, :, :3] = rgb
+    px[:, :, 3] = 1.0
+    img.pixels.foreach_set(px.reshape(-1))
+
+
 def bake_atlas(
     obj,
     path: str | Path,
@@ -133,7 +160,16 @@ def bake_atlas(
     bake.use_pass_glossy = False
     bake.use_pass_transmission = False
     bake.use_pass_emit = True
-    bpy.ops.object.bake(type="COMBINED")
+    # only the baked mesh may shade itself: helper and source objects left in the scene would cast occlusion onto it
+    hidden = [o for o in bpy.context.scene.objects if o is not obj and not o.hide_render]
+    for o in hidden:
+        o.hide_render = True
+    try:
+        bpy.ops.object.bake(type="COMBINED")
+    finally:
+        for o in hidden:
+            o.hide_render = False
+    make_opaque(img)
     img.filepath_raw = str(path.resolve())
     img.file_format = "PNG"
     img.save()
