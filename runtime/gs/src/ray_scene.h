@@ -89,6 +89,25 @@ inline bool hasValidatedOpaque(std::span<const Triangle> triangles) {
     return std::any_of(triangles.begin(), triangles.end(),
                        [](const Triangle& tri) { return !tri.water && tri.shadowGeometry; });
 }
+// Guard for the model acceleration structures. A broken skin (bad weights, a bone gone wild) can stretch triangles
+// of a posed model across the level; the GPU then visits most of the level for every ray that crosses those
+// slivers, and a refit of a structure built for a sane pose makes every node's box span the level. Either way one
+// ray pass can run for seconds and stall the game (docs/journal/2026-11-17/ray-water-scene-hang.md).
+// screenModelPose deactivates (x = NaN, which DXR skips) every triangle with a corner that is not finite or beyond
+// kModelPoseLimit, and every triangle whose box is more than kModelSpikeFactor times the mesh's median triangle
+// span and longer than kModelSpikeFloor. `corners` holds three per triangle.
+constexpr float kModelPoseLimit = 1e6f, kModelSpikeFactor = 32, kModelSpikeFloor = 2048;
+struct ModelPoseShape {
+    float extent[3]{};         // axis-aligned size of the active triangles
+    double boxArea = 0;        // sum of the active triangles' box surface areas (what traversal pays for)
+    uint32_t inactive = 0;     // triangles deactivated by the guard
+    float longestInactive = 0; // longest box side among them (diagnostics); infinity for a non-finite corner
+};
+ModelPoseShape screenModelPose(std::span<Point> corners, std::vector<float>& scratch);
+// A refit keeps the structure of the build it updates, so it is only fit for a pose that stays close to that build's
+// shape. Otherwise (or with deactivated triangles, which an update cannot change) the structure is rebuilt.
+constexpr double kModelRefitGrowth = 2;
+bool modelRefitFits(const ModelPoseShape& built, const ModelPoseShape& pose);
 // A camera-anchored shell (underwater tint box, sky dome or sky barrels) that must not occlude rays.
 bool cameraShell(const SceneModelMesh& mesh, const float* transform, Point camera);
 // kTriangleAttributes float4 attributes of one triangle (`normals` = its three vertex normals, else the face normal).

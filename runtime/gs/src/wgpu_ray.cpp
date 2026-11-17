@@ -508,6 +508,13 @@ bool WgpuRay::render(const PassFrame& f, std::span<const Triangle> triangles,
                     for (const auto& t : model->triangles)
                         for (const auto& p : t.position)
                             positions.push_back({p[0], p[1], p[2]});
+                    // Stretched or invalid triangles of a broken pose (ray_scene.h screenModelPose) become points
+                    // at the model's origin: the CPU BVH builder needs finite corners, and a point is never hit.
+                    std::vector<float> scratch;
+                    if (surface::screenModelPose(positions, scratch).inactive)
+                        for (auto& p : positions)
+                            if (std::isnan(p.x))
+                                p = {};
                     mesh.blas = makeBlas(positions);
                 }
                 mesh.source = model;

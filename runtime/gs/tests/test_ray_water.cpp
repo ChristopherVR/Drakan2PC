@@ -814,6 +814,23 @@ int main(int argc, char** argv) {
         water.finish();
         const auto status = water.status();
         assert(status.find(" 2 model BLAS refits") != std::string::npos);
+        // A broken pose (one corner flung across the level) is screened: the stretched triangle is left out and the
+        // slot is rebuilt instead of refitted, and the next sane pose is rebuilt again (its build had a hole).
+        {
+            auto broken = std::make_shared<gsr::SceneModelMesh>(*model);
+            broken->identity = 303;
+            broken->topology = 77;
+            broken->triangles[0].position[1][0] = 400000;
+            broken->triangles[0].position[1][2] = -300000;
+            posed.meshes[0] = broken;
+            assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true, {}, &posed));
+            read();
+        }
+        assert(pose(304, 0) == cold);
+        water.finish();
+        const auto screened = water.status();
+        assert(screened.find(" 2 model BLAS refits (2 rebuilt for a changed shape, 1 stretched triangles left out)") !=
+               std::string::npos);
     }
     // Add an opaque blue surface behind an alpha-tested front prop. Cutout
     // texels must let rays reach that surface, rather than acting as solid cards.

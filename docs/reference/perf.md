@@ -379,6 +379,14 @@ of its time (~3.2 ms busy per frame).
   (`GSR_RAY_WATCHDOG_MS`, default 3 s after its signal was queued on D3D12, 7x that before), the watchdog raises both
   shared fences from the CPU (`NrInterop::release12`), which releases every D3D11/D3D12 wait, and turns the pass off for
   the session. `gsr_test_ray_water --lost-signal` (ctest `ray_water_lost_signal`) drops a signal to exercise this.
+  Reading a watchdog line: "producer fence N-1" with "consumer fence N-1" means the D3D12 queue waits for D3D11's frame
+  N, so the GPU as a whole is behind (another process rendering, such as parallel Blender EEVEE renders, reproduces it
+  line for line), not the ray pass. A "slow" pass time that follows is the pass thread waiting for its frame slot. The
+  status line's "model BLAS refits" is a session total (about 10 per pass in the OotF villages). See
+  [journal](../journal/2026-11-17/ray-water-scene-hang.md).
+- Model poses are screened before their BLAS build or refit (`ray_scene.h` `screenModelPose`): triangles with
+  non-finite corners or stretched far beyond the mesh's median triangle (a broken skin) are left out, and a deformable
+  slot is rebuilt instead of refitted when the pose's shape left its last build's (`modelRefitFits`).
 - Every per-frame dynamic vertex buffer is a NO_OVERWRITE ring (draw VB, object-motion VB `motionVbOffset`, model-motion
   VB `modelOffset`). A WRITE_DISCARD map of a buffer the GPU still uses blocks the worker for milliseconds once the GPU
   runs behind; when a CPU stage suddenly grows, look for such a map first (host sampler: ntdll samples with that caller).

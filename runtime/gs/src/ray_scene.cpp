@@ -52,6 +52,73 @@ uint32_t rayDiagnosticEffects(std::string_view mode) {
 // Ordinary scenery that encloses the camera (a room, a hut) has its floor or walls within the clearance.
 // Open camera-anchored rings count too: two 128-triangle sky barrels (radius about 5000, 900-9600 units above the
 // camera, horizontally centred on it) that every sun ray from a receiver near the camera passes through.
+ModelPoseShape screenModelPose(std::span<Point> corners, std::vector<float>& scratch) {
+    ModelPoseShape shape;
+    const size_t count = corners.size() / 3;
+    scratch.resize(count * 2);
+    // Longest box side of each triangle; -1 marks a triangle that is out of range already.
+    for (size_t i = 0; i < count; ++i) {
+        const Point* p = &corners[i * 3];
+        bool finite = true;
+        for (unsigned j = 0; j < 3; ++j)
+            finite &= std::abs(p[j].x) <= kModelPoseLimit && std::abs(p[j].y) <= kModelPoseLimit &&
+                      std::abs(p[j].z) <= kModelPoseLimit; // false for NaN and both infinities
+        if (!finite) {
+            scratch[i] = -1;
+            continue;
+        }
+        const float sx = std::max({p[0].x, p[1].x, p[2].x}) - std::min({p[0].x, p[1].x, p[2].x});
+        const float sy = std::max({p[0].y, p[1].y, p[2].y}) - std::min({p[0].y, p[1].y, p[2].y});
+        const float sz = std::max({p[0].z, p[1].z, p[2].z}) - std::min({p[0].z, p[1].z, p[2].z});
+        scratch[i] = std::max({sx, sy, sz});
+    }
+    float limit = INFINITY;
+    if (count) {
+        // The median over a copy in the second half of the scratch (no allocation once it has grown).
+        const auto spans = scratch.begin() + count;
+        std::copy(scratch.begin(), spans, spans);
+        auto middle = spans + (count - 1) / 2; // the lower median: one wild triangle of two cannot set it
+        std::nth_element(spans, middle, scratch.end());
+        limit = std::max(kModelSpikeFloor, std::max(*middle, 0.f) * kModelSpikeFactor);
+    }
+    Point lo{INFINITY, INFINITY, INFINITY}, hi{-INFINITY, -INFINITY, -INFINITY};
+    for (size_t i = 0; i < count; ++i) {
+        Point* p = &corners[i * 3];
+        if (scratch[i] < 0 || scratch[i] > limit) {
+            const float longest = scratch[i] < 0 ? INFINITY : scratch[i];
+            shape.longestInactive = std::max(shape.longestInactive, longest);
+            ++shape.inactive;
+            for (unsigned j = 0; j < 3; ++j)
+                p[j] = {NAN, NAN, NAN};
+            continue;
+        }
+        Point a = p[0], b = p[0];
+        for (unsigned j = 1; j < 3; ++j) {
+            a = {std::min(a.x, p[j].x), std::min(a.y, p[j].y), std::min(a.z, p[j].z)};
+            b = {std::max(b.x, p[j].x), std::max(b.y, p[j].y), std::max(b.z, p[j].z)};
+        }
+        const double dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        shape.boxArea += 2 * (dx * dy + dy * dz + dz * dx);
+        lo = {std::min(lo.x, a.x), std::min(lo.y, a.y), std::min(lo.z, a.z)};
+        hi = {std::max(hi.x, b.x), std::max(hi.y, b.y), std::max(hi.z, b.z)};
+    }
+    if (lo.x <= hi.x) {
+        shape.extent[0] = hi.x - lo.x;
+        shape.extent[1] = hi.y - lo.y;
+        shape.extent[2] = hi.z - lo.z;
+    }
+    return shape;
+}
+bool modelRefitFits(const ModelPoseShape& built, const ModelPoseShape& pose) {
+    if (built.inactive || pose.inactive)
+        return false;
+    // A small absolute slack so a mesh that starts flat (zero extent on an axis) can still bend a little.
+    constexpr float kSlack = 64;
+    for (unsigned c = 0; c < 3; ++c)
+        if (!(pose.extent[c] <= built.extent[c] * float(kModelRefitGrowth) + kSlack))
+            return false;
+    return pose.boxArea <= built.boxArea * kModelRefitGrowth + 2.0 * kSlack * kSlack;
+}
 bool cameraShell(const SceneModelMesh& mesh, const float* m, Point camera) {
     constexpr size_t kMaxTriangles = 1024;
     constexpr float kClearance = 2048;

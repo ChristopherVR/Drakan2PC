@@ -481,11 +481,17 @@ struct RayWater::Impl {
     // Animated models get a new mesh identity for every pose but keep their topology. Each pose reuses a BLAS of the
     // same topology that no current mesh uses and refits it in place (passes run in order on one queue), instead of
     // allocating and building a new one; a full rebuild every kRefits updates bounds the loss of trace quality.
+    // A pose whose shape drifted too far from the slot's last full build (modelRefitFits) is rebuilt, not refitted.
     struct Deformable {
         ComPtr<ID3D12Resource> blas;
         uint32_t vertexCount = 0, updates = 0;
         uint64_t identity = 0, used = 0;
+        ModelPoseShape built; // shape of the pose of the last full build
     };
+    // screenModelPose: scratch, and the session's counts of deactivated triangles and of refits turned into rebuilds.
+    std::vector<float> poseScratch;
+    uint64_t poseInactive = 0, poseRebuilds = 0;
+    Clock::time_point lastPoseLog{};
     static constexpr uint32_t kRefits = 60;
     static constexpr uint64_t kDeformableIdle = 120; // passes before an unused one is released
     std::unordered_map<uint64_t, std::deque<Deformable>> deformables;
@@ -1952,6 +1958,7 @@ void RayWater::Impl::execute(Job& job) {
                 size_t first;
                 uint32_t count;
                 std::shared_ptr<const SceneModelMesh> source;
+                ModelPoseShape shape;
             };
             std::vector<Build> builds;
             ++s.modelPass;
@@ -1968,6 +1975,18 @@ void RayWater::Impl::execute(Job& job) {
                     for (const auto& p : t.position)
                         s.modelPositions.push_back({p[0], p[1], p[2]});
                 const auto count = uint32_t(s.modelPositions.size() - first);
+                // Broken poses must not reach the GPU as level-wide slivers (or non-finite corners).
+                const auto shape = screenModelPose(std::span(s.modelPositions).subspan(first, count), s.poseScratch);
+                if (shape.inactive) {
+                    s.poseInactive += shape.inactive;
+                    if (s.lastPoseLog == Clock::time_point{} || msSince(s.lastPoseLog) > 5000) {
+                        s.lastPoseLog = Clock::now();
+                        logLine("model %u (%zu triangles): %u stretched or invalid triangle(s) left out of the ray "
+                                "scene, longest %.0f units (%llu so far)",
+                                model->nativeId, model->triangles.size(), shape.inactive, shape.longestInactive,
+                                (unsigned long long)s.poseInactive);
+                    }
+                }
                 Deformable* slot = nullptr;
                 if (model->topology) {
                     auto& slots = s.deformables[model->topology];
@@ -1983,7 +2002,7 @@ void RayWater::Impl::execute(Job& job) {
                     slot->used = s.modelPass;
                     slot->identity = model->identity;
                 }
-                builds.push_back({&cached, slot, first, count, model});
+                builds.push_back({&cached, slot, first, count, model, shape});
             }
             if (!builds.empty()) {
                 s.upload(frame.models, s.modelPositions.data(), s.modelPositions.size() * sizeof(Point), frame.retired);
@@ -1999,12 +2018,16 @@ void RayWater::Impl::execute(Job& job) {
                         continue;
                     }
                     Deformable& d = *b.slot;
-                    const bool refit = d.blas && d.updates < Impl::kRefits;
+                    const bool due = d.blas && d.updates < Impl::kRefits;
+                    const bool refit = due && modelRefitFits(d.built, b.shape);
+                    s.poseRebuilds += due && !refit;
                     s.buildBlas(d.blas, vertices, b.count,
                                 D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
                                     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE,
                                 frame.retired, false, refit);
                     d.updates = refit ? d.updates + 1 : 0;
+                    if (!refit)
+                        d.built = b.shape;
                     ++(refit ? s.passStats.blasRefits : s.passStats.blasBuilds);
                     s.modelRefits += refit;
                     b.mesh->blas = d.blas;
@@ -2216,7 +2239,12 @@ void RayWater::Impl::execute(Job& job) {
                     " native water / " + std::to_string(totalCounts[1]) + " water coverage triangles; " +
                     std::to_string(texturedTriangles) + " textured / " + std::to_string(textureCount) +
                     " material textures; " + std::to_string(models ? models->instances.size() : 0) +
-                    " resident model instances; " + std::to_string(s.modelRefits) + " model BLAS refits; shadows=" +
+                    " resident model instances; " + std::to_string(s.modelRefits) + " model BLAS refits" +
+                    (s.poseRebuilds || s.poseInactive
+                         ? " (" + std::to_string(s.poseRebuilds) + " rebuilt for a changed shape, " +
+                               std::to_string(s.poseInactive) + " stretched triangles left out)"
+                         : std::string()) +
+                    "; shadows=" +
                     (options.shadows ? (params.effects[2] ? std::to_string(params.effects[2]) + " native lights"
                                                           : (models && models->lighting.hasContribution()
                                                                  ? "ambient occlusion only"

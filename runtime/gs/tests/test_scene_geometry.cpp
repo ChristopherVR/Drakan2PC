@@ -28,6 +28,53 @@ static float referenceNormal(gsr::surface::Point n) {
 }
 
 int main(int argc, char** argv) {
+    // A broken pose must not reach a model acceleration structure: stretched slivers and non-finite corners are
+    // deactivated, and a pose whose shape left the last build's is rebuilt rather than refitted.
+    {
+        using gsr::surface::Point;
+        std::vector<Point> corners;
+        for (int i = 0; i < 100; ++i) { // a 1000-unit character of 10x10-unit triangles
+            const float x = float(i % 10) * 10, y = float(i / 10) * 100;
+            corners.insert(corners.end(), {Point{x, y, 0}, Point{x + 10, y, 0}, Point{x, y + 10, 5}});
+        }
+        std::vector<float> scratch;
+        auto sane = corners;
+        const auto built = gsr::surface::screenModelPose(sane, scratch);
+        assert(built.inactive == 0 && sane[0].x == 0 && built.boxArea > 0);
+        assert(built.extent[0] == 100 && built.extent[1] == 910 && built.extent[2] == 5);
+        assert(gsr::surface::modelRefitFits(built, built));
+        // Moving or bending the pose a little keeps the refit.
+        auto moved = corners;
+        for (auto& p : moved)
+            p.x += 5000;
+        assert(gsr::surface::modelRefitFits(built, gsr::surface::screenModelPose(moved, scratch)));
+        // One vertex flung across the level (a bad skin weight): its triangle is left out, the rest stays.
+        auto spike = corners;
+        spike[31] = {250000, -40000, 90000};
+        const auto broken = gsr::surface::screenModelPose(spike, scratch);
+        assert(broken.inactive == 1 && std::isnan(spike[30].x) && std::isnan(spike[32].x) && !std::isnan(spike[33].x));
+        assert(broken.longestInactive > 200000 && broken.extent[0] == 100);
+        assert(!gsr::surface::modelRefitFits(built, broken)); // an update cannot change active triangles
+        // Non-finite and out-of-range corners.
+        auto invalid = corners;
+        invalid[0].y = NAN;
+        invalid[4].z = INFINITY;
+        invalid[8].x = 3e7f;
+        assert(gsr::surface::screenModelPose(invalid, scratch).inactive == 3);
+        // A pose that grew several times (every vertex stretched away from the body) is rebuilt, not refitted.
+        auto grown = corners;
+        for (auto& p : grown)
+            p = {p.x * 4, p.y * 4, p.z * 4};
+        const auto big = gsr::surface::screenModelPose(grown, scratch);
+        assert(big.inactive == 0 && !gsr::surface::modelRefitFits(built, big));
+        // A legitimately long part (a 1500-unit spear of a few triangles) on a small-triangle body stays in.
+        auto spear = corners;
+        spear[0] = {0, 0, 0};
+        spear[1] = {1500, 0, 0};
+        spear[2] = {0, 2, 0};
+        assert(gsr::surface::screenModelPose(spear, scratch).inactive == 0);
+        std::cout << "Broken model poses are screened before their acceleration structures\n";
+    }
     {
         std::array<gsr::surface::Triangle, 2> batch{};
         for (auto& tri : batch)
