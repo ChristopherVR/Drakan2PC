@@ -805,6 +805,16 @@ character (about -0.1 ms per capture), frame time within the run spread (-3.8 to
 EE both stay at 94 to 98 %. Surdana (VU1 bound) unchanged. What DLSS still costs:
 [journal](../journal/2026-11-17/perf-dlss-canyon.md).
 
+## GPU cost of the GPU water surfaces (2026-11-17)
+
+`GSR_VERTEX_SURFACE=gpu` (opt-in) costs about 0.43 ms of GPU per world in Surdana at scale 8: the D3D12 setup of the
+ray pass grows by 0.24 ms (slot copies and their BLAS) and the surface kernel takes 0.19 ms; it takes about a third
+off the `SurfaceBuilder` and `RayWater` threads and about 2 ms per world off the VU1 worker. The surface stream is
+now written by the batch's first colour pass (`GSR_SURFACE_SO_FUSED`, exact, not yet timed). The kernel's float
+divisions in integers are exact but no faster (opt-in `GSR_SURFACE_GPU_FAST_DIV=1`); resident-match sub-cells and
+overlapping BLAS builds were dropped (table blow-up; device removals). Frame times were not measured on a quiet
+machine. Details: [journal](../journal/2026-11-17/gpu-water-2.md).
+
 ## CPU use, jitter and the GPU vertex path at 4K (2026-11-16)
 
 At the owner's settings (3840x2160, scale 8, vsync off, uncapped) CPU time per world frame is the same at any frame
