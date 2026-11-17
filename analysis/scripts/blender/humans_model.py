@@ -449,7 +449,8 @@ def build_villager():
     body = b.build(voxel=0.004, smooth=6, tag=tag)
     # the neck reaches into the kept 1999 head (its lower edge is at 1.46 m)
     neck = [(0, 0.008, 1.43, 0.060, 0.058), (0, 0.008, 1.47, 0.056, 0.056), (0, 0.010, 1.51, 0.050, 0.052)]
-    hk.tube_mesh("Villager_Neck", neck, nseg=16, mat="skin")
+    # its own slot, textured only from the 1999 chest page (`VILLAGER_NECK`)
+    hk.tube_mesh("Villager_Neck", neck, nseg=16, mat="neck")
     # belt, slung lower at the front, with a buckle
     axis = Vector((0.0, -0.35, 1.0)).normalized()
     hk.ring_band("Villager_Belt", body, (0, -0.005, 1.078), axis, [(-0.016, 0.003), (0.016, 0.003)], 64, "belt", 0.004)
@@ -914,6 +915,11 @@ def build_rack():
     return hk.build_lod(parts("Rack_"), budgets, "Rack_Game")
 
 
+# The 1999 villager and slave necks are split between the head pages (entries 0, 1: face, beard and hair) and the chest
+# page (entry 3). Projected from the nearest of them, the triangles of the new neck alternated between beard and skin and
+# drew a band of teeth under the jaw, so the kept 1999 head read as separate from the body: the neck takes the chest page.
+VILLAGER_NECK = {"neck": {"pcTextures": [3]}}
+
 CHARACTERS = {
     # the neck takes the 1999 head textures (face, head and neck): the robe texture reaches up to the chin
     "julian": [("julian (h)", "Julian", "julian.json", JULIAN_JOINTS, ("head",), {"neck": {"pcTextures": [0, 1]}})],
@@ -933,11 +939,11 @@ CHARACTERS = {
         ),
     ],
     "villager": [
-        ("mvillager", "a villager", "mvillager.json", villager_joints(False), ("head",)),
-        ("mvillage2", "a villager", "mvillage2.json", villager_joints(False), ("head",)),
-        ("slaveM (h)", "a mine slave", "slave.json", villager_joints(True), ("head",)),
-        ("slaveM 02 (h)", "a mine slave", "slave2.json", villager_joints(True), ("head",)),
-        ("slaveM 03 (h)", "a mine slave", "slave3.json", villager_joints(True), ("head",)),
+        ("mvillager", "a villager", "mvillager.json", villager_joints(False), ("head",), VILLAGER_NECK),
+        ("mvillage2", "a villager", "mvillage2.json", villager_joints(False), ("head",), VILLAGER_NECK),
+        ("slaveM (h)", "a mine slave", "slave.json", villager_joints(True), ("head",), VILLAGER_NECK),
+        ("slaveM 02 (h)", "a mine slave", "slave2.json", villager_joints(True), ("head",), VILLAGER_NECK),
+        ("slaveM 03 (h)", "a mine slave", "slave3.json", villager_joints(True), ("head",), VILLAGER_NECK),
     ],
 }
 BUILDERS = {

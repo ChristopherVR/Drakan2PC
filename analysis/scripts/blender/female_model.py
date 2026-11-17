@@ -84,7 +84,9 @@ CHARS = {
         "slots": {"boot": [2], "gauntlet": [1], "pauldron": [5, 6]},
         # her own painted atlas (paint_tuiri): every slot of the new body is baked, only the kept 1999 head is projected
         "own_texture": True,
-        "keep": ["neck"],
+        # the 1999 neck is not kept: its ragged lower edge (with the back of the 1999 gold collar) stood on her painted
+        # chest a shade darker than it and made the head read as separate; the new neck carries the painted skin up to the jaw
+        "keep": [],
     },
     "fvillager": {
         "model": "fvillager",

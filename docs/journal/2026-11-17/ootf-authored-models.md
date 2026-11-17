@@ -235,3 +235,36 @@ projects from its bloody end); the other humans were measured, not looked at in 
 Owner, after playing the own-texture Delon: the shoulders still look awkward; revert his model entirely. `delon.json` and
 `delon.png` moved to `kit/models-draft` (not loaded), so the converter uses the 1999 `Delon(h)` again. The other authored
 models are unchanged.
+
+## Julian back on the 1999 model; kept heads that read as separate
+
+**Julian.** After the neck rebuild the owner still found him "very broken" in the deployed build. The converted mesh does
+not explode: every clip of his (`ready`, `1_3o` to `1_3z3`), sampled every 0.1 s with the converter's fit and the jaw
+upgrade (`build/adamar/clipcheck.ts`, scratch), stretches no edge by more than 9.2 % of his height (the 1999 mesh itself
+16.7 %, the same joint at clip start) and is never more than 2.6 % of his height wider, taller or deeper than the posed
+1999 mesh, so no huge triangles come from him (the ray-water stall in that scene is looked at separately). What reads as
+broken is the surface at scene distance: the robe's tan and green 1999 halves projected on the new torso break into
+sawtooth strips, and the bare right arm and shoulder by the spear are bulkier and blockier than the 1999 ones
+(`build/adamar/neck166.png`). The fix for that is an own texture, not more fitting, so `julian.json` moved to
+`kit/models-draft` and he is drawn with his 1999 model again. A rerun of `humans_model.py --which julian` writes him back to
+`kit/models`.
+
+**Kept heads.** Owner: "the villagers look like their head is separate from the rest of their models". Head close-ups of
+every authored model that keeps a 1999 head (`build/heads/<model>/faces.png`, 1999 left, new right) and Ruined Village
+opening runs with the owner's video settings (scale auto, texture upscale auto, 1280x960):
+* Male villagers and the three mine slaves (one mesh): the cause. The 1999 neck is split between the head pages
+  (entries 0 and 1: face, beard, hair) and the chest page (3); the new neck tube took each triangle's texture from the
+  nearest 1999 triangle, so it alternated between beard and skin and drew a band of teeth under the jaw, with paler skin
+  below. The neck now has its own slot that only takes the chest page (`VILLAGER_NECK`): in game the neck runs as one skin
+  from the jaw into the shirt (kneeling villager in 1.2a: `heads-before` v116000 against `heads-after2` v118900; cart
+  villager: v84000).
+* Tuiri: her kept 1999 neck (with the back of the 1999 gold collar) stood with a ragged lower edge on her painted chest,
+  a shade darker. She no longer keeps the neck (`female_model.py` `keep: []`); the new neck carries the painted skin up to
+  the jaw, which matches the 1999 face closely (preview: neck 188,99,75 against cheek 175,110,91). JSON regenerated, the
+  baked PNG kept (the mesh and UVs are unchanged). Seen in previews only; she was not caught close in game.
+* Not changed: female villagers, farmer (keeps the 1999 neck), Rimril and the wounded wizard (hooded), the wounded warrior,
+  the Queen and the Succubus: no seam or colour step in the previews or (female villagers) in the opening. The rack victim
+  shows a few small teeth under the chin but is not placed in any level.
+
+Open: the villagers' hands are thinner and crumple more than the 1999 ones when they hold them to the face; Tuiri and the
+mine slaves still need an in-game look in Alwarren and Grimstone Mines.
