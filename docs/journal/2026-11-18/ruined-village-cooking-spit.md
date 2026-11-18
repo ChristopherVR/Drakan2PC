@@ -25,8 +25,10 @@ overflow bits, which lowered red and green on models that used the full light st
 channels at the model light upload call. Terrain lighting continues to use its own light values.
 
 With the installed fix, the nearby posts, small crate and Wartoks pick up warmer light in the same saved camera view.
-The large crate to the right retains a purple tint at the same strength with HD textures on or off. Saturating the
-separate ambient colour upload had no effect on that crate, so the fix only changes the proven model light upload.
+The large crate to the right and a barrel initially kept their purple tint with HD textures on or off. Call tracing
+showed that both used the single-object model upload. The crate passed (635, 551, 215) to the same light packer,
+whose maximum input is 510 per channel. Applying the clamp at that call site also restored the crate's warm wood tones
+in the same quicksave. The surrounding terrain kept the same light.
 
 Reproduction images and the live switch trace are in the local harness runs `rv-spit-exact-base`,
 `rv-spit-exact-fixed`, `rv-spit-cycle-base`, and `rv-spit-cycle-crank`. The test runner uses copies of the card.

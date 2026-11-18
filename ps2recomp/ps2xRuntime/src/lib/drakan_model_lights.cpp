@@ -26,6 +26,7 @@ constexpr uint32_t kCount = 0x20u, kSlotBase = 0x24u, kSlotSize = 0x34u;
 constexpr uint32_t kModelLimit = 4u;
 constexpr uint32_t kPackColour = 0x129370u;
 constexpr uint32_t kModelLightColourReturn = 0x1ea860u;
+constexpr uint32_t kObjectLightColourReturn = 0x1ee484u;
 
 std::atomic<bool> g_installed{false};
 int g_setting = ml::kOriginal;
@@ -57,7 +58,8 @@ Stats g_stats;
 std::chrono::steady_clock::time_point g_nextReport;
 
 void packColour(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
-    if (GPR_U32(ctx, 31) == kModelLightColourReturn) {
+    const uint32_t caller = GPR_U32(ctx, 31);
+    if (caller == kModelLightColourReturn || caller == kObjectLightColourReturn) {
         // Model lights arrive as colour * 255. The retail packer divides by two and masks to eight bits.
         for (unsigned reg = 5; reg <= 7; ++reg)
             if (GPR_S32(ctx, reg) > 510)
