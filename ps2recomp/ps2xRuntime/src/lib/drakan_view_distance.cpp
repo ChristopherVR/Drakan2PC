@@ -100,7 +100,8 @@ Swap g_swap;
 bool g_farLandOn = true; // DRAKAN_FAR_LAND=0 turns it off alone (diagnostic)
 // Diagnostics (env DRAKAN_FAR_LAND_NEAR / _REACH): candidate distances in cells.
 float g_farNear = farland::kNearCells;
-float g_farReachCap = farland::kReachCells;
+float g_farReachCap = 0.0f; // optional diagnostic cap, in cells
+float g_farListReach = 0.0f;
 uint64_t g_farIdentity = 0;
 std::vector<farland::Layer> g_farLayers;
 std::unique_ptr<farland::Ground> g_farGround;
@@ -322,6 +323,11 @@ const std::vector<uint16_t>& farLandList(const uint8_t* ram, uint32_t ramBytes, 
               iy = int(std::floor(cy / farland::kCellHeight));
     const auto bits = [](int v) { return uint64_t(uint16_t(v)); };
     key = (1ull << 63) | uint64_t(view & 0x7fffu) << 48 | bits(ix) << 32 | bits(iz) << 16 | bits(iy);
+    if (reach != g_farListReach) {
+        g_farLists.clear();
+        g_farListReach = reach;
+        g_bufKey = ~0ull;
+    }
     if (auto it = g_farLists.find(key); it != g_farLists.end())
         return it->second;
     if (g_farLists.size() >= kFarListsMax) {
@@ -374,8 +380,8 @@ void hookTerrainDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                 const uint32_t layer = base + view * kLayerStride;
                 const uint32_t origList = u32(ram, layer + kLayerList), origCount = u32(ram, layer + kLayerListCount);
                 uint64_t key = view;
-                float farReach = g_args.farCells + farland::kReachMargin;
-                if (g_farReachCap > 0.0f) // farland::kReachCells, or DRAKAN_FAR_LAND_REACH (cells)
+                float farReach = rules::scenicReach(g_args.farCells, rules::kOff);
+                if (g_farReachCap > 0.0f)
                     farReach = std::min(farReach, g_farReachCap);
                 const std::vector<uint16_t>& list =
                     farLand ? farLandList(ram, PS2_RAM_SIZE, base, count, view, farReach, key)

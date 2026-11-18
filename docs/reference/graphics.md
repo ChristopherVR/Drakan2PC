@@ -485,11 +485,10 @@ ceiling more than about 35 cells away, and nearer layers only when the PC though
 the converted level keeps the PS2 view distance (fog from 26 to 75 cells). So hills and river banks were missing and
 the sky showed through, cut along layer edges. At `view_distance` 1 in a converted level
 (`drakan_texture_budget::convertedLevel`) the same swap gives the draw the view layer's own list plus the unlisted
-floors and ceilings up to 32 cells away that a line of sight from the camera's cell (2,048 units, corners and centre at
-the top of a 1,024 height bin) reaches over the level's ground (highest drawn floor per vertex, read once per layout
-from the layer table). Lists are cached per view layer and camera cell and take under 2 ms to make. Writing longer
-lists into the level instead crashed or hung the game (the lists are read outside the draw). Reach 32 because the
-whole view distance cost +131 % frame time on Arokh over the converted Islands (+5 % at 30 cells). With it on,
+floors and ceilings visible across the current fog range plus the engine's two-cell margin. The search starts at the
+camera cell (2,048 units across), using the corners and centre at the top of a 1,024-unit height bin for line of sight.
+The renderer caches these lists per terrain layout, fog range, view layer and camera cell. Gameplay and collision use
+the authored lists. `DRAKAN_FAR_LAND_REACH` can cap the search for performance comparisons. With far scenery enabled,
 `game_texture_cache_kb = auto` gives converted levels 16 MB.
 [distance view](../journal/2026-11-16/ootf-distance-view.md).
 

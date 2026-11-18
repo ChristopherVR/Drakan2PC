@@ -34,7 +34,7 @@ float factor();
 //
 // Far land (part of far scenery, env DRAKAN_FAR_LAND=0 turns it off alone): at factor 1 in a converted level
 // (drakan_texture_budget::convertedLevel) the draw list is the view layer's own list plus the unlisted floors and
-// ceilings up to 32 cells away that a line of sight from the camera's cell reaches over the level's ground
+// ceilings visible from the camera's cell out to the current fog horizon plus the terrain draw's two-cell margin
 // (world/FarLand.h). The converted levels' lists are the PC's, made for the PC fog, so far hills and river banks were
 // missing and the sky showed through (docs/journal/2026-11-16/ootf-distance-view.md). Same swap as above: only the draw
 // sees it.

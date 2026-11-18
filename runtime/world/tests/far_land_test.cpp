@@ -40,6 +40,18 @@ std::vector<uint16_t> far(size_t view, const std::vector<Layer>& layers, std::ve
 
 int main() {
     {
+        // Standing near one end of a wide layer: a ridge 50 cells away is visible at the longer fog distance,
+        // while a ridge beside the far end of that same layer is outside the camera's draw rectangle.
+        const std::vector<Layer> layers = {layer(kFloor, 0, 0, 150, 2), layer(kFloor, 52, 3, 3, 3),
+                                           layer(kFloor, 145, 3, 3, 3)};
+        const Ground ground(layers);
+        std::vector<std::vector<Point>> cache;
+        const auto eye = cellObservers(1, 1, 20);
+        CHECK(farLayers(0, layers, ground, {0}, 32, eye, cache).empty());
+        CHECK((farLayers(0, layers, ground, {0}, 77, eye, cache) == std::vector<uint16_t>{1}));
+        CHECK((farLayers(0, layers, ground, {0}, 32, cellObservers(140, 1, 20), cache) == std::vector<uint16_t>{2}));
+    }
+    {
         // floors and ceilings in sight are added, nearest first; listed and out-of-reach layers are not
         const std::vector<Layer> layers = {
             layer(kFloor, 0, 0, 10, 10),          // 0: the view layer

@@ -5,10 +5,8 @@
 // or ceiling more than 40 cells away, and nearer ones only when the PC thought them visible from the ground, while the
 // converted level keeps the PS2 view distance (fog from 26 to 75 cells) and a camera above Rynn. Hills and river banks
 // were missing and the sky showed through, cut along their layer edges (docs/journal/2026-11-16/ootf-distance-view.md).
-// These rules pick, for one view layer, the unlisted floors and ceilings within kReachCells that a line of sight from
-// the camera's cell reaches over the level's ground, so the draw grows by what can be seen. Layers
-// behind hills stay out (the closure of the lists that far scenery uses at a larger view distance draws them too and
-// halved the frame rate at the Ruined Village spot).
+// For each view layer, add unlisted floors and ceilings inside the draw distance that are visible over the ground
+// from the camera's cell. Skipping layers hidden behind hills avoids the cost of drawing them.
 //
 // Longer lists written into the level itself (a converter try) broke the game: the lists are also read outside the
 // terrain draw (cell lookup, object loops), and three of three runs crashed or hung the GPU. The runtime swaps the
@@ -26,16 +24,8 @@
 namespace world::far_land {
 
 inline constexpr int kFloor = 0, kCeiling = 1, kWater = 2;
-// Layers at least this far (cells, box to box) from the view layer are candidates. 0: at the owner's Ruined Village
-// spot the river bank that filled the gap is 12 and 22 cells away and not listed (24 left it out).
+// Minimum distance in cells from the observers' bounds. Include nearby unlisted terrain by default.
 inline constexpr float kNearCells = 0.0f;
-// Up to this far beyond the level's view distance (cells): the margin the engine's own cell rectangle adds.
-inline constexpr float kReachMargin = 2.0f;
-// Default reach (cells, box to box): the PC fog's end (30 cells) plus that margin. The layers that filled the owner's
-// gap are 12 to 31 cells away; the whole view distance (77) cost +131 % frame time on Arokh over the Islands (the
-// camera sees most of the level from up there) and +13 % at the owner's spot, 30 cells +5 % over the Islands. Past
-// 32 cells the haze (from 26 to 75 cells) hides most of what is left out.
-inline constexpr float kReachCells = 32.0f;
 // Eye heights (world units) above the view layer's vertices for observers spread over a layer (tests and calibration).
 inline constexpr float kEyes[] = {1200.0f, 6000.0f};
 // A ray passes a ground sample this far below it (world units) before it counts as blocked.
@@ -67,13 +57,6 @@ struct Layer {
     }
     float height(int x, int z) const { return heights[size_t(z) * (w + 1) + x]; }
 };
-
-// Distance in cells between two layer boxes on the ground plane, per axis (0 when they touch or overlap).
-inline int boxDistance(const Layer& a, const Layer& b) {
-    const int dx = std::max({b.x0 - (a.x0 + a.w), a.x0 - (b.x0 + b.w), 0});
-    const int dz = std::max({b.z0 - (a.z0 + a.h), a.z0 - (b.z0 + b.h), 0});
-    return std::max(dx, dz);
-}
 
 struct Point {
     float x, z, y; // cells, cells, world units
@@ -213,7 +196,7 @@ inline std::vector<Point> cellObservers(int cellX, int cellZ, int heightBin) {
 }
 
 // Layers to add to view layer `view`'s list for the draw: floors and ceilings not in `listed`, between `near` and
-// `reach` cells from the view layer's box, that one of `obs` sees over `ground`; nearest first. Only floor and water
+// `reach` cells from the observers' bounds, that one of `obs` sees over `ground`; nearest first. Only floor and water
 // view layers get any (a camera in a ceiling layer is in a cave). `targetCache` (one slot per layer, empty = not yet
 // sampled) keeps the target samples between calls.
 inline std::vector<uint16_t> farLayers(size_t view, const std::vector<Layer>& layers, const Ground& ground,
@@ -232,13 +215,22 @@ inline std::vector<uint16_t> farLayers(size_t view, const std::vector<Layer>& la
     have[view] = 1;
     if (targetCache.size() != layers.size())
         targetCache.assign(layers.size(), {});
-    std::vector<std::pair<int, uint16_t>> found;
+    float x0 = obs.front().x, x1 = x0, z0 = obs.front().z, z1 = z0;
+    for (const Point& o : obs) {
+        x0 = std::min(x0, o.x);
+        x1 = std::max(x1, o.x);
+        z0 = std::min(z0, o.z);
+        z1 = std::max(z1, o.z);
+    }
+    std::vector<std::pair<float, uint16_t>> found;
     for (size_t j = 0; j < layers.size() && j <= 0xffff; ++j) {
         const Layer& B = layers[j];
         if (have[j] || (B.type != kFloor && B.type != kCeiling) || !B.usable())
             continue;
-        const int d = boxDistance(L, B);
-        if (float(d) < near || float(d) > reach)
+        // The draw uses a square of cells around the camera. A large layer under the camera can extend well beyond it.
+        const float d = std::max({float(B.x0) - x1, x0 - float(B.x0 + B.w), float(B.z0) - z1,
+                                  z0 - float(B.z0 + B.h), 0.0f});
+        if (d < near || d > reach)
             continue;
         std::vector<Point>& tgt = targetCache[j];
         if (tgt.empty())
