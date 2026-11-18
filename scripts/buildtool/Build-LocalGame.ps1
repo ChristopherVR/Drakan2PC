@@ -12,6 +12,8 @@ param(
     [string]$DistDirectory,
     # Explicit private mod pack source to install; existing mods survive ordinary rebuilds.
     [string]$ModDirectory,
+    # Optional local catalog of verified migrations for the installed Order of the Flame pack.
+    [string]$OotfSaveMigrations,
     [switch]$NoDist,
     [string]$Python = 'python',
     # NVIDIA options. A DLSS SDK at <repo>/tools/dlss/dlss_sdk is picked up automatically; pass -DlssSdkDirectory for
@@ -77,6 +79,12 @@ if ($CpuAffinity -and -not $PSBoundParameters.ContainsKey('CompilerProcesses')) 
 }
 if ($TargetPlatform -eq 'native') { $TargetPlatform = if ($windowsHost) { 'windows' } else { 'linux' } }
 $webBuild = $TargetPlatform -eq 'web'
+if ($OotfSaveMigrations) {
+    if ($webBuild -or $NoDist -or $PrepareOnly -or $GenerateOnly -or $SourceOnly) {
+        throw '-OotfSaveMigrations requires a native play folder deployment.'
+    }
+    $OotfSaveMigrations = (Resolve-Path -LiteralPath $OotfSaveMigrations).Path
+}
 if ($webBuild -and $windowsHost) {
     foreach ($option in $PSBoundParameters.Keys) {
         if ($option -notin @('IsoPath','RepoRoot','TargetPlatform','WorkDir','Jobs','Incremental','TextureDirectory')) {
@@ -512,7 +520,7 @@ if (-not $NoDist) {
         throw 'DistDirectory cannot be a filesystem root or the source checkout.'
     }
     # Saves, user settings and hand-staged assets survive the clean; everything else is a build product or stale.
-    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','save-backups','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
+    $keep = 'mc0','mc1','mc0_*','mc1_*','saves','save-backups','save-migrations','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
     New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $DistDirectory -Force) {
         $name = $item.Name
@@ -559,6 +567,11 @@ if (-not $NoDist) {
         Write-Stage 'Installing the mod packs (Order of the Flame)'
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
             '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
+    }
+    if ($OotfSaveMigrations) {
+        Write-Stage 'Installing verified Order of the Flame save migrations'
+        Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_ootf_save_migrations.py'),
+            '--source',$OotfSaveMigrations,'--play',$DistDirectory)
     }
     # previews/ is kept across builds, so the generated cover is placed explicitly (a hand-made game-d2.png is replaced).
     $coverPicture = Join-Path $gameOutput 'previews/game-d2.png'

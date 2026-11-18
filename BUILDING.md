@@ -378,7 +378,12 @@ Linux and WSL/browser builds retain their defaults and reject this Windows optio
 `WORKDIR/bin` as "the game": it has default settings and none of the HD textures. Every successful
 build cleans `dist/DrakanPC` (or `-DistDirectory <path>`) and refills it from `WORKDIR/bin`, so stale
 executables, DLLs, logs and notes do not pile up. When DLSS is built, `nvngx_dlss.dll` from your downloaded DLSS SDK (or `local/nvidia/dlss/`) is copied into the play folder; it is never part of the source tree. The script also stages the `scripts/launchers/Play*.cmd` launchers that are not there yet and prints the deployed `drakan.exe` SHA-256. Kept across the clean (never overwritten from `bin/`):
-`mc0`/`mc1` and the campaign cards `mc0_*`/`mc1_*` (saves), `save-backups`, `textures`, `subtitles`, `nr`, `ngx_data`, `*.ini`, `Play*.cmd` and `PLAY.txt`.
+`mc0`/`mc1` and the campaign cards `mc0_*`/`mc1_*` (saves), `save-backups`, `save-migrations`, `textures`, `subtitles`, `nr`, `ngx_data`, `*.ini`, `Play*.cmd` and `PLAY.txt`.
+
+Pass `-OotfSaveMigrations <local catalog folder>` when provisioning verified legacy Order of the Flame saves.
+The builder checks the catalog against the installed **Order of the Flame** pack build and verifies each payload's
+SHA-256 before publishing it to `save-migrations/ootf`. Keep these catalogs and their save files outside source
+control. Subsequent builds keep the installed catalog automatically.
 
 The game keeps its memory cards in the play folder, next to `drakan.exe`, whatever the working directory or the
 place of the boot ELF (`drakan_card_root.h`). Windows builds up to v0.1.11 kept them next to the ELF named in

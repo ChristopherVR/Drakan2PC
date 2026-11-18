@@ -113,3 +113,20 @@ loaded the six entries on a copy of the combined card. The Book test kept both a
 file and its pack record byte-for-byte. A separate run loaded slot 33 immediately after the Book return and restored
 that save's distinct player position. The private scripts, game captures, and validation logs are under
 `build/normal-ootf-recovery` and `build/harness`.
+
+## Automatic migration on load
+
+Restoring the original card brought back the build refusals in the native Load Game menu. The installed
+game now checks the exact file name and SHA-256 against the local catalog for the installed OotF pack.
+Before the restore hook supplies the converted bytes, it copies the original slot, verifies the copy, and
+publishes it under `save-backups/ootf-auto`. An identical backup is reused. The game keeps the restored slot
+on the card until the player saves. The known creature-layout migration and save revision upgrades also take
+a backup when the game restores an older save. A catalog Book save pins its paired Village state for the exit.
+
+The local catalog contains nine matched files from the November 9 and 14 originals, with both Book return states.
+The installed game loaded restored Village slots 1 through 4, both Book saves and their returns, a save without
+its pack record, and the Wartok Canyons save from the later creature layout. Every archived slot matched its
+source byte-for-byte. A native-menu load and quicksave wrote the current build and revision. The modified,
+unstamped Book test stayed unavailable and generated no archive. An ordinary rebuild kept the catalog and
+all 77 files on the active card. The private setup and assertions are under `build/ootf-auto` and the game
+logs and captures are under `build/harness/ootf-auto-*`.

@@ -12,6 +12,16 @@ Windows versions up to v0.1.11 saved into the builder's work folder instead (`bu
 
 With the game closed, copy the whole `mc0` folder, any `mc1` folder and your `*.ini` configuration files to a separate backup location. Restore the folders to the corresponding playable directory while the game is closed.
 
+### Restoring older Order of the Flame saves
+
+Restore the `mc0_ootf` card or the numbered slot folder with the game closed, then choose the save from **Load Game**
+in Order of the Flame. When the game recognizes an older save, it keeps a verified copy under
+`save-backups/ootf-auto` beside the campaign card and loads the upgraded state. Your next in-game save writes the
+current format. Keep the whole slot folder, including its `.mods` files, when backing up progress.
+
+If your installation has a `save-migrations/ootf` folder, keep it with your backups when moving to a new installation.
+It contains the verified conversions for specific historical saves. Rebuilds preserve it.
+
 ## Quicksave and quickload
 
 **F5** quicksaves during controllable gameplay. **F8** quickloads during gameplay or from the title. These actions can be rebound.

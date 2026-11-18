@@ -5,7 +5,9 @@
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
+#include "drakan_save_catalog.h"
 #include "hle/ModPack.h"
+#include "hle/SaveBackup.h"
 #include "hle/SaveRecord.h"
 #include "hle/SaveUpgrade.h"
 #include "ps2_runtime.h"
@@ -54,6 +56,7 @@ hle::mods::ActivePacks g_active;
 // The installed creature swap removed four NPC classes while keeping their placed object IDs.
 constexpr std::string_view kOotfPreviousBuild = "da1e598e3d3adfdd";
 constexpr std::string_view kOotfCreatureSwapBuild = "493b53de681b8791";
+constexpr std::string_view kOotfCatalogMotionBuild = "28306eff511800af";
 constexpr hle::mods::SaveClassRemap kOotfCreatureSwaps[] = {
     {"/npc/npcs", 7084, 3040},
     {"/npc/npcs", 7096, 2676},
@@ -87,6 +90,13 @@ struct BookReturn {
     bool restored = false;
 };
 std::optional<BookReturn> g_bookReturn; // g_mutex
+struct Restore {
+    fs::path path;
+    bool refused = false;
+    std::vector<uint8_t> state;
+    std::vector<uint8_t> bookReturn;
+};
+std::optional<Restore> g_restore; // g_mutex
 
 struct Cached {
     Verdict verdict;
@@ -113,6 +123,13 @@ fs::path cardRoot() {
 std::string slotPrefix() {
     return std::string(drakan_region::build().saveId) + "Slot";
 }
+
+bool isNumberedSlot(const fs::path& root, const fs::path& slot) {
+    const std::string name = slot.filename().string(), prefix = slotPrefix();
+    return slot.parent_path() == root && name.starts_with(prefix) && name.size() > prefix.size() &&
+           name.find_first_not_of("0123456789", prefix.size()) == std::string::npos;
+}
+
 // Every save the game writes gets a record: the slot saves (manual, quick, level change) and the level-start save at
 // the card root (`/<level>.rsg`), which the game reloads when the player dies. Without a record that one was refused as
 // "made before pack builds were recorded" in every pack level, so a death in a converted level ended at the title.
@@ -128,6 +145,19 @@ bool readText(const fs::path& p, std::string& out) {
         return false;
     out.assign(std::istreambuf_iterator<char>(f), {});
     return !f.bad();
+}
+
+hle::mods::SaveCheckInput readSaveRecord(const fs::path& path) {
+    hle::mods::SaveCheckInput in;
+    in.level = path.stem().string();
+    const fs::path record = recordPath(path);
+    std::error_code ec;
+    if (fs::exists(record, ec)) {
+        std::string text;
+        in.hasRecord = true;
+        in.recordReadable = readText(record, text) && hle::mods::parseSaveRecord(text, in.record);
+    }
+    return in;
 }
 
 bool writePackRecord(const fs::path& record, const std::vector<hle::mods::PackStamp>& packs) {
@@ -373,7 +403,7 @@ void preserveOotfLevelStamps(const fs::path& writtenPath) {
             fs::exists(recordPath(path), ec) || ec)
             continue;
         const SavedBuild old = savedBuild(path, "ootf-levels");
-        if (old.build != kOotfPreviousBuild)
+        if (old.build != kOotfPreviousBuild && !drakan_save_catalog::isHistoricalBuild(old.build))
             continue;
         const hle::mods::PackStamp stamp{"ootf-levels", "Order of the Flame", "", old.build, old.revision};
         const bool written = writePackRecord(recordPath(path), {stamp});
@@ -382,17 +412,19 @@ void preserveOotfLevelStamps(const fs::path& writtenPath) {
     }
 }
 
-// Memory card read filter: a save or level state of an older pack revision is read upgraded (SaveUpgrade.h): the level
-// objects added since are appended to its tables and the spawned records replaced since get their inert class. The
-// file on the card stays as it is; the game's next save writes the upgraded state with the current revision.
-UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
+struct SaveSnapshot {
+    const std::vector<uint8_t>& bytes;
+    bool fromCatalog = false;
+};
+
+UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data, std::optional<SaveSnapshot> snapshot = {}) {
     const std::string ext = host.extension().string();
     if (ext != ".rsg" && ext != ".rlt")
         return UpgradeState::Unchanged;
     std::vector<PackRevisions> revisions;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_revisions.empty())
+        if (g_revisions.empty() && !(snapshot && snapshot->fromCatalog))
             return UpgradeState::Unchanged;
         revisions = g_revisions;
     }
@@ -406,7 +438,10 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
     using Kind = hle::mods::SaveRevisionRule::Kind;
     const hle::mods::SaveRevisionRule statue{Kind::AddObjects, 1, "OotF 01 - Ruined Village", {3353}, {2855}};
     for (const PackRevisions& pr : revisions) {
-        const SavedBuild saved = savedBuild(host, pr.id);
+        // Verified catalog snapshots are on the current build, before revision rules.
+        const SavedBuild saved = snapshot && snapshot->fromCatalog && pr.id == "ootf-levels"
+                                     ? SavedBuild{std::string(kOotfCreatureSwapBuild), 0}
+                                     : savedBuild(host, pr.id);
         const int rev = saved.revision;
         if (pr.migrateOotfCreatures && saved.build == kOotfPreviousBuild) {
             remaps = kOotfCreatureSwaps;
@@ -422,9 +457,9 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
         about += (about.empty() ? "" : ", ") + ("pack '" + pr.id + "' revision ") + std::to_string(rev) + " < " +
                  std::to_string(pr.revision);
     }
-    if (rules.empty() && remaps.empty())
+    if (rules.empty() && remaps.empty() && !(snapshot && snapshot->fromCatalog))
         return UpgradeState::Unchanged;
-    {
+    if (!snapshot) {
         std::lock_guard<std::mutex> lock(g_mutex);
         const auto it = g_upgraded.find(key);
         if (it != g_upgraded.end() && it->second.size == size && it->second.time == time) {
@@ -435,13 +470,13 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
     }
     Upgraded u{size, time};
     std::vector<uint8_t> in;
-    {
+    if (!snapshot) {
         std::ifstream f(host, std::ios::binary);
         in.assign(std::istreambuf_iterator<char>(f), {});
     }
     hle::mods::SaveUpgradeReport report;
     std::string err;
-    if (!hle::mods::upgradeSave(in, rules, u.data, report, err, remaps)) {
+    if (!hle::mods::upgradeSave(snapshot ? snapshot->bytes : in, rules, u.data, report, err, remaps)) {
         std::fprintf(stderr, "[saves] %s (%s): upgrade failed (%s)\n", name.c_str(), about.c_str(), err.c_str());
         u.state = UpgradeState::Failed;
     } else if (!report.changed()) {
@@ -459,22 +494,85 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
     }
     if (u.state != UpgradeState::Replaced)
         u.data.clear();
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_upgraded.size() > 64)
-        g_upgraded.clear();
-    g_upgraded[key] = u;
+    if (!snapshot) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_upgraded.size() > 64)
+            g_upgraded.clear();
+        g_upgraded[key] = u;
+    }
     if (data && u.state == UpgradeState::Replaced)
         *data = std::move(u.data);
     return u.state;
 }
+
+auto currentOotfBuild(const hle::mods::ActivePacks& active) {
+    return std::find_if(active.packs.begin(), active.packs.end(), [](const hle::mods::PackStamp& stamp) {
+        return stamp.id == "ootf-levels" && stamp.build == kOotfCreatureSwapBuild;
+    });
+}
+
+std::optional<drakan_save_catalog::Migration>
+catalogMigration(const fs::path& path, const hle::mods::ActivePacks& active, hle::mods::SaveCheckInput in) {
+    using namespace drakan_save_catalog;
+    if (drakan_game::current() != drakan_game::Game::Ootf || !drakan_lifecycle::saveRestoreInstalled() ||
+        currentOotfBuild(active) == active.packs.end() || !in.recordReadable ||
+        (path.extension() != ".rsg" && path.extension() != ".rlt"))
+        return {};
+    // The verified historical states also used this pack, even if a backup omitted its sidecar.
+    if (std::none_of(active.packs.begin(), active.packs.end(), [](const hle::mods::PackStamp& p) {
+            return p.id == "drakan-character-motion" && p.build == kOotfCatalogMotionBuild;
+        }))
+        return {};
+    const bool rsg = isRecordedSave(path);
+    const auto stamp = std::find_if(in.record.begin(), in.record.end(),
+                                    [](const hle::mods::PackStamp& p) { return p.id == "ootf-levels"; });
+    std::string source;
+    if (stamp != in.record.end()) {
+        if (!isHistoricalBuild(stamp->build))
+            return {};
+        source = stamp->build;
+        stamp->build = kOotfCreatureSwapBuild;
+    } else if (in.hasRecord) {
+        return {};
+    } else {
+        source = savedBuild(path, "ootf-levels").build;
+        if (!source.empty() && !isHistoricalBuild(source))
+            return {};
+        in.hasRecord = true;
+        in.record.push_back({"ootf-levels", {}, {}, std::string(kOotfCreatureSwapBuild)});
+    }
+    // Only the OotF stamp can be replaced. Keep every other pack check in force.
+    if (hle::mods::checkSave(in, active).verdict != SaveVerdict::Ok)
+        return {};
+    const fs::path catalog = fs::path(drakan_cfg::exeDir()) / "save-migrations" / "ootf";
+    return find(catalog, path, source, kOotfCreatureSwapBuild,
+                rsg && hle::mods::ruleLevelMatches(kBookLevel, in.level));
+}
+
+bool prepareSnapshot(const fs::path& path, std::vector<uint8_t>& state) {
+    std::vector<uint8_t> upgraded;
+    const UpgradeState result = upgradeFile(path, &upgraded, SaveSnapshot{state, true});
+    if (result == UpgradeState::Replaced)
+        state = std::move(upgraded);
+    return result != UpgradeState::Failed;
+}
+
 ps2_stubs::McReadResult upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
     using ps2_stubs::McReadResult;
     if (host.extension() != ".rsg" && host.extension() != ".rlt")
         return McReadResult::Unchanged;
 
-    if (host.filename() == kBookReturnFile && drakan_game::current() == drakan_game::Game::Ootf) {
+    {
         std::lock_guard<std::mutex> lock(g_mutex);
-        if (g_bookReturn && g_bookReturn->requested == host) {
+        if (g_restore && g_restore->path == host) {
+            if (g_restore->refused)
+                return McReadResult::Refused;
+            if (!g_restore->state.empty()) {
+                data = g_restore->state;
+                return McReadResult::Replaced;
+            }
+        }
+        if (g_bookReturn && g_bookReturn->requested == host && drakan_game::current() == drakan_game::Game::Ootf) {
             data = g_bookReturn->state;
             return McReadResult::Replaced;
         }
@@ -483,6 +581,11 @@ ps2_stubs::McReadResult upgradeOnRead(const fs::path& host, std::vector<uint8_t>
     if (!fs::is_regular_file(host, ec))
         return McReadResult::Unchanged;
 
+    // The native menu probes original files before the restore event. Do not apply revision
+    // rules to an older layout while the verified snapshot is not yet armed.
+    if (drakan_game::current() == drakan_game::Game::Ootf &&
+        drakan_save_catalog::isHistoricalBuild(savedBuild(host, "ootf-levels").build))
+        return McReadResult::Unchanged;
     switch (upgradeFile(host, &data)) {
         case UpgradeState::Unchanged:
             return McReadResult::Unchanged;
@@ -503,16 +606,65 @@ void clearBookReturn() {
 void onBeforeSaveRestore(const drakan_lifecycle::Event& event) {
     const int port = event.path.starts_with("mc1:") || event.path.starts_with("MC1:");
     const fs::path path = ps2_stubs::mcHostPath(port, event.path);
-    std::lock_guard<std::mutex> lock(g_mutex);
-    if (g_bookReturn && g_bookReturn->requested != path)
+    hle::mods::ActivePacks active;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_restore.reset();
+        if (g_bookReturn && g_bookReturn->requested == path)
+            return;
         g_bookReturn.reset();
+        active = g_active;
+    }
+    if (drakan_game::current() != drakan_game::Game::Ootf || currentOotfBuild(active) == active.packs.end())
+        return;
+
+    std::error_code ec;
+    const fs::path root = ps2_stubs::mcHostPath(port, "/");
+    if ((path.parent_path() != root && !isNumberedSlot(root, path.parent_path())) || !fs::is_regular_file(path, ec))
+        return;
+    Restore restore{path};
+    const SavedBuild stamp = savedBuild(path, "ootf-levels");
+    const auto record = readSaveRecord(path);
+    if (auto migration = catalogMigration(path, active, record)) {
+        restore.refused = !prepareSnapshot(path, migration->state) ||
+                          (!migration->bookReturn.empty() &&
+                           !prepareSnapshot(path.parent_path() / kBookReturnFile, migration->bookReturn)) ||
+                          !drakan_save_backup::archiveSlot(root, path, migration->original);
+        if (!restore.refused) {
+            restore.state = std::move(migration->state);
+            restore.bookReturn = std::move(migration->bookReturn);
+            std::fprintf(stderr, "[saves] %s: migrated OotF build %s on load\n", path.filename().string().c_str(),
+                         migration->sourceBuild.c_str());
+        }
+    } else if ((!active.loadOtherBuilds && drakan_save_catalog::isHistoricalBuild(stamp.build)) ||
+               (isRecordedSave(path) && checkSave(path).refused())) {
+        restore.refused = true;
+    } else if (!stamp.build.empty() && !drakan_save_catalog::isHistoricalBuild(stamp.build)) {
+        const auto original = drakan_save_catalog::readBytes(path);
+        const UpgradeState result = upgradeFile(path, &restore.state, SaveSnapshot{original});
+        const bool needsBackup = result == UpgradeState::Replaced || stamp.build == kOotfPreviousBuild;
+        restore.refused = result == UpgradeState::Failed ||
+                          (needsBackup && (original.empty() || !drakan_save_backup::archiveSlot(root, path, original)));
+    }
+    if (restore.refused) {
+        std::fprintf(stderr, "[saves] %s: could not verify and back up the original for upgrade\n",
+                     path.filename().string().c_str());
+        showNotice("The older save could not be verified and backed up for this game build.");
+    }
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_restore = std::move(restore);
 }
 
 void onAfterSaveRestore(const drakan_lifecycle::Event& event) {
     const int port = event.path.starts_with("mc1:") || event.path.starts_with("MC1:");
     const fs::path path = ps2_stubs::mcHostPath(port, event.path);
+    std::vector<uint8_t> state;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_restore && g_restore->path == path) {
+            state = std::move(g_restore->bookReturn);
+            g_restore.reset();
+        }
         if (event.ok && g_bookReturn && g_bookReturn->requested == path) {
             g_bookReturn->restored = true;
             return;
@@ -525,9 +677,20 @@ void onAfterSaveRestore(const drakan_lifecycle::Event& event) {
 
     const fs::path slot = path.parent_path();
     const fs::path root = ps2_stubs::mcHostPath(port, "/");
-    if (!isRecordedSave(path) || slot.parent_path() != root || !slot.filename().string().starts_with(slotPrefix()))
+    const bool numbered = isNumberedSlot(root, slot);
+    if (!isRecordedSave(path) || (!numbered && slot != root))
         return;
 
+    if (!state.empty()) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_bookReturn = BookReturn{root / kBookReturnFile, std::move(state)};
+        std::fprintf(stderr, "[saves] Book return will use the verified companion for %s\n",
+                     slot.filename().string().c_str());
+        return;
+    }
+
+    if (!numbered)
+        return;
     const fs::path companion = slot / kBookReturnFile;
     std::error_code ec;
     std::string text;
@@ -547,18 +710,20 @@ void onAfterSaveRestore(const drakan_lifecycle::Event& event) {
             return;
     }
 
-    std::vector<uint8_t> state;
-    const UpgradeState upgrade = upgradeFile(companion, &state);
-    if (upgrade == UpgradeState::Failed)
+    auto original = drakan_save_catalog::readBytes(companion);
+    if (original.empty())
+        return;
+    const UpgradeState upgrade = upgradeFile(companion, &state, SaveSnapshot{original});
+    if (upgrade == UpgradeState::Failed ||
+        (upgrade == UpgradeState::Replaced && !drakan_save_backup::archiveOriginal(root, companion, original)))
         return;
     if (upgrade == UpgradeState::Unchanged) {
-        std::ifstream file(companion, std::ios::binary);
-        state.assign(std::istreambuf_iterator<char>(file), {});
         std::vector<uint8_t> unused;
         hle::mods::SaveUpgradeReport report;
         std::string error;
-        if (!file || !hle::mods::upgradeSave(state, {}, unused, report, error))
+        if (!hle::mods::upgradeSave(original, {}, unused, report, error))
             return;
+        state = std::move(original);
     }
 
     // The native Book exit probes, restores and rereads the card-root state before writing its new level-start save.
@@ -577,7 +742,7 @@ bool deleteRestoredBookReturn(const fs::path& path) {
 }
 
 void onAfterSaveWrite(const drakan_lifecycle::Event& event) {
-    if (event.level != kVillageLevel)
+    if (!event.ok || event.level != kVillageLevel)
         return;
     const int port = event.path.starts_with("mc1:") || event.path.starts_with("MC1:");
     const fs::path path = ps2_stubs::mcHostPath(port, event.path);
@@ -628,6 +793,7 @@ void configure(const hle::mods::ModManager* mods) {
     g_revisions = std::move(revisions);
     g_upgraded.clear();
     g_bookReturn.reset();
+    g_restore.reset();
     g_slotCache.clear();
     g_entryCache.clear();
 }
@@ -679,20 +845,24 @@ Verdict checkSave(const fs::path& rsg) {
     std::error_code ec;
     if (rsg.empty() || !fs::is_regular_file(rsg, ec))
         return out;
-    hle::mods::SaveCheckInput in;
-    in.level = rsg.stem().string();
-    std::string text;
-    const fs::path record = recordPath(rsg);
-    if (fs::exists(record, ec)) {
-        in.hasRecord = true;
-        in.recordReadable = readText(record, text) && hle::mods::parseSaveRecord(text, in.record);
-    }
-    hle::mods::SaveCheck r;
+    const auto in = readSaveRecord(rsg);
+    hle::mods::ActivePacks active;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        r = hle::mods::checkSave(in, g_active);
+        active = g_active;
     }
-    if (r.verdict == SaveVerdict::Ok && r.needsUpgrade && upgradeFile(rsg, nullptr) == UpgradeState::Failed)
+    hle::mods::SaveCheck r = hle::mods::checkSave(in, active);
+    if ((!in.hasRecord || r.verdict == SaveVerdict::DifferentBuild) && catalogMigration(rsg, active, in))
+        return out;
+    const auto ootf = currentOotfBuild(active);
+    if (r.verdict == SaveVerdict::Ok && !in.hasRecord && drakan_game::current() == drakan_game::Game::Ootf &&
+        ootf != active.packs.end() && hle::mods::ruleLevelMatches(kBookLevel, in.level)) {
+        r.verdict = SaveVerdict::OlderThanPack;
+        r.pack = *ootf;
+        r.overridden = active.loadOtherBuilds;
+    }
+    if (r.verdict == SaveVerdict::Ok && r.needsUpgrade &&
+        (!drakan_lifecycle::saveRestoreInstalled() || upgradeFile(rsg, nullptr) == UpgradeState::Failed))
         r.verdict = SaveVerdict::BadRecord;
     if (r.overridden) { // loads anyway: say so once per save
         static std::set<std::string> warned;

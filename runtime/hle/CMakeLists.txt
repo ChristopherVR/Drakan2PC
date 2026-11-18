@@ -15,6 +15,7 @@ add_library(drakan_hle STATIC
     src/GlyphMap.cpp
     src/CampaignSoundSwaps.cpp
     src/ModPack.cpp
+    src/SaveBackup.cpp
     src/SaveRecord.cpp
     src/SaveUpgrade.cpp
     src/SoundService.cpp)
@@ -47,6 +48,10 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(save_upgrade_test tests/save_upgrade_test.cpp)
     target_link_libraries(save_upgrade_test PRIVATE drakan_hle drakan::options)
     add_test(NAME save_upgrade_test COMMAND save_upgrade_test)
+    add_executable(save_backup_test tests/save_backup_test.cpp)
+    target_link_libraries(save_backup_test PRIVATE drakan_hle drakan::options)
+    drakan_enable_asserts(save_backup_test)
+    add_test(NAME save_backup_test COMMAND save_backup_test "${CMAKE_CURRENT_BINARY_DIR}")
     add_executable(glyph_map_test tests/glyph_map_test.cpp)
     target_link_libraries(glyph_map_test PRIVATE drakan_hle drakan::options)
     drakan_enable_asserts(glyph_map_test)

@@ -468,6 +468,12 @@ was made with, and the game refuses a save it cannot vouch for.
   applies to saved level states. An older level state without its own record can inherit a build when the saves in its
   slot agree. Saving over that slot records the inherited build beside each earlier level state before changing the
   slot's build. The game keeps checking the builds of other recorded packs.
+* **Restored Order of the Flame saves.** The Windows desktop Load Game menu accepts original saves for the known
+  creature layout and exact historical saves in the local `save-migrations/ootf` catalog for the installed pack.
+  The catalog matches the file name and SHA-256, and supplies the verified converted state and the paired Village
+  state for historical Book saves. Before serving migrated state, the restore hook verifies a byte-for-byte backup
+  of the original slot under `save-backups/ootf-auto` beside the card. Choosing Save Game writes the current format.
+  Opening the load menu only checks eligibility. An unsupported layout stays unavailable with save checks enabled.
 * **Ruined Village Book saves.** A numbered Book save can carry a compatible `OotF 01 - Ruined Village.rlt` and its
   `.mods` record beside the `.rsg`. The Book exit restores that Village state from the selected slot, including when
   the active card has a different Village state at its root. The game uses a read-only copy during the transition.

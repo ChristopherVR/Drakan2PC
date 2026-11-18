@@ -560,6 +560,10 @@ bool transitionActive() {
     return g_active.load() > 0;
 }
 
+bool saveRestoreInstalled() {
+    return g_slots[kSlotRestore].orig != nullptr;
+}
+
 Mount currentMount() {
     return g_mount;
 }

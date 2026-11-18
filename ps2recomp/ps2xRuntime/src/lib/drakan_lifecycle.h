@@ -63,6 +63,7 @@ void unsubscribe(ListenerId id);
 // event to stderr; DRAKAN_LIFECYCLE=0 disables the hooks.
 void install(PS2Runtime& runtime);
 bool installed();
+bool saveRestoreInstalled();
 
 // True from the "before" to the "after" event of a level load, a save write or a save restore. Those calls can be
 // preempted by another guest thread (the loader waits on semaphores), so a host spawn (postGuestCall) must not run
