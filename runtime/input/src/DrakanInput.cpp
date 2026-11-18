@@ -330,11 +330,6 @@ void InputModule::beginFrame() {
             f.clientW = clientW;
             f.clientH = clientH;
         }
-        f.gamepad = GamepadState{};
-        if (pad) {
-            f.gamepad.connected = true;
-            f.gamepad.buttons = pad;
-        }
     } else {
         // Discard delayed edges before changing input ownership. A held combat
         // button must not become a menu confirm, or replay when F1 closes.

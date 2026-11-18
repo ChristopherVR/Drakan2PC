@@ -2028,6 +2028,14 @@ static void testScriptLoudParse() {
 }
 
 static void testScriptLegacy() {
+    ScriptTest sticks("1 stick left 0 100\n2 stick right -50 0\n3 stick left 0 0\n4 stick right 0 101\n");
+    CHECK(sticks.warnings.find("line 4") != std::string::npos);
+    sticks.step(1, 0);
+    CHECK(sticks.out.gamepad.connected && sticks.out.gamepad.ly == 1.0f);
+    sticks.step(2, 0);
+    CHECK(sticks.out.gamepad.ly == 1.0f && sticks.out.gamepad.rx == -0.5f);
+    sticks.step(3, 0);
+    CHECK(sticks.out.gamepad.ly == 0 && sticks.out.gamepad.rx == -0.5f);
     const std::string text = "# Default clock remains PadMgr call numbers\n"
                              "1 key down W\n1 mouse 3 -2 3\n"
                              "2 key tap SPACE\n2 button tap 1\n2 pad tap CROSS\n2 wheel -1\n"

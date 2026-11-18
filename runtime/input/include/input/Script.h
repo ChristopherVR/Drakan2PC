@@ -6,6 +6,7 @@
 //
 //   <frame> key    down|up|tap <KEYNAME>      DirectInput-style key names of the ini (W, SPACE, ESC, ENTER, ...)
 //   <frame> button down|up|tap <1..5>         mouse button (1 = left)
+//   <frame> stick left|right <x> <y>          controller stick in percent (-100..100, positive Y forward)
 //   <frame> mouse  <dx> <dy> [frames]         raw mouse counts, applied on each of `frames` consecutive frames (default
 //   1) <frame> wheel  <notches> <frame> pad    down|up|tap <PADBUTTON>    DualShock button OR-ed into the sample
 //   (CROSS, START, DPAD_UP ...) <frame> cursor <x> <y>                    host cursor in a virtual 640x512 client area
@@ -92,6 +93,7 @@ private:
             Mouse,
             Wheel,
             Pad,
+            Stick, // stick left|right <x> <y> in percent, held until changed
             Cursor,
             Dump,
             Shot,
@@ -127,6 +129,7 @@ private:
     std::bitset<256> keys_, prevKeys_, tapKeys_;
     uint8_t mouse_ = 0, prevMouse_ = 0, tapMouse_ = 0;
     uint16_t pad_ = 0, tapPad_ = 0;
+    GamepadState sticks_;
     int curX_ = 320, curY_ = 256;
     struct Rep {
         int dx, dy, left;

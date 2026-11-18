@@ -105,6 +105,12 @@ bool InputScript::parseLine(const std::string& line, int ln, Ev& e, std::string*
             return false;
         }
         e.code = m;
+    } else if (cmd == "stick") {
+        e.kind = Ev::Stick;
+        if (!(ss >> a >> e.a >> e.b) || (a != "left" && a != "right") || e.a < -100 || e.a > 100 || e.b < -100 ||
+            e.b > 100)
+            return bad("stick <left|right> <x percent> <y percent>, each -100..100");
+        e.mode = a == "right";
     } else if (cmd == "cursor") {
         e.kind = Ev::Cursor;
         if (!(ss >> e.a >> e.b)) {
@@ -241,6 +247,16 @@ void InputScript::apply(const Ev& e, ScriptEvents& ev, int& wheel) {
             if (e.mode == 2)
                 tapPad_ = static_cast<uint16_t>(tapPad_ | e.code);
             break;
+        case Ev::Stick:
+            sticks_.connected = true;
+            if (e.mode) {
+                sticks_.rx = e.a / 100.0f;
+                sticks_.ry = e.b / 100.0f;
+            } else {
+                sticks_.lx = e.a / 100.0f;
+                sticks_.ly = e.b / 100.0f;
+            }
+            break;
         case Ev::Cursor:
             curX_ = e.a;
             curY_ = e.b;
@@ -354,6 +370,9 @@ void InputScript::advance(int frame, int playRun, FrameInput& out, uint16_t& pad
     out.clientW = 640;
     out.clientH = 512;
     padButtons = pad_;
+    out.gamepad = sticks_;
+    out.gamepad.connected = sticks_.connected || pad_ != 0;
+    out.gamepad.buttons = pad_;
     prevKeys_ = keys_;
     prevMouse_ = mouse_;
 }
