@@ -345,6 +345,8 @@ PAL disc decode (the 4 exceptions: three FX quad records and one RESOURES polygo
 All records of a model share its SRSC id.
 
 * **0x0200 [disc]**: `string name, u32 shading, u32 0, [f32 distance if shading & 0x20000], u32 count, count x {u16 id, u16 db}`.
+  A model with no polygons can still supply textures to an effect. The Fork Arrow Blur uses its first entry for
+  the trail drawn in flight. Keep the mapped texture and its entry when converting such models.
   The texture list lives here (PC has a separate 0x0206); the float (49000.0, 20000.0, 140000.0 seen) is probably a fade/cull
   distance **[?]**. `db` 0 = the model container's own TXD, else an index into its `.DB`. One list serves every LOD: the
   0x0204 texture index and the 0x0211 batch texture of every LOD list index this same list. Low-detail sheets of a
@@ -388,8 +390,9 @@ All records of a model share its SRSC id.
   is not stopped by a prop's sphere, and she pushes 100 to 150 units past thin listed polygons (a cage's bars); a box
   without polygons stops her outside it. The converter maps the PC lists through its polygon splits and reorders and gives
   cage models one solid box ([cage collision](../journal/2026-11-08/ootf-cage-collision.md)).
-* **0x0211 (strip display list) [disc]**: decoded; the engine needs it for skinned models and the Birch tree class (a static prop
-  draws from 0x0203/0x0204 alone). Layout, little endian, unaligned:
+* **0x0211 (strip display list) [disc]**: the engine uses it for skinned models, the Birch tree class and drawn
+  projectiles. All 32 class-95 projectiles referencing a local RESOURES model on the PAL disc have this record.
+  Layout, little endian, unaligned:
   `u32 1, u32 V, u32 0`, V vertex groups as `count[0], cum[0], count[1], cum[1] .. count[V-1]` (`cum` = start of the next group,
   padded to a multiple of 4; the 0x0203 vertex count is the padded total, pad vertices are zero), `u32 batchCount, u32 texture of
   batch 0`, then per batch `u32 W, W x {u8 group, u8 slot}` (groups to copy into the vertex window), `u32 triangles` (sum of
