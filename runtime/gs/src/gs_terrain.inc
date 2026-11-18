@@ -1,6 +1,6 @@
 // Adjacent C++ string literal, included inside the main HLSL initializer (gs_shaders.h).
 // Terrain detail: the shader side of terrain_detail.h (constants, weights and amplitudes are defined there and the
-// CPU reference in that header mirrors this code). Runs only for draws flagged F_TERRAIN / F_TERRAIN_SIDE.
+// CPU reference in that header mirrors the optional detail and side projection).
 R"HLSL(
 // ---------------------------------------------------------------- terrain detail
 cbuffer CBT : register(b3)
@@ -24,6 +24,7 @@ SamplerState SmpNoise : register(s2);
 
 #define F_TERRAIN      (1u<<26)
 #define F_TERRAIN_SIDE (1u<<27)
+#define F_TERRAIN_RELIEF (1u<<28)
 
 static const float3x3 kTerrainRot1 = float3x3(0.8657570, -0.2803366, 0.4145796, 0.4145796, 0.8657570, -0.2803366, -0.2803366, 0.4145796, 0.8657570);
 static const float3x3 kTerrainRot2 = float3x3(0.8288755, -0.4966948, -0.2574096, -0.0066126, 0.4513950, -0.8922997, 0.5593940, 0.7413075, 0.3708658);
@@ -57,20 +58,31 @@ float2 terrainOctave(float3 r, float3 rdx, float3 rdy, int o)
     return TerrainNoise.SampleGrad(SmpNoise, r * f + t_octave[o].xyz, rdx * g, rdy * g);
 }
 
-// Factor for the layer colour (before fog), and the medium octave for dithering the side projection.
-float terrainDetail(TerrainPoint p, out float medium)
+// Cliff faces magnify the distant colour map along the slope. Shade the existing paint with world-space relief
+// that still resolves at that distance (roughness from the medium octave, large features from the slow octave).
+float terrainCliffWeight(TerrainPoint p)
 {
-    float2 n0 = terrainOctave(p.rel, p.dx, p.dy, 0);
+    return (1.0 - smoothstep(0.30, 0.64, abs(p.n.y))) * smoothstep(16000.0, 35000.0, length(p.rel));
+}
+
+// Factor for the layer colour (before fog), and the medium octave for dithering the side projection.
+float terrainShading(TerrainPoint p, bool detail, float cliffWeight, out float medium)
+{
     float2 n1 = terrainOctave(mul(kTerrainRot1, p.rel), mul(kTerrainRot1, p.dx), mul(kTerrainRot1, p.dy), 1);
     float2 n2 = terrainOctave(mul(kTerrainRot2, p.rel), mul(kTerrainRot2, p.dx), mul(kTerrainRot2, p.dy), 2);
     medium = n1.x - 0.5;
-    // the fine and medium octaves and the relief are close-range detail and fade with distance; the slow octave
-    // (against the visible tile repeat) does not
-    float fade = lerp(1.0, t_reliefFar.x, saturate((length(p.rel) - t_relief.z) * t_relief.w));
-    float m = t_amp.x * (n0.x - 0.5) * 2.0 + t_amp.y * (n1.x - 0.5) * 2.0;
-    m += t_amp.w * ((n0.x - n0.y) * t_relief.x + (n1.x - n1.y) * t_relief.y);
-    m = m * fade + t_amp.z * (n2.x - 0.5) * 2.0;
-    return max(0.0, 1.0 + t_base.w * m);
+    float m = 0.0;
+    if (detail)
+    {
+        float2 n0 = terrainOctave(p.rel, p.dx, p.dy, 0);
+        // Fine and medium detail fade with distance. The slow octave breaks up the visible tile repeat.
+        float fade = lerp(1.0, t_reliefFar.x, saturate((length(p.rel) - t_relief.z) * t_relief.w));
+        m = t_amp.x * (n0.x - 0.5) * 2.0 + t_amp.y * medium * 2.0;
+        m += t_amp.w * ((n0.x - n0.y) * t_relief.x + (n1.x - n1.y) * t_relief.y);
+        m = t_base.w * (m * fade + t_amp.z * (n2.x - 0.5) * 2.0);
+    }
+    float cliff = 0.43 * (n2.x - n2.y) + 0.38 * (n1.x - n1.y) + 0.28 * (n2.x - 0.5);
+    return max(0.0, 1.0 + m + cliffWeight * cliff);
 }
 
 float terrainMedium(TerrainPoint p)

@@ -570,6 +570,11 @@ The Order of the Flame converter keeps the original rock tile on a steep cell wh
 the cutoff. If the chunk also uses the native replacement rock, that pass draws under the original tile so its
 coarser texture cannot cover the restored detail. [Wartok Canyons comparison](../journal/2026-11-19/wartok-rendering.md)
 
+On Direct3D 11, Order of the Flame also uses world-space relief on distant cliff faces. The shader shades the existing
+paint before fog, including the far colour map, so the texture on steep snowy mountains keeps visible surface detail.
+The relief fades in with slope and distance and uses the same world-space samples on each terrain pass. It uses the
+normal texture distance and does not require a rebuilt level pack.
+
 **Ground texture distance** (`terrain_distance`, 1 to 4, PAL): `drakan_terrain_distance.cpp` wraps `0x158148` and
 divides `s` by the factor for the length of the call, which moves both the cut-off and the fade of every material out
 by that factor (rules and numbers: `runtime/world/include/world/TerrainDistance.h`). No level data, material or code

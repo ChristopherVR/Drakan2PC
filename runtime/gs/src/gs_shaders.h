@@ -253,7 +253,7 @@ float4 sourcePixel(VSOut i)
         }
         if (fl & (1u<<24)) uv=clamp(uv,cb_spriteBounds.xy,cb_spriteBounds.zw);
         // One projection for everything but terrain layers with the side projection (terrain_detail.h), which adds
-        // up to two more; the terrain flags are never set unless a terrain setting is on.
+        // up to two more.
         float2 puv[3], pdx[3], pdy[3];
         float pw[3];
         puv[0] = uv; pdx[0] = ddx(uv); pdy[0] = ddy(uv); pw[0] = 1.0;
@@ -262,12 +262,14 @@ float4 sourcePixel(VSOut i)
         int projections = 1;
         float terrainFactor = 1.0;
         // (a layer pixel with vertex alpha 0 has no weight and fails the alpha test: nothing to compute for it)
-        if ((fl & (F_TERRAIN | F_TERRAIN_SIDE)) != 0u && cv.a >= 0.5)
+        if ((fl & (F_TERRAIN | F_TERRAIN_SIDE | F_TERRAIN_RELIEF)) != 0u && cv.a >= 0.5)
         {
             TerrainPoint tp = terrainPoint(i.pos.xy, q, dq);
-            float medium;
-            if ((fl & F_TERRAIN) != 0u && t_d0.w > 0.5) terrainFactor = terrainDetail(tp, medium);
-            else medium = terrainMedium(tp);
+            bool detail = (fl & F_TERRAIN) != 0u && t_d0.w > 0.5;
+            float cliffWeight = (fl & F_TERRAIN_RELIEF) != 0u ? terrainCliffWeight(tp) : 0.0;
+            float medium = 0.0;
+            if (detail || cliffWeight > 0.0) terrainFactor = terrainShading(tp, detail, cliffWeight, medium);
+            else if (fl & F_TERRAIN_SIDE) medium = terrainMedium(tp);
             if (fl & F_TERRAIN_SIDE)
             {
                 pw[0] = terrainSide(tp, medium, puv[1], pdx[1], pdy[1], pw[1], puv[2], pdx[2], pdy[2], pw[2]);
@@ -313,7 +315,7 @@ float4 sourcePixel(VSOut i)
             c = floor(t.rgb * cv.rgb / 128.0) + cv.a;
             a = tcc ? t.a : cv.a;
         }
-        if (fl & F_TERRAIN) c = floor(c * terrainFactor + 0.5);
+        if (fl & (F_TERRAIN | F_TERRAIN_RELIEF)) c = floor(c * terrainFactor + 0.5);
         c = clamp(c, 0.0, 255.0);
         a = clamp(a, 0.0, 255.0);
     }

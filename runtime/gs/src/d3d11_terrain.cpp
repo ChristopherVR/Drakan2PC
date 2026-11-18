@@ -65,14 +65,16 @@ bool createTerrainGpu(ID3D11Device* dev, ComPtr<ID3D11Buffer>& cb, ComPtr<ID3D11
 } // namespace
 
 bool D3D11Backend::Impl::terrainLayersActive() const {
-    return (terrainCfg.any() || runtimeFlags().terrainAudit || runtimeFlags().terrainGpuTiming) && !terrainGpu.failed;
+    const bool relief = engineWorldOpen && (waterWorldCamera.flags & SceneGuideCamera::TerrainCliffRelief);
+    return (terrainCfg.any() || relief || runtimeFlags().terrainAudit || runtimeFlags().terrainGpuTiming) &&
+           !terrainGpu.failed;
 }
 
 uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVertex* v, uint32_t count, bool haveTex,
                                             bool texIsTarget, const RT& rt, bool depthMasked, float dsx, float dsy,
                                             PSConsts& k) {
     const bool audit = runtimeFlags().terrainAudit;
-    if ((!terrainCfg.any() && !audit && !runtimeFlags().terrainGpuTiming) || !engineWorldOpen || terrainGpu.failed)
+    if (!engineWorldOpen || !terrainLayersActive())
         return 0;
     // GSR_TERRAIN_GPU_TIMING also reports the CPU time spent in this function.
     struct CpuTime {
@@ -131,7 +133,8 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         auditShadowProjection(s, texIsTarget, depthMasked);
         auditTerrain(s, v, count, classified, depthMasked, g.unproject, dsx, dsy, k);
     }
-    if (!classified || !terrainCfg.any())
+    const bool relief = (camera.flags & SceneGuideCamera::TerrainCliffRelief) != 0;
+    if (!classified || (!terrainCfg.any() && !relief))
         return 0;
     if (!g.cb) {
         if (!createTerrainGpu(dev.Get(), g.cb, g.noise, g.sampler)) {
@@ -202,6 +205,8 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
     uint32_t flags = 0;
     if (terrainCfg.detail || terrainCfg.debug)
         flags |= PF_TERRAIN;
+    if (relief)
+        flags |= PF_TERRAIN_RELIEF;
     if (terrainCfg.cliffs && count % 3 == 0) {
         // Texels per world unit of the mapping from above, from the first triangles that give one.
         const float W = (float)(1u << std::min<uint64_t>(bitsOf(s.tex0, 26, 4), 10));

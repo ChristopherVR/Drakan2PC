@@ -1,5 +1,6 @@
 #include "drakan_scene_camera.h"
 #include "drakan_scene_camera_policy.h"
+#include "drakan_game.h"
 #include "drakan_widescreen_scope.h"
 #include "drakan_menus.h"
 #include "drakan_inventory_views.h"
@@ -317,6 +318,8 @@ void emitViewport(uint8_t* ram, R5900Context* c, PS2Runtime* rt, bool preview) {
         std::memcmp(p.viewportScale, lastPublished.viewportScale, sizeof p.viewportScale) == 0 &&
         std::memcmp(p.viewportOffset, lastPublished.viewportOffset, sizeof p.viewportOffset) == 0)
         return;
+    if (world && drakan_game::current() == drakan_game::Game::Ootf)
+        p.flags |= Packet::TerrainCliffRelief;
     lastPublished = p;
     havePublished = true;
     // Count published packets only, excluding duplicate object-local setup.

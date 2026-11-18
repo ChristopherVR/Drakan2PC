@@ -860,8 +860,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             k.spriteBounds[3] = b.v1;
         }
     }
-    // Terrain layers (terrain_detail.h): world-space detail and the side projection of steep faces. Adds nothing
-    // unless a terrain setting is on.
+    // Terrain layers: world-space shading and optional side projection of steep faces.
     if constexpr (kCaps.terrainDetail)
         k.a[0] |= prepareTerrain(s, v, count, haveTex, haveTex && tb.isRT, *rt, zmsk, dsx, dsy, k);
     bool drawMotion = false;

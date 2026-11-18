@@ -44,3 +44,18 @@ game's coarse color maps.
 The installed campaign pack reproduces the corrected bridge view in `terrain-installed.jpg`. It keeps save build
 `493b53de681b8791`, revision 1. The local Wartok and Ruined Village saves loaded in private copies, and the 11 original
 Order of the Flame save files matched their pre-build hashes.
+
+## Snowy mountain faces
+
+From the same bridge view, the distant peaks sit roughly 111,000 to 135,000 world units away. Their authored detail
+passes fade out at 61,440 units. The remaining four-texel-per-cell map is projected from above, stretching its
+surface detail vertically on the steep faces. At four times the texture distance, adding side projection restored
+some detail but repeated the snow borders in a grid across the cliffs.
+
+The Direct3D 11 renderer now shades distant steep faces in Order of the Flame with world-space relief. It uses
+the same surface shading on the far map and the individual texture passes, so the painted snow borders stay in
+place as the texture passes fade. The comparison at normal texture distance shows detail on both the left cliffs
+and the distant peaks. The original mountain silhouettes still reflect the coarse terrain mesh.
+
+The matched bridge comparison and the movement samples are under `build/snow-mountains-20261119/` as
+`wartok-before-after.jpg` and `bridge-motion.jpg`.

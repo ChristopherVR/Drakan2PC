@@ -80,6 +80,7 @@ enum : uint32_t {
     PF_TEXRT = 1u << 22,
     PF_TERRAIN = 1u << 26,      // terrain layer: world-space detail (gs_terrain.inc)
     PF_TERRAIN_SIDE = 1u << 27, // terrain layer whose steep faces may sample the texture from the side
+    PF_TERRAIN_RELIEF = 1u << 28, // terrain layer with world-space shading on distant cliffs
 };
 
 // The constants block of a draw; the same layout in HLSL and WGSL.

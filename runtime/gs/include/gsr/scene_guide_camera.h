@@ -8,6 +8,7 @@ struct SceneGuideCamera {
     enum : uint32_t { Valid = 1, World = 2, Reset = 4, InfiniteFar = 8, HaveViewport = 16, EndWorld = 32 };
     // The inventory screen draws a centred view (drakan_inventory_views.inl): its page maps about the screen centre.
     static constexpr uint32_t CentredPage = 64;
+    static constexpr uint32_t TerrainCliffRelief = 128; // world of the converted Order of the Flame campaign
     uint64_t serial = 0, captureTick = 0;
     uint32_t flags = 0, sourcePc = 0, sourceAddress = 0, rendererAddress = 0;
     int32_t guiScreen = -1;
