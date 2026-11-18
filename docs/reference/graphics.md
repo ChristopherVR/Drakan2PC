@@ -575,6 +575,10 @@ paint before fog, including the far colour map, so the texture on steep snowy mo
 The relief fades in with slope and distance and uses the same world-space samples on each terrain pass. It uses the
 normal texture distance and does not require a rebuilt level pack.
 
+The mountain range above Wartok Canyons' first rope bridge has a local snow line. Snow collects lower on ledges and
+builds up into a continuous cover at the highest elevations. Steep faces at the snow line show patches over the rock.
+The snow uses the terrain's lighting and fog. Its footprint fades out before the high cave floors farther east.
+
 **Ground texture distance** (`terrain_distance`, 1 to 4, PAL): `drakan_terrain_distance.cpp` wraps `0x158148` and
 divides `s` by the factor for the length of the call, which moves both the cut-off and the fade of every material out
 by that factor (rules and numbers: `runtime/world/include/world/TerrainDistance.h`). No level data, material or code

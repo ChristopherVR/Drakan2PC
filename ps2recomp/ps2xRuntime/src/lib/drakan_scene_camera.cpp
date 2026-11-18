@@ -1,6 +1,8 @@
 #include "drakan_scene_camera.h"
 #include "drakan_scene_camera_policy.h"
+#include "drakan_config.h"
 #include "drakan_game.h"
+#include "drakan_lifecycle.h"
 #include "drakan_widescreen_scope.h"
 #include "drakan_menus.h"
 #include "drakan_inventory_views.h"
@@ -41,6 +43,7 @@ bool hadWorld = false;
 Packet lastWorld;
 Packet lastPublished;
 bool havePublished = false;
+bool wartokSnow = false; // EE executor only, set by the level lifecycle
 PS2Runtime* installed = nullptr;
 std::atomic<bool> captureEnabled{false}, captureReset{true};
 struct Pending {
@@ -272,6 +275,8 @@ void emitViewport(uint8_t* ram, R5900Context* c, PS2Runtime* rt, bool preview) {
         p.flags &= ~(Packet::World | Packet::Valid);
     }
     const bool world = (p.flags & Packet::World) != 0;
+    if (world && wartokSnow)
+        p.flags |= Packet::TerrainSnow;
     const bool previousWorld = hadWorld;
     const uint64_t previousTick = lastWorldTick;
     const int previousGui = lastGui;
@@ -311,7 +316,7 @@ void emitViewport(uint8_t* ram, R5900Context* c, PS2Runtime* rt, bool preview) {
     policy::updateAnchorContext(world, preview, p.guiScreen, hadWorld, lastGui);
     // Identical camera/viewport metadata can be emitted for many objects in one
     // engine tick. Do not force a VIF drain or an NR resolve per object.
-    const uint32_t stateMask = Packet::Valid | Packet::World | Packet::HaveViewport;
+    const uint32_t stateMask = Packet::Valid | Packet::World | Packet::HaveViewport | Packet::TerrainSnow;
     if (havePublished && p.captureTick == lastPublished.captureTick && p.guiScreen == lastPublished.guiScreen &&
         (p.flags & stateMask) == (lastPublished.flags & stateMask) &&
         std::memcmp(p.worldToClipVU, lastPublished.worldToClipVU, sizeof p.worldToClipVU) == 0 &&
@@ -564,6 +569,12 @@ bool install(PS2Runtime& rt, const std::atomic<uint64_t>* tick, Sink cb, void* o
         for (uint32_t pc = 0x161a78u; pc < 0x1626a8u; pc += 4)
             if (rt.hasFunction(pc) && rt.lookupFunction(pc) == origWaterDraw)
                 rt.replaceFunction(pc, &waterDraw);
+    using drakan_lifecycle::Event;
+    using drakan_lifecycle::Kind;
+    drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const Event&) { wartokSnow = false; });
+    drakan_lifecycle::subscribe(Kind::AfterLevelLoad, [](const Event& e) {
+        wartokSnow = e.ok && drakan_cfg::compareNoCase(e.level.c_str(), "OotF 03 - Wartok Canyons") == 0;
+    });
     installed = &rt;
     return true;
 }

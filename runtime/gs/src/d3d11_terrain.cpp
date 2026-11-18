@@ -65,8 +65,9 @@ bool createTerrainGpu(ID3D11Device* dev, ComPtr<ID3D11Buffer>& cb, ComPtr<ID3D11
 } // namespace
 
 bool D3D11Backend::Impl::terrainLayersActive() const {
-    const bool relief = engineWorldOpen && (waterWorldCamera.flags & SceneGuideCamera::TerrainCliffRelief);
-    return (terrainCfg.any() || relief || runtimeFlags().terrainAudit || runtimeFlags().terrainGpuTiming) &&
+    const uint32_t terrainEffects = SceneGuideCamera::TerrainCliffRelief | SceneGuideCamera::TerrainSnow;
+    const bool worldEffects = engineWorldOpen && (waterWorldCamera.flags & terrainEffects);
+    return (terrainCfg.any() || worldEffects || runtimeFlags().terrainAudit || runtimeFlags().terrainGpuTiming) &&
            !terrainGpu.failed;
 }
 
@@ -134,7 +135,8 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         auditTerrain(s, v, count, classified, depthMasked, g.unproject, dsx, dsy, k);
     }
     const bool relief = (camera.flags & SceneGuideCamera::TerrainCliffRelief) != 0;
-    if (!classified || (!terrainCfg.any() && !relief))
+    const bool snow = (camera.flags & SceneGuideCamera::TerrainSnow) != 0;
+    if (!classified || (!terrainCfg.any() && !relief && !snow))
         return 0;
     if (!g.cb) {
         if (!createTerrainGpu(dev.Get(), g.cb, g.noise, g.sampler)) {
@@ -207,6 +209,8 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         flags |= PF_TERRAIN;
     if (relief)
         flags |= PF_TERRAIN_RELIEF;
+    if (snow)
+        flags |= PF_TERRAIN_SNOW;
     if (terrainCfg.cliffs && count % 3 == 0) {
         // Texels per world unit of the mapping from above, from the first triangles that give one.
         const float W = (float)(1u << std::min<uint64_t>(bitsOf(s.tex0, 26, 4), 10));

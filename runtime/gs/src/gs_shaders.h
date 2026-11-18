@@ -260,19 +260,20 @@ float4 sourcePixel(VSOut i)
         puv[1] = uv; pdx[1] = pdx[0]; pdy[1] = pdy[0]; pw[1] = 0.0;
         puv[2] = uv; pdx[2] = pdx[0]; pdy[2] = pdy[0]; pw[2] = 0.0;
         int projections = 1;
-        float terrainFactor = 1.0;
+        TerrainShading terrain = {1.0, 0.0, 0.0, 0.0};
         // (a layer pixel with vertex alpha 0 has no weight and fails the alpha test: nothing to compute for it)
-        if ((fl & (F_TERRAIN | F_TERRAIN_SIDE | F_TERRAIN_RELIEF)) != 0u && cv.a >= 0.5)
+        if ((fl & (F_TERRAIN | F_TERRAIN_SIDE | F_TERRAIN_RELIEF | F_TERRAIN_SNOW)) != 0u && cv.a >= 0.5)
         {
             TerrainPoint tp = terrainPoint(i.pos.xy, q, dq);
             bool detail = (fl & F_TERRAIN) != 0u && t_d0.w > 0.5;
             float cliffWeight = (fl & F_TERRAIN_RELIEF) != 0u ? terrainCliffWeight(tp) : 0.0;
-            float medium = 0.0;
-            if (detail || cliffWeight > 0.0) terrainFactor = terrainShading(tp, detail, cliffWeight, medium);
-            else if (fl & F_TERRAIN_SIDE) medium = terrainMedium(tp);
+            float mountainWeight = (fl & F_TERRAIN_SNOW) != 0u ? wartokSnowWeight(tp) : 0.0;
+            if (detail || cliffWeight > 0.0 || mountainWeight > 0.0)
+                terrain = terrainShading(tp, detail, cliffWeight, mountainWeight);
+            else if (fl & F_TERRAIN_SIDE) terrain.medium = terrainMedium(tp);
             if (fl & F_TERRAIN_SIDE)
             {
-                pw[0] = terrainSide(tp, medium, puv[1], pdx[1], pdy[1], pw[1], puv[2], pdx[2], pdy[2], pw[2]);
+                pw[0] = terrainSide(tp, terrain.medium, puv[1], pdx[1], pdy[1], pw[1], puv[2], pdx[2], pdy[2], pw[2]);
                 projections = 3;
             }
         }
@@ -293,6 +294,12 @@ float4 sourcePixel(VSOut i)
         // material detail (material_detail.h): this variant is only bound for draws that take it
         t.rgb = materialShade(t.rgb, uv, ddx(uv), ddy(uv), i.pos.xy, q);
 #endif
+        if (terrain.snowCoverage > 0.0 && t_dy.w < 0.5)
+        {
+            float3 snowColor = terrain.snowBrightness * float3(240.0, 247.0, 252.0);
+            t.rgb = floor(lerp(t.rgb, snowColor, terrain.snowCoverage) + 0.5);
+            terrain.factor = lerp(terrain.factor, 1.0, terrain.snowCoverage);
+        }
         uint tfx = (fl >> 4) & 3u;
         bool tcc = (fl & F_TCC) != 0u;
         if (tfx == 0u)
@@ -315,7 +322,7 @@ float4 sourcePixel(VSOut i)
             c = floor(t.rgb * cv.rgb / 128.0) + cv.a;
             a = tcc ? t.a : cv.a;
         }
-        if (fl & (F_TERRAIN | F_TERRAIN_RELIEF)) c = floor(c * terrainFactor + 0.5);
+        if (fl & (F_TERRAIN | F_TERRAIN_RELIEF | F_TERRAIN_SNOW)) c = floor(c * terrain.factor + 0.5);
         c = clamp(c, 0.0, 255.0);
         a = clamp(a, 0.0, 255.0);
     }

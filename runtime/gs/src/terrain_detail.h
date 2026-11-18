@@ -419,7 +419,7 @@ struct ShaderConsts {
     float dy[4];               // w = debug mode
     float octave[kOctaves][4]; // xyz = offset of the anchor in noise tiles (fraction), w = 1 / period
     float amplitude[4];        // fine, medium, slow, relief
-    float sampling[4];         // w = gradient scale (2^lod bias); xyz unused
+    float sampling[4];         // xy = anchor world x/z, w = gradient scale (2^lod bias)
     float side[4];             // xyz = anchor modulo kSideModulo
     float relief[4];           // x = fine weight, y = medium weight, z = fade start, w = 1 / fade range
     float reliefFar[4];        // x = relief strength at the far end of the fade
@@ -467,6 +467,8 @@ inline void buildConsts(const Unproject& u, const Settings& s, float gradientSca
         k.amplitude[o] = kOctaveAmplitude[o];
     }
     k.amplitude[3] = kReliefAmplitude;
+    k.sampling[0] = float(u.anchor[0]);
+    k.sampling[1] = float(u.anchor[2]);
     k.sampling[3] = gradientScale;
     k.relief[0] = kReliefFine;
     k.relief[1] = kReliefMedium;

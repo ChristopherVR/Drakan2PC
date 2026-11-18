@@ -59,3 +59,16 @@ and the distant peaks. The original mountain silhouettes still reflect the coars
 
 The matched bridge comparison and the movement samples are under `build/snow-mountains-20261119/` as
 `wartok-before-after.jpg` and `bridge-motion.jpg`.
+
+## Snow accumulation on the bridge range
+
+The relief pass gave the rock detail, but the high faces still read as bare rock. The view from the first rope
+bridge puts the distant ridge at about 37,000 to 55,000 world units above the map origin. The lower faces and
+nearby hills sit below that band. The rendered snow now builds from thin, broken cover on the shoulders to
+continuous caps at the highest elevations. Ledges hold snow lower down than steep slopes. The snow receives
+the ground's lighting and fog, and thick cover subdues the rough cliff shading underneath.
+
+The level load supplies the Wartok scene flag for New Game and save restore. Within the level, the snow fades out
+past the bridge range. Terrain samples found walkable floors under roofs at snow-line elevations farther east.
+The first named cave floor in that direction starts around world X 198,600. The profile reaches zero by X 170,000
+and excludes the visible undersides of ceilings. The in-game captures are in `build/snow-cover-20261119/`.

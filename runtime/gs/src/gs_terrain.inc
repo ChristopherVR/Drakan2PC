@@ -11,7 +11,7 @@ cbuffer CBT : register(b3)
     float4 t_dy;        // w = debug mode
     float4 t_octave[3]; // xyz = anchor offset in noise tiles, w = 1 / period
     float4 t_amp;       // fine, medium, slow, relief
-    float4 t_sampling;  // w = gradient scale
+    float4 t_sampling;  // xy = anchor world x/z, w = gradient scale
     float4 t_side;      // xyz = anchor modulo the side projection period
     float4 t_relief;    // x = fine weight, y = medium weight, z = fade start, w = 1 / fade range
     float4 t_reliefFar; // x = relief strength at the far end of the fade
@@ -25,6 +25,7 @@ SamplerState SmpNoise : register(s2);
 #define F_TERRAIN      (1u<<26)
 #define F_TERRAIN_SIDE (1u<<27)
 #define F_TERRAIN_RELIEF (1u<<28)
+#define F_TERRAIN_SNOW   (1u<<29)
 
 static const float3x3 kTerrainRot1 = float3x3(0.8657570, -0.2803366, 0.4145796, 0.4145796, 0.8657570, -0.2803366, -0.2803366, 0.4145796, 0.8657570);
 static const float3x3 kTerrainRot2 = float3x3(0.8288755, -0.4966948, -0.2574096, -0.0066126, 0.4513950, -0.8922997, 0.5593940, 0.7413075, 0.3708658);
@@ -65,24 +66,62 @@ float terrainCliffWeight(TerrainPoint p)
     return (1.0 - smoothstep(0.30, 0.64, abs(p.n.y))) * smoothstep(16000.0, 35000.0, length(p.rel));
 }
 
+float wartokSnowWeight(TerrainPoint p)
+{
+    // The visible normal points down on the underside of a cave ceiling.
+    float facingUp = dot(p.n, p.rel) > 0.0 ? -p.n.y : p.n.y;
+    if (facingUp <= 0.0 || p.rel.y + t_gridY.x <= 23000.0) return 0.0;
+
+    // The mountains above the first rope bridge. Feather out before the high cave floors farther east.
+    float2 xz = p.rel.xz + t_sampling.xy;
+    float2 enter = smoothstep(float2(-20000.0, 50000.0), float2(0.0, 68000.0), xz);
+    float2 leave = 1.0 - smoothstep(float2(140000.0, 195000.0), float2(170000.0, 220000.0), xz);
+    return enter.x * enter.y * leave.x * leave.y;
+}
+
+struct TerrainShading
+{
+    float factor;
+    float medium;
+    float snowCoverage;
+    float snowBrightness;
+};
+
 // Factor for the layer colour (before fog), and the medium octave for dithering the side projection.
-float terrainShading(TerrainPoint p, bool detail, float cliffWeight, out float medium)
+TerrainShading terrainShading(TerrainPoint p, bool detail, float cliffWeight, float mountainWeight)
 {
     float2 n1 = terrainOctave(mul(kTerrainRot1, p.rel), mul(kTerrainRot1, p.dx), mul(kTerrainRot1, p.dy), 1);
     float2 n2 = terrainOctave(mul(kTerrainRot2, p.rel), mul(kTerrainRot2, p.dx), mul(kTerrainRot2, p.dy), 2);
-    medium = n1.x - 0.5;
+    TerrainShading shade = (TerrainShading)0;
+    shade.medium = n1.x - 0.5;
+    if (mountainWeight > 0.0)
+    {
+        // Snow settles lower and more fully on ledges. The two world-space octaves break up the lower boundary.
+        float height = p.rel.y + t_gridY.x;
+        float ledge = smoothstep(0.13, 0.68, abs(p.n.y));
+        float drift = n2.x - 0.5 + shade.medium * 0.24;
+        float snowline = 33200.0 + 7800.0 * (1.0 - ledge) - 6700.0 * drift;
+        float aboveSnowline = height - snowline;
+        float accumulation = smoothstep(-5500.0, 8300.0, aboveSnowline);
+        float cap = smoothstep(800.0, 13000.0, aboveSnowline);
+        float exposed = lerp(0.62, 1.0, ledge);
+        float patch = 0.48 + 0.52 * smoothstep(-0.18, 0.19, drift);
+        shade.snowCoverage = mountainWeight * accumulation * lerp(exposed * patch, 1.0, cap);
+        shade.snowBrightness = 0.98 + 0.10 * (n2.x - n2.y) + 0.065 * shade.medium;
+    }
     float m = 0.0;
     if (detail)
     {
         float2 n0 = terrainOctave(p.rel, p.dx, p.dy, 0);
         // Fine and medium detail fade with distance. The slow octave breaks up the visible tile repeat.
         float fade = lerp(1.0, t_reliefFar.x, saturate((length(p.rel) - t_relief.z) * t_relief.w));
-        m = t_amp.x * (n0.x - 0.5) * 2.0 + t_amp.y * medium * 2.0;
+        m = t_amp.x * (n0.x - 0.5) * 2.0 + t_amp.y * shade.medium * 2.0;
         m += t_amp.w * ((n0.x - n0.y) * t_relief.x + (n1.x - n1.y) * t_relief.y);
         m = t_base.w * (m * fade + t_amp.z * (n2.x - 0.5) * 2.0);
     }
     float cliff = 0.43 * (n2.x - n2.y) + 0.38 * (n1.x - n1.y) + 0.28 * (n2.x - 0.5);
-    return max(0.0, 1.0 + m + cliffWeight * cliff);
+    shade.factor = max(0.0, 1.0 + m + cliffWeight * cliff);
+    return shade;
 }
 
 float terrainMedium(TerrainPoint p)
