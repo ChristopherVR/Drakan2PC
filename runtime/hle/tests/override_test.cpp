@@ -376,9 +376,9 @@ int main() {
         }
         CHECK(near(CampaignMusicLevel::baseGain(0.25f * track, 0.25f), 0.5f * track));
         CHECK(near(CampaignMusicLevel::baseGain(0.5f * track, 0.5f), 0.75f * track));
-        CHECK(near(CampaignMusicLevel::baseGain(1.0f * track, 1.0f), track));   // 100: unchanged
-        CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.0f), 0.0f));            // 0 stays silent
-        CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.13f), 0.0f));           // a silent sound stays silent
+        CHECK(near(CampaignMusicLevel::baseGain(1.0f * track, 1.0f), track)); // 100: unchanged
+        CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.0f), 0.0f));          // 0 stays silent
+        CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.13f), 0.0f));         // a silent sound stays silent
         CHECK(near(CampaignMusicLevel::baseGain(0.25f * 0.5f * track, 0.25f), 0.25f * track));
         CHECK(std::isnan(CampaignMusicLevel::baseGain(NAN, 0.13f))); // nonsense is passed through
     }

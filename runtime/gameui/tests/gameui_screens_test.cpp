@@ -208,8 +208,8 @@ void testStripNavigationAndActions() {
     CHECK(scr.focus() == (TargetId{TargetKind::GridCell, 1}) && o.sound == UiSound::Move);
     // The bow's details are current: no SelectItem needed; its card shows its lines and the quantity bar.
     CHECK(!findAction(o, ActionKind::SelectItem));
-    CHECK(hasText(o.draw, "Short Wood Bow") && hasText(o.draw, "Damage") && hasText(o.draw, "Arrows") &&
-          hasText(o.draw, "181 / 200"));
+    CHECK(hasText(o.draw, "Short Wood Bow") && hasText(o.draw, "Damage"));
+    CHECK(hasText(o.draw, "Durability") && hasText(o.draw, "181 / 200") && !hasText(o.draw, "Arrows"));
     o = scr.frame(s, keys({UiKey::Down}), vp);
     CHECK(scr.focus() == (TargetId{TargetKind::GridCell, 17}));
     // One selection steer in flight at a time: the dagger's (sent on open) finishes first.

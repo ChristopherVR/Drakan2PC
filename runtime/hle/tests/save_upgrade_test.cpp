@@ -164,7 +164,8 @@ int main() {
         auto fixture = levelSave();
         std::vector<u8> databases;
         p32(databases, 3);
-        for (const std::string path : {"cdrom0:/System/System", "cdrom0:/Common/NPC/NPCs", "cdrom0:/Resources/Resources"}) {
+        for (const std::string path :
+             {"cdrom0:/System/System", "cdrom0:/Common/NPC/NPCs", "cdrom0:/Resources/Resources"}) {
             p16(databases, static_cast<u32>(path.size() + 1));
             databases.insert(databases.end(), path.begin(), path.end());
             databases.push_back(0);

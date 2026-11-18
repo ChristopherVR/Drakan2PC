@@ -228,8 +228,8 @@ inline std::vector<uint16_t> farLayers(size_t view, const std::vector<Layer>& la
         if (have[j] || (B.type != kFloor && B.type != kCeiling) || !B.usable())
             continue;
         // The draw uses a square of cells around the camera. A large layer under the camera can extend well beyond it.
-        const float d = std::max({float(B.x0) - x1, x0 - float(B.x0 + B.w), float(B.z0) - z1,
-                                  z0 - float(B.z0 + B.h), 0.0f});
+        const float d =
+            std::max({float(B.x0) - x1, x0 - float(B.x0 + B.w), float(B.z0) - z1, z0 - float(B.z0 + B.h), 0.0f});
         if (d < near || d > reach)
             continue;
         std::vector<Point>& tgt = targetCache[j];

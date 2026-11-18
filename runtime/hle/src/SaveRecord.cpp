@@ -193,9 +193,8 @@ SaveCheck checkSave(const SaveCheckInput& save, const ActivePacks& active) {
                 continue;
             if (have->build != want.build) {
                 const auto compatible = std::find_if(
-                    active.compatibleBuilds.begin(), active.compatibleBuilds.end(), [&](const auto& build) {
-                        return build.packId == want.id && build.build == want.build;
-                    });
+                    active.compatibleBuilds.begin(), active.compatibleBuilds.end(),
+                    [&](const auto& build) { return build.packId == want.id && build.build == want.build; });
                 if (compatible != active.compatibleBuilds.end()) {
                     r.needsUpgrade = true;
                     continue;
