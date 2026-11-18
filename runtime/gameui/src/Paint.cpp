@@ -246,20 +246,6 @@ void Paint::drawHint(DrawList& d, const Hint& h, const Rect& r, bool hovered, fl
     d.text({r.x + lx, r.y, r.w - lx, r.h}, h.label, f, fontPx(f, size), c, TextAlign::Left);
 }
 
-const char* quantityLabelFor(QuantityKind k) {
-    switch (k) {
-        case QuantityKind::Durability:
-            return "Durability";
-        case QuantityKind::Ammo:
-            return "Arrows";
-        case QuantityKind::Charges:
-            return "Charges";
-        case QuantityKind::None:
-            break;
-    }
-    return "";
-}
-
 std::string fmtInt(int32_t v) {
     return std::to_string(v);
 }

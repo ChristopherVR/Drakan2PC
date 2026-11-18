@@ -113,20 +113,6 @@ const char* equipSlotLabel(ItemCategory c) {
     }
 }
 
-const char* quantityLabel(QuantityKind k) {
-    switch (k) {
-        case QuantityKind::Durability:
-            return "Durability";
-        case QuantityKind::Ammo:
-            return "Arrows";
-        case QuantityKind::Charges:
-            return "Charges";
-        case QuantityKind::None:
-            break;
-    }
-    return "";
-}
-
 const char* refusalText(ActionKind k) {
     switch (k) {
         case ActionKind::UseOrEquip:
@@ -1143,7 +1129,7 @@ void InventoryScreen::drawGrid(const Snapshot& s, DrawList& d, bool dimFiltered)
             d.text(pill, fmtInt(qn), FontRole::Small, fontPx(FontRole::Small), withAlpha(th.text, alpha),
                    TextAlign::Center);
         }
-        const QuantityKind qk = quantityKindFor(it.category);
+        const QuantityKind qk = it.quantityKind();
         if (it.quantityMax > 0 && qk == QuantityKind::Durability) {
             const float f = std::clamp(static_cast<float>(it.quantity) / static_cast<float>(it.quantityMax), 0.f, 1.f);
             const Rect bar{r.x + lf_.px(10), r.bottom() - lf_.px(12), r.w - lf_.px(20), lf_.px(5)};
@@ -1207,9 +1193,9 @@ void InventoryScreen::drawItemDetail(const Snapshot& s, const ItemEntry* it, con
                            line.find("Repair") != std::string::npos;
         if (price && !shopPrices)
             continue;
-        const QuantityKind lineQk = quantityKindFor(it->category);
+        const QuantityKind lineQk = it->quantityKind();
         if (it->quantityMax > 0 && lineQk != QuantityKind::None && splitStatLine(line, label, value) &&
-            label == quantityLabel(lineQk))
+            it->isQuantityLabel(label))
             continue; // shown by the bar below
         if (splitStatLine(line, label, value)) {
             textD(d, {x, y, w, 36}, label, FontRole::Body, th.textMuted);
@@ -1219,7 +1205,7 @@ void InventoryScreen::drawItemDetail(const Snapshot& s, const ItemEntry* it, con
         }
         y += 40;
     }
-    const QuantityKind qk = quantityKindFor(it->category);
+    const QuantityKind qk = it->quantityKind();
     if (it->quantityMax > 0 && qk != QuantityKind::None) {
         y += 8;
         drawBar({x, y, w, 34}, it->quantity, it->quantityMax,
@@ -1406,12 +1392,12 @@ void InventoryScreen::drawCharacter(const Snapshot& s, DrawList& d) const {
               FontRole::Heading, eq ? th.heading : th.textDisabled);
         if (eq) {
             // Stat lines (the quantity is the bar below).
-            const QuantityKind qk = quantityKindFor(eq->category);
+            const QuantityKind qk = eq->quantityKind();
             int n = 0;
             for (size_t l = 1; l < eq->details.size() && n < 3; ++l) {
                 std::string label, value;
                 if (!splitStatLine(eq->details[l], label, value) || label.find("Price") != std::string::npos ||
-                    (eq->quantityMax > 0 && label == quantityLabel(qk)))
+                    (eq->quantityMax > 0 && eq->isQuantityLabel(label)))
                     continue;
                 const float cy = r.y + 84 + static_cast<float>(n) * 28;
                 textD(d, {x, cy, w, 28}, label, FontRole::Small, th.textMuted);

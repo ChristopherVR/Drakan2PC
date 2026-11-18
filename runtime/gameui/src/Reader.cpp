@@ -170,6 +170,11 @@ void readItem(const IGuestMemory& m, const GuestRoots& r, uint32_t h, ItemEntry&
             e.stance = prop(m, pb, dualwield::kPropStance);
         }
         e.dropAllowed = prop(m, pb, a::props::kDropAllowed) != 0;
+        if (e.category == ItemCategory::Bow && isRamPointer(m.read32(pb + a::props::kData))) {
+            const uint32_t ammo = prop(m, pb, a::props::kBowAmmoObject);
+            // An empty ODB reference (0 on disk) also appears as -1 after the engine resolves it.
+            e.externalAmmoBow = prop(m, pb, a::props::kBowEnergyCharges) == 0 && (ammo == 0 || ammo == 0xffffffffu);
+        }
     }
     const uint32_t inst = m.read32(h + a::actor::kInstance);
     const uint32_t data = isRamPointer(inst) ? m.read32(inst + a::actor::kInstanceData) : 0;

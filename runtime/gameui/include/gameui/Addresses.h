@@ -51,6 +51,8 @@ inline constexpr uint32_t kSkillNeeded = 0x13;
 inline constexpr uint32_t kMaxA = 0x16;        // max quantity / durability; scroll: spell index + 1
 inline constexpr uint32_t kMaxB = 0x17;        // scroll: spell level
 inline constexpr uint32_t kMeleeDamage = 0x1a; // melee only                                 [inf]
+inline constexpr uint32_t kBowEnergyCharges = 0x21;
+inline constexpr uint32_t kBowAmmoObject = 0x22;
 inline constexpr uint32_t kSpellTypes = 0x1b6; // indexed, on the spell owner actor          [dec] 38f478
 // quest resource properties
 inline constexpr uint32_t kQuestStatus = 0x0; // 1 / 2 = listed in the journal

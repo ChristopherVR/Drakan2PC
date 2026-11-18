@@ -58,6 +58,7 @@ struct World {
         b.h = 2;
         b.price = 325;
         bow = g.addItem(1, b);
+        g.setProp(g.rd(bow + addr::actor::kProps), addr::props::kBowAmmoObject, 123);
         S c;
         c.nameId = 0x30032;
         c.qty = 144;
@@ -101,6 +102,23 @@ void testCodec() {
     CHECK(latin1ToUtf8("\xe9t\xe9", 3) == "\xc3\xa9t\xc3\xa9");
 }
 
+void testExternalBowAndQuiver() {
+    World w;
+    w.g.setProp(w.g.rd(w.bow + addr::actor::kProps), addr::props::kBowAmmoObject, 0);
+    FakeGame::ItemSpec quiver;
+    quiver.cls = addr::cls::kAmmoA;
+    quiver.qty = quiver.qtyMax = 100;
+    w.g.addItem(7, quiver);
+    ReaderState st;
+    const auto s = w.read(st);
+    const auto* bow = s.itemAtCell(1);
+    CHECK(bow && bow->quantityKind() == QuantityKind::Durability && bow->isQuantityLabel("Arrows"));
+    CHECK(s.itemAtCell(7) && s.itemAtCell(7)->quantityKind() == QuantityKind::None);
+    w.g.setProp(w.g.rd(w.bow + addr::actor::kProps), addr::props::kBowAmmoObject, 0xffffffffu);
+    const auto resolved = w.read(st);
+    CHECK(resolved.itemAtCell(1) && resolved.itemAtCell(1)->quantityKind() == QuantityKind::Durability);
+}
+
 void testReader() {
     World w;
     ReaderState st;
@@ -121,6 +139,7 @@ void testReader() {
     const ItemEntry* b = s.itemAtCell(9); // continuation cell of the bow
     CHECK(b && b->handle == w.bow && b->originCell == 1 && b->width == 1 && b->height == 2);
     CHECK(b && b->category == ItemCategory::Bow && b->quantity == 181 && b->quantityMax == 200 && b->price == 325);
+    CHECK(b && b->quantityKind() == QuantityKind::Ammo);
     CHECK(b && !b->detailsCurrent && b->details.empty());
     const ItemEntry* c = s.itemAtCell(10);
     CHECK(c && c->handle == w.club && !c->nameResident && c->name.empty()); // cached but not loaded
@@ -1035,6 +1054,7 @@ void testScreenGoldHiddenInCampaign() {
 int main() {
     testCodec();
     testReader();
+    testExternalBowAndQuiver();
     testShopAndGuards();
     testExchange();
     testActions();

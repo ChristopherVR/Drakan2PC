@@ -27,6 +27,7 @@ bool isEquippable(ItemCategory c);         // Melee, Bow, Armour
 // What the item's quantity pair means (drawn as a bar with this label). [inf] from the fixtures.
 enum class QuantityKind : uint8_t { None, Durability, Ammo, Charges };
 QuantityKind quantityKindFor(ItemCategory c);
+const char* quantityLabel(QuantityKind k);
 
 // ---- inventory ----
 struct ItemEntry {
@@ -38,6 +39,9 @@ struct ItemEntry {
     uint32_t objectType = 0;
     uint32_t classId = 0;
     ItemCategory category = ItemCategory::Other;
+    bool externalAmmoBow = false;
+    QuantityKind quantityKind() const;
+    bool isQuantityLabel(const std::string& label) const;
     uint32_t nameId = 0;
     std::string name;          // UTF-8; from the string cache, else the cached details line 0, else ""
     bool nameResident = false; // name came from the string cache

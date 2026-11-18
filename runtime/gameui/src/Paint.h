@@ -92,7 +92,6 @@ void drawOrnateRule(DrawList& d, const Theme& th, const LayoutFrame& lf, float x
 void drawLabel(DrawList& d, const Theme& th, const LayoutFrame& lf, const Rect& design, std::string_view s, Color c,
                TextAlign a, float size);
 
-const char* quantityLabelFor(QuantityKind k); // "Durability", "Arrows", "Charges"
 std::string fmtInt(int32_t v);
 std::string fmtPair(int32_t a, int32_t b);
 

@@ -450,7 +450,7 @@ void StripScreen::draw(const Snapshot& s, DrawList& d) const {
                 d.rect(pill, withAlpha(th.ember, 220), p.px(8));
                 d.text(pill, fmtInt(q), FontRole::Small, p.fontPx(FontRole::Small, 12), th.text, TextAlign::Center);
             }
-            const QuantityKind qk = quantityKindFor(it.category);
+            const QuantityKind qk = it.quantityKind();
             if (it.quantityMax > 0 && qk == QuantityKind::Durability) {
                 const float f =
                     std::clamp(static_cast<float>(it.quantity) / static_cast<float>(it.quantityMax), 0.f, 1.f);
@@ -518,7 +518,7 @@ void StripScreen::drawCard(const Snapshot& s, DrawList& d) const {
     p.rule(d, x, y, w);
     y += 10;
 
-    const QuantityKind qk = quantityKindFor(it->category);
+    const QuantityKind qk = it->quantityKind();
     const bool hasBar = it->quantityMax > 0 && qk != QuantityKind::None;
     const float barY = card.bottom() - 18 - 26;
     const float linesEnd = hasBar ? barY - 6 : card.bottom() - 14;
@@ -535,7 +535,7 @@ void StripScreen::drawCard(const Snapshot& s, DrawList& d) const {
         if (price && !s.shop.active)
             continue;
         const bool split = splitStatLine(line, label, value);
-        if (hasBar && split && label == detail::quantityLabelFor(qk))
+        if (hasBar && split && it->isQuantityLabel(label))
             continue; // the bar below
         if (split) {
             p.text(d, {x, y, w, kLineH}, label, FontRole::Small, th.textMuted, TextAlign::Left, 18);
@@ -550,7 +550,7 @@ void StripScreen::drawCard(const Snapshot& s, DrawList& d) const {
     if (hasBar)
         p.bar(d, {x, barY, w, 26}, it->quantity, it->quantityMax,
               qk == QuantityKind::Durability ? th.good : (qk == QuantityKind::Ammo ? th.xp : th.mana),
-              detail::quantityLabelFor(qk), 16);
+              quantityLabel(qk), 16);
 }
 
 } // namespace gameui

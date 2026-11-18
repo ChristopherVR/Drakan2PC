@@ -112,6 +112,34 @@ QuantityKind quantityKindFor(ItemCategory c) {
     return QuantityKind::None;
 }
 
+const char* quantityLabel(QuantityKind k) {
+    switch (k) {
+        case QuantityKind::Durability:
+            return "Durability";
+        case QuantityKind::Ammo:
+            return "Arrows";
+        case QuantityKind::Charges:
+            return "Charges";
+        case QuantityKind::None:
+            break;
+    }
+    return "";
+}
+
+QuantityKind ItemEntry::quantityKind() const {
+    if (externalAmmoBow)
+        return QuantityKind::Durability;
+    // A quiver's stack count is drawn on its native icon. Its +14/+18 pair is unrelated to that count.
+    if (classId == addr::cls::kAmmoA)
+        return QuantityKind::None;
+    return quantityKindFor(category);
+}
+
+bool ItemEntry::isQuantityLabel(const std::string& label) const {
+    // The native bow details label the +14/+18 pair "Arrows" even when the bow consumes a separate quiver.
+    return label == quantityLabel(quantityKind()) || (externalAmmoBow && label == "Arrows");
+}
+
 // ---- Snapshot ----
 
 const ItemEntry* Snapshot::itemAtCell(int cell) const {
