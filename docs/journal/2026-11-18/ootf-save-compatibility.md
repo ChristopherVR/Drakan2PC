@@ -37,8 +37,50 @@ The exact 9 November pack was rebuilt from the editor at `09ff9e11` and formats 
 extracted PC installation and the Drakan 2 `LEVEL1NA` template. The full conversion reports content build
 `d248f6c701888bf8`, matching the older pack stamp in slots 2, 3 and 4. The current pack differs at 1,852 layout keys.
 The recovery launcher under `build/legacy-save-recovery/nov09` uses the matching pack and a separate copy of the
-memory card. Loading a copy from that card through the native Load Game screen returned to gameplay with the pack
-checks enabled.
+memory card. The native Load Game grid and the individual quick-load tests for slots 2, 3 and 4 returned to gameplay
+with pack checks enabled.
 
-The tested 14 November snapshots produced different content builds from the one stamped on slot 1
-(`daf6d8d09586c549`). That slot remains preserved on the original card. Its exact source pack has not been recovered.
+In a scratch folder, export `editor/scripts/ootf-convert.ts` and `editor/packages/editor-core` from `09ff9e11`, then
+the formats package from `48f6c928` at `editor/packages/formats`. Link those packages and the installed `fflate` in the
+scratch editor's `node_modules`. The converter command from the repository root uses the player's local inputs:
+
+```powershell
+$iso = "C:/Games/Drakan - The Ancients Gates/Drakan - The Ancients' Gates.iso"
+$scratch = 'build/historical-save-probe/nov09'
+node --experimental-transform-types --no-warnings "$scratch/editor/scripts/ootf-convert.ts" --ootf build/ootf/cab_disc --ps2 build/ootf/ps2/data --template LEVEL1NA --campaign 1 --id ootf-levels --iso $iso --out "$scratch/ootf-levels.zip"
+```
+
+### Slot 1 from 14 November
+
+The source pack stamped in slot 1 (`daf6d8d09586c549`) was unavailable. Reconstructing the 14 November editor
+(`ee2305c2`, formats `4ef9cb8`) produced different content hashes with ordinary and wide terrain chunks. Both
+reconstructions match the actual save's recorded class IDs and databases with every named static object present.
+The current layout inserted two falling-tree objects before the church exit relay. All eleven affected objects,
+3374 through 3384, match 3376 through 3386 in the current pack after correcting their own IDs and link targets.
+Class, transform, event fields and authored parameters all match. This comparison disambiguates the co-located
+timers and detectors.
+
+The one-off recovery (`build/historical-save-probe/recover-slot1.py`) used the original files as inputs and made
+copies under `build/legacy-save-recovery/nov14-slot1`. Its Village copy changed the IDs in the object tables, retaining
+all old slots and saved records. It appended the statue and the two hidden falling-tree companions. The generator
+and the standing tree were both present in that save. The tree's serialized link list had the two original targets.
+The recovery retained them and added the slots of the new toggler and mover. Loading the copy in the final game,
+walking and quicksaving worked. The game-written save still had all four tree links and the statue and generator.
+
+The Book copy's gameplay payload kept its original bytes. Its pack record points to the current build. The original
+numbered slot no longer had a Village level state. The paired Village save, made 29 seconds later, provides the
+return state. A test that put it only in the Book's numbered slot started a fresh Village scene on return.
+Putting that same snapshot at the recovery card root as `OotF 01 - Ruined Village.rlt`, with its pack record, made
+the native loader read it. After one Escape during the Book, the Village loading screen closed with gameplay active.
+Rynn returned to the church stair at (279392, 14671, 152908) and walking moved her to (280100, 14633, 152754).
+The run captured the Book and both Village frames, then quit cleanly.
+
+The Village launcher retains a separate card. The Book launcher clones its template, including the root companion,
+to a fresh directory for each replay. Existing progress in the normal card, Village recovery and earlier Book
+replays stays in its own folder. The original slot and its archived copy have matching SHA-256 checksums.
+
+The final native Load Game run uses the replay template and leaves its contents alone:
+
+```powershell
+python scripts/harness/play_run.py --exe dist/DrakanPC/drakan.exe --name recovered-nov14-book-final --save-ootf build/legacy-save-recovery/nov14-slot1/book-template/mc0_ootf --recipe build/historical-save-probe/book-final.txt --env DRAKAN_GAME=d1 --env DRAKAN_AUTOPRESS=0 --env DRAKAN_FULLSCREEN=0 --env DRAKAN_SAVE_PACK_CHECK=1 --env DRAKAN_SAVE_MENU=native --env DRAKAN_TITLE_MENU=native --env DRAKAN_MENU_MOUSE_LOG=1 --attempts 1 --timeout 65
+```
