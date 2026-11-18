@@ -190,15 +190,27 @@ void Paint::rule(DrawList& d, float x, float y, float w) const {
 }
 
 void Paint::button(DrawList& d, const Rect& design, const std::string& label, bool focused, bool hovered, bool enabled,
-                   TextAlign align) const {
+                   TextAlign align, const std::string& detail) const {
     const Theme& th = cfg_.theme;
     const Rect rp = map(design);
     d.panel(rp, PanelStyle::Card, !enabled ? withAlpha(th.panel, 120) : (hovered ? th.panelRaised : th.panel));
     if (focused)
         focus(d, rp);
     const Rect inner{design.x + 32, design.y, design.w - 64, design.h};
-    fittedText(d, inner, label, FontRole::Heading, !enabled ? th.textDisabled : (focused ? th.heading : th.text),
-               align);
+    const Color labelColor = !enabled ? th.textDisabled : (focused ? th.heading : th.text);
+    if (!detail.empty()) {
+        const float gap = 2;
+        const float height = inner.h - 3 * gap;
+        const float headingHeight = height * th.sizeHeading / (th.sizeHeading + th.sizeSmall);
+        const float detailHeight = height - headingHeight;
+        const Rect heading{inner.x, inner.y + gap, inner.w, headingHeight};
+        const Rect subtitle{inner.x, heading.bottom() + gap, inner.w, detailHeight};
+        fittedText(d, heading, label, FontRole::Heading, labelColor, align, std::min(th.sizeHeading, headingHeight));
+        text(d, subtitle, detail, FontRole::Small, focused ? th.text : th.textMuted, align,
+             std::min(th.sizeSmall, detailHeight));
+        return;
+    }
+    fittedText(d, inner, label, FontRole::Heading, labelColor, align);
     if (!enabled && align == TextAlign::Left)
         text(d, inner, menuText("Unavailable"), FontRole::Small, th.textDisabled, TextAlign::Right);
 }

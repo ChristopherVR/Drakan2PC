@@ -710,7 +710,15 @@ void testTitleRows() {
         q.continueSlot = 33;
         q.continueQuick = true;
         TitleFrameOutput qo = qs.frame(q, {}, kVp);
-        CHECK(hasText(qo.draw, "Quicksave: Surdana"));
+        const DrawCmd* label = nullptr;
+        const DrawCmd* detail = nullptr;
+        for (const DrawCmd& cmd : qo.draw.commands()) {
+            if (cmd.kind == DrawKind::Text && cmd.text == "Continue")
+                label = &cmd;
+            if (cmd.kind == DrawKind::Text && cmd.text == "Quicksave: Surdana")
+                detail = &cmd;
+        }
+        CHECK(label && detail && label->rect.bottom() <= detail->rect.y);
         CHECK(hasText(qo.draw, "Quicksave: Surdana, 25 Oct 2026 16:23."));
         qo = qs.frame(q, keys({UiKey::Confirm}), kVp);
         CHECK(!qo.actions.empty() && qo.actions.front().kind == TitleActionKind::Continue &&

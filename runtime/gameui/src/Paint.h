@@ -66,7 +66,7 @@ public:
     // A menu button as the pause rows draw it: card panel, the focus look, a Heading label (left, or centred), and
     // "Unavailable" at the right when disabled (design rect).
     void button(DrawList& d, const Rect& design, const std::string& label, bool focused, bool hovered, bool enabled,
-                TextAlign align = TextAlign::Left) const;
+                TextAlign align = TextAlign::Left, const std::string& detail = {}) const;
     // A confirm card's frame over a dimmed screen: the panel (design rect), its title and up to two body lines, as
     // the pause menu's Quit / Default Settings cards. The buttons are drawn by the caller (design::pause::cardRow).
     void confirmCard(DrawList& d, const Rect& design, const std::string& title, const std::string& body) const;

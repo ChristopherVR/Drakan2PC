@@ -1071,16 +1071,16 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
         const bool en = rowEnabled(r, st);
         const bool foc = !card && focus_ == id, hov = !card && hover_ == id && en;
         const Rect rd = rowRect(i, n);
-        p.button(d, rd, titleRowLabel(r), foc, hov, en, TextAlign::Center);
-        if (r == TitleRow::Continue && (st.continueQuick || !st.continueLocation.empty())) {
-            // "Quicksave: Surdana" when Continue loads the quicksave, else the location alone
-            std::string where = st.continueQuick ? std::string(menuText("Quicksave")) : std::string();
-            if (!where.empty() && !st.continueLocation.empty())
-                where += ": ";
-            where += st.continueLocation;
-            p.text(d, {rd.x + 32, rd.y, rd.w - 64, rd.h}, where, FontRole::Small, foc ? th.text : th.textMuted,
-                   TextAlign::Right);
+        std::string saveDetail;
+        if (r == TitleRow::Continue) {
+            if (st.continueQuick) {
+                saveDetail = menuText("Quicksave");
+                if (!st.continueLocation.empty())
+                    saveDetail += ": ";
+            }
+            saveDetail += st.continueLocation;
         }
+        p.button(d, rd, titleRowLabel(r), foc, hov, en, TextAlign::Center, saveDetail);
         if (foc)
             focusedRow = r;
     }
