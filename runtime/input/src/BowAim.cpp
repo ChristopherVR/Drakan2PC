@@ -666,9 +666,11 @@ bool InputModule::updateBowSightLocomotion(IGuest& g, uint32_t player, uint32_t 
     std::lock_guard<std::mutex> lock(m_);
     if (caller != 0x311314u || !player || player != contextPlayer(g, g.read32(cfg_.addrCtxPtr)))
         return false;
-    const bool padSteering =
-        cfg_.gamepadEnabled && frame_.gamepad.connected && (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
-    if (!ootfBowSightCamera(g, player) || !mouseKeyboardOwner_ || padSteering) {
+    // Controller C records forward input from the left stick in +504 while sighted, but skips the locomotion
+    // transition just as it does for W. Use that same transition with either input device. The pad keeps its look code.
+    const bool padSight = !cfg_.bowAimModern && cfg_.gamepadEnabled && frame_.gamepad.connected &&
+                          !mouseKeyboardOwner_ && bowSightCrosshair(g);
+    if (!padSight && !ootfBowSightCamera(g, player)) {
         releaseBowSightLocomotion(g, player);
         return false;
     }

@@ -923,6 +923,10 @@ void testOotfSightLocomotion() {
     CHECK(g.calls.back().addr == 0x11a5a8 && g.calls.back().i[1] == 0);
     g.write32(records + 0x50, stand);
     g.write32(model + 8, 0);
+    FrameInput controller;
+    controller.focused = controller.captured = controller.gamepad.connected = true;
+    controller.gamepad.ly = 1.0f;
+    m.beginFrame(controller);
     g.write32(PLAYER + 0x504, 1);
     CHECK(m.updateBowSightLocomotion(g, PLAYER, 0x311314));
     g.write32(records + 0x50, run);
