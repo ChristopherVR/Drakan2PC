@@ -421,3 +421,27 @@ log are in `build/harness/issue12-save-during-collapse`.
 | 13 | Missing subtitles | Bundled English subtitles and retained local transcription in setup. Verified both conversion routes and in-game captions (`66b6a188`). |
 | 14 | Quiet gameplay speech | Raised quiet Rynn remarks in conversion. Measured the difference in four gameplay lines, including an unchanged control (`7a6af045`). |
 | 15 | Spider cave crashes | Completed the mine route, fired the seesaw collapse and reloaded a save during the event. The regression checks actual boulder movement (`5fb80c57`). The application crash remains unreproduced. |
+
+### Ruined Village floor on Direct3D 11 and Vulkan (1)
+
+Compared the same village floor patches at 960×540 with the installed textures and graphics settings.
+Both renderers used the same RTX 5080. Rynn took damage during the first burned-house comparison, so
+the replacement pair used health protection on both backends. Camera positions for the four matched
+views below differed by at most 1.62 world units. Camera axis angles agreed to 0.001 degrees.
+
+| Floor sample | Median luminance on Direct3D 11 | Median luminance on Vulkan |
+| --- | ---: | ---: |
+| Starting area | 21.12 | 21.12 |
+| Approach to the stone bridge | 59.03 | 59.03 |
+| Scorched ground beside the burned house | 5.92 | 5.92 |
+| Open grass on the near bank | 75.15 | 75.15 |
+
+Values use Rec. 709 luma weights on the captured RGB bytes (0–255). The same 218×138 region of
+scorched ground held 330 distinct colors on Direct3D 11 and 332 on Vulkan. No pixel was pure black.
+The average absolute RGB difference between the two crops was 0.10. The dark ground and its sharp
+edge were visible on both backends. All 346 Ruined Village terrain layers retained their source
+light direction, ascension, color, ambient color and dropoff in the installed pack.
+
+The screenshots and camera captures are in `build/harness/issue12-village-floor-{d3d11,vulkan}`
+and `build/harness/issue12-village-floor-protected-{d3d11,vulkan}`. The reporter's exact floor
+patch is unknown.
