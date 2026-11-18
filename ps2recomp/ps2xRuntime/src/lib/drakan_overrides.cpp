@@ -24,6 +24,7 @@
 #include "hle/RsrcIop.h"
 #include "hle/ModPack.h"
 #include "hle/CampaignSoundSwaps.h"
+#include "gameui/Addresses.h"
 #include "gameui/UiSkin.h"
 #include "gameui/GlyphText.h"
 #include "gameui/MenuText.h"
@@ -86,6 +87,8 @@
 #include "drakan_input_flow.h"
 #if defined(PS2X_HAVE_DRAKAN_INPUT) && defined(_WIN32)
 #include "drakan_window.h"
+#endif
+#if defined(PS2X_HAVE_DRAKAN_INPUT)
 #include "input/DrakanInput.h"
 #endif
 #include "spu2/Sdr.h"
@@ -126,11 +129,7 @@ void drakanInstallPortableCamera(PS2Runtime& runtime);
 #endif
 
 std::atomic<bool> g_drakanMovieSeen{
-    false}; // set when the game requests the logo movie (= the memory card warning was dismissed)
-// Set by the input glue while a skip of the logo / intro movie is wanted (the skip_intro_videos setting or Esc): the
-// "Full" movie pacing is then not applied, so a movie the game itself does not let the player skip (the logo) runs
-// through at the engine's tick rate.
-std::atomic<bool> g_drakanSkipMovie{false};
+    false}; // the memory card warning was dismissed and the logo was requested or bypassed
 uint32_t g_drakanWrite4[8] = {};
 std::atomic<uint32_t> g_drakanWrite4Next{0};
 
@@ -155,6 +154,45 @@ constexpr uint32_t kScreenManager = 0x4fb600u; // screens by id at +0x10 + 4*id 
 PS2Runtime::RecompiledFunction g_origMovieDone = nullptr;
 
 std::atomic<bool> g_firstMovieDone{false}; // the boot logo has finished (DRAKAN_FAST_START fast-forward, below)
+
+constexpr uint32_t kMovieScreenTick = 0x440080u;
+PS2Runtime::RecompiledFunction g_origMovieScreenTick = nullptr;
+
+void hookMovieScreenTick(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    static const bool skip = drakan_cfg::getBool("general", "skip_intro_videos", "DRAKAN_SKIP_INTRO_VIDEOS", false);
+#if defined(PS2X_HAVE_DRAKAN_INPUT)
+    const bool escape = drakan_input::module().frame().keyPressed[0x01];
+#else
+    constexpr bool escape = false;
+#endif
+    if (ctx->pc == kMovieScreenTick && (skip || escape)) {
+        const uint32_t screen = getRegU32(ctx, 4);
+        const uint32_t entries = kScreenManager + drakan_region::build().movie.screenEntries;
+        const bool logo = screen == READ32(entries + 4 * gameui::addr::title::kScreenLogoMovie);
+        const bool intro = screen == READ32(entries + 4 * gameui::addr::title::kScreenIntroMovie);
+        if (logo || intro) {
+            constexpr uint32_t kStartPending = 0xa4, kStopPending = 0xa8, kJob = 0xac, kFadeOut = 0xbc;
+            if (READ32(screen + kJob)) {
+                // The native stop waits for pending frame reads and releases the soundtrack before closing.
+                WRITE32(screen + kStopPending, 1);
+            } else if (READ32(screen + kStartPending) && !READ32(screen + kFadeOut)) {
+                constexpr uint32_t kScreenVtable = 0x98, kCloseSlot = 0x70;
+                const uint32_t slot = READ32(screen + kScreenVtable) + kCloseSlot;
+                const uint32_t close = READ32(slot + 4);
+                if (logo) {
+                    g_drakanMovieSeen.store(true);
+                    g_firstMovieDone.store(true);
+                }
+                std::fprintf(stderr, "[drakan] %s skipped before playback\n", logo ? "boot logo" : "New Game movie");
+                SET_GPR_U32(ctx, 4, screen + static_cast<int16_t>(READ16(slot)));
+                (void)runtime->dispatchGuestBranch(rdram, ctx, close, kMovieScreenTick, 0,
+                                                   PS2Runtime::GuestBranchKind::IndirectJump, "movie screen close");
+                return;
+            }
+        }
+    }
+    g_origMovieScreenTick(rdram, ctx, runtime);
+}
 
 void hookMovieDone(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_firstMovieDone.store(true);
@@ -219,8 +257,6 @@ void hookMovieDecodeStep(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             std::fprintf(stderr, "[drakan] movie player 0x%x: boot logo fast-forwarded (DRAKAN_FAST_START)\n", player);
             lastPlayer = player;
         }
-    } else if (fpsIndex == 0u && g_drakanSkipMovie.load(std::memory_order_relaxed)) {
-        lastPlayer = 0; // skipping: no pacing, the pace restarts cleanly if a later movie plays
     } else if (fpsIndex == 0u) {
         const auto now = Clock::now();
         if (player != lastPlayer) {
@@ -2700,6 +2736,10 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     if (supports(Feature::MoviePacing) && runtime.hasFunction(guestAddress(kMovieDecodeStep))) {
         g_origMovieDecodeStep = runtime.lookupFunction(guestAddress(kMovieDecodeStep));
         runtime.replaceFunction(guestAddress(kMovieDecodeStep), &hookMovieDecodeStep);
+    }
+    if (drakan_region::build().identityAddresses && runtime.hasFunction(kMovieScreenTick)) {
+        g_origMovieScreenTick = runtime.lookupFunction(kMovieScreenTick);
+        runtime.replaceFunction(kMovieScreenTick, &hookMovieScreenTick);
     }
     if (supports(Feature::MovieGuard) && runtime.hasFunction(guestAddress(kMovieDoneThunk))) {
         g_origMovieDone = runtime.lookupFunction(guestAddress(kMovieDoneThunk));

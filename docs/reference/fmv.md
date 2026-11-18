@@ -244,14 +244,13 @@ held alongside the incoming level. If an HD frame allocation fails, playback can
 
 ## 10. Skipping the logo and intro movie
 
-`[general] skip_intro_videos = 1` (Gameplay > Skip intro videos, env `DRAKAN_SKIP_INTRO_VIDEOS`, read at start-up) skips the
-boot logo (GUI screen 0x1e) and the New Game intro movie (screen 0x1d). Esc skips whichever of the two is playing, with or
-without the setting. The game ignores START in the logo, so it is not paused to the 25 fps rate while a skip is wanted
-(`g_drakanSkipMovie`, `hookMovieDecodeStep`) and runs through in about a second. The intro is skipped with START taps from
-the pad hook (`hookPadRead`), the game's own skip (three presses), 600 ms after its screen appears when the setting is on.
-Not yet checked on the USA disc profile (screen ids assumed equal to PAL).
+On PAL, `[general] skip_intro_videos = 1` (Gameplay > Skip intro videos, `DRAKAN_SKIP_INTRO_VIDEOS` override) is read at
+start-up. The boot logo screen (0x1e) and the New Game movie screen (0x1d) take their normal close path before creating a
+movie job. A single Esc press skips the active movie with the setting off. The game stops the soundtrack and finishes
+pending reads before closing the screen. The USA profile uses the original movie controls.
 
 ## 11. Order of the Flame intro movie
 
-The Order of the Flame opening has no movie file on the PC (it is an engine level); a pre-rendered `movies/ootf_intro.mkv` made on
-the player's machine is played by `drakan_intro_movie.cpp`, not through the IPU path above. See `modding.md` ("Intro movie").
+`drakan_intro_movie.cpp` plays the optional `movies/ootf_intro.mkv` over the Order of the Flame opening level. Skip intro
+videos bypasses the opening and Esc skips either the movie or the live opening level. Both take the opening level's
+exit to Ruined Village. See [Intro movie](modding.md#intro-movie-pre-rendered-opening).

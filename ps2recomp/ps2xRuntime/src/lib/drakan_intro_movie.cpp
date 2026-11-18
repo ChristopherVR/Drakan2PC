@@ -62,6 +62,7 @@ struct State {
     std::atomic<bool> padWasDown{false};
     std::atomic<bool> exitFired{false}; // the Intro's exit was requested
     double exitAt = 0.0;
+    bool introLoaded = false; // EE thread: an Intro started from New Game, including the live fallback
     std::atomic<bool> levelChanging{false}; // the live level ended and the next one is loading
     SteadyClock::time_point started{}, ending{};
     std::mutex mu; // pictures, ring
@@ -311,7 +312,7 @@ void stopMovie(const char* why) {
     s.phase.store(Idle);
 }
 
-void startMovie() {
+void startMovie(bool skip) {
     State& s = st();
     if (s.phase.load() != Idle)
         stopMovie("restart");
@@ -339,8 +340,16 @@ void startMovie() {
         s.shownPts = -1.0;
     }
     s.started = SteadyClock::now();
-    s.phase.store(Playing);
     auto* audio = g_audio.load();
+    if (skip) {
+        s.ending = s.started;
+        if (audio)
+            audio->setGameSilenced(true);
+        s.phase.store(Ending);
+        std::fprintf(stderr, "[intro-movie] opening bypassed; the Intro level's hand-over is taken now\n");
+        return;
+    }
+    s.phase.store(Playing);
     // The live level's sound is silenced from the first frame; the movie's own sound joins once its first pictures
     // are decoded (mixAudio does nothing before that, and the clock starts then).
     if (audio) {
@@ -354,12 +363,11 @@ void startMovie() {
 
 void beginEnding(const char* why) {
     State& s = st();
+    s.ending = SteadyClock::now();
     int expect = Playing;
-    if (s.phase.compare_exchange_strong(expect, Ending)) {
-        s.ending = SteadyClock::now();
+    if (s.phase.compare_exchange_strong(expect, Ending))
         std::fprintf(stderr, "[intro-movie] %s at %.1f s; the Intro level's hand-over is taken now\n", why,
                      sinceSeconds(s.started));
-    }
 }
 
 } // namespace
@@ -383,18 +391,26 @@ void attach(gsr::Renderer* renderer) {
                 stopMovie("next level loaded"); // a fallback: normally the cover goes with the end of the movie
                 return;
             }
-            if (e.fromSave || !e.ok || !movieEnabled())
+            if (e.fromSave || !e.ok || std::getenv("DRAKAN_INTRO_RENDER"))
+                return;
+            st().introLoaded = true;
+            if (drakan_cfg::getBool("general", "skip_intro_videos", "DRAKAN_SKIP_INTRO_VIDEOS", false)) {
+                startMovie(true);
+                return;
+            }
+            if (!movieEnabled())
                 return;
             std::error_code ec;
-            if (!std::filesystem::is_regular_file(moviePath(), ec) || std::getenv("DRAKAN_INTRO_RENDER"))
+            if (!std::filesystem::is_regular_file(moviePath(), ec))
                 return;
 #if PS2X_HAS_FFMPEG
-            startMovie();
+            startMovie(false);
 #endif
         });
     static const auto before =
         drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, [](const drakan_lifecycle::Event& e) {
             State& s = st();
+            s.introLoaded = false;
             if (e.level == kIntroLevel || s.phase.load() == Idle)
                 return;
             // The live level has ended. The movie, which runs a little longer than the level (the engine catches up
@@ -437,7 +453,7 @@ bool coverActive() {
         s.phase.store(Idle);
         return false;
     }
-    if (s.quit.load() && s.eof.load() && !s.ready.load()) { // the file could not be opened
+    if (phase == Playing && s.quit.load() && s.eof.load() && !s.ready.load()) { // the file could not be opened
         if (auto* a = g_audio.load()) {
             a->setExternalSource({}, false);
             a->setGameSilenced(false);
@@ -451,6 +467,8 @@ bool coverActive() {
 std::shared_ptr<const Frame> currentFrame(float& alpha) {
     State& s = st();
     alpha = 0.0f;
+    if (s.phase.load() == Playing && s.skipRequested.exchange(false))
+        beginEnding("skipped");
     const int phase = s.phase.load();
     if (phase == Idle || !s.ready.load())
         return nullptr;
@@ -523,9 +541,7 @@ std::shared_ptr<const Frame> currentFrame(float& alpha) {
         }
         s.lastSerial = out->serial;
     }
-    if (phase == Playing && s.skipRequested.exchange(false))
-        beginEnding("skipped");
-    else if (phase == Playing && finished)
+    if (phase == Playing && finished)
         beginEnding("end of the movie");
     alpha = 1.0f;
     if (s.phase.load() == Ending)
@@ -533,15 +549,18 @@ std::shared_ptr<const Frame> currentFrame(float& alpha) {
     return out;
 }
 
-void padTick(uint8_t* pad, bool escDown) {
+void padTick(uint8_t* pad, bool escapePressed) {
     State& s = st();
-    const int phase = s.phase.load();
+    int phase = s.phase.load();
+    if (phase == Idle && s.introLoaded && escapePressed) {
+        startMovie(true);
+        phase = s.phase.load();
+    }
     if (phase == Idle)
         return;
-    const bool down = escDown || !(pad[2] & 0x08) || !(pad[3] & 0x40) || !(pad[3] & 0x20) || !(pad[3] & 0x10);
-    // START, CROSS, CIRCLE, TRIANGLE (active low) or Esc, edge triggered after the debounce
     if (phase == Playing) {
-        if (down && !s.padWasDown.load() && sinceSeconds(s.started) > kSkipDebounce)
+        const bool down = !(pad[2] & 0x08) || !(pad[3] & 0x40) || !(pad[3] & 0x20) || !(pad[3] & 0x10);
+        if (escapePressed || (down && !s.padWasDown.load() && sinceSeconds(s.started) > kSkipDebounce))
             s.skipRequested.store(true);
         s.padWasDown.store(down);
         return;

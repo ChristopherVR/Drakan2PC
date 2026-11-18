@@ -919,10 +919,10 @@ libx264 and aac, the Order of the Flame pack in `mods/` and the ISO in `drakan.i
   (the SPU2 keeps running). The picture follows the display (one picture per present when the display runs at about the movie's
   rate, otherwise the audio clock). The live level keeps running unseen and does the hand-over to Ruined Village as before. The
   cover stays through the end of the movie; when the next level is loading and the movie is over it goes and the game sound
-  returns (a movie that ends first fires the level's exit itself). Esc / Start / Cross / Circle / Triangle skip: the picture
-  fades to black and the live level's exit is fired (scene skips do not end that level, the 44 s timer would). Without the file
-  (or `DRAKAN_OOTF_INTRO_MOVIE=0`) the live level plays as before. Log lines `[intro-movie]`; `DRAKAN_INTRO_MOVIE_LOG=1` logs every
-  repeated or skipped picture.
+  returns. When the movie ends first or you press Esc, Start, Cross, Circle, or Triangle, the picture fades to black and
+  the live level takes its exit. Without the file, or with `DRAKAN_OOTF_INTRO_MOVIE=0`, the live level plays and Esc takes
+  the exit directly. With Skip intro videos on, New Game takes that exit without playing the opening.
+  `DRAKAN_INTRO_MOVIE_LOG=1` logs every repeated or skipped picture under `[intro-movie]`.
 * Not covered: a widescreen picture (the movie is the 4:3 frame), the host subtitle band (the Intro has no speech), a save made
   during the Intro.
 

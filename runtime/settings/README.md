@@ -86,7 +86,7 @@ set per build; `video.world_rate` always requires a restart because it is read a
 | `[audio] enabled`, `volume` | 1, 100 | Sound, Master volume | live | % 0..200; `AudioOutput::setMuted(!enabled)` + `setMasterGain(volume/100)` (10 ms ramp, no click; also applied to the WAV dump) |
 | `[audio] device` | default | Output device | live | name or part of it; the menu stores the endpoint name, `AudioOutput::setOutputDevice` re-opens the stream (list: `AudioOutput::enumerateDevices`) |
 | `[general] skip_memcard_warning` | 1 | Skip memory card warning | live | |
-| `[general] skip_intro_videos` | 0 | Skip intro videos | restart | **new key**: the boot logo and the New Game intro movie are skipped (the logo runs unpaced, the intro gets START taps); Esc skips either while it plays regardless |
+| `[general] skip_intro_videos` | 0 | Skip intro videos | restart | Bypass the PAL boot logo, the New Game movie, and the Order of the Flame opening. Esc also skips those intros during playback. |
 | `[general] ui_prompts` | keyboard | Button prompts | restart | **new key**: `keyboard`, `xbox`, `ps5` or `ps2` (Xbox / PS5 name that pad's buttons in the game's text and in the PC menus; the existing switch is env `DRAKAN_UI_PROMPTS=0`) |
 | `[general] language` | english | Language | restart | **new key**: `english\|french\|german\|italian\|spanish` |
 | `[general] settings_ui_scale` | auto | Menu size | live | **new key**, `auto` or 0.75..2.5 |

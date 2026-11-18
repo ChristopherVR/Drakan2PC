@@ -10,7 +10,8 @@
 //     hand-over to Ruined Village, keeps running unseen with its sound silenced. Esc / Start / Cross skip: the movie
 //     fades to black and the live level's exit is fired (its own hand-over is a 44 s timer; scene skips do not end
 //     it). The cover stays until the movie is over and the next level is loading, then the game sound returns.
-//     Without the file nothing changes (the live level plays).
+//     Without the file the live level plays. Escape can take the live level's exit too. With Skip intro videos on,
+//     New Game takes that exit without playing the movie.
 //   * render mode (env DRAKAN_INTRO_RENDER=<folder>): fixed 1/60 s engine time step, every completed frame of the Intro
 //     level piped to ffmpeg, the audio position of each frame logged, the game quits at the level change. See
 //     docs/reference/modding.md ("Intro movie").
@@ -45,9 +46,9 @@ bool coverActive();
 std::shared_ptr<const Frame> currentFrame(float& alpha);
 
 // ---- input (EE thread, from the pad read hook) ----
-// `pad` is the 32 byte sample about to be handed to the guest (buttons active low at [2], [3]); `escDown` is the Escape
-// key. Detects a skip request; once the movie is over or skipped it fires the live level's exit.
-void padTick(uint8_t* pad, bool escDown);
+// Detects a skip from the pad sample (buttons active low at [2], [3]) or a new Escape press and fires the live level's
+// exit when the intro finishes or is skipped.
+void padTick(uint8_t* pad, bool escapePressed);
 
 // ---- render mode ----
 bool renderModeActive();
