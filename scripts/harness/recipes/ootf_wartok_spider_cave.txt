@@ -1,0 +1,27 @@
+# Issue 12, Wartok Canyons. Start directly in the level with a private card (see the issue journal).
+# Dismount, visit both spider groups, then activate the barrel seesaw above the lower cave floor.
+clock milliseconds
+0 sync play 90
+1000 place 45056 16100 79872
+4500 pad down CROSS
+7200 pad up CROSS
+10500 shot dismount
+12000 place 39760 16340 87840
+15500 shot inside
+16400 key down W
+16800 button tap 1
+17400 button tap 1
+18100 key up W
+21000 place 34200 13850 92800
+24500 shot passage
+25500 button tap 1
+26500 button tap 1
+27500 pad tap L1
+30000 shot encounter
+31500 dump ram_before_collapse
+32500 place 28976 10561 111316 0
+33000 shot seesaw
+35500 shot rockfall
+42000 shot passage_after_collapse
+45000 dump ram_after_collapse
+47000 quit
