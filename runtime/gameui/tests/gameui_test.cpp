@@ -480,6 +480,9 @@ void testScreenNavigation() {
     CHECK(scr.isOpen() && scr.page() == Page::Inventory);
     CHECK(scr.focus() == TargetId({TargetKind::GridCell, 0})); // first item
     CHECK(o.draw.size() > 50 && hasText(o.draw, "Rynn's Dagger") && hasText(o.draw, "Inventory"));
+    CHECK(hasText(o.draw, "Health") && hasText(o.draw, "84 / 100"));
+    s.stats.hp = 94;
+    CHECK(hasText(scr.frame(s, {}, vp).draw, "94 / 100"));
     CHECK(!hasAction(o, ActionKind::SelectItem)); // the dagger already has current details
 
     // Every command lies inside the viewport.

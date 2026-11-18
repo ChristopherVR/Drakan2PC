@@ -8,6 +8,7 @@
 
 #include "Paint.h"
 #include "gameui/Addresses.h"
+#include "gameui/MenuText.h"
 
 namespace gameui {
 
@@ -1267,6 +1268,8 @@ void InventoryScreen::drawInventory(const Snapshot& s, DrawList& d) const {
     d.worldView(lf_.map(pv));
     d.gradient(lf_.map({pv.x, pv.bottom() - 260, pv.w, 260}), withAlpha(th.backdrop, 0), withAlpha(th.backdrop, 150));
     drawNameplate(s, pv, d);
+    if (s.stats.hpMax > 0)
+        drawBar({pv.x + 36, pv.bottom() - 150, pv.w - 72, 34}, s.stats.hp, s.stats.hpMax, th.hp, menuText("Health"), d);
 
     // Filter tabs over the grid.
     for (int f = 0; f < kCategoryFilterCount; ++f) {

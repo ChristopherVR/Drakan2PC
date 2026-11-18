@@ -4,6 +4,7 @@
 
 #include "Paint.h"
 #include "gameui/Addresses.h"
+#include "gameui/MenuText.h"
 
 namespace gameui {
 
@@ -418,6 +419,8 @@ void StripScreen::draw(const Snapshot& s, DrawList& d) const {
             y += 34;
         }
     } else {
+        if (s.stats.hpMax > 0)
+            p.bar(d, {kBarX, kPlateY - 106, 300, 34}, s.stats.hp, s.stats.hpMax, th.hp, menuText("Health"));
         p.lattice(d, p.map({kGridX, kGridY, kGridW, kGridH}), p.px(kGap));
         for (int c = 0; c < kCells; ++c)
             d.panel(p.map(design::strip::cell(c)), PanelStyle::Inset, th.inset);
