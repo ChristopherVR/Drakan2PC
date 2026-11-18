@@ -331,7 +331,8 @@ private:
     bool dragon_ = false;     // controlled-actor role reported through beforePadMgrUpdate
     DragonSteer dragonSteer_; // dragon_mode = mouse: counts not yet turned into Arokh's heading / pitch
     void steerDragon(IGuest& g, bool dragon);
-    void carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch);
+    void carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch,
+                           bool grounded);
     bool meleeDirections_ = false; // current native Rynn has a drawn melee weapon, no bow or summon
     uint64_t meleeIdentity_ = 0;   // current player/weapon; changing either cancels a buffered attack
     bool strafeActive_ = false;

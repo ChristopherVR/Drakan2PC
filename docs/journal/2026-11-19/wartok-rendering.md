@@ -85,3 +85,20 @@ local snow lines for those areas. The terrain audit sampled ground under ceiling
 cave floors. At the first test position in Grimstone, the broad 100,000-unit line produced little snow on
 the exposed face. Its local lower line covers that face, and the sampled covered ground in that footprint reaches
 only 54,950 units. The direct-start replays and geometry samples are under `build/snow-ranges-20261119/`.
+
+## Mounted cave turn blackout
+
+The original Wartok manual save and the isolated quick-slot copy have the same save data. Arokh starts grounded.
+During a mouse turn the old camera carry swung the eye through the entrance ceiling on layer 394. In the two
+revolutions, the eye crossed 136 units into the ceiling with original water and 123 with Modern Water. The world
+briefly went dark while the HUD remained visible. Setting camera carry to zero removed the crossings and blackouts.
+
+On the ground, mouse input now carries only the view orientation and the native camera controls its position.
+The same two revolutions stayed at least 117 and 78 units below the ceiling in the sampled original and Modern
+Water runs. Seven blackout frames were detected in each baseline turn capture and zero in either patched capture.
+The air path still carries both the position and orientation.
+
+The mounted forward captures did not isolate an independent river flicker. Modern Water passed coverage and
+depth checks across the visible river. Turning on the separately controlled ray-traced reflections also reflected
+the bright cave opening. The texture cache kept its HD textures through the scripted turns, with zero evictions
+and rebuilds. Captures and the roof-clearance analysis are in `build/cave-flicker-20261119/`.

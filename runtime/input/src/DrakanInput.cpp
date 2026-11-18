@@ -1135,10 +1135,10 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
 }
 
 // [mouse] dragon_camera_carry: the view behind Arokh eases round him about half a second after he turns (the native
-// flight camera). Turn its position round him and its axes by the same rotation the mouse gave him, so the mouse turns
-// the view at once; the native follow then only covers his travel, as before.
+// flight camera). Turn its axes immediately with the mouse. In flight, also carry its position around him; on the
+// ground, leave the eye to native collision so a turn cannot swing it through a nearby cave wall or roof.
 void InputModule::carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw,
-                                    float pitch) {
+                                    float pitch, bool grounded) {
     const auto& l = camera_.layout;
     const auto valid = [](uint32_t address, uint64_t bytes) {
         const uint32_t p = address & 0x1fffffffu;
@@ -1175,12 +1175,14 @@ void InputModule::carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, co
         if (pitch != 0.0f)
             rotateAbout(v, right, pitch);
     };
-    turn(off);
+    if (!grounded)
+        turn(off);
     for (auto& c : cols)
         turn(c);
     for (int i = 0; i < 3; ++i) {
-        g.writeF(obj + l.transformPosition + 4u * static_cast<uint32_t>(i),
-                 g.readF(dragon + l.transformPosition + 4u * static_cast<uint32_t>(i)) + off[i]);
+        if (!grounded)
+            g.writeF(obj + l.transformPosition + 4u * static_cast<uint32_t>(i),
+                     g.readF(dragon + l.transformPosition + 4u * static_cast<uint32_t>(i)) + off[i]);
         for (int c = 0; c < 3; ++c)
             g.writeF(obj + l.transformRight + 4u * static_cast<uint32_t>(i * 3 + c), cols[c][i]);
     }
@@ -1263,7 +1265,7 @@ void InputModule::steerDragon(IGuest& g, bool dragon) {
             for (int i = 0; i < 9; ++i)
                 g.writeF(mAddr + 4u * static_cast<uint32_t>(i), m[i]);
             if (cfg_.dragonCameraCarry)
-                carryDragonCamera(g, ctx, h, m, s.yaw, pitchApplied);
+                carryDragonCamera(g, ctx, h, m, s.yaw, pitchApplied, grounded);
         }
     }
     if (trace) {

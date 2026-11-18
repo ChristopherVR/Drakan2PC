@@ -26,7 +26,7 @@ he flies where the nose points (W while nose up climbs, nose down dives).
 | `[mouse] dragon_mode` | `mouse` | `stick` = the 2026-10 path: the mouse is fed into the right stick (rate based, `stick_full_counts`). |
 | `[mouse] dragon_sensitivity` | 1.0 | Multiplier of `sensitivity_x` / `_y` while steering Arokh. |
 | `[mouse] dragon_smoothing` | 0 | Exponential ease of the counts (ms); every count still arrives. |
-| `[mouse] dragon_camera_carry` | 1 | Turns the flight camera's position round him and its axes by the same rotation, so the view follows the mouse in the same tick. The native flight camera (mode 1, not the mode-6 tick `camera_follow` carries) otherwise swings round about 0.5 s later. |
+| `[mouse] dragon_camera_carry` | 1 | Turns the view with the mouse in the same tick. In flight it also swings the camera position around Arokh. On the ground the native camera controls the eye position, which keeps it from swinging through low ceilings on a mouse turn. |
 | `[mouse] dragon_pitch_up` / `_down` | 0.75 / 1.0 rad | Nose limits of the mouse pitch, the hard limits of controller A (`0x271e18`) while he is slow. Both are held exactly while he flies forward. At hover the game's correction eases anything beyond about +-0.5 back to there. |
 | `[keyboard] dragon_strafe` | 1 | A / D slide him sideways (left stick X on axis 3, the flight model's lateral input) while the mouse turns him, in flight and on the ground while mounted, with `dragon_mode = mouse` and `stick` and either `look_mode` (issue #11; before 2026-11-16 `stick` kept the PS2 mapping). 0, or `[keyboard] strafe = 0`, keeps the PS2 mapping (A / D turn). |
 
