@@ -267,7 +267,7 @@ float4 sourcePixel(VSOut i)
             TerrainPoint tp = terrainPoint(i.pos.xy, q, dq);
             bool detail = (fl & F_TERRAIN) != 0u && t_d0.w > 0.5;
             float cliffWeight = (fl & F_TERRAIN_RELIEF) != 0u ? terrainCliffWeight(tp) : 0.0;
-            float mountainWeight = (fl & F_TERRAIN_SNOW) != 0u ? wartokSnowWeight(tp) : 0.0;
+            float mountainWeight = (fl & F_TERRAIN_SNOW) != 0u ? mountainSnowWeight(tp) : 0.0;
             if (detail || cliffWeight > 0.0 || mountainWeight > 0.0)
                 terrain = terrainShading(tp, detail, cliffWeight, mountainWeight);
             else if (fl & F_TERRAIN_SIDE) terrain.medium = terrainMedium(tp);

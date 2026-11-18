@@ -1,6 +1,7 @@
 // Terrain detail on Direct3D 11: GPU objects, per-draw classification and constants. The policy and the maths are in
 // terrain_detail.h (shared with the WebGPU backend, unit tested); the shader fragment is gs_terrain.inc.
 #include "d3d11_backend_impl.h"
+#include "gsr/terrain_snow.h"
 
 #include <map>
 
@@ -135,7 +136,9 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         auditTerrain(s, v, count, classified, depthMasked, g.unproject, dsx, dsy, k);
     }
     const bool relief = (camera.flags & SceneGuideCamera::TerrainCliffRelief) != 0;
-    const bool snow = (camera.flags & SceneGuideCamera::TerrainSnow) != 0;
+    const auto snowRanges = (camera.flags & SceneGuideCamera::TerrainSnow)
+                                ? snow::rangesForProfile(camera.reserved) : std::span<const snow::Range>{};
+    const bool snow = !snowRanges.empty();
     if (!classified || (!terrainCfg.any() && !relief && !snow))
         return 0;
     if (!g.cb) {
@@ -193,6 +196,13 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         // ground seen at a low angle (the volume is filtered isotropically).
         const float gradient = 0.7f * std::clamp(dsx / (float)scale, 0.25f, 1.0f);
         terrain::buildConsts(g.unproject, terrainCfg, gradient, consts, g.grid ? &g.gridInfo : nullptr);
+        consts.sampling[2] = float(snowRanges.size());
+        for (size_t i = 0; i < snowRanges.size(); ++i) {
+            std::memcpy(consts.snowRanges[i][0], snowRanges[i].enter, sizeof(snowRanges[i].enter));
+            std::memcpy(consts.snowRanges[i][1], snowRanges[i].leave, sizeof(snowRanges[i].leave));
+            consts.snowRanges[i][2][0] = snowRanges[i].snowline;
+            consts.snowRanges[i][2][1] = snowRanges[i].verticalScale;
+        }
         if (!g.contentValid || std::memcmp(&consts, &g.content, sizeof(consts)) != 0) {
             D3D11_MAPPED_SUBRESOURCE m{};
             if (FAILED(map(g.cb.Get(), D3D11_MAP_WRITE_DISCARD, m, "terrain constants")))

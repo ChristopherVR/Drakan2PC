@@ -1,4 +1,5 @@
 #include "drakan_scene_camera.h"
+#include "gsr/terrain_snow.h"
 #include "drakan_scene_camera_policy.h"
 #include "drakan_config.h"
 #include "drakan_game.h"
@@ -43,7 +44,7 @@ bool hadWorld = false;
 Packet lastWorld;
 Packet lastPublished;
 bool havePublished = false;
-bool wartokSnow = false; // EE executor only, set by the level lifecycle
+uint32_t snowProfile = 0; // EE executor only, set by the level lifecycle
 PS2Runtime* installed = nullptr;
 std::atomic<bool> captureEnabled{false}, captureReset{true};
 struct Pending {
@@ -275,8 +276,10 @@ void emitViewport(uint8_t* ram, R5900Context* c, PS2Runtime* rt, bool preview) {
         p.flags &= ~(Packet::World | Packet::Valid);
     }
     const bool world = (p.flags & Packet::World) != 0;
-    if (world && wartokSnow)
+    if (world && snowProfile) {
         p.flags |= Packet::TerrainSnow;
+        p.reserved = snowProfile;
+    }
     const bool previousWorld = hadWorld;
     const uint64_t previousTick = lastWorldTick;
     const int previousGui = lastGui;
@@ -318,7 +321,7 @@ void emitViewport(uint8_t* ram, R5900Context* c, PS2Runtime* rt, bool preview) {
     // engine tick. Do not force a VIF drain or an NR resolve per object.
     const uint32_t stateMask = Packet::Valid | Packet::World | Packet::HaveViewport | Packet::TerrainSnow;
     if (havePublished && p.captureTick == lastPublished.captureTick && p.guiScreen == lastPublished.guiScreen &&
-        (p.flags & stateMask) == (lastPublished.flags & stateMask) &&
+        (p.flags & stateMask) == (lastPublished.flags & stateMask) && p.reserved == lastPublished.reserved &&
         std::memcmp(p.worldToClipVU, lastPublished.worldToClipVU, sizeof p.worldToClipVU) == 0 &&
         std::memcmp(p.viewportScale, lastPublished.viewportScale, sizeof p.viewportScale) == 0 &&
         std::memcmp(p.viewportOffset, lastPublished.viewportOffset, sizeof p.viewportOffset) == 0)
@@ -571,9 +574,9 @@ bool install(PS2Runtime& rt, const std::atomic<uint64_t>* tick, Sink cb, void* o
                 rt.replaceFunction(pc, &waterDraw);
     using drakan_lifecycle::Event;
     using drakan_lifecycle::Kind;
-    drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const Event&) { wartokSnow = false; });
+    drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const Event&) { snowProfile = 0; });
     drakan_lifecycle::subscribe(Kind::AfterLevelLoad, [](const Event& e) {
-        wartokSnow = e.ok && drakan_cfg::compareNoCase(e.level.c_str(), "OotF 03 - Wartok Canyons") == 0;
+        snowProfile = e.ok ? gsr::snow::profileForLevel(e.level) : 0;
     });
     installed = &rt;
     return true;

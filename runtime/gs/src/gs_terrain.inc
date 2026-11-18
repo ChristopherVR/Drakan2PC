@@ -17,6 +17,8 @@ cbuffer CBT : register(b3)
     float4 t_reliefFar; // x = relief strength at the far end of the fade
     float4 t_grid;      // xy = anchor in grid cells relative to the grid origin, zw = grid size (0 = no grid)
     float4 t_gridY;     // x = anchor height, y = height tolerance, z = cliff start (normal y), w = 1 / cliff range
+    float4 t_pad[2];
+    float4 t_snowRanges[4][3]; // enter bounds, leave bounds, snowline and vertical scale
 };
 Texture3D<float2> TerrainNoise : register(t2); // r = noise, g = the noise one relief step towards the light
 Texture2DArray<float4> TerrainGrid : register(t4); // smooth normals of the height field: nx, nz, height, ny
@@ -66,17 +68,26 @@ float terrainCliffWeight(TerrainPoint p)
     return (1.0 - smoothstep(0.30, 0.64, abs(p.n.y))) * smoothstep(16000.0, 35000.0, length(p.rel));
 }
 
-float wartokSnowWeight(TerrainPoint p)
+float snowRangeWeight(TerrainPoint p, int range)
+{
+    float4 enterBounds = t_snowRanges[range][0];
+    float4 leaveBounds = t_snowRanges[range][1];
+    float2 xz = p.rel.xz + t_sampling.xy;
+    float2 enter = smoothstep(enterBounds.xy, enterBounds.zw, xz);
+    float2 leave = 1.0 - smoothstep(leaveBounds.xy, leaveBounds.zw, xz);
+    float normalizedHeight = (p.rel.y + t_gridY.x - t_snowRanges[range][2].x) / t_snowRanges[range][2].y;
+    return normalizedHeight > -10200.0 ? enter.x * enter.y * leave.x * leave.y : 0.0;
+}
+
+float mountainSnowWeight(TerrainPoint p)
 {
     // The visible normal points down on the underside of a cave ceiling.
     float facingUp = dot(p.n, p.rel) > 0.0 ? -p.n.y : p.n.y;
-    if (facingUp <= 0.0 || p.rel.y + t_gridY.x <= 23000.0) return 0.0;
-
-    // The mountains above the first rope bridge. Feather out before the high cave floors farther east.
-    float2 xz = p.rel.xz + t_sampling.xy;
-    float2 enter = smoothstep(float2(-20000.0, 50000.0), float2(0.0, 68000.0), xz);
-    float2 leave = 1.0 - smoothstep(float2(140000.0, 195000.0), float2(170000.0, 220000.0), xz);
-    return enter.x * enter.y * leave.x * leave.y;
+    if (facingUp <= 0.0) return 0.0;
+    float weight = 0.0;
+    [loop] for (int i = 0; i < (int)t_sampling.z; ++i)
+        weight = max(weight, snowRangeWeight(p, i));
+    return weight;
 }
 
 struct TerrainShading
@@ -97,16 +108,19 @@ TerrainShading terrainShading(TerrainPoint p, bool detail, float cliffWeight, fl
     if (mountainWeight > 0.0)
     {
         // Snow settles lower and more fully on ledges. The two world-space octaves break up the lower boundary.
-        float height = p.rel.y + t_gridY.x;
         float ledge = smoothstep(0.13, 0.68, abs(p.n.y));
         float drift = n2.x - 0.5 + shade.medium * 0.24;
-        float snowline = 33200.0 + 7800.0 * (1.0 - ledge) - 6700.0 * drift;
-        float aboveSnowline = height - snowline;
-        float accumulation = smoothstep(-5500.0, 8300.0, aboveSnowline);
-        float cap = smoothstep(800.0, 13000.0, aboveSnowline);
         float exposed = lerp(0.62, 1.0, ledge);
         float patch = 0.48 + 0.52 * smoothstep(-0.18, 0.19, drift);
-        shade.snowCoverage = mountainWeight * accumulation * lerp(exposed * patch, 1.0, cap);
+        [loop] for (int i = 0; i < (int)t_sampling.z; ++i)
+        {
+            float weight = snowRangeWeight(p, i);
+            float height = (p.rel.y + t_gridY.x - t_snowRanges[i][2].x) / t_snowRanges[i][2].y;
+            float aboveSnowline = height - 7800.0 * (1.0 - ledge) + 6700.0 * drift;
+            float accumulation = smoothstep(-5500.0, 8300.0, aboveSnowline);
+            float cap = smoothstep(800.0, 13000.0, aboveSnowline);
+            shade.snowCoverage = max(shade.snowCoverage, weight * accumulation * lerp(exposed * patch, 1.0, cap));
+        }
         shade.snowBrightness = 0.98 + 0.10 * (n2.x - n2.y) + 0.065 * shade.medium;
     }
     float m = 0.0;

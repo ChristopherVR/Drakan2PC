@@ -411,7 +411,7 @@ inline void rotate(const float m[9], const float v[3], float out[3]) {
         out[r] = m[r * 3] * v[0] + m[r * 3 + 1] * v[1] + m[r * 3 + 2] * v[2];
 }
 
-// cbuffer of the shader fragment (register b3 on Direct3D 11); 16 float4.
+// cbuffer of the shader fragment (register b3 on Direct3D 11).
 struct ShaderConsts {
     float base[4];             // xyz camera-relative base, w = strength
     float d0[4];               // w = 1 when detail is on
@@ -426,8 +426,9 @@ struct ShaderConsts {
     float grid[4];             // xy = anchor in grid cells relative to the grid origin, zw = grid size (0 = no grid)
     float gridHeight[4]; // x = anchor height (world y), y = height tolerance, z = kCliffStart, w = 1 / kCliffRange
     float pad[2][4];
+    float snowRanges[4][3][4];
 };
-static_assert(sizeof(ShaderConsts) == 16 * 16, "cbuffer layout");
+static_assert(sizeof(ShaderConsts) == 28 * 16, "cbuffer layout");
 
 inline void buildConsts(const Unproject& u, const Settings& s, float gradientScale, ShaderConsts& k,
                         const NormalGrid* grid = nullptr) {
