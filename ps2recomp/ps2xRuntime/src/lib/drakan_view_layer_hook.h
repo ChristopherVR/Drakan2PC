@@ -1,9 +1,8 @@
 #pragma once
-// Hook on the PAL cell lookup 0x14b6b8 for the one call that updates the view layer (from 0x112488, return address
-// 0x112550): applies drakan_view_layer.h. Every other caller (actor refiles, queries) reaches the original untouched.
-// On by default; [video] camera_layer_fix = 0 or DRAKAN_VIEW_LAYER_FIX=0 turns it off; DRAKAN_VIEW_LAYER_TRACE=1 logs
-// every decision instead of the first 16.
+// Hook on the PAL cell lookup 0x14b6b8. The camera caller uses drakan_view_layer.h. The actor reinsertion caller
+// handles the stacked floors under the Ruined Village tomb landing during both save and restore.
 #include "drakan_config.h"
+#include "drakan_game.h"
 #include "drakan_region.h"
 #include "drakan_view_layer.h"
 #include "ps2_runtime.h"
@@ -19,6 +18,7 @@ namespace drakan_view_layer {
 inline PS2Runtime::RecompiledFunction lookupOriginal = nullptr;
 inline std::atomic<uint32_t> changedCount{0};
 inline bool traceAll = false;
+inline bool fixView = false;
 // Only touched on the EE thread under ScopedEeNoPreempt: the controlled actor and where it stood at the last view
 // update, and the count that keeps the rule aside after a placement.
 inline uint32_t settleActor = 0, settleLayers = 0;
@@ -27,7 +27,8 @@ inline Settle settle;
 
 constexpr uint32_t kCellLookup = 0x14b6b8u;       // (f12 x, f13 y, f14 z, a0 world, a1 old layer, a2 flags) -> v0 layer
 constexpr uint32_t kViewLookupReturn = 0x112550u; // the view layer update 0x112488 calls it from here
-constexpr uint32_t kLayerStride = 0x164u;         // runtime layer record: world +8 array, +0x10 count
+constexpr uint32_t kActorInsertReturn = 0x149ab4u;
+constexpr uint32_t kLayerStride = 0x164u; // runtime layer record: world +8 array, +0x10 count
 constexpr uint32_t kLayerVisible = 0x70u, kLayerVisibleCount = 0x78u; // u16 layer indices
 constexpr uint32_t kEngineContext = 0x5565d4u;                        // engine object; +0x4b0 the controlled actor
 constexpr uint32_t kActorPosition = 0x14u, kActorLayer = 0x7cu;
@@ -44,6 +45,35 @@ inline float guestFloat(const uint8_t* ram, uint32_t address) {
 }
 inline bool guestPointer(uint32_t a, uint32_t size) {
     return a >= 0x100000u && a < PS2_RAM_SIZE && size <= PS2_RAM_SIZE - a;
+}
+
+inline int32_t tombLandingLayer(const uint8_t* ram, uint32_t world, int32_t native, float x, float y, float z) {
+    constexpr float kLandingHeight = 22890.0f, kLandingHeadroom = 1024.0f;
+    if (!(y >= kLandingHeight && y - kLandingHeight <= kLandingHeadroom) || native < 0 || !guestPointer(world, 0x14))
+        return native;
+    const uint32_t count = guestWord(ram, world + 0x10);
+    const uint32_t layers = guestWord(ram, world + 8);
+    if (count > 0x4000 || static_cast<uint32_t>(native) >= count || !guestPointer(layers, count * kLayerStride))
+        return native;
+    const uint32_t lower = layers + static_cast<uint32_t>(native) * kLayerStride;
+    // The converted Ruined Village push-block floor has source ID 451. It lies below both upper cave landing tiles.
+    if (guestWord(ram, lower + 4) != 451u || guestFloat(ram, lower + 0x150u) != 7680.0f ||
+        drakan_game::current() != drakan_game::Game::Ootf)
+        return native;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t layer = layers + i * kLayerStride;
+        const uint32_t id = guestWord(ram, layer + 4);
+        if (id != 269u && id != 325u)
+            continue;
+        const float floor = guestFloat(ram, layer + 0x150u);
+        if (floor != kLandingHeight || guestFloat(ram, layer + 0x15cu) != floor ||
+            !(x >= guestFloat(ram, layer + 0x14cu) && x < guestFloat(ram, layer + 0x158u) &&
+              z >= guestFloat(ram, layer + 0x154u) && z < guestFloat(ram, layer + 0x160u)))
+            continue;
+        return static_cast<int32_t>(i);
+    }
+    return native;
 }
 
 // `a` lists `b` as visible.
@@ -66,7 +96,22 @@ inline bool lists(const uint8_t* ram, uint32_t layers, int32_t count, int32_t a,
 
 inline void lookupHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     const uint32_t ra = GPR_U32(ctx, 31);
-    if (ctx->pc != kCellLookup || ra != kViewLookupReturn) { // another caller, or a resumed call
+    if (ctx->pc == kCellLookup && ra == kActorInsertReturn && GPR_S32(ctx, 5) == -1 && GPR_U32(ctx, 6) == 5) {
+        const uint32_t world = GPR_U32(ctx, 4);
+        const float x = ctx->f[12], y = ctx->f[13], z = ctx->f[14];
+        lookupOriginal(ram, ctx, rt);
+        if (ctx->pc == ra) {
+            const int32_t native = GPR_S32(ctx, 2);
+            const int32_t landing = tombLandingLayer(ram, world, native, x, y, z);
+            if (landing != native) {
+                std::fprintf(stderr, "[tomb-landing] file %.0f %.0f %.0f on layer %d instead of %d (caller %x)\n", x, y,
+                             z, landing, native, ra);
+                SET_GPR_S32(ctx, 2, landing);
+            }
+        }
+        return;
+    }
+    if (ctx->pc != kCellLookup || ra != kViewLookupReturn || !fixView) { // another caller, or a resumed call
         lookupOriginal(ram, ctx, rt);
         return;
     }
@@ -143,16 +188,16 @@ inline void lookupHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
 inline void install(PS2Runtime& rt) {
     if (!drakan_region::build().identityAddresses) // SCES-500.06 addresses only
         return;
-    if (!drakan_cfg::getBool("video", "camera_layer_fix", "DRAKAN_VIEW_LAYER_FIX", true) ||
-        !rt.hasFunction(kCellLookup)) {
+    if (!rt.hasFunction(kCellLookup)) {
         std::fprintf(stderr, "[view-layer] off\n");
         return;
     }
     if (const char* e = std::getenv("DRAKAN_VIEW_LAYER_TRACE"); e && e[0] == '1')
         traceAll = true;
+    fixView = drakan_cfg::getBool("video", "camera_layer_fix", "DRAKAN_VIEW_LAYER_FIX", true);
     lookupOriginal = rt.lookupFunction(kCellLookup);
     rt.replaceFunction(kCellLookup, lookupHook);
-    std::fprintf(stderr, "[view-layer] installed\n");
+    std::fprintf(stderr, "[view-layer] %s\n", fixView ? "installed" : "camera adjustment off");
 }
 
 } // namespace drakan_view_layer
