@@ -647,8 +647,8 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.toggle("input.mouse.invert_y", "Invert vertical look",
              "Off (default): mouse up looks up. On: mouse up looks down.");
     b.toggle("input.mouse.free_combat", "Free mouse combat",
-             "Mouse movement turns Rynn freely during combat. F and middle click toggle native target lock; the bow "
-             "sight keeps its native aiming camera.");
+             "Mouse movement turns Rynn freely during combat. See Toggle Targeting in Key Bindings for your lock-on "
+             "control. The bow sight uses its own camera.");
     {
         SettingRow& r = b.slider("input.mouse.camera_follow", "Camera follow",
                                  "Turning carries the camera round Rynn at once; this sets how quickly it catches up "

@@ -633,7 +633,7 @@ const std::vector<Field>& fields() {
          "ootf: left click fires (auto-aim), right click toggles the sight; native: the original PS2 bow; modern: hold "
          "left to aim, release to shoot"},
         {"mouse", "free_combat", true, GETB(controls.freeCombat), SETB(controls.freeCombat),
-         "free mouse combat: no controller target lock; mouse turns Rynn through attack animations"},
+         "mouse turns Rynn through attack animations while no target is locked"},
         {"mouse", "dragon_mode", true, GETS(controls.dragonMode),
          [](Settings& s, const std::string& v) {
              const std::string u = lower(trim(v));

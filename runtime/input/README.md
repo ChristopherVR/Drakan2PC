@@ -262,8 +262,8 @@ Right-click suppression for the inventory adapter is limited to the menu layer.
 The adapter retains its last observed screen ID after closing; that cached ID
 must not suppress gameplay Circle input. Free mouse combat now yields to an
 explicit native target lock and to the native alternate aiming camera (flag 0x800).
-The runtime no longer intercepts target requests or cancels them every camera
-update, so F/MMB can toggle targeting while free combat remains enabled.
+The Toggle Targeting binding works with free mouse combat enabled. Its default
+controller button is R2 on Standard, R1 on Alternate and Cross on Dual Control.
 
 The native bow sight toggles on Circle. By default (`bow_aim = ootf`, also `classic`), RMB toggles it and releasing
 RMB leaves it open, matching the original PC manual. In optional `bow_aim = modern`, the mouse adapter remembers a sight
