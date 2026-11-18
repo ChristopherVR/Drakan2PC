@@ -66,7 +66,7 @@ The defaults follow the game's own **Standard controller scheme** (Options > Con
 | Mouse3 (MMB), F | R2 (0x400b) | Toggle Targeting |
 | Space | TRIANGLE (0x4011) | Jump |
 | Left Ctrl, C | CROSS (0x4012) | Crouch |
-| E | L1 (0x4009) | Call Arokh / Use |
+| E | L1 (0x4009) | Tap to use, hold to call Arokh |
 | Q | R1 (0x403a) | Quick Inventory |
 | R | L2 (0x400c) | Next Target / Strafe |
 | V | R3 (0x400a) | |

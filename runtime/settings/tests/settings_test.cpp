@@ -872,6 +872,7 @@ static void testControllerSchemes() {
     CHECK(padCommand("R1", 2, PadMode::OnFoot) == 0x4006 && padCommand("R2", 2, PadMode::OnFoot) == 0x4007);
     CHECK(padCommand("R3", 1, PadMode::OnArokh) == 0x400a && padCommand("DPAD_UP", 0, PadMode::OnFoot) == 0);
     CHECK(padCommand("L1", 7, PadMode::OnFoot) == 0x4009); // out of range = A
+    CHECK(actionHint(def("L1")).find("tap to use or hold to call Arokh") != std::string::npos);
     // Scheme A on foot keeps the old labels; on Arokh L1 / R1 change, Triangle / Cross climb / dive.
     CHECK(label("TRIANGLE") == "Jump" && label("CROSS") == "Crouch" && label("SQUARE") == "Attack" &&
           label("CIRCLE") == "Use Magic / Parry" && label("L1") == "Call Arokh / Use" &&
@@ -889,6 +890,8 @@ static void testControllerSchemes() {
     // the Quick Inventory, right mouse (Circle) is Next Target, and Magic / Parry moved to R2.
     setControllerScheme(2);
     CHECK(controllerScheme() == 2 && controllerSchemeLetter(controllerScheme()) == 'C');
+    CHECK(actionHint(def("TRIANGLE")).find("tap to use or hold to call Arokh") != std::string::npos);
+    CHECK(actionHint(def("L1")).find("hold to call") == std::string::npos);
     CHECK(label("L1") == "Jump" && label("L2") == "Crouch" && label("R1") == "Attack" &&
           label("SQUARE") == "Quick Inventory" && label("CIRCLE") == "Next Target / Strafe" &&
           label("R2") == "Use Magic / Parry" && label("TRIANGLE") == "Call Arokh / Use" &&

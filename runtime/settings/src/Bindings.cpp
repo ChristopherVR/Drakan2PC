@@ -252,6 +252,8 @@ std::string actionHint(const ActionDef& d) {
     h += " in controller scheme ";
     h += controllerSchemeLetter(controllerScheme());
     h += " (the game's Options > Controls)";
+    if (padCommand(d.id, controllerScheme(), PadMode::OnFoot) == 0x4009)
+        h += ". On foot, tap to use or hold to call Arokh";
     if (const char* a = actionLabelOnArokh(d))
         h += std::string(". On Arokh: ") + a;
     return h;
