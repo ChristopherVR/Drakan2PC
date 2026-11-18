@@ -361,3 +361,23 @@ The detector had disappeared while all eight boulders were still at their origin
 collapse finished, Rynn quickloaded that save. Each boulder reached the same final height as in the
 uninterrupted collapse, and the application exited normally. The five state captures and save/load
 log are in `build/harness/issue12-save-during-collapse`.
+
+### Status of the 15 reports
+
+| # | Report | Local result |
+| --- | --- | --- |
+| 1 | Black ground and falling through the starting area | Fixed missing terrain materials in conversion (`ddd72934`). The affected cells were in other levels. Village textures matched the source. The falls reproduced at gaps in the suspension bridge. A fall through intact village ground remains open. |
+| 2 | Missing canyon terrain | Fixed the draw distance for converted levels using the active fog horizon. Verified in Wartok Canyons and Islands (`f3c7d3a5`). |
+| 3 | Upside-down face in the awakening | The full scene played with Arokh's face upright on the current build, which includes the earlier scene animation fixes. |
+| 4 | Arokh freezes after acquisition | Verified movement on canyon arrival, dismount, remount and flight. A persistent freeze remains unreproduced. |
+| 5 | Arokh fails to come when called | Corrected the tap/hold guidance (`cdf1dfab`). Arokh returned and could be remounted on walked routes. Long-range landing across intervening terrain remains open. |
+| 6 | Inconsistent target lock | Corrected the scheme-specific guidance (`79ad478c`). Valid presses selected enemies on Standard, Alternate and Dual Control. An intermittent failure with an eligible target remains unreproduced. |
+| 7 | Pickups orbit Rynn | With a full inventory the Heavy Bow stayed on the ground and could be collected after freeing space. The orbiting pickup remains unreproduced. |
+| 8 | Equipment cannot be dropped | Drop flags matched the source on all 125 equipment placements checked. Three Runeblades are protected. Ordinary weapons and armour were dropped in game. |
+| 9 | Zero durability on acquisition | The zero-durability placements also have zero in the source. Corrected the inventory's handling of bow durability and quiver counts (`87b67b17`). |
+| 10 | Rectangular arrows and frozen bow movement | Fixed projectile textures (`4a1542ad`), sighted controller movement (`3e7baeee`) and hold-to-aim with remapped Attack (`0c136b30`). Verified projectile rendering, movement and aimed shots in the game. |
+| 11 | Missing inventory health | Added current and maximum health to both inventory layouts. Verified that drinking a potion updates the display (`98480e4b`). |
+| 12 | Music obscures dialogue | Fixed the campaign volume curve and lowered music through dialogue. Verified the mixed recording and the return to gameplay volume (`b71075df`). |
+| 13 | Missing subtitles | Bundled English subtitles and retained local transcription in setup. Verified both conversion routes and in-game captions (`66b6a188`). |
+| 14 | Quiet gameplay speech | Raised quiet Rynn remarks in conversion. Measured the difference in four gameplay lines, including an unchanged control (`7a6af045`). |
+| 15 | Spider cave crashes | Completed the mine route, fired the seesaw collapse and reloaded a save during the event. The regression checks actual boulder movement (`5fb80c57`). The application crash remains unreproduced. |
