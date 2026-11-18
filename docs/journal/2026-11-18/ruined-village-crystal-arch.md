@@ -17,3 +17,19 @@ The installed game loaded a restored copy of the original slot 3, archived it by
 without the brown strip. Additional captures from the installed game show both sides of the model's second placement
 and the cave side of the reported arch. The private recipes, comparisons and pack audit are under `build/crystal-arch`
 and `build/ruined-arch-overlay`.
+
+## Detecting the overlap during conversion
+
+The converter now finds the cave-side face from the model geometry. The rock quad shares an edge with a
+near-coplanar, oppositely wound patch that covers most of it. The two sides use different opaque materials. A scan
+of 3,122 source models found that case once, and the geometry it produces matches the installed arch fix.
+
+The second report showed the passage into the crystal room. The doorway and the tomb mesh meet at the same
+vertical plane and each draws overlapping triangles that face away from the other. The level converter checks
+touching static models that have a single placement and finds the overlapping faces. The scan across the supplied
+campaign found one matching pair, at this doorway. The six doorway faces move by 16 world units along their
+authored front; the original indices and materials remain available to the rest of the mesh.
+
+The complete pack changed only the doorway's vertex, polygon and draw-list records. The existing rock-cap model
+and the save build match the already deployed pack byte-for-byte. In-game tests walked toward both arches from
+slot 3 and viewed the doorway from inside the room. Captures are under `build/crystal-arch-room`.
