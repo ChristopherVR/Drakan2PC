@@ -87,6 +87,7 @@ inline constexpr uint32_t kCreatureB = 7; // creatures / NPCs with HP (the bulk 
 inline constexpr uint32_t kCamera = 4;    // also the many class 0x10070 / 0x1003d ... world actors
 inline constexpr uint32_t kWeapon = 10;
 inline constexpr uint32_t kUsable = 11;
+inline constexpr uint32_t kPowerUp = 12;
 } // namespace type
 
 // Classes.

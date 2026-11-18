@@ -5,6 +5,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
+#include "world/Addresses.h"
 #include "world/ModelDetail.h"
 
 #include <algorithm>
@@ -34,6 +35,7 @@ constexpr uint32_t kRamMask = 0x1fffffffu;
 constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 constexpr uint32_t kDrawDistance = 0xf8u;           // object: f32 draw distance
 constexpr uint32_t kDrawDistanceMode = 0x30000000u; // object +4: 0 = no own draw distance
+constexpr float kPickupDrawFactor = 4.0f;
 
 std::atomic<bool> g_installed{false};
 std::atomic<float> g_lodFactor{rules::kOff};
@@ -327,13 +329,19 @@ void restoreScope(uint8_t* ram, const DrawScope& scope) {
 
 // Returns true when the object's draw distance was changed for this call.
 bool enterDrawScope(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t function) {
-    const float factor = g_drawFactor.load(std::memory_order_relaxed);
     const uint32_t object = GPR_U32(c, 4) & kRamMask;
-    if (c->pc != function || !(factor > rules::kOff) || !inRam(object, 0x120) || u32(ram, object) != kObjectVtable ||
+    if (c->pc != function || !inRam(object, 0x120) || u32(ram, object) != kObjectVtable ||
         !(u32(ram, object + 4) & kDrawDistanceMode))
         return false;
+    const uint32_t type = u32(ram, object + world::handle::kType);
+    const bool pickup = type == world::type::kWeapon || type == world::type::kUsable || type == world::type::kPowerUp;
+    const float factor = g_drawFactor.load(std::memory_order_relaxed);
+    if (!pickup && !(factor > rules::kOff))
+        return false;
     const float stored = f32(ram, object + kDrawDistance);
-    const float scaled = rules::taperedDrawDistance(stored, factor, g_taperCap.load(std::memory_order_relaxed));
+    const float scaled = pickup
+                             ? rules::drawDistance(stored, std::max(factor, kPickupDrawFactor))
+                             : rules::taperedDrawDistance(stored, factor, g_taperCap.load(std::memory_order_relaxed));
     if (std::memcmp(&stored, &scaled, 4) == 0)
         return false;
     std::lock_guard<std::mutex> lock(g_scopeMutex);

@@ -447,9 +447,9 @@ void displayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& e
                               : "Needs the PAL executable layout; not available for this disc.",
              v.lodDistance, 1.0f, 8.0f, "x%.1f", 0.5f, caps.modelDetail);
     b.slider("video.draw_distance", "Object draw distance",
-             caps.modelDetail ? "How far away people, creatures, plants and small objects are drawn before they fade "
-                                "out: 1 = the original distances, 2 = twice as far. The level's view distance still "
-                                "limits it. Costly: 1.5 is about 40 percent more geometry in a meadow."
+             caps.modelDetail ? "How far away people, creatures, plants and props are drawn before they fade out. "
+                                "Pickups always use four times their original draw distance. The level's view "
+                                "distance limits both. Costly: 1.5 is about 40 percent more geometry in a meadow."
                               : "Needs the PAL executable layout; not available for this disc.",
              v.drawDistance, 1.0f, 4.0f, "x%.2f", 0.25f, caps.modelDetail);
     b.toggle("video.draw_distance_taper", "Keep large objects at their distance",

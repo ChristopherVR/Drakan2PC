@@ -439,7 +439,7 @@ PAL addresses only):
 | --- | --- | --- |
 | `0x102c90` LOD selector of skinned models (a0 controller, a1 model, f12 squared camera distance; table at model `+0xbc`, 16 bytes per LOD, squared distances; hysteresis 2^20) | f12 with the table | `[video] lod_distance` divides f12 by factor squared; a LOD that uses materials LOD 0 does not use is never reached above 1 |
 | `0x18b760` near / far model of static objects (model `+0xb4`, `+0xb8`) | f12 with one squared distance | same factor |
-| `0x18ba28` draw-distance test (a0 object): hidden when the camera is beyond `min(object +0xf8, level view distance * 2048) + radius`; flag 0x200 (fade) beyond 0.75 of it | object `+0xf8` | `[video] draw_distance` multiplies `+0xf8` for the call; with `draw_distance_taper` (default 1) the result is `max(own, min(own x factor, 70000))` |
+| `0x18ba28` draw-distance test (a0 object): hidden when the camera is beyond `min(object +0xf8, level view distance * 2048) + radius`; flag 0x200 (fade) beyond 0.75 of it | object `+0xf8` | `[video] draw_distance` multiplies `+0xf8` for the call. With `draw_distance_taper` (default 1), the result is `max(own, min(own x factor, 70000))`. Pickups use at least 4× and bypass the taper. |
 | `0x189b38` render method (passes `+0xf8` to the VU1 distance fade) | object `+0xf8` | same factor, for the call |
 
 **View distance and distance fog** (`[video] view_distance`, 1 to 3, default 1, PAL; `drakan_view_distance.cpp`,
@@ -496,6 +496,10 @@ Object `+0xf8` comes from the model's 0x0200 float (`shading & 0x20000`), from `
 setter (`0x17d2c8`); the mode is in object `+4` bits 0x30000000 and 0x5f0ac723 means no limit. Only skinned models
 have LOD tables (57 on the PAL disc). Both renderers draw what VU1 emits, so the settings need no backend code.
 Numbers, pictures and what is not established: [gfx-models](../journal/2026-11-12/gfx-models.md).
+
+The pickup multiplier applies to weapons, usable items and power-ups (object types 10, 11 and 12) on the PAL-backed
+port, including Order of the Flame. Both hooks restore the stored distance after the guest call, so pickup reach
+and the engine's object activity tests use the stored value.
 
 **Draw distance taper** (`[video] draw_distance_taper`, default 1, live; rule `taperedDrawDistance`). On the Drakan 2
 disc the factor's cost at 1.5 was mostly large props whose own distance is already 75,000 units or more (castle details,

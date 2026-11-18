@@ -563,11 +563,11 @@ const std::vector<Field>& fields() {
          "characters and creatures keep their detailed model this many times further out, 1 (original PS2 distances) "
          ".. 8; above 1 a simplified model that changes a character's look is never used"},
         {"video", "draw_distance", false, GETF(video.drawDistance, "%.2f"), SETF(video.drawDistance),
-         "people, creatures, plants and small objects are drawn this many times further out, 1 (original) .. 4; the "
-         "level's view distance still limits it"},
+         "people, creatures, plants and props are drawn this many times further out, 1 (original) .. 4; pickups "
+         "use at least 4; the level's view distance limits both"},
         {"video", "draw_distance_taper", false, GETB(video.drawDistanceTaper), SETB(video.drawDistanceTaper),
-         "1 = draw_distance extends objects to at most 70000 units and large props keep their own distance (most of "
-         "its cost), 0 = every object is drawn draw_distance times further out"},
+         "1 = draw_distance extends scenery to at most 70000 units and large props keep their own distance, "
+         "0 = full draw_distance factor; pickups always bypass this cap"},
         {"video", "dlss_neural", false, GETB(video.dlssNeural), SETB(video.dlssNeural),
          "DLSS 5 neural rendering: 0 off, 1 on; independent of Super Resolution; requires a supported NVIDIA GPU and "
          "matching signed runtime bundle"},

@@ -13,8 +13,8 @@
 //     of the draw call reads the same field): the object's draw distance at +0xf8 is multiplied by the factor for the
 //     call and put back afterwards. The level's view distance still caps it inside the guest code. With the taper
 //     on, large props (own distance at or beyond the cap) keep their own distance and the rest stop at the cap.
-// Both factors at 1 call the original functions with untouched arguments. The rules themselves are
-// runtime/world/include/world/ModelDetail.h (unit tested in world_model_detail_test).
+//     Weapons, usable items and power-ups use at least 4x their own draw distance and bypass the taper.
+// The distance rules in runtime/world/include/world/ModelDetail.h are tested by world_model_detail_test.
 // PAL only (the addresses are PAL values; other disc profiles never install it).
 #pragma once
 
@@ -29,7 +29,7 @@ void install(PS2Runtime& runtime);
 // True when the hooks are installed (the settings page greys the options out otherwise).
 bool available();
 
-// Live settings (any thread). Factors are clamped to 1 .. 8 (LOD) and 1 .. 4 (draw distance); 1 = original.
+// Live settings (any thread). Factors are clamped to 1 .. 8 (LOD) and 1 .. 4 (general draw distance).
 void configure(float lodFactor, float drawFactor);
 // [video] draw_distance_taper (env DRAKAN_DRAW_DISTANCE_TAPER): the draw distance factor extends an object at most to
 // 70,000 units (env DRAKAN_DRAW_DISTANCE_TAPER_CAP), and objects with a larger own distance keep theirs
