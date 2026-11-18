@@ -79,3 +79,4 @@ analysis/sdk_strings.csv
 scripts/buildtool/ps2_recomp.exe
 analysis/iop/iso_listing.txt
 .playwright-mcp/
+.agents/skills/ootf-model-dump/SKILL.md
