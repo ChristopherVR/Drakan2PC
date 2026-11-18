@@ -872,6 +872,8 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
              "spells, health), teleport, and render and profiling switches. F3 opens and closes it during play; Up / "
              "Down pick an option, Left / Right change it, Enter runs it, PgUp / PgDn turn the page. Changes made "
              "there can break a game in progress, so save first.");
+    b.toggle("general.ootf_debug_gold", "Allow Increase Gold in Order of the Flame",
+             "Enable the Increase Gold command in the developer debug menu for Order of the Flame.");
 
     pg.sections.push_back({"Subtitles", {}});
     b.sec = &pg.sections.back();

@@ -204,6 +204,13 @@ int main() {
         // Another build of the pack: refused, names the installed pack.
         SaveCheck r = checkSave(save, active({ootfNew}));
         CHECK(r.verdict == SaveVerdict::DifferentBuild && r.pack.version == "1.1");
+        ActivePacks migrating = active({ootfNew, tex});
+        migrating.compatibleBuilds = {{"ootf", "aaaa"}};
+        r = checkSave(save, migrating);
+        CHECK(r.ok() && r.needsUpgrade);
+        save.record.push_back({"tex", "Textures", "0", "aaaa"});
+        CHECK(checkSave(save, migrating).verdict == SaveVerdict::DifferentBuild);
+        save.record.pop_back();
         // The pack is gone: refused, names the recorded pack.
         r = checkSave(save, active({tex}));
         CHECK(r.verdict == SaveVerdict::MissingPack && r.pack.name == "Order of the Flame");

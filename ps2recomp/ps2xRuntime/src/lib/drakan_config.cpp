@@ -108,6 +108,8 @@ const Entry kEntries[] = {
     {"general", "debug_menu", "0",
      "1 = F3 opens the game's developer debug menu during play (cheats, teleport, render and profiling switches); 0 = "
      "off (env DRAKAN_DEBUG_MENU)"},
+    {"general", "ootf_debug_gold", "0",
+     "1 = allow Increase Gold in the Order of the Flame debug menu (env DRAKAN_OOTF_DEBUG_GOLD)"},
 
     {"video", "renderer", "webgpu",
      "webgpu = the shared GPU renderer (default; Vulkan first, then D3D12 on Windows / OpenGL on Linux), vulkan = the "

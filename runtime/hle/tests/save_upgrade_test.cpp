@@ -160,6 +160,31 @@ static std::vector<Entry> levelSave() {
 int main() {
     setVerbose(false);
 
+    {
+        auto fixture = levelSave();
+        std::vector<u8> databases;
+        p32(databases, 3);
+        for (const std::string path : {"cdrom0:/System/System", "cdrom0:/Common/NPC/NPCs", "cdrom0:/Resources/Resources"}) {
+            p16(databases, static_cast<u32>(path.size() + 1));
+            databases.insert(databases.end(), path.begin(), path.end());
+            databases.push_back(0);
+        }
+        fixture.push_back({0x22, 0, 0, std::move(databases)});
+        fixture[2].data[2] = 2;
+        const SaveClassRemap swap{"/npc/npcs", 0x3a2b, 0x48d5};
+        SaveUpgradeReport report;
+        std::vector<u8> output;
+        std::string error;
+        std::vector<Entry> after;
+        CHECK(upgradeSave(container(fixture), {}, output, report, error, {&swap, 1}));
+        CHECK(report.reclassified == 1 && entries(output, after));
+        CHECK(after.size() == fixture.size() && r32(after[0].data, 0) == 0x148d5);
+        CHECK(after.size() == fixture.size() && after[2].data == fixture[2].data);
+        CHECK(after.size() == fixture.size() && after[4].data == fixture[4].data);
+        fixture.pop_back();
+        CHECK(!upgradeSave(container(fixture), {}, output, report, error, {&swap, 1}) && output.empty());
+    }
+
     // ---- manifest rules
     {
         SaveRevisionRule r;

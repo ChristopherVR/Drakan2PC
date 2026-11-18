@@ -254,6 +254,8 @@ const std::vector<Field>& fields() {
         {"general", "debug_menu", false, GETB(general.debugMenu), SETB(general.debugMenu),
          "1 = F3 opens the game's developer debug menu during play (cheats, teleport, render switches); 0 = off (env "
          "DRAKAN_DEBUG_MENU)"},
+        {"general", "ootf_debug_gold", false, GETB(general.ootfDebugGold), SETB(general.ootfDebugGold),
+         "1 = allow Increase Gold in the Order of the Flame debug menu (env DRAKAN_OOTF_DEBUG_GOLD)"},
         {"general", "save_menu", false, [](const Settings& s) { return std::string(toIni(s.general.saveMenu)); },
          [](Settings& s, const std::string& v) {
              std::string u = lower(trim(v));
@@ -947,6 +949,7 @@ std::string settingLabel(const std::string& key) {
         {"general.pause_menu", "Pause menu"},
         {"general.dual_wield", "Dual wielding"},
         {"general.debug_menu", "Developer debug menu"},
+        {"general.ootf_debug_gold", "Allow Increase Gold in Order of the Flame"},
         {"general.save_menu", "Save / load screens"},
         {"general.title_menu", "Title menu"},
     };

@@ -856,13 +856,13 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     int32_t result = kMcResultNoEntry;
     // A read-only open of an existing file may be served from memory (setMcReadFilter); asked outside the card lock.
     std::vector<uint8_t> replacement;
-    bool replaced = false;
+    McReadResult readResult = McReadResult::Unchanged;
     if ((flags & PS2_FIO_O_RDWR) == PS2_FIO_O_RDONLY && isValidMcPortSlot(port, slot)) {
         if (const McReadFilter filter = g_readFilter.load()) {
             const std::filesystem::path host = mcHostPath(port, path);
             std::error_code ec;
             if (std::filesystem::is_regular_file(host, ec))
-                replaced = filter(host, replacement);
+                readResult = filter(host, replacement);
         }
     }
     {
@@ -877,7 +877,7 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                 std::error_code ec;
                 const bool create = (flags & PS2_FIO_O_CREAT) != 0u;
                 const bool exists = std::filesystem::exists(hostPath, ec) && !ec;
-                if (guestPath == "/") {
+                if (guestPath == "/" || readResult == McReadResult::Refused) {
                     result = kMcResultDeniedPermit;
                 } else if (exists && std::filesystem::is_directory(hostPath, ec)) {
                     result = kMcResultDeniedPermit;
@@ -887,7 +887,7 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                     result = kMcResultNoEntry;
                 } else {
                     FILE* file = nullptr;
-                    if (replaced && exists) {
+                    if (readResult == McReadResult::Replaced && exists) {
                         file = std::tmpfile();
                         if (file &&
                             (std::fwrite(replacement.data(), 1, replacement.size(), file) != replacement.size() ||
@@ -896,11 +896,10 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                             file = nullptr;
                         }
                         if (!file)
-                            std::fprintf(stderr,
-                                         "[MC] read filter: no temporary file, the card file is read as it is\n");
-                    }
-                    if (!file)
+                            std::fprintf(stderr, "[MC] read filter: could not open the upgraded card file\n");
+                    } else {
                         file = openMcHostFile(hostPath, flags);
+                    }
                     if (!file) {
                         result = exists ? kMcResultDeniedPermit : kMcResultNoEntry;
                     } else {

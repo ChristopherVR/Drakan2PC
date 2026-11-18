@@ -640,6 +640,20 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(len(runs), 2)
         self.assertIn("ootf-convert", extras.Timings(self.work.parent / "extras-timings.json").load())
 
+    def test_installed_pack_takes_precedence_over_an_unrelated_cached_pack(self):
+        runs: list = []
+        mods = self.run_convert(runs)
+        play = self.dir / "play"
+        installed = play / "mods" / "ootf-levels.zip"
+        installed.parent.mkdir(parents=True)
+        installed.write_bytes(b"installed pack with saves")
+        with self.assertRaises(extras.ExtrasError):
+            self.run_convert(runs, code=1, play=play)
+        command = runs[-1][0]
+        self.assertEqual(Path(command[command.index("--previous") + 1]), installed)
+        self.assertEqual(installed.read_bytes(), b"installed pack with saves")
+        self.assertEqual((mods / "ootf-levels.zip").read_bytes(), b"zip")
+
     def test_asking_for_hd_converts_again_once_to_keep_the_lossless_sources(self):
         runs: list = []
         self.run_convert(runs)

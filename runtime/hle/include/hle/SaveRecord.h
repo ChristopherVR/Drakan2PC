@@ -72,6 +72,10 @@ struct ActivePacks {
     // (the OotF converter's pack adds classes and levels and changes none of the disc). A save of another level does
     // not record them, and an older record of such a pack is not checked for a save of another level.
     std::vector<std::string> levelScoped;
+    struct CompatibleBuild {
+        std::string packId, build;
+    };
+    std::vector<CompatibleBuild> compatibleBuilds;
     // `[general] save_pack_check = 0`: a save made with another build of a pack (or before builds were recorded) loads
     // anyway; the verdict is still reported (`SaveCheck::overridden`). A missing pack or a damaged record still
     // refuses.
@@ -81,6 +85,7 @@ struct SaveCheck {
     SaveVerdict verdict = SaveVerdict::Ok;
     PackStamp pack;          // the pack the verdict is about (recorded or active stamp); empty for Ok / BadRecord
     bool overridden = false; // DifferentBuild / OlderThanPack that loads anyway (ActivePacks::loadOtherBuilds)
+    bool needsUpgrade = false;
     bool ok() const { return verdict == SaveVerdict::Ok || overridden; }
 };
 // The load policy. A save with a record loads when every recorded pack is active with the same build (packs added

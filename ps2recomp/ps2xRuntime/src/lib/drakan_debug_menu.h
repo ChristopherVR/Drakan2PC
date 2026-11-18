@@ -21,8 +21,10 @@ namespace drakan_debug_menu {
 
 void configure();         // [general] debug_menu (env DRAKAN_DEBUG_MENU)
 void setEnabled(bool on); // thread safe; off closes an open menu at the next frame
+void setOotfGoldEnabled(bool on);
 bool enabled();
 bool isOpen(); // thread safe
+bool crosshairVisible();
 
 void install(PS2Runtime& runtime); // the hook on the menu's key callback (Cross = Enter, Start = close), the HUD
 // EE thread, PadMgr_Update boundary after the input frame began: the toggle binding, opening, closing, the callback

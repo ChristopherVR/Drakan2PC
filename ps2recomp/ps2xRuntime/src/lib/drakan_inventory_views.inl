@@ -516,6 +516,23 @@ bool invMapDrawing() {
 void hookViewSprite(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     using namespace drakan_views;
     const uint32_t ra = getRegU32(c, 31);
+    if (c->pc == 0x1c1e90u && ra == 0x3ac504u && drakan_game::current() == drakan_game::Game::Ootf) {
+        // Draw the level-up pulse inside the same aperture as the XP fill (the sprite call returning at 0x3ac2d0).
+        // Keep the native pulse timing and tint, but sample the gauge fill from the atlas instead of the outer halo.
+        SET_GPR_U32(c, 5, getRegU32(c, 5) + 14u);
+        SET_GPR_U32(c, 6, getRegU32(c, 6) + 11u);
+        SET_GPR_U32(c, 7, 13u);
+        SET_GPR_U32(c, 8, 1u);
+        SET_GPR_U32(c, 9, 13u);
+        SET_GPR_U32(c, 10, 103u);
+        RecompGuest g(ram, c, rt);
+        const uint32_t colors = g.read32(getRegU32(c, 29) + 8u);
+        for (uint32_t i = 0; i < 4; ++i) {
+            const uint32_t pixel = colors + i * 4u;
+            const uint32_t color = g.read32(pixel);
+            g.write32(pixel, (color & 0x00ffffffu) | ((color >> 2u) & 0x3f000000u));
+        }
+    }
     if (c->pc == 0x1c1e90u && (ra == 0x439d80u || ra == 0x43a330u || ra == 0x43a498u) && invHostDrawing() &&
         !tabMapDrawing()) {
         // The modern screen without a host map area (another page, or the screen closing: its open / close animation

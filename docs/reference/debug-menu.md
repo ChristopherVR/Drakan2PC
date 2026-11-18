@@ -92,17 +92,18 @@ measurable in this scene; **dead** = no case and no reader in retail, only the s
 | 10 | Show AI State Changes | runs (the `switch` command); no flag of its own found |
 | 10 | Single Step (L2) | dead: its case only acts while `ctx+0x4c4` bit 0 (a development mode) is set |
 | 11 | **Invincible** | **works**: "The Gods Favor You" / "The Gods Decide You Are No Longer Worthy" |
-| 11 | **Fly** | **works**: the camera leaves Rynn (mode 7); Space (Triangle) and Q (R1) move it about 25000 units in 1.25 s, W and the mouse do not. The player controller returns early in mode 7, so the left stick has no use there; whether the right stick turned the camera on the PS2 is not established |
+| 11 | **Fly** | Detaches the camera from Rynn (mode 7). Close the debug menu, then move with the bound movement keys or left stick and aim with the mouse or right stick. Space (Triangle) and Q (R1) retain their native vertical movement. Toggle Fly again to follow Rynn |
 | 11 | **All Experience** | **works**: "You feel enlightened", XP 0 to 219623, level 1 to 12, skill points 0 to 11 |
-| 11 | **Level Up** | **works**: "You're a bit older and a bit wiser" and the level-up effect (level 1 to 2 from a new game) |
+| 11 | **Level Up** | "You're a bit older and a bit wiser" and the level-up effect (level 1 to 2 from a new game). In Order of the Flame, the HUD pulse runs inside the XP gauge and the progress fill still shows the XP earned toward the next level |
 | 11 | **Unlock Spells** | **works**: "Spells Unlocked At Level 1", again "... Level 2" |
 | 11 | **Full Health/Mana** | **works**: "Full Health And Mana" |
-| 11 | **Increase Gold** | **works**: "You've won the lottery!", gold +10000 |
+| 11 | **Increase Gold** | "You've won the lottery!", gold +10000 per activation. Disabled in Order of the Flame by default. Enable it under Gameplay > Developer or set `[general] ootf_debug_gold = 1` (`DRAKAN_OOTF_DEBUG_GOLD`) |
 | 11 | **Pause** | **works**: the world stops (Rynn 0 units while W is held) and resumes |
 | 11 | **Fly PAUSE MODE** | **works** (the pause half): the world stops; the camera stays behind Rynn |
 | 11 | **Suicide** | **works**: HP to -1 and the game's death screen |
-| 11 | Drop, MrClean, Crosshair, Half Speed | runs (console commands); nothing measurable at the start of Surdana (no item to drop, no enemies, no bow; walking speed unchanged with Half Speed) |
-| 11 | Quit | runs but inert: it clears `0x4da718`, which nothing in the PS2 build reads |
+| 11 | Drop, MrClean, Half Speed | runs (console commands); nothing measurable at the start of Surdana (no item to drop, no enemies; walking speed unchanged with Half Speed) |
+| 11 | Crosshair | Toggles the centred HUD crosshair during play |
+| 11 | Quit | Closes the game through the runtime's normal shutdown path |
 | 11 | Speed, Print Lines | dead |
 
 ## USA disc
@@ -116,6 +117,7 @@ translations (`configs/regions/usa.json`), cross-checked against `analysis/regio
 | PAL | USA | What |
 | --- | --- | --- |
 | `0x4e8d48` | `0x4e9bc8` | menu object |
+| `0x1d4580` | `0x1d4520` | run an option |
 | `0x1d49f0` | `0x1d4990` | value text |
 | `0x131ff0` | `0x131f90` | key callback |
 | `0x23ce18` | `0x23cd60` | Game_OnInputCommand |
@@ -132,7 +134,8 @@ input glue (`drakan_input_glue.cpp`, `hookPadMgrUpdate`) and the USA basic-input
 - The **`DEBUG_MENU` binding** (`drakan_input.ini [bindings]`, default `F3 = DEBUG_MENU`, rebindable in Settings >
   Controls > Interface > Debug menu; older files gain F3 unless F3 or the action is already configured) opens and
   closes it: `menu+0 = 1` and the callback slot `PadMgr+0x410 = 0x131ff0`; closing restores the saved callback. While
-  open the slot is re-asserted every frame.
+  open the slot is re-asserted every frame. The menu is available during live gameplay, including Fly. It releases
+  input at death and when entering a game screen or scripted scene.
 - On a **controller**, holding the `[gamepad] debug_menu_combo` buttons together for 0.5 s (`kDebugMenuHoldMs`, once
   per hold) opens and closes it. Default `L3+R3` (both stick clicks, no game function); Settings > Controls > Gamepad >
   Debug menu shortcut offers L3 + R3, Select + R3 or Off, and the INI takes any `+`-joined button names. The combo

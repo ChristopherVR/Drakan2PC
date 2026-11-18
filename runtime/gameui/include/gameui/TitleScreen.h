@@ -125,6 +125,7 @@ struct TitleState {
         ImageRef background;
     };
     bool offerGames = false;
+    bool skipInitialGameChoice = false; // the selected campaign's death screen sent the player here
     // The Original menu style: the player pressed Switch Campaigns on the native title, so the plain game list opens
     // even though [general] game is pinned (offerGames is false then).
     bool forceGameChoice = false;

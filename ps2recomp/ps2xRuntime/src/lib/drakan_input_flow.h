@@ -1,6 +1,7 @@
 // Read-only game flow shared by disc profiles. All pointer chains are bounded.
 #pragma once
 #include "drakan_region.h"
+#include <bit>
 #include <cstring>
 #include <span>
 
@@ -10,6 +11,17 @@ inline bool inMask(int id, uint32_t mask) {
 }
 constexpr bool autostartReady(unsigned lookCalls, unsigned playFrames) {
     return (lookCalls >= 100 && playFrames >= 80) || playFrames >= 240;
+}
+template <class Guest>
+bool worldActive(Guest& g) {
+    return g.read32(drakan_region::guestAddress(0x4fb730u)) != 0 &&
+           g.read32(drakan_region::guestAddress(0x4fbafcu)) == 0;
+}
+template <class Guest>
+int32_t playerHealth(Guest& g) {
+    const uint32_t raw = g.read32(drakan_region::guestAddress(0x4fbac8u) + 0xcu);
+    const uint32_t key = g.read32(drakan_region::guestAddress(0x4fe86cu));
+    return static_cast<int32_t>(std::rotr(raw ^ key, 8));
 }
 class Reader {
 public:

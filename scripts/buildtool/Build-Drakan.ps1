@@ -452,7 +452,7 @@ try {
         # Before the game build: the converter needs only the ISO's level template, and the build then installs the pack
         # (-ModDirectory) and pictures its maps. A failure here does not stop the game build.
         Write-Step 'Converting Drakan: Order of the Flame'
-        $ootfArgs = @($extras, 'ootf', '--iso', $IsoPath, '--source', $OotfSource, '--work', (Join-Path $RepoRoot 'build/ootf'))
+        $ootfArgs = @($extras, 'ootf', '--iso', $IsoPath, '--source', $OotfSource, '--play', $DistDirectory, '--work', (Join-Path $RepoRoot 'build/ootf'))
         if ($OotfSubtitles -eq 'generate') { $ootfArgs += '--generate-subtitles' }
         if ($HdTextures -eq 'on') { $ootfArgs += '--hd' }
         & $python @ootfArgs

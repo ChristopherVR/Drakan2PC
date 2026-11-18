@@ -28,6 +28,7 @@ import {
     readFileSync,
     readSync,
     readdirSync,
+    renameSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -309,8 +310,8 @@ if (previousPath) {
             /^files\/.*\.(LVL|ODB)$/i.test(f.name),
     });
     const build = /^build\s*=\s*"([^"]+)"/m.exec(new TextDecoder().decode(files['mod.toml'] ?? new Uint8Array()))?.[1];
-    if (build) previous = { build, files };
-    else console.warn(`warning: --previous ${previousPath} names no build; class ids and the save build start afresh`);
+    if (!build) throw new Error(`Cannot preserve saves: the previous pack ${previousPath} declares no save build`);
+    previous = { build, files };
 }
 const res = await convertOotfLevels(
     src,
@@ -522,6 +523,14 @@ for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w)
         layout,
         previous && previousLayout && { build: previous.build, layout: previousLayout },
     );
+    if (previous && choice.diff && !choice.kept) {
+        const { changed, removed } = choice.diff;
+        console.error(
+            `Cannot preserve saves of pack build ${previous.build}: ${changed.length} ids changed meaning, ${removed.length} are gone:`,
+        );
+        for (const key of [...changed, ...removed.map((r) => `${r}: gone`)].slice(0, 40)) console.error(`  ${key}`);
+        process.exit(1);
+    }
     // Save revisions (formats saverevisions.ts): what this build changed since the saves of the previous pack were made,
     // so the game upgrades them on load (objects added, spawned effects retired). The history comes from the previous
     // pack's manifest; a previous pack written before revisions is compared with --save-baseline <zip> (the pack the
@@ -593,19 +602,20 @@ for (const w of [...res.warnings, ...pack.warnings]) console.warn('warning:', w)
     ])
         console.log(`  ${line}`);
     const d = choice.diff;
-    if (!previous) console.log(`save build ${choice.build} (no previous pack: saves of earlier builds are refused)`);
-    else if (choice.kept)
+    if (!previous) console.log(`save build ${choice.build} (no previous pack)`);
+    else
         console.log(
             `save build ${choice.build} kept: saves of the previous pack still load (${d!.added} class/object ids added)`,
         );
-    else {
-        console.warn(
-            `WARNING: saves of the previous pack (build ${previous.build}) will be refused: new save build ${choice.build}. ${d!.changed.length} ids changed meaning, ${d!.removed.length} are gone:`,
-        );
-        for (const k of [...d!.changed, ...d!.removed.map((r) => `${r}: gone`)].slice(0, 40)) console.warn(`  ${k}`);
-    }
 }
-writeFileSync(need('out'), zipOotfPack(pack));
+const out = need('out');
+const temporary = `${out}.${process.pid}.tmp`;
+try {
+    writeFileSync(temporary, zipOotfPack(pack));
+    renameSync(temporary, out);
+} finally {
+    rmSync(temporary, { force: true });
+}
 console.log(`wrote ${opt['out']} (${pack.levels.length} levels, ${Object.keys(pack.files).length} files)`);
 // --hd-sources-only 1: only write the lossless sources next to the pack; the caller (scripts/buildtool/extras.py) runs the HD pack.
 // --hd [--hd-out dir]: HD pack for the converted textures (Real-ESRGAN, by decoded-RGBA hash) into dist/DrakanPC/textures or <dir>; never committed.

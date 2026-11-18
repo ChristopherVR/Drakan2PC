@@ -514,6 +514,14 @@ void InputModule::beginFrame(const FrameInput& injected) {
     padReady_ = false;
 }
 
+void InputModule::setFlyCameraInput(bool on) {
+    std::lock_guard<std::mutex> lock(m_);
+    if (flyCameraInput_ != on) {
+        flyCameraInput_ = on;
+        padReady_ = false;
+    }
+}
+
 bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
     std::lock_guard<std::mutex> lock(m_);
     if (port != 0)
@@ -527,11 +535,12 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
         padReady_ = true;
     }
     if (!padReady_) {
-        const auto& layer = layerIsMenu_ ? cfg_.menu : cfg_.game;
+        const bool menu = layerIsMenu_ && !flyCameraInput_;
+        const auto& layer = menu ? cfg_.menu : cfg_.game;
         PadSample s; // neutral while suspended
         const bool direct = cfg_.lookMode == LookMode::Direct && !(dragon_ && cfg_.dragonStick);
         FrameInput f = frame_;
-        const bool inventory = layerIsMenu_ && mm_.activeScreenId() == kInventoryScreenId;
+        const bool inventory = menu && mm_.activeScreenId() == kInventoryScreenId;
         if (inventory &&
             cfg_.inventoryMouse) { // right click is handled by MenuMouse there (SELECT closes the inventory)
             f.mouseDown &= static_cast<uint8_t>(~MBTN_RIGHT);
@@ -539,7 +548,9 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
             f.mouseReleased &= static_cast<uint8_t>(~MBTN_RIGHT);
         }
         if (!hostOwned())
-            s = synthesizePad(cfg_, f, layer, layerIsMenu_, direct, walkActive_, ps_, meleeDirections_);
+            s = synthesizePad(cfg_, f, layer, menu, direct, walkActive_, ps_, meleeDirections_);
+        if (flyCameraInput_)
+            s.lx = s.ly = s.rx = s.ry = 0x80;
         // The inventory / map closes with SELECT; START opens the pause menu over it. The menu layer's "back" keys
         // (Esc, Backspace = START | CIRCLE) must only close it, so a bound START becomes SELECT there, and stays
         // SELECT until released: the screen is gone a frame before the layer switch drops the held key, and a START

@@ -356,7 +356,7 @@ void TitleScreen::open() {
     pcPages_.close();
     mpScreen_.close();
     modsAsked_ = false; // the host stops passing TitleState::newMods once the player answered
-    gameAsked_ = false; // every visit to the title asks which game again (the last choice has the focus)
+    gameAsked_ = false;
 }
 
 void TitleScreen::close() {
@@ -755,7 +755,8 @@ TitleFrameOutput TitleScreen::frame(const TitleState& st, const UiInput& in, con
         page_ = TitlePage::ModsNotice;
         focus_ = {TargetKind::CardButton, static_cast<int>(TitleRow::ModsEnable)};
     }
-    if ((st.offerGames || st.forceGameChoice) && !gameAsked_ && page_ == TitlePage::Main && !loading_) {
+    if ((st.forceGameChoice || (st.offerGames && !st.skipInitialGameChoice)) && !gameAsked_ &&
+        page_ == TitlePage::Main && !loading_) {
         gameAsked_ = true;
         page_ = TitlePage::GameChoice;
         focus_ = {TargetKind::CardButton, static_cast<int>(gameRowOf(std::clamp(st.game, 0, gameCount(st) - 1)))};

@@ -443,22 +443,31 @@ was made with, and the game refuses a save it cannot vouch for.
   each 0x102 record) and level objects by uid (0x24 / 0x21); everything else (models, textures, sounds, music, terrain,
   positions, class defaults) is read from the pack again. The pack's *save layout* is therefore: every class record of
   `new/` and `overrides/` (`class|<ODB>|<id>` -> name, engine class, field count) and every level's database list and
-  object table (`obj|<level>|<uid>` -> db:class). The converter reads the pack it replaces (`--previous <zip>`, default
-  the `--out` file, `none` = start afresh; `extras.py` keeps the old pack as `ootf-levels.previous.zip` until the new one
-  is written) and
+  object table (`obj|<level>|<uid>` -> db:class). The guided builder uses the installed play folder's pack first, even
+  if the build cache holds a different copy. The converter accepts this pack as `--previous <zip>` and otherwise uses
+  the existing `--out` file. The builder keeps its previous working copy until conversion succeeds. The converter
   * hands its class ids on (`classIdPins`, `ClassIdPinner`: per ODB, name + engine class -> ids; the k-th such class keeps
     the k-th old id, every old id stays reserved, new classes are numbered above them; `planClassMapping`, the map and
     the grown fire classes), so a newly supported class no longer renumbers the others;
-  * keeps the previous `build` while the new layout only adds keys (new classes, levels, objects: an old save does not
-    name them and simply does not recreate a new object), and logs `save build <id> kept`; otherwise the build is the
-    hash of the new layout (`saveLayoutId`) and the log lists the ids that changed meaning (`WARNING: saves of the
-    previous pack ... will be refused`).
+  * keeps the previous `build` while the layout is compatible and logs `save build <id> kept`. Adding classes, levels
+    or objects preserves compatibility. Splitting one class between models also works when both classes keep the
+    original signature and the original class remains at its ID. Untouched objects load by object ID and existing
+    saved records can still load by their original class ID.
+  * stops conversion before replacing the pack if an existing ID changes meaning or disappears. The log starts
+    `Cannot preserve saves of pack build ...` and lists the layout changes. Use `--previous none` with a new output path
+    for a separate conversion without a save history.
 
   Objects the converter adds (exit boxes, door holds, cull boxes ...) are still numbered in feature order after the PC
   ids, so **a converter change must add new synthetic objects after the existing ones** (run its feature last, or give
   the objects ids above every id the level had); otherwise the layout check refuses old saves of that level. Guard:
   `savelayout.test.ts`. Without a previous pack (a fresh install, a private test conversion) the build is the layout
   hash, so two conversions with the same layout agree.
+* **Previous Order of the Flame creature layout.** Saves stamped `da1e598e3d3adfdd` can load with pack build
+  `493b53de681b8791`. The game translates saved Crimson, Blade and Ice Dragon and Scavenger AnimWay Point records to
+  the replacement NPC classes while reading the save. The original file and record stay on disk. The same translation
+  applies to saved level states. An older level state without its own record can inherit a build when the saves in its
+  slot agree. Saving over that slot records the inherited build beside each earlier level state before changing the
+  slot's build. The game keeps checking the builds of other recorded packs.
 * **`save_scope = "levels"`** (top-level manifest key; the OotF converter writes it): the pack's saved classes and objects
   only concern its own `levels` (it adds classes and levels and changes no disc class or level). A save of another level
   does not record it, and an older record of it is not checked for such a save (`ActivePacks::levelScoped`), so Drakan 2
@@ -644,7 +653,8 @@ the exit's own parameter in the copy's LVL), which adds instead of replacing. Th
 What the runtime does with it (`drakan_game.cpp`):
 
 * **Title menu**: when a campaign is installed, the card "Choose your game" opens with the title and again after Back on the
-  main page; Esc on the card keeps the current game. With `[general] title_menu = native` (Original) the same choice is
+  main page. After Rynn dies, returning to the title opens the current campaign's main menu directly. Esc on the card keeps
+  the current game. With `[general] title_menu = native` (Original) the same choice is
   asked first as a plain list in the original menus' style (heading and game names as text over the native title art, no
   panels, covers or descriptions; Up / Down, Enter, mouse, same sounds; Esc keeps the current game), then the game's own
   title menu carries on (`TitleState::classicGameChoice`, `drakan_menu_screens.inl` titleExecute SelectGame).
@@ -941,8 +951,11 @@ names and ids (`DEFAULT_PS2_TEXTURE_SUBSTITUTIONS`, each row with a reason), nev
 
 Rules: the disc texture must have the OotF texture's aspect ratio (UVs are normalised, so a different size is harmless); a
 texture of a skinned model must stay 8 bpp and square or the OotF one is kept; an animated disc texture brings its frames;
-several OotF textures naming one disc texture share one copy. Object textures only: no OotF terrain texture has a better
-Drakan 2 Proc Textures counterpart.
+several OotF textures naming one disc texture share one copy.
+
+Terrain uses its own family mappings. Grass, dirt and rock variants share a Drakan 2 ground texture where the surface has
+a suitable counterpart. In Ruined Village, the darkest scorched tiles use the disc's Mud texture and the grassy edges
+use its Grass texture. The terrain blend carries the transition between them. Use `--ps2-terrain 0` to keep the original ground.
 
 * CLI: on by default; `--ps2-textures 0` keeps every OotF texture. `--ps2-texture-map <file.json>` edits the table with
   `[{ "ootf": "<container>#<id>", "ps2": "<disc TXD path>#<id>" | null }]` rows (`null` turns a row off, a new `ootf` adds a
@@ -973,7 +986,7 @@ skeleton, clips and HD textures) instead of the converted PC one (formats `ootfp
 | Enemies | Orc Leather (purple), Orc Plate (yellow) | Purple Orc Center, Yellow Orc : Center | same creature and skeleton |
 | Enemies | Heuge Purple, Heuge Yellow (cut-scene orcs, engine class 17, the models of the two gameplay orcs) | Purple Orc Center, Yellow Orc : Center | on by default, rows marked `scene`: the scene orc is the disc model and rig, PC scene clips retargeted, channels remapped by joint; turn the row off to keep the PC model. Scene Sailors and Death Mages stay PC models (the disc rigs share under half of their joints) |
 | Enemies | Spider | Spider | same creature, same 37 joints |
-| Enemies | Scavenger | Scavenger | on by default: the converted PC model could not be hit by melee; plays as the Drakan 2 class (its health and attacks), turn the row off to keep the PC model |
+| Enemies | Scavenger | Scavenger | the Drakan 2 creature keeps its melee hit volumes and attacks. Starting health comes from the original Order of the Flame placement or class |
 | Enemies | Crimson Dragon, Blade Dragon, Ice Dragon | Crimson Dragon (Bat), Blade Dragon (Crow), Ice Dragon 1 | the disc's remakes, with the disc clips and breath; each keeps its Order of the Flame hit points (`pcFields`), the Ice Dragon also its sight range and field of view. Their AnimWay Points use the disc clips too. The Boss Blade Dragon (own green skin) and the Ebon Dragon stay PC models |
 | Weapons | Short Sword, Long Sword, 2-Handed, Scimitar, Speed Scimitar | Steel Short Sword, Steel Longsword, Steel Two Handed Sword, Steel Scimitar, Iron Scimitar | plain blades |
 | Weapons | Mace, Battle Axe, Battle Hammer, club, Goblin Club, Troll Axe | Steel Mace, Steel Axe, Steel Hammer, club, Wood Club, Leathertock Axe - Lev [1] | plain blunt weapons and the Wartok axe |

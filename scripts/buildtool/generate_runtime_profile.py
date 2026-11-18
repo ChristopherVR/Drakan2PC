@@ -34,8 +34,8 @@ REQUIREMENTS = {
     "OptionsSettings": (0x4424E0,),
     "MovementInput": (0x4E90C0, 0x131FA8, 0x4AF7F8),
     "DirectMouseLook": (0x44E4A8, 0x41F848, 0x13EE90, 0x4E8C48, 0x4E9594, 0x4E9558, 0x32CDA8, 0x276E40),
-    # menu object, value formatter, key callback, PadMgr, Game_OnInputCommand (docs/reference/debug-menu.md)
-    "DebugMenu": (0x4E8D48, 0x1D49F0, 0x131FF0, 0x4E90C0, 0x23CE18),
+    # Menu object, formatter, option runner, input callbacks, world state and player stats.
+    "DebugMenu": (0x4E8D48, 0x1D49F0, 0x1D4580, 0x131FF0, 0x4E90C0, 0x23CE18, 0x4FB730, 0x4FBAC8, 0x4FE86C),
 }
 FEATURES = (*LEGACY_FEATURES, *REQUIREMENTS)
 MOVIE_FIELDS = ("fps_index", "frame_count", "screen_entries", "screen_count", "fps_numerator", "fps_denominator")

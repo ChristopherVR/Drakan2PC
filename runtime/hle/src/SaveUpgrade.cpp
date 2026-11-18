@@ -74,6 +74,26 @@ void wr32(std::vector<u8>& v, size_t at, u32 x) {
     for (size_t i = 0; i < 4; ++i)
         v[at + i] = static_cast<u8>(x >> (8 * i));
 }
+bool readDatabases(const std::vector<u8>& data, std::vector<std::string>& databases) {
+    if (data.size() < 4)
+        return false;
+    const u32 count = rd32(data.data());
+    size_t pos = 4;
+    for (u32 i = 0; i < count; ++i) {
+        if (data.size() - pos < 2)
+            return false;
+        const u16 size = rd16(&data[pos]);
+        pos += 2;
+        if (size == 0 || size > data.size() - pos)
+            return false;
+        std::string name(reinterpret_cast<const char*>(&data[pos]), size);
+        name.erase(std::find(name.begin(), name.end(), '\0'), name.end());
+        std::replace(name.begin(), name.end(), '\\', '/');
+        databases.push_back(lower(std::move(name)));
+        pos += size;
+    }
+    return pos == data.size();
+}
 } // namespace
 
 bool parseSaveRevisionRule(const std::string& line, SaveRevisionRule::Kind kind, SaveRevisionRule& out) {
@@ -150,7 +170,7 @@ std::vector<const SaveRevisionRule*> rulesFor(const std::vector<SaveRevisionRule
 }
 
 bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevisionRule*>& rules, std::vector<u8>& out,
-                 SaveUpgradeReport& report, std::string& err) {
+                 SaveUpgradeReport& report, std::string& err, std::span<const SaveClassRemap> remaps) {
     out.clear();
     report = {};
     std::vector<std::pair<u32, u32>> ids; // (id, required id or 0)
@@ -180,7 +200,7 @@ bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevision
     };
     std::vector<Ent> ents;
     size_t records = 0;
-    int statics = -1, pairs = -1;
+    int statics = -1, pairs = -1, dbs = -1;
     for (u32 i = 0; i < cnt; ++i) {
         const u8* q = &in[static_cast<size_t>(idx) + static_cast<size_t>(i) * 14];
         const Ent e{rd16(q), rd16(q + 2), rd16(q + 4), rd32(q + 6), rd32(q + 10)};
@@ -190,6 +210,8 @@ bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevision
         }
         if (e.type == 0x102)
             ++records;
+        if (e.type == 0x22)
+            dbs = static_cast<int>(ents.size());
         if (e.type == 0x24 || e.type == 0x21) {
             int& at = e.type == 0x24 ? statics : pairs;
             if (at >= 0) {
@@ -241,6 +263,35 @@ bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevision
             std::find(report.added.begin(), report.added.end(), id) == report.added.end())
             report.added.push_back(id);
     std::vector<SrscPatch> patches;
+    if (!remaps.empty()) {
+        std::vector<std::string> databases;
+        std::vector<u8> d;
+        if (dbs < 0 || !unzlib(&in[ents[dbs].off], ents[dbs].size, d) || !readDatabases(d, databases)) {
+            err = "could not read the save's database table (0x22)";
+            return false;
+        }
+        for (const Ent& e : ents) {
+            if (e.type != 0x102)
+                continue;
+            if (!unzlib(&in[e.off], e.size, d) || d.size() < 4) {
+                err = "could not read a saved class record (0x102)";
+                return false;
+            }
+            const u32 word = rd32(d.data()), db = word >> 16;
+            if (db >= databases.size()) {
+                err = "saved class names an unknown database";
+                return false;
+            }
+            for (const SaveClassRemap& remap : remaps) {
+                if ((word & 0xFFFF) != remap.from || !databases[db].ends_with(remap.database))
+                    continue;
+                wr32(d, 0, (word & 0xFFFF0000u) | remap.to);
+                patches.push_back({e.type, e.id, e.sub, zlibStored(d), false});
+                ++report.reclassified;
+                break;
+            }
+        }
+    }
     // Spawned records (no pair names their slot = record id - 1) of a replaced class near the rule's spot.
     if (!replace.empty())
         for (const Ent& e : ents) {

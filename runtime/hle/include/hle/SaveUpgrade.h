@@ -19,7 +19,9 @@
 // power-up links restored and the listed togglers' saved state cleared. Std-only: no file access, no guest memory.
 #pragma once
 #include "Interfaces.h"
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace hle::mods {
@@ -67,12 +69,18 @@ constexpr size_t kDragonPowerUpMark = 0x64;
 // whose toggler shows its links, 2 in one whose toggler hid them last (the 15 November Slot33 camp toggler).
 constexpr u32 kTogglerEngine = 121;
 
+struct SaveClassRemap {
+    std::string_view database;
+    u16 from, to;
+};
+
 struct SaveUpgradeReport {
     std::vector<u32> added; // level object ids appended
     size_t replaced = 0;    // spawned records given their inert class
     size_t relinked = 0;    // dragons whose power-up links were restored
     size_t togglers = 0;    // togglers whose saved state was cleared
-    bool changed() const { return !added.empty() || replaced || relinked || togglers; }
+    size_t reclassified = 0;
+    bool changed() const { return !added.empty() || replaced || relinked || togglers || reclassified; }
 };
 
 // Upgrades a save or level state (SRSC container) by the given rules (any kind, already chosen for the save):
@@ -91,6 +99,6 @@ struct SaveUpgradeReport {
 // dropped. False with `err` when the save does not have the expected tables (`out` is then empty). Nothing to change:
 // `out` == `in`. Journal: docs/journal/2026-11-16/save-state-fix.md.
 bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevisionRule*>& rules, std::vector<u8>& out,
-                 SaveUpgradeReport& report, std::string& err);
+                 SaveUpgradeReport& report, std::string& err, std::span<const SaveClassRemap> remaps = {});
 
 } // namespace hle::mods

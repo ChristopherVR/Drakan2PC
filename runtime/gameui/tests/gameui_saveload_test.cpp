@@ -868,6 +868,8 @@ void testTitleSwitchCampaigns() {
     one.frame(single, {}, kVp);
     const std::vector<TitleRow> oneRows = one.rows(single);
     CHECK(std::find(oneRows.begin(), oneRows.end(), TitleRow::SwitchCampaigns) == oneRows.end());
+    st.offerGames = true;
+    st.skipInitialGameChoice = true;
     TitleScreen scr(on);
     scr.open();
     TitleFrameOutput o = scr.frame(st, {}, kVp);

@@ -710,15 +710,20 @@ static void testDualWield() {
 static void testDebugMenu() {
     SettingsStore st;
     CHECK(!st.defaults().general.debugMenu);
-    st.loadFromText("[general]\ndebug_menu = 1\n", "");
+    CHECK(!st.defaults().general.ootfDebugGold);
+    st.loadFromText("[general]\ndebug_menu = 1\nootf_debug_gold = 1\n", "");
     CHECK(st.loaded().general.debugMenu);
+    CHECK(st.loaded().general.ootfDebugGold);
     auto edited = st.loaded();
     edited.general.debugMenu = false;
-    CHECK((changedKeys(st.loaded(), edited) == std::vector<std::string>{"general.debug_menu"}));
+    edited.general.ootfDebugGold = false;
+    CHECK((changedKeys(st.loaded(), edited) ==
+           std::vector<std::string>{"general.debug_menu", "general.ootf_debug_gold"}));
     CHECK_EQ(settingLabel("general.debug_menu"), "Developer debug menu");
     std::string a, b;
     st.render(edited, a, b);
     CHECK(contains(a, "debug_menu = 0"));
+    CHECK(contains(a, "ootf_debug_gold = 0"));
 }
 
 static void testSaveAndTitleMenus() {

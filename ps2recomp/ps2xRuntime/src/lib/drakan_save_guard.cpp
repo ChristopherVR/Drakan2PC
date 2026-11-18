@@ -48,18 +48,29 @@ constexpr uint32_t kEntrySize = 0x168u, kCallbackNode = 0xc8u, kBoxCardMode = 0x
 
 std::mutex g_mutex;
 hle::mods::ActivePacks g_active;
+// The installed creature swap removed four NPC classes while keeping their placed object IDs.
+constexpr std::string_view kOotfPreviousBuild = "da1e598e3d3adfdd";
+constexpr std::string_view kOotfCreatureSwapBuild = "493b53de681b8791";
+constexpr hle::mods::SaveClassRemap kOotfCreatureSwaps[] = {
+    {"/npc/npcs", 7084, 3040},
+    {"/npc/npcs", 7096, 2676},
+    {"/npc/npcs", 7109, 5604},
+    {"/npc/npcs", 7130, 3134},
+};
 // Save revisions (SaveUpgrade.h): per content pack with a `save_revision`, its rules. g_mutex.
 struct PackRevisions {
     std::string id;
     int revision = 0;
     std::vector<hle::mods::SaveRevisionRule> rules;
+    bool migrateOotfCreatures = false;
 };
 std::vector<PackRevisions> g_revisions;
 // What the read filter decided per save file (same size and time = same answer). g_mutex.
+enum class UpgradeState { Unchanged, Replaced, Failed };
 struct Upgraded {
     std::uintmax_t size = 0;
     fs::file_time_type time{};
-    bool replaced = false;
+    UpgradeState state = UpgradeState::Unchanged;
     std::vector<uint8_t> data;
 };
 std::map<std::string, Upgraded> g_upgraded;
@@ -105,6 +116,24 @@ bool readText(const fs::path& p, std::string& out) {
     return !f.bad();
 }
 
+bool writePackRecord(const fs::path& record, const std::vector<hle::mods::PackStamp>& packs) {
+    const fs::path temp = fs::path(record.native() + fs::path(".tmp").native());
+    const std::string text = hle::mods::formatSaveRecord(packs);
+    std::ofstream file(temp, std::ios::binary | std::ios::trunc);
+    file.write(text.data(), static_cast<std::streamsize>(text.size()));
+    file.close();
+    std::error_code ec;
+    if (file) {
+        fs::rename(temp, record, ec);
+        if (!ec)
+            return true;
+    }
+    fs::remove(temp, ec);
+    return false;
+}
+
+void preserveOotfLevelStamps(const fs::path& writtenPath);
+
 gameui::SavePackProblem problemOf(SaveVerdict v) {
     switch (v) {
         case SaveVerdict::Ok:
@@ -133,31 +162,27 @@ void written(const fs::path& path) {
         packs = hle::mods::recordFor(g_active, path.stem().string());
         g_slotCache.clear();
         g_entryCache.clear();
+        g_upgraded.erase(path.string());
     }
     const fs::path record = recordPath(path);
     std::error_code ec;
+    if (path.parent_path().filename().string().starts_with(slotPrefix()) &&
+        std::any_of(packs.begin(), packs.end(), [](const hle::mods::PackStamp& stamp) {
+            return stamp.id == "ootf-levels" && stamp.build == kOotfCreatureSwapBuild;
+        })) {
+        preserveOotfLevelStamps(path);
+    }
     if (packs.empty()) {
         if (fs::remove(record, ec))
             std::fprintf(stderr, "[saves] %s: written without content packs, pack record removed\n",
                          path.filename().string().c_str());
+    } else if (writePackRecord(record, packs)) {
+        std::string list;
+        for (const auto& p : packs)
+            list += (list.empty() ? "" : ", ") + p.id + " " + p.build;
+        std::fprintf(stderr, "[saves] %s: pack record %s\n", path.filename().string().c_str(), list.c_str());
     } else {
-        const fs::path temp = fs::path(record.native() + fs::path(".tmp").native());
-        {
-            std::ofstream f(temp, std::ios::binary | std::ios::trunc);
-            const std::string text = hle::mods::formatSaveRecord(packs);
-            f.write(text.data(), static_cast<std::streamsize>(text.size()));
-        }
-        fs::rename(temp, record, ec);
-        if (ec) {
-            fs::remove(temp, ec);
-            std::fprintf(stderr, "[saves] %s: the pack record could not be written\n",
-                         path.filename().string().c_str());
-        } else {
-            std::string list;
-            for (const auto& p : packs)
-                list += (list.empty() ? "" : ", ") + p.id + " " + p.build;
-            std::fprintf(stderr, "[saves] %s: pack record %s\n", path.filename().string().c_str(), list.c_str());
-        }
+        std::fprintf(stderr, "[saves] %s: the pack record could not be written\n", path.filename().string().c_str());
     }
     // A slot holds one save; a record whose save the game replaced (another level) or deleted goes too.
     for (fs::directory_iterator it(path.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
@@ -290,49 +315,71 @@ PackRevisions revisionsOf(const hle::mods::Manifest& m) {
     return pr;
 }
 
-// The revision of pack `packId` a save file was written with: its own record (`.rsg`, and `.rlt` level states written
-// by this game version); for an older level state without one, the lowest the `.rsg` records beside it name. 0 = none
-// recorded.
-int savedRevision(const fs::path& file, const std::string& packId) {
-    const auto fromRecord = [&](const fs::path& record, int& out) {
+struct SavedBuild {
+    std::string build;
+    int revision = 0;
+};
+SavedBuild savedBuild(const fs::path& file, const std::string& packId) {
+    const auto fromRecord = [&](const fs::path& record) -> SavedBuild {
         std::string text;
         std::vector<hle::mods::PackStamp> packs;
         if (!readText(record, text) || !hle::mods::parseSaveRecord(text, packs))
-            return false;
+            return {};
         for (const auto& p : packs)
-            if (p.id == packId) {
-                out = p.revision;
-                return true;
-            }
-        return false;
+            if (p.id == packId)
+                return {p.build, p.revision};
+        return {};
     };
-    int rev = 0;
     std::error_code ec;
-    if (fs::exists(recordPath(file), ec))
-        return fromRecord(recordPath(file), rev) ? rev : 0;
-    int lowest = -1;
+    if (fs::exists(recordPath(file), ec) || file.extension() != ".rlt")
+        return fromRecord(recordPath(file));
+    SavedBuild oldest;
     const std::string suffix = std::string(".rsg") + kRecordSuffix;
     for (fs::directory_iterator it(file.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().string();
-        if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
-            fromRecord(it->path(), rev))
-            lowest = lowest < 0 ? rev : std::min(lowest, rev);
+        if (!name.ends_with(suffix))
+            continue;
+        SavedBuild stamp = fromRecord(it->path());
+        if (stamp.build.empty())
+            continue;
+        if (!oldest.build.empty() && oldest.build != stamp.build)
+            return {}; // an unstamped .rlt can only inherit an unambiguous build from its slot
+        if (oldest.build.empty() || stamp.revision < oldest.revision)
+            oldest = std::move(stamp);
     }
-    return std::max(lowest, 0);
+    return oldest;
+}
+
+void preserveOotfLevelStamps(const fs::path& writtenPath) {
+    // Unvisited levels still contain old records after the slot's new RSG replaces their only inherited pack stamp.
+    std::error_code ec;
+    for (fs::directory_iterator it(writtenPath.parent_path(), ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::path& path = it->path();
+        if (path == writtenPath || path.extension() != ".rlt" || !it->is_regular_file(ec) ||
+            fs::exists(recordPath(path), ec) || ec)
+            continue;
+        const SavedBuild old = savedBuild(path, "ootf-levels");
+        if (old.build != kOotfPreviousBuild)
+            continue;
+        const hle::mods::PackStamp stamp{"ootf-levels", "Order of the Flame", "", old.build, old.revision};
+        const bool written = writePackRecord(recordPath(path), {stamp});
+        std::fprintf(stderr, "[saves] %s: inherited pack build %s %s\n", path.filename().string().c_str(),
+                     old.build.c_str(), written ? "recorded" : "could not be recorded");
+    }
 }
 
 // Memory card read filter: a save or level state of an older pack revision is read upgraded (SaveUpgrade.h): the level
 // objects added since are appended to its tables and the spawned records replaced since get their inert class. The
 // file on the card stays as it is; the game's next save writes the upgraded state with the current revision.
-bool upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
+UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
     const std::string ext = host.extension().string();
     if (ext != ".rsg" && ext != ".rlt")
-        return false;
+        return UpgradeState::Unchanged;
     std::vector<PackRevisions> revisions;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_revisions.empty())
-            return false;
+            return UpgradeState::Unchanged;
         revisions = g_revisions;
     }
     std::error_code ec;
@@ -340,10 +387,19 @@ bool upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
     const fs::file_time_type time = fs::last_write_time(host, ec);
     const std::string key = host.string(), level = host.stem().string(), name = host.filename().string();
     std::vector<const hle::mods::SaveRevisionRule*> rules;
+    std::span<const hle::mods::SaveClassRemap> remaps;
     std::string about;
     using Kind = hle::mods::SaveRevisionRule::Kind;
+    const hle::mods::SaveRevisionRule statue{Kind::AddObjects, 1, "OotF 01 - Ruined Village", {3353}, {2855}};
     for (const PackRevisions& pr : revisions) {
-        const int rev = savedRevision(host, pr.id);
+        const SavedBuild saved = savedBuild(host, pr.id);
+        const int rev = saved.revision;
+        if (pr.migrateOotfCreatures && saved.build == kOotfPreviousBuild) {
+            remaps = kOotfCreatureSwaps;
+            if (rev == 0 && hle::mods::ruleLevelMatches(statue.level, level))
+                rules.push_back(&statue);
+            about = "Order of the Flame build " + saved.build;
+        }
         if (rev >= pr.revision)
             continue;
         for (const Kind kind : {Kind::AddObjects, Kind::ReplaceEffects, Kind::RelinkPowerUps, Kind::ResetTogglers})
@@ -352,18 +408,18 @@ bool upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
         about += (about.empty() ? "" : ", ") + ("pack '" + pr.id + "' revision ") + std::to_string(rev) + " < " +
                  std::to_string(pr.revision);
     }
-    if (rules.empty())
-        return false;
+    if (rules.empty() && remaps.empty())
+        return UpgradeState::Unchanged;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         const auto it = g_upgraded.find(key);
         if (it != g_upgraded.end() && it->second.size == size && it->second.time == time) {
-            if (it->second.replaced)
-                data = it->second.data;
-            return it->second.replaced;
+            if (data && it->second.state == UpgradeState::Replaced)
+                *data = it->second.data;
+            return it->second.state;
         }
     }
-    Upgraded u{size, time, false, {}};
+    Upgraded u{size, time};
     std::vector<uint8_t> in;
     {
         std::ifstream f(host, std::ios::binary);
@@ -371,9 +427,9 @@ bool upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
     }
     hle::mods::SaveUpgradeReport report;
     std::string err;
-    if (!hle::mods::upgradeSave(in, rules, u.data, report, err)) {
-        std::fprintf(stderr, "[saves] %s (%s): not upgraded, read as it is (%s)\n", name.c_str(), about.c_str(),
-                     err.c_str());
+    if (!hle::mods::upgradeSave(in, rules, u.data, report, err, remaps)) {
+        std::fprintf(stderr, "[saves] %s (%s): upgrade failed (%s)\n", name.c_str(), about.c_str(), err.c_str());
+        u.state = UpgradeState::Failed;
     } else if (!report.changed()) {
         std::fprintf(stderr, "[saves] %s (%s): nothing to upgrade\n", name.c_str(), about.c_str());
     } else {
@@ -382,19 +438,31 @@ bool upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
             list += (list.empty() ? "" : " ") + std::to_string(id);
         std::fprintf(stderr,
                      "[saves] %s (%s): upgraded on load: level objects added [%s], %zu spawned record(s) made inert, "
-                     "%zu dragon(s) given their power-ups again, %zu toggler(s) reset\n",
-                     name.c_str(), about.c_str(), list.c_str(), report.replaced, report.relinked, report.togglers);
-        u.replaced = true;
+                     "%zu dragon(s) given their power-ups again, %zu toggler(s) reset, %zu creature class(es) mapped\n",
+                     name.c_str(), about.c_str(), list.c_str(), report.replaced, report.relinked, report.togglers,
+                     report.reclassified);
+        u.state = UpgradeState::Replaced;
     }
-    if (!u.replaced)
+    if (u.state != UpgradeState::Replaced)
         u.data.clear();
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_upgraded.size() > 64)
         g_upgraded.clear();
     g_upgraded[key] = u;
-    if (u.replaced)
-        data = std::move(u.data);
-    return u.replaced;
+    if (data && u.state == UpgradeState::Replaced)
+        *data = std::move(u.data);
+    return u.state;
+}
+ps2_stubs::McReadResult upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
+    switch (upgradeFile(host, &data)) {
+        case UpgradeState::Unchanged:
+            return ps2_stubs::McReadResult::Unchanged;
+        case UpgradeState::Replaced:
+            return ps2_stubs::McReadResult::Replaced;
+        case UpgradeState::Failed:
+            return ps2_stubs::McReadResult::Refused;
+    }
+    return ps2_stubs::McReadResult::Refused;
 }
 } // namespace
 
@@ -409,8 +477,13 @@ void configure(const hle::mods::ModManager* mods) {
             active.packs.back().revision = st.manifest.saveRevision;
             if (st.manifest.saveScope == "levels")
                 active.levelScoped.push_back(st.manifest.id);
-            if (st.manifest.saveRevision > 0)
+            const bool migrateOotfCreatures = st.manifest.id == "ootf-levels" && st.build == kOotfCreatureSwapBuild;
+            if (st.manifest.saveRevision > 0 || migrateOotfCreatures) {
                 revisions.push_back(revisionsOf(st.manifest));
+                revisions.back().migrateOotfCreatures = migrateOotfCreatures;
+            }
+            if (migrateOotfCreatures)
+                active.compatibleBuilds.push_back({st.manifest.id, std::string(kOotfPreviousBuild)});
         }
         for (const hle::mods::ExtraLevel& l : mods->extraLevels()) {
             const auto st = std::find_if(mods->status().begin(), mods->status().end(),
@@ -485,6 +558,8 @@ Verdict checkSave(const fs::path& rsg) {
         std::lock_guard<std::mutex> lock(g_mutex);
         r = hle::mods::checkSave(in, g_active);
     }
+    if (r.verdict == SaveVerdict::Ok && r.needsUpgrade && upgradeFile(rsg, nullptr) == UpgradeState::Failed)
+        r.verdict = SaveVerdict::BadRecord;
     if (r.overridden) { // loads anyway: say so once per save
         static std::set<std::string> warned;
         std::lock_guard<std::mutex> lock(g_mutex);

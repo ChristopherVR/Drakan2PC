@@ -126,6 +126,7 @@ struct GeneralSettings {
     // debug_menu: F3 opens the engine's own developer debug menu (cheats, teleport, render and profiling switches) in
     // play. Applied live through ISettingsHost::applyGeneral.
     bool debugMenu = false;
+    bool ootfDebugGold = false;
     // save_menu: the Save Game / Load Game screens. native = the game's slot grid (with the PC pager and previews);
     // modern = the host-drawn slot browser (gameui SaveLoadScreen). Not wired into the game yet.
     SaveMenu saveMenu = SaveMenu::Native;

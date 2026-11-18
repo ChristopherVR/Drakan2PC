@@ -21,6 +21,7 @@ SHA-256 in scripts/buildtool/kit/installer.lock.json and refused when they diffe
 from __future__ import annotations
 
 import argparse
+import filecmp
 import hashlib
 import importlib.util
 import json
@@ -777,6 +778,7 @@ def convert_ootf(
     force: bool = False,
     root: Path = ROOT,
     generate_subtitles: bool = False,
+    play: Path | None = None,
 ) -> Path:
     """Source -> <work>/mods/ootf-levels.zip (+ mods.ini). Returns the mods folder to pass as Build-LocalGame -ModDirectory."""
     timings = Timings(work.parent / "extras-timings.json")
@@ -788,6 +790,9 @@ def convert_ootf(
     if not iso.is_file():
         raise ExtrasError(f"ISO not found: {iso}")
     mods = work / "mods"
+    out = mods / f"{PACK_ID}.zip"
+    installed = play / "mods" / out.name if play else None
+    installed = installed if installed and installed.is_file() and installed.resolve() != out.resolve() else None
     cover = bundled_cover(root)
     models = bundled_models(root)
     source_path = install if kind == "install" else Path(source)
@@ -811,6 +816,8 @@ def convert_ootf(
     if not subtitles:
         # The converter selects these only when Dragon.rrc identifies an English installation.
         state["bundledSubtitles"] = sha256_of(root / "scripts/buildtool/kit/subtitles/english.json")
+    if installed and out.is_file() and not filecmp.cmp(installed, out, shallow=False):
+        force = True
     if not convert_needed(work, state, force):
         print(f"Order of the Flame pack is up to date: {mods / (PACK_ID + '.zip')}")
         write_mods_ini(mods)
@@ -826,7 +833,6 @@ def convert_ootf(
     timings.record("ootf-data", time.time() - mark)
     ensure_node_modules(root, lock, work.parent / "extras-cache")
     mods.mkdir(parents=True, exist_ok=True)
-    out = mods / f"{PACK_ID}.zip"
     # The pack being replaced stays beside it until the new one is written: the converter reads its class ids and build.
     previous = mods / f"{PACK_ID}.previous.zip"
     if out.is_file():
@@ -840,9 +846,8 @@ def convert_ootf(
     )
     mark = time.time()
     environment = dict(os.environ, DRAKAN_ISO=str(iso))
-    command = converter_command(
-        node, install, data, iso, out, hd, cover, previous if previous.is_file() else None, models, subtitles
-    )
+    baseline = installed or (previous if previous.is_file() else None)
+    command = converter_command(node, install, data, iso, out, hd, cover, baseline, models, subtitles)
     code = run_logged(command, log_file, root, environment)
     if code or not out.is_file():
         if previous.is_file():
@@ -1072,6 +1077,7 @@ def cmd_ootf(args) -> int:
             args.hd,
             args.force,
             generate_subtitles=args.generate_subtitles,
+            play=Path(args.play) if args.play else None,
         )
     except ExtrasError as error:
         print(f"Order of the Flame was not converted: {error}", file=sys.stderr)
@@ -1118,6 +1124,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--iso", required=True, help="your Drakan 2 ISO (the level template comes from it)")
     p.add_argument("--source", required=True)
     p.add_argument("--work", default=str(ROOT / "build/ootf"))
+    p.add_argument("--play", help="use the installed play folder's pack as the save compatibility baseline")
     p.add_argument("--node")
     p.add_argument("--hd", action="store_true", help="keep lossless texture sources for the HD step")
     p.add_argument(

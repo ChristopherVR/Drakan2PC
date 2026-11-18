@@ -181,6 +181,8 @@ public:
     // hostFrame() for the host UI that drives the guest with taps. Thread-safe.
     void setGuestMuted(bool on);
     bool guestMuted() const { return muted_.load(); }
+    // The debug fly camera handles motion. PadMgr still receives gameplay button bindings.
+    void setFlyCameraInput(bool on);
     // EE thread: the host input of the current frame while the guest is muted (empty otherwise, or unfocused).
     const FrameInput& hostFrame() const { return hostFrame_; }
     // Any of the above: the guest gets neutral input.
@@ -315,6 +317,7 @@ private:
     std::unique_ptr<HostInput> host_;
     FrameInput frame_;
     PadSynthState ps_;
+    bool flyCameraInput_ = false; // m_ held
     bool walkHeld_ = false, walkLatched_ = false, walkActive_ = false;
     bool walkCommandSent_ = false;
     CommandTracker tracker_;

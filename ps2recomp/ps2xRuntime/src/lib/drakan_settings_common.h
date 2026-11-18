@@ -69,9 +69,10 @@ public:
         require(Feature::Menus,
                 {"general.inventory_screen", "general.pause_menu", "general.save_menu", "general.title_menu"});
         require(Feature::DualWield, {"general.dual_wield"});
-        require(Feature::DebugMenu, {"general.debug_menu"});
+        require(Feature::DebugMenu, {"general.debug_menu", "general.ootf_debug_gold"});
 #if !defined(PS2X_HAVE_DRAKAN_INPUT)
         c.unavailableSettings.insert("general.debug_menu"); // drives the input glue's PadMgr hook
+        c.unavailableSettings.insert("general.ootf_debug_gold");
 #endif
         if (c.unavailableSettings.contains("general.debug_menu")) {
             c.unavailableBindingActions.insert("DEBUG_MENU");
@@ -123,6 +124,8 @@ public:
         drakan_dual_wield::setEnabled(n.dualWield);
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakan_debug_menu::setEnabled(n.debugMenu);
+        if (n.ootfDebugGold != p.ootfDebugGold)
+            drakan_debug_menu::setOotfGoldEnabled(n.ootfDebugGold);
 #endif
         return {};
     }
@@ -170,7 +173,9 @@ inline void installSharedHudLayers() {
     };
     dsettings::hudLayers().set(dsettings::HudSlot::Stats, std::move(stats));
     dsettings::HudLayer crosshair;
-    crosshair.active = [] { return drakan_input::module().bowCrosshairVisible(); };
+    crosshair.active = [] {
+        return drakan_input::module().bowCrosshairVisible() || drakan_debug_menu::crosshairVisible();
+    };
     crosshair.draw = [](const dsettings::HudView& view) {
         dsettings::drawCrosshair(view.imageX() + view.imageW() * 0.5f, view.imageY() + view.imageH() * 0.5f,
                                  view.uiScale);

@@ -1,0 +1,9 @@
+# Ruined Village trees, scorched ground and Scavenger health
+
+The installed pack drew all 86 of Ruined Village's large woodland trees with the Islands tall palm model. Both source classes were named Large Tree and shared their gameplay defaults. The converter keyed its shared class plan by those defaults and merged them. The grounding pass used the pine footprint while the game drew a palm with a higher trunk base.
+
+The converter now includes the prepared tree model in the class key. The existing class ID remains available to the variant that originally claimed it, and the other variant receives its own ID. The installed pack had 50 trunk footprints with gaps over four world units, up to 547. In the two-level reconversion with Islands and Ruined Village together, all 86 large village trees use the large pine model and no village tree exceeds that gap threshold. The pack check reads the actual strip vertices and level terrain. The same in-game view of tree 31 before and after is in `build/village-issue/tree-compare.jpg`.
+
+The grass, rock and main paths already use Drakan 2 terrain where the source surfaces match. The scorched area still used several dark Order of the Flame tiles with grass painted into their corners. It now uses Drakan 2 Mud for 58 of the affected floor cells and Drakan 2 Grass for the other 24. Two matched camera views at the burned house show the hard diagonal patches replaced by a continuous strip of dirt and a softer grass transition. The comparison is in `build/village-issue/ground-compare.jpg`.
+
+The old pack's health reduction counted the damage needed to make the original creature flee. The Scavenger now uses its authored starting health with the same Drakan 2 class and hit volumes. The game had 18 Scavengers at 15 health and one at 25 before, and 18 at 35 and one at 45 after. Both snapshots came from direct starts on empty test cards. The pack keeps the same Scavenger class and model IDs.
