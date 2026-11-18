@@ -11,6 +11,8 @@ lookup from its previous layer and keeps the upper floor.
 
 The global reinsertion result now uses the upper landing where its bounds cover the query and the known lower
 push floor was chosen. It checks the authored layer IDs and heights so the rule remains scoped to this terrain.
+The native lookup and its correction run without a guest scheduling yield, including on a cold Load Game from
+the title.
 The lower collision is still available to Rynn and the push block in the tomb. Changing visibility order failed
 to correct the global search. Removing the lower collision did correct it, but that removed solid triangles from
 the floor of the lower room.

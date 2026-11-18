@@ -28,6 +28,7 @@ inline Settle settle;
 constexpr uint32_t kCellLookup = 0x14b6b8u;       // (f12 x, f13 y, f14 z, a0 world, a1 old layer, a2 flags) -> v0 layer
 constexpr uint32_t kViewLookupReturn = 0x112550u; // the view layer update 0x112488 calls it from here
 constexpr uint32_t kActorInsertReturn = 0x149ab4u;
+constexpr float kLandingHeight = 22890.0f, kLandingHeadroom = 1024.0f;
 constexpr uint32_t kLayerStride = 0x164u; // runtime layer record: world +8 array, +0x10 count
 constexpr uint32_t kLayerVisible = 0x70u, kLayerVisibleCount = 0x78u; // u16 layer indices
 constexpr uint32_t kEngineContext = 0x5565d4u;                        // engine object; +0x4b0 the controlled actor
@@ -47,9 +48,8 @@ inline bool guestPointer(uint32_t a, uint32_t size) {
     return a >= 0x100000u && a < PS2_RAM_SIZE && size <= PS2_RAM_SIZE - a;
 }
 
-inline int32_t tombLandingLayer(const uint8_t* ram, uint32_t world, int32_t native, float x, float y, float z) {
-    constexpr float kLandingHeight = 22890.0f, kLandingHeadroom = 1024.0f;
-    if (!(y >= kLandingHeight && y - kLandingHeight <= kLandingHeadroom) || native < 0 || !guestPointer(world, 0x14))
+inline int32_t tombLandingLayer(const uint8_t* ram, uint32_t world, int32_t native, float x, float z) {
+    if (native < 0 || !guestPointer(world, 0x14))
         return native;
     const uint32_t count = guestWord(ram, world + 0x10);
     const uint32_t layers = guestWord(ram, world + 8);
@@ -96,13 +96,16 @@ inline bool lists(const uint8_t* ram, uint32_t layers, int32_t count, int32_t a,
 
 inline void lookupHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     const uint32_t ra = GPR_U32(ctx, 31);
-    if (ctx->pc == kCellLookup && ra == kActorInsertReturn && GPR_S32(ctx, 5) == -1 && GPR_U32(ctx, 6) == 5) {
+    const float y = ctx->f[13];
+    if (ctx->pc == kCellLookup && ra == kActorInsertReturn && GPR_S32(ctx, 5) == -1 && GPR_U32(ctx, 6) == 5 &&
+        y >= kLandingHeight && y - kLandingHeight <= kLandingHeadroom) {
         const uint32_t world = GPR_U32(ctx, 4);
-        const float x = ctx->f[12], y = ctx->f[13], z = ctx->f[14];
+        const float x = ctx->f[12], z = ctx->f[14];
+        const ScopedEeNoPreempt noPreempt; // apply the layer before the reinsertion caller consumes it
         lookupOriginal(ram, ctx, rt);
         if (ctx->pc == ra) {
             const int32_t native = GPR_S32(ctx, 2);
-            const int32_t landing = tombLandingLayer(ram, world, native, x, y, z);
+            const int32_t landing = tombLandingLayer(ram, world, native, x, z);
             if (landing != native) {
                 std::fprintf(stderr, "[tomb-landing] file %.0f %.0f %.0f on layer %d instead of %d (caller %x)\n", x, y,
                              z, landing, native, ra);
@@ -115,7 +118,7 @@ inline void lookupHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         lookupOriginal(ram, ctx, rt);
         return;
     }
-    const float x = ctx->f[12], y = ctx->f[13], z = ctx->f[14];
+    const float x = ctx->f[12], z = ctx->f[14];
     const uint32_t world = GPR_U32(ctx, 4), flags = GPR_U32(ctx, 6);
     Lookup l;
     l.oldLayer = static_cast<int32_t>(GPR_U32(ctx, 5));
