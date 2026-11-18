@@ -27,3 +27,24 @@ With the setting enabled, Left, Right, and Enter each awarded 10,000 gold.
 The runtime screenshots, logs and camera samples are in `build/harness/debug-ootf-final`,
 `build/harness/debug-d2-final`, `build/harness/debug-native-title-fixed` and `build/harness/debug-quit-fixed`.
 The XP and gold checks are under `build/requested-fixes` and `build/harness/requested-gold-*`.
+
+The follow-up **All Experience** test reproduced the misplaced solid fill at 3840 × 2160. At level 12,
+the native progress calculation uses the same XP threshold at both ends. The zero-width interval drives the
+fill height to 2,147,483,647 pixels, outside the bounds used for widescreen HUD placement. The sprite hook
+caps the fill at 103 native pixels and keeps its bottom aligned with the gauge and its texture.
+
+The 4K before and after runs show the full fill inside the frame, including when **Level Up** runs at the cap.
+A separate 4K run reached level 2 at 2,182 XP and showed the pulse and partial fill inside the same frame.
+Captures and traces are in `build/xp-full-check` and `build/harness/xp-full-*`.
+
+The follow-up Fly test moved the controlled Rynn actor and kept the native third-person camera. The game reads movement
+from the same keyboard and controller bindings. Fly holds position with the controls released and relinquishes it when
+turned off. The keyboard run lifted Rynn, flew forward, rotated with the mouse, strafed with the controller, looked
+with the right stick, and descended before switching Fly off. The actor and camera measurements are under
+`build/harness/third-person-fly-candidate`.
+
+The chosen campaign is now recorded for the lifetime of the game process. Returning to a title screen then opens the
+selected campaign's main menu, even if the engine has reset Rynn's health by that point. The chooser still opens at
+launch when configured, and Switch Campaigns opens it on demand. A copy of the Ruined Village quicksave that fell
+below the elevator landing returned directly to the selected Order of the Flame title while the harness left the
+death flow alone. The modern and native title runs are under `build/harness/actual-fall-death-*-candidate`.

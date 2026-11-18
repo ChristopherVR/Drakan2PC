@@ -21,6 +21,8 @@
 
 namespace drakan_input {
 
+enum class DebugFlightInput { None, Camera, Rynn };
+
 class InputModule {
 public:
     InputModule();
@@ -182,7 +184,7 @@ public:
     void setGuestMuted(bool on);
     bool guestMuted() const { return muted_.load(); }
     // The debug fly camera handles motion. PadMgr still receives gameplay button bindings.
-    void setFlyCameraInput(bool on);
+    void setDebugFlightInput(DebugFlightInput mode);
     // EE thread: the host input of the current frame while the guest is muted (empty otherwise, or unfocused).
     const FrameInput& hostFrame() const { return hostFrame_; }
     // Any of the above: the guest gets neutral input.
@@ -317,7 +319,7 @@ private:
     std::unique_ptr<HostInput> host_;
     FrameInput frame_;
     PadSynthState ps_;
-    bool flyCameraInput_ = false; // m_ held
+    DebugFlightInput debugFlightInput_ = DebugFlightInput::None; // m_ held
     bool walkHeld_ = false, walkLatched_ = false, walkActive_ = false;
     bool walkCommandSent_ = false;
     CommandTracker tracker_;

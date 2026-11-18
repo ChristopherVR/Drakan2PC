@@ -24,6 +24,7 @@ RedirectFn g_redirect;
 SkinFn g_skin;
 int g_index = 0; // 0 = the disc game, i = g_campaigns[i - 1]
 bool g_ask = true;
+bool g_chosen = false;
 std::string g_setting = "ask"; // what [general] game / DRAKAN_GAME said
 bool g_settingFromEnv = false;
 bool g_rewrite = false; // the campaign's New Game path rewrite is armed (not while DRAKAN_START_LEVEL drives the start)
@@ -173,6 +174,7 @@ void configure(std::vector<Campaign> campaigns, RedirectFn redirect, SkinFn skin
         g_settingFromEnv = env && *env;
     }
     g_ask = true;
+    g_chosen = false;
     g_index = 0;
     if (drakan_cfg::compareNoCase(want.c_str(), "d2") == 0 || drakan_cfg::compareNoCase(want.c_str(), "drakan") == 0) {
         g_ask = false;
@@ -267,6 +269,11 @@ bool offerChoice() {
     return g_ask && !g_campaigns.empty();
 }
 
+bool offerInitialChoice() {
+    std::lock_guard<std::mutex> l(g_m);
+    return g_ask && !g_chosen && !g_campaigns.empty();
+}
+
 std::string choiceSetting(bool* fromEnv) {
     std::lock_guard<std::mutex> l(g_m);
     if (fromEnv)
@@ -279,6 +286,7 @@ bool select(int cardIndex) {
     const int campaigns = static_cast<int>(g_campaigns.size());
     if (cardIndex < 0 || cardIndex > campaigns)
         return false;
+    g_chosen = true;
     const int index = cardIndex < campaigns ? cardIndex + 1 : 0; // card order -> g_index (0 = the disc game)
     if (index != g_index) {
         g_index = index;

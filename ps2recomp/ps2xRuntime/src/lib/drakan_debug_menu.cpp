@@ -4,6 +4,7 @@
 #include "drakan_config.h"
 #include "drakan_controlled_actor.h"
 #include "drakan_game.h"
+#include "drakan_ghost.h"
 #include "drakan_input_flow.h"
 #include "drakan_region.h"
 #include "input/Config.h"
@@ -23,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <optional>
 
 namespace drakan_debug_menu {
 namespace {
@@ -35,6 +37,7 @@ namespace Pad = drakan_input::Pad;
 // indexed by option id.
 constexpr uint32_t kMenuPal = 0x4e8d48u;
 constexpr uint32_t kPageCount = 11;
+constexpr uint32_t kFly = 89;
 constexpr uint32_t kIncreaseGold = 101;
 // (menu, option id) -> char* value text (a static buffer, or a constant string).
 constexpr uint32_t kFormatValuePal = 0x1d49f0u;
@@ -96,6 +99,13 @@ bool g_comboHeld = false, g_comboFired = false;
 std::array<std::chrono::steady_clock::time_point, kKeys.size()> g_heldSince{}, g_lastRepeat{};
 PS2Runtime::RecompiledFunction g_origKey = nullptr;
 PS2Runtime::RecompiledFunction g_origRunOption = nullptr;
+struct RynnFlight {
+    uint32_t actor = 0;
+    std::array<float, 3> position{};
+};
+std::optional<RynnFlight> g_rynnFlight;
+bool g_cameraDetached = false;
+bool g_toggleFlight = false;
 
 std::mutex g_pageM;
 Page g_page;
@@ -146,13 +156,7 @@ uint32_t flyTarget(drakan_input::IGuest& g, uint32_t ctx, uint32_t camera) {
     return drakan_controlled_actor::ram(target, layout.transformRight + 36) ? target : 0;
 }
 
-void steerFlyCamera(drakan_input::IGuest& g, const drakan_input::InputModule& input, uint32_t pose) {
-    const auto& layout = drakan_region::build().camera;
-    const auto& cfg = input.config();
-    const auto& frame = input.frame();
-    if (!frame.focused || input.suspended())
-        return;
-    const float dt = std::clamp(frame.frameSeconds, 0.0f, 0.05f);
+std::array<float, 2> flightAxes(const drakan_input::Config& cfg, const drakan_input::FrameInput& frame) {
     const drakan_input::GamepadState pad = cfg.gamepadEnabled ? frame.gamepad : drakan_input::GamepadState{};
     float right = pad.lx, forward = pad.ly;
     if (right == 0.0f && forward == 0.0f) {
@@ -163,6 +167,59 @@ void steerFlyCamera(drakan_input::IGuest& g, const drakan_input::InputModule& in
         forward = float(held[0]) - float(held[1]);
         right = float(held[3]) - float(held[2]);
     }
+    return {right, forward};
+}
+
+uint32_t rynnActor(drakan_input::IGuest& g, uint32_t ctx) {
+    const auto& l = drakan_region::build().camera;
+    if (!drakan_controlled_actor::ram(ctx, l.contextActor + 4))
+        return 0;
+    const uint32_t actor = g.read32(ctx + l.contextActor), resources = g.read32(ctx + l.contextResources);
+    if (!drakan_controlled_actor::ram(actor, l.transformRight + 36) ||
+        !drakan_controlled_actor::ram(resources, l.resourceCount + 4))
+        return 0;
+    const uint32_t index = g.read16(actor + l.handleResource);
+    if (index == 0xffffu || index > g.read32(resources + l.resourceCount))
+        return 0;
+    const uint32_t table = g.read32(resources + l.resourceTable), offset = index * l.resourceStride + l.resourceClass;
+    return drakan_controlled_actor::ram(table, offset + 4) && g.read32(table + offset) == 0x10009u ? actor : 0;
+}
+
+void moveFlyingRynn(drakan_input::IGuest& g, const drakan_input::InputModule& input, bool steer) {
+    const auto& layout = drakan_region::build().camera;
+    const auto& cfg = input.config();
+    const auto& frame = input.frame();
+    auto& flight = *g_rynnFlight;
+    if (steer && frame.focused && !input.suspended()) {
+        const auto [right, forward] = flightAxes(cfg, frame);
+        const float dt = std::clamp(frame.frameSeconds, 0.0f, 0.05f);
+        uint16_t buttons = cfg.gamepadEnabled ? frame.gamepad.buttons : 0;
+        for (const auto& b : cfg.game)
+            if (b.act == drakan_input::Binding::PadBtn && (b.value & (Pad::TRIANGLE | Pad::R1)) &&
+                drakan_input::sourceLevel(b, frame, true))
+                buttons |= static_cast<uint16_t>(b.value);
+        const float speed = 6500.0f * dt / std::max(1.0f, std::hypot(right, forward));
+        for (const uint32_t axis : {0u, 2u}) {
+            const uint32_t rightAxis = flight.actor + layout.transformRight + 12u * axis;
+            const uint32_t backAxis = flight.actor + layout.transformBack + 12u * axis;
+            flight.position[axis] += speed * (right * g.readF(rightAxis) - forward * g.readF(backAxis));
+        }
+        flight.position[1] += 4800.0f * dt * (float(bool(buttons & Pad::TRIANGLE)) - float(bool(buttons & Pad::R1)));
+    }
+    for (uint32_t i = 0; i < flight.position.size(); ++i)
+        g.writeF(flight.actor + layout.transformPosition + 4u * i, flight.position[i]);
+    drakan_ghost::refileActor(g, flight.actor);
+}
+
+void steerFlyCamera(drakan_input::IGuest& g, const drakan_input::InputModule& input, uint32_t pose) {
+    const auto& layout = drakan_region::build().camera;
+    const auto& cfg = input.config();
+    const auto& frame = input.frame();
+    if (!frame.focused || input.suspended())
+        return;
+    const float dt = std::clamp(frame.frameSeconds, 0.0f, 0.05f);
+    const drakan_input::GamepadState pad = cfg.gamepadEnabled ? frame.gamepad : drakan_input::GamepadState{};
+    const auto [right, forward] = flightAxes(cfg, frame);
     const float yaw = (cfg.yawSign * float(frame.dx) * cfg.sensX - pad.rx * 2.0f * dt) * (cfg.invertX ? -1.0f : 1.0f);
     const float pitch =
         (cfg.pitchSign * float(frame.dy) * cfg.sensY + pad.ry * 2.0f * dt) * (cfg.invertY ? -1.0f : 1.0f);
@@ -304,6 +361,8 @@ void hookRunOption(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         rt->requestStop();
     } else if (option == kCrosshair) {
         g_crosshairEnabled = !g_crosshairEnabled;
+    } else if (option == kFly && !g_cameraDetached) {
+        g_toggleFlight = true;
     } else if (option != kIncreaseGold || !goldDisabledForCampaign()) {
         g_origRunOption(rdram, c, rt);
         return;
@@ -349,9 +408,12 @@ void install(PS2Runtime& runtime) {
 }
 
 void beforePadMgr(drakan_input::IGuest& g, drakan_input::InputModule& input, bool settingsOpen) {
+    using FlightInput = drakan_input::DebugFlightInput;
     const bool closeRequested = g_closeRequest.exchange(false);
     if (settingsOpen || !g_enabled.load() || !g_origKey || !g_origRunOption) {
-        input.setFlyCameraInput(false);
+        g_rynnFlight.reset();
+        g_toggleFlight = false;
+        input.setDebugFlightInput(FlightInput::None);
         g_crosshairVisible.store(false);
         if (g_open.load())
             setOpen(g, input, false);
@@ -363,12 +425,25 @@ void beforePadMgr(drakan_input::IGuest& g, drakan_input::InputModule& input, boo
     const int mode = drakan_controlled_actor::ram(camera, layout.cameraMode + 4)
                          ? static_cast<int>(g.read32(camera + layout.cameraMode))
                          : -1;
-    const bool fly = mode == kFlyCameraMode;
-    const bool gameplay = (fly || drakan_input_flow::inMask(mode, layout.gameplayModes)) &&
+    g_cameraDetached = mode == kFlyCameraMode;
+    const bool gameplay = (g_cameraDetached || drakan_input_flow::inMask(mode, layout.gameplayModes)) &&
                           !g.read32(guestAddress(0x4fb60cu)) && drakan_input_flow::worldActive(g) &&
                           drakan_input_flow::playerHealth(g) > 0;
-    const uint32_t target = fly && gameplay ? flyTarget(g, ctx, camera) : 0u;
-    input.setFlyCameraInput(target != 0);
+    const uint32_t target = g_cameraDetached && gameplay ? flyTarget(g, ctx, camera) : 0u;
+    const uint32_t actor = !g_cameraDetached && gameplay && (g_toggleFlight || g_rynnFlight) ? rynnActor(g, ctx) : 0;
+    if (g_rynnFlight && g_rynnFlight->actor != actor)
+        g_rynnFlight.reset();
+    if (g_toggleFlight && actor) {
+        if (g_rynnFlight) {
+            g_rynnFlight.reset();
+        } else {
+            g_rynnFlight = RynnFlight{actor};
+            for (uint32_t i = 0; i < g_rynnFlight->position.size(); ++i)
+                g_rynnFlight->position[i] = g.readF(actor + drakan_region::build().camera.transformPosition + 4u * i);
+        }
+    }
+    g_toggleFlight = false;
+    input.setDebugFlightInput(target ? FlightInput::Camera : g_rynnFlight ? FlightInput::Rynn : FlightInput::None);
     g_crosshairVisible.store(gameplay && g_crosshairEnabled);
     if (!gameplay || closeRequested) {
         if (g_open.load())
@@ -376,6 +451,8 @@ void beforePadMgr(drakan_input::IGuest& g, drakan_input::InputModule& input, boo
         return;
     }
     bool open = g_open.load();
+    if (g_rynnFlight)
+        moveFlyingRynn(g, input, !open);
     if (togglePressed(input)) {
         open = !open;
         if (open)
@@ -422,6 +499,8 @@ void afterPadMgr(drakan_input::IGuest& g) {
         r.name = id < 126u ? guestString(g, g.read32(names + 4u * id)) : std::string();
         if (id == kCrosshair)
             r.value = g_crosshairEnabled ? "ON" : "OFF";
+        else if (id == kFly && !g_cameraDetached)
+            r.value = (g_rynnFlight.has_value() != g_toggleFlight) ? "ON" : "OFF";
         else if (id == kIncreaseGold && goldDisabledForCampaign())
             r.value = "Disabled";
         else

@@ -516,15 +516,26 @@ bool invMapDrawing() {
 void hookViewSprite(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     using namespace drakan_views;
     const uint32_t ra = getRegU32(c, 31);
+    constexpr int32_t kXpFillHeight = 103;
+    constexpr uint32_t kXpAtlasBottom = 104;
+    if (c->pc == 0x1c1e90u && ra == 0x3ac2d0u && drakan_game::current() == drakan_game::Game::Ootf) {
+        // At the final level there is no next threshold. The native progress division overflows the sprite height.
+        // Clamp its height while keeping the on-screen and atlas bottoms aligned.
+        const uint32_t height = getRegU32(c, 10);
+        const uint32_t clipped = uint32_t(std::clamp(int32_t(height), 0, kXpFillHeight));
+        SET_GPR_U32(c, 6, getRegU32(c, 6) + (height - clipped));
+        SET_GPR_U32(c, 8, kXpAtlasBottom - clipped);
+        SET_GPR_U32(c, 10, clipped);
+    }
     if (c->pc == 0x1c1e90u && ra == 0x3ac504u && drakan_game::current() == drakan_game::Game::Ootf) {
         // Draw the level-up pulse inside the same aperture as the XP fill (the sprite call returning at 0x3ac2d0).
         // Keep the native pulse timing and tint, but sample the gauge fill from the atlas instead of the outer halo.
         SET_GPR_U32(c, 5, getRegU32(c, 5) + 14u);
         SET_GPR_U32(c, 6, getRegU32(c, 6) + 11u);
         SET_GPR_U32(c, 7, 13u);
-        SET_GPR_U32(c, 8, 1u);
+        SET_GPR_U32(c, 8, kXpAtlasBottom - kXpFillHeight);
         SET_GPR_U32(c, 9, 13u);
-        SET_GPR_U32(c, 10, 103u);
+        SET_GPR_U32(c, 10, kXpFillHeight);
         RecompGuest g(ram, c, rt);
         const uint32_t colors = g.read32(getRegU32(c, 29) + 8u);
         for (uint32_t i = 0; i < 4; ++i) {

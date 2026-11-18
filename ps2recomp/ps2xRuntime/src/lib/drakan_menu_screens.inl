@@ -791,7 +791,6 @@ struct TitleGlue {
     bool scanned = false;
 };
 TitleGlue g_title;
-bool g_returnFromDeath = false;
 
 bool titleHosted() {
     return g_title.screen && !g_title.fallBack;
@@ -1046,8 +1045,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
     const uint32_t active = g.read32(kInvScreenVar);
     const int id = pauseScreenId(g, active);
     const int titleId = static_cast<int>(titleui::kScreenTitle);
-    if (id < 0 && drakan_input_flow::worldActive(g))
-        g_returnFromDeath = drakan_input_flow::playerHealth(g) <= 0;
+    const bool offerInitialChoice = drakan_game::offerInitialChoice();
     if (g_title.screen && id == titleId && active != g_title.screen)
         titleEnd("another title screen");
     // The native page was restored (Title menu set to Original) and the player picked Modern again: bind again on this
@@ -1074,7 +1072,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         if (id == titleId && drakan_tab::shared().layerReady.load()) {
             if (drakan_menu_screens::titleModern())
                 titleBegin(g, active);
-            else if (drakan_game::offerChoice() && !g_returnFromDeath)
+            else if (offerInitialChoice)
                 titleBegin(g, active, true);
         }
         if (!g_title.screen)
@@ -1136,7 +1134,7 @@ void titleTick(const uint8_t* ram, RecompGuest& g) {
         }
         st.canQuit = drakan_menus::titleQuit();
         st.offerGames = drakan_game::offerChoice();
-        st.skipInitialGameChoice = g_returnFromDeath;
+        st.skipInitialGameChoice = !offerInitialChoice;
         st.forceGameChoice = g_title.forceCard;
         st.classicGameChoice = g_title.classic;
         st.game = drakan_game::currentIndex();

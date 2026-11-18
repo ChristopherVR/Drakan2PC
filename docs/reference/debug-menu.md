@@ -87,13 +87,13 @@ measurable in this scene; **dead** = no case and no reader in retail, only the s
 | 8 | Disable Sound | runs: clears the enable flag (`+0x14`) of the object at `*0x4e0b1c`, which gates some sound-manager updates (`0x1b7440` from Engine_Tick and others); the mixed output (`DRAKAN_AUDIO_DUMP`) kept its ambience and Rynn's swing sounds |
 | 8 | Display Playing Sounds, Display Mode, Trace NAX Register, NAX Trace Target Voice, Show Memory Map, View Buffer Address, Load Buffer, Output SPU Buffers | dead |
 | 9 | X, Y, Z | **work**: Right / Shift / Ctrl change them by 1 / 10 / 100 (`menu+0x100..0x108`) |
-| 9 | **Teleport** | **works**: `TELE x y z` puts the camera in fly mode (like Fly) and moves it to `2048 * (X, Y, Z)`; with (224, 90, 168) it stood exactly at (458752, 184320, 344064). Rynn stays where she is |
+| 9 | **Teleport** | **works**: `TELE x y z` detaches the camera and moves it to `2048 * (X, Y, Z)`. With (224, 90, 168) the camera stood at (458752, 184320, 344064) |
 | 10 | Show Damage, Show Current AI States / Animspeed / Sight Direction | runs: set their flags (`0x5130c0`, `0x4fb714`, `0x4fb718`, `0x4fb71c` 0 to 1); the debug drawing is not in retail |
 | 10 | Show AI State Changes | runs (the `switch` command); no flag of its own found |
 | 10 | Single Step (L2) | dead: its case only acts while `ctx+0x4c4` bit 0 (a development mode) is set |
 | 11 | **Invincible** | **works**: "The Gods Favor You" / "The Gods Decide You Are No Longer Worthy" |
-| 11 | **Fly** | Detaches the camera from Rynn (mode 7). Close the debug menu, then move with the bound movement keys or left stick and aim with the mouse or right stick. Space (Triangle) and Q (R1) retain their native vertical movement. Toggle Fly again to follow Rynn |
-| 11 | **All Experience** | **works**: "You feel enlightened", XP 0 to 219623, level 1 to 12, skill points 0 to 11 |
+| 11 | **Fly** | Flies Rynn with the usual third-person camera. Close the debug menu, move with the bound movement keys or left stick, and look with the mouse or right stick. Space (Triangle) climbs and Q (R1) descends by default. Toggle Fly again to return to normal movement |
+| 11 | **All Experience** | Shows "You feel enlightened". A new character reaches level 12 with 219,623 XP and 11 skill points. Order of the Flame shows the full purple XP fill inside its gauge |
 | 11 | **Level Up** | "You're a bit older and a bit wiser" and the level-up effect (level 1 to 2 from a new game). In Order of the Flame, the HUD pulse runs inside the XP gauge and the progress fill still shows the XP earned toward the next level |
 | 11 | **Unlock Spells** | **works**: "Spells Unlocked At Level 1", again "... Level 2" |
 | 11 | **Full Health/Mana** | **works**: "Full Health And Mana" |
@@ -167,6 +167,6 @@ Verification (`scripts/harness/play_run.py`, New Game into Surdana):
 - All four recipes pass on the USA disc too (`--exe dist/DrakanPC-usa/drakan.exe`); the log shows the saved callback
   `0x23cd60`, the USA Game_OnInputCommand.
 
-Caveats: Suicide kills Rynn, Teleport and Fly leave the camera in fly mode (Fly again brings it back), Turbo Mode
+Caveats: Suicide kills Rynn, Teleport detaches the camera (Fly brings it back), Turbo Mode
 changes other options with it, and Enable Object Update / Pause freeze the world until switched back; save before
 experimenting. Take Screen Shot writes into the folder the boot ELF is read from.

@@ -514,10 +514,10 @@ void InputModule::beginFrame(const FrameInput& injected) {
     padReady_ = false;
 }
 
-void InputModule::setFlyCameraInput(bool on) {
+void InputModule::setDebugFlightInput(DebugFlightInput mode) {
     std::lock_guard<std::mutex> lock(m_);
-    if (flyCameraInput_ != on) {
-        flyCameraInput_ = on;
+    if (debugFlightInput_ != mode) {
+        debugFlightInput_ = mode;
         padReady_ = false;
     }
 }
@@ -535,7 +535,8 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
         padReady_ = true;
     }
     if (!padReady_) {
-        const bool menu = layerIsMenu_ && !flyCameraInput_;
+        const bool flyCamera = debugFlightInput_ == DebugFlightInput::Camera;
+        const bool menu = layerIsMenu_ && !flyCamera;
         const auto& layer = menu ? cfg_.menu : cfg_.game;
         PadSample s; // neutral while suspended
         const bool direct = cfg_.lookMode == LookMode::Direct && !(dragon_ && cfg_.dragonStick);
@@ -549,8 +550,12 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
         }
         if (!hostOwned())
             s = synthesizePad(cfg_, f, layer, menu, direct, walkActive_, ps_, meleeDirections_);
-        if (flyCameraInput_)
+        if (flyCamera)
             s.lx = s.ly = s.rx = s.ry = 0x80;
+        if (debugFlightInput_ == DebugFlightInput::Rynn) {
+            s.lx = s.ly = 0x80;
+            s.buttons &= static_cast<uint16_t>(~(Pad::TRIANGLE | Pad::R1));
+        }
         // The inventory / map closes with SELECT; START opens the pause menu over it. The menu layer's "back" keys
         // (Esc, Backspace = START | CIRCLE) must only close it, so a bound START becomes SELECT there, and stays
         // SELECT until released: the screen is gone a frame before the layer switch drops the held key, and a START
