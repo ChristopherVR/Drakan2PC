@@ -157,6 +157,13 @@ the 70 distinct destination textures decoded as entirely black. On the burned-ho
 dark textures have mean brightness 29.3, 23.7 and 18.8 on the 0–255 scale in the PC source. The rebuilt equivalents
 measure 29.3, 23.8 and 18.8. All three are opaque.
 
+Matched Direct3D 11 and Vulkan frames show the same nearly black patch by the burned house. A 218 by
+138 pixel crop had median luminance 5.92 out of 255 on both backends, with visible texture detail and no
+pure-black pixels. The grass control was 75.15 on both. The authored lighting fields matched the installed
+fields across all 346 Ruined Village layers. These comparisons used the same camera and default graphics
+settings, with health protection during the captures. See
+`build/harness/issue12-village-floor-protected-{d3d11,vulkan}` and `build/issue12-village-floor-lighting.log`.
+
 The terrain converter did have a material discovery error. When only the right half of a cell supplied its
 texture, the geometry converter used it but the texture collector could omit it. Both now use the same rule,
 including for shoreline cells and steep slopes. Across the 23 converted levels, fallback terrain cells dropped
@@ -243,6 +250,20 @@ the Heavy Bow and arrows on the cave floor. The bow stayed at (239573, 27862, 30
 presses with the inventory full. The objects moving beside Rynn were her equipped Long Bow and arrows.
 Both handles were already present in her inventory before the presses.
 
+Two more items at that pile share the same shelf. With inventory space, the Fire Crystal and red potion
+each entered the grid as the same object that had been on the ground. With all cells occupied, the
+crystal stayed at (241962, 27877, 309013) through the L1 presses and after Rynn left. The red potion
+joined an existing stack: its count at item data +0x2c rose from nine to ten and all cells remained
+occupied. These tests used a private arrival save and full-inventory save; health protection allowed
+repeated pickup attempts near the enemies. See `build/issue12-loose-objects/runs/{space_close,full_words}`.
+
+Dragon weapon and health power-ups have a separate authored rotation. The eleven story weapon power-ups
+specify 0.2 revolutions per second and the dragon health power-up specifies 0.5. In Wartok Canyons,
+tracked the Poison Gas Quickening Power Up while Rynn approached it on foot and pressed L1. Across
+82 samples its orientation changed, its position stayed at (289792, 34000, 281613), and it never entered
+Rynn's inventory. The closest sample put Rynn 18 units from the power-up. See
+`build/issue12-loose-objects/runs/power`.
+
 Away from the pile, dropping the Long Bow freed three cells. When Rynn returned, the same Heavy Bow
 handle (resource 0x343ea) entered the grid before another L1 press. The new bow occupied the three free
 cells. The item positions, grid contents, drop and return are in
@@ -302,6 +323,25 @@ and Arokh came within 2,131 horizontal units at its end. For this second run use
 samples, which resolved the active actors after loading. The planned route to the distant meadow
 was not completed on foot. See `build/harness/live-drive/issue12-canyon-ridgewalk` and
 `build/harness/live-drive/issue12-canyon-walk-continuation`.
+
+### Summoning from water and dry ground (4–5)
+
+From the mine's second entrance, Rynn called Arokh and walked to him to remount with normal damage.
+A longer walk from the same checkpoint used health protection. Rynn slipped into shallow water beside
+a cliff. Arokh answered but finished nearly 8,000 units above her. She walked directly under him and
+could not mount. The runs are in `build/harness/live-drive/issue12-mouth-return-normal` and
+`build/harness/live-drive/issue12-mine-mouth-northwalk`.
+
+With normal damage, Rynn waded from that checkpoint to an open bank and called from 17,786 horizontal
+units away. Arokh landed 4,554 horizontal units from her and 310 units above her. She walked to him and
+remounted. Neither actor was repositioned during this run. See
+`build/harness/live-drive/issue12-reach-dry-bank`.
+
+The three calls from the diagnostic meadow position lost their explicit call flag after 20.31, 20.33
+and 20.27 seconds. Arokh was still 73,489 to 94,030 units away. The native call state starts a
+20-second timer and clears the call flag when it expires. The meadow test also left a flight path
+point at Rynn's pre-placement position. It does not establish whether additional time would let
+Arokh land somewhere Rynn could reach.
 
 ### Rynn's voice in the gameplay mix (14)
 
@@ -370,9 +410,9 @@ log are in `build/harness/issue12-save-during-collapse`.
 | 2 | Missing canyon terrain | Fixed the draw distance for converted levels using the active fog horizon. Verified in Wartok Canyons and Islands (`f3c7d3a5`). |
 | 3 | Upside-down face in the awakening | The full scene played with Arokh's face upright on the current build, which includes the earlier scene animation fixes. |
 | 4 | Arokh freezes after acquisition | Verified movement on canyon arrival, dismount, remount and flight. A persistent freeze remains unreproduced. |
-| 5 | Arokh fails to come when called | Corrected the tap/hold guidance (`cdf1dfab`). Arokh returned and could be remounted on walked routes. Long-range landing across intervening terrain remains open. |
+| 5 | Arokh fails to come when called | Corrected the tap/hold guidance (`cdf1dfab`). Arokh returned and could be remounted on walked routes, including after Rynn waded to a dry bank. The 20-second call expiry and long-range landings across intervening terrain remain open. |
 | 6 | Inconsistent target lock | Corrected the scheme-specific guidance (`79ad478c`). Valid presses selected enemies on Standard, Alternate and Dual Control. An intermittent failure with an eligible target remains unreproduced. |
-| 7 | Pickups orbit Rynn | With a full inventory the Heavy Bow stayed on the ground and could be collected after freeing space. The orbiting pickup remains unreproduced. |
+| 7 | Pickups orbit Rynn | With a full inventory the Heavy Bow and Fire Crystal stayed on the ground, while a potion joined an existing stack. A dragon power-up rotated at a fixed position. The orbiting pickup remains unreproduced. |
 | 8 | Equipment cannot be dropped | Drop flags matched the source on all 125 equipment placements checked. Three Runeblades are protected. Ordinary weapons and armour were dropped in game. |
 | 9 | Zero durability on acquisition | The zero-durability placements also have zero in the source. Corrected the inventory's handling of bow durability and quiver counts (`87b67b17`). |
 | 10 | Rectangular arrows and frozen bow movement | Fixed projectile textures (`4a1542ad`), sighted controller movement (`3e7baeee`) and hold-to-aim with remapped Attack (`0c136b30`). Verified projectile rendering, movement and aimed shots in the game. |
