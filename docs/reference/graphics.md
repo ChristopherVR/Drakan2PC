@@ -566,6 +566,10 @@ depth writes masked, alpha test GREATER 2, vertex alpha 21 to 35 of 128) and nev
 colours carry the baked lighting, the fog value comes per vertex, and nothing in the stream says "terrain" or carries
 a normal or a world position.
 
+The Order of the Flame converter keeps the original rock tile on a steep cell when either visible triangle exceeds
+the cutoff. If the chunk also uses the native replacement rock, that pass draws under the original tile so its
+coarser texture cannot cover the restored detail. [Wartok Canyons comparison](../journal/2026-11-19/wartok-rendering.md)
+
 **Ground texture distance** (`terrain_distance`, 1 to 4, PAL): `drakan_terrain_distance.cpp` wraps `0x158148` and
 divides `s` by the factor for the length of the call, which moves both the cut-off and the fade of every material out
 by that factor (rules and numbers: `runtime/world/include/world/TerrainDistance.h`). No level data, material or code
