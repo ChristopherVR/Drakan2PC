@@ -13,7 +13,8 @@ struct SceneGuideCamera {
     uint64_t serial = 0, captureTick = 0;
     uint32_t flags = 0, sourcePc = 0, sourceAddress = 0, rendererAddress = 0;
     int32_t guiScreen = -1;
-    uint32_t frameWidth = 0, frameHeight = 0, reserved = 0;
+    uint32_t frameWidth = 0, frameHeight = 0;
+    uint32_t reserved = 0; // phase payload, or the snow profile ID on a TerrainSnow world camera
     float worldToView[16]{};
     float viewToClipVU[16]{};
     float worldToClipVU[16]{};

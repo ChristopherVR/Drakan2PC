@@ -260,7 +260,7 @@ float4 sourcePixel(VSOut i)
         puv[1] = uv; pdx[1] = pdx[0]; pdy[1] = pdy[0]; pw[1] = 0.0;
         puv[2] = uv; pdx[2] = pdx[0]; pdy[2] = pdy[0]; pw[2] = 0.0;
         int projections = 1;
-        TerrainShading terrain = {1.0, 0.0, 0.0, 0.0};
+        TerrainShading terrain = {1.0, 0.0, 0.0, 0.0, 0.0};
         // (a layer pixel with vertex alpha 0 has no weight and fails the alpha test: nothing to compute for it)
         if ((fl & (F_TERRAIN | F_TERRAIN_SIDE | F_TERRAIN_RELIEF | F_TERRAIN_SNOW)) != 0u && cv.a >= 0.5)
         {
@@ -296,7 +296,8 @@ float4 sourcePixel(VSOut i)
 #endif
         if (terrain.snowCoverage > 0.0 && t_dy.w < 0.5)
         {
-            float3 snowColor = terrain.snowBrightness * float3(240.0, 247.0, 252.0);
+            float3 snowColor = terrain.snowBrightness * lerp(float3(240.0, 247.0, 252.0),
+                                                            float3(224.0, 240.0, 240.0), terrain.blueSnow);
             t.rgb = floor(lerp(t.rgb, snowColor, terrain.snowCoverage) + 0.5);
             terrain.factor = lerp(terrain.factor, 1.0, terrain.snowCoverage);
         }

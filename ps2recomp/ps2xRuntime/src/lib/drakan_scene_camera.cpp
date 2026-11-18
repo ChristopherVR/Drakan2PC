@@ -1,7 +1,5 @@
 #include "drakan_scene_camera.h"
-#include "gsr/terrain_snow.h"
 #include "drakan_scene_camera_policy.h"
-#include "drakan_config.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
 #include "drakan_widescreen_scope.h"
@@ -11,6 +9,7 @@
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
 #include "ui/SubtitleText.h"
+#include <gsr/terrain_snow.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>

@@ -11,14 +11,13 @@ cbuffer CBT : register(b3)
     float4 t_dy;        // w = debug mode
     float4 t_octave[3]; // xyz = anchor offset in noise tiles, w = 1 / period
     float4 t_amp;       // fine, medium, slow, relief
-    float4 t_sampling;  // xy = anchor world x/z, w = gradient scale
+    float4 t_sampling;  // xy = anchor world x/z, z = snow range count, w = gradient scale
     float4 t_side;      // xyz = anchor modulo the side projection period
     float4 t_relief;    // x = fine weight, y = medium weight, z = fade start, w = 1 / fade range
     float4 t_reliefFar; // x = relief strength at the far end of the fade
     float4 t_grid;      // xy = anchor in grid cells relative to the grid origin, zw = grid size (0 = no grid)
     float4 t_gridY;     // x = anchor height, y = height tolerance, z = cliff start (normal y), w = 1 / cliff range
-    float4 t_pad[2];
-    float4 t_snowRanges[4][3]; // enter bounds, leave bounds, snowline and vertical scale
+    float4 t_snowRanges[8][3]; // enter bounds, leave bounds, snowline / vertical scale / Blue Snow palette
 };
 Texture3D<float2> TerrainNoise : register(t2); // r = noise, g = the noise one relief step towards the light
 Texture2DArray<float4> TerrainGrid : register(t4); // smooth normals of the height field: nx, nz, height, ny
@@ -96,6 +95,7 @@ struct TerrainShading
     float medium;
     float snowCoverage;
     float snowBrightness;
+    float blueSnow;
 };
 
 // Factor for the layer colour (before fog), and the medium octave for dithering the side projection.
@@ -112,6 +112,8 @@ TerrainShading terrainShading(TerrainPoint p, bool detail, float cliffWeight, fl
         float drift = n2.x - 0.5 + shade.medium * 0.24;
         float exposed = lerp(0.62, 1.0, ledge);
         float patch = 0.48 + 0.52 * smoothstep(-0.18, 0.19, drift);
+        float blueSnowCover = 0.0;
+        float bridgeSnowCover = 0.0;
         [loop] for (int i = 0; i < (int)t_sampling.z; ++i)
         {
             float weight = snowRangeWeight(p, i);
@@ -119,8 +121,12 @@ TerrainShading terrainShading(TerrainPoint p, bool detail, float cliffWeight, fl
             float aboveSnowline = height - 7800.0 * (1.0 - ledge) + 6700.0 * drift;
             float accumulation = smoothstep(-5500.0, 8300.0, aboveSnowline);
             float cap = smoothstep(800.0, 13000.0, aboveSnowline);
-            shade.snowCoverage = max(shade.snowCoverage, weight * accumulation * lerp(exposed * patch, 1.0, cap));
+            float cover = weight * accumulation * lerp(exposed * patch, 1.0, cap);
+            if (t_snowRanges[i][2].z > 0.5) blueSnowCover = max(blueSnowCover, cover);
+            else bridgeSnowCover = max(bridgeSnowCover, cover);
         }
+        shade.snowCoverage = max(blueSnowCover, bridgeSnowCover);
+        shade.blueSnow = blueSnowCover / max(blueSnowCover + bridgeSnowCover, 1e-6);
         shade.snowBrightness = 0.98 + 0.10 * (n2.x - n2.y) + 0.065 * shade.medium;
     }
     float m = 0.0;

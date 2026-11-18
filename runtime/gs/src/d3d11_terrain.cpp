@@ -1,7 +1,6 @@
 // Terrain detail on Direct3D 11: GPU objects, per-draw classification and constants. The policy and the maths are in
 // terrain_detail.h (shared with the WebGPU backend, unit tested); the shader fragment is gs_terrain.inc.
 #include "d3d11_backend_impl.h"
-#include "gsr/terrain_snow.h"
 
 #include <map>
 
@@ -136,8 +135,7 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         auditTerrain(s, v, count, classified, depthMasked, g.unproject, dsx, dsy, k);
     }
     const bool relief = (camera.flags & SceneGuideCamera::TerrainCliffRelief) != 0;
-    const auto snowRanges = (camera.flags & SceneGuideCamera::TerrainSnow)
-                                ? snow::rangesForProfile(camera.reserved) : std::span<const snow::Range>{};
+    const auto snowRanges = snow::rangesForProfile((camera.flags & SceneGuideCamera::TerrainSnow) ? camera.reserved : 0);
     const bool snow = !snowRanges.empty();
     if (!classified || (!terrainCfg.any() && !relief && !snow))
         return 0;
@@ -202,6 +200,7 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
             std::memcpy(consts.snowRanges[i][1], snowRanges[i].leave, sizeof(snowRanges[i].leave));
             consts.snowRanges[i][2][0] = snowRanges[i].snowline;
             consts.snowRanges[i][2][1] = snowRanges[i].verticalScale;
+            consts.snowRanges[i][2][2] = snowRanges[i].blueSnow ? 1.0f : 0.0f;
         }
         if (!g.contentValid || std::memcmp(&consts, &g.content, sizeof(consts)) != 0) {
             D3D11_MAPPED_SUBRESOURCE m{};

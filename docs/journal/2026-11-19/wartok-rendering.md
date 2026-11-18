@@ -72,3 +72,16 @@ The level load supplies the Wartok scene flag for New Game and save restore. Wit
 past the bridge range. Terrain samples found walkable floors under roofs at snow-line elevations farther east.
 The first named cave floor in that direction starts around world X 198,600. The profile reaches zero by X 170,000
 and excludes the visible undersides of ceilings. The in-game captures are in `build/snow-cover-20261119/`.
+
+## Drakan 2 Blue Snow on the other Order of the Flame ranges
+
+The converted campaign's Blue Snow tile is byte-identical to the Drakan 2 tile in `PROCTEES.TXD` entry 563. Its
+decoded mean RGB is 224, 240, 240. The new terrain ranges use that color with low-contrast variation, level lighting
+and fog. The first rope bridge range retains the approved palette. Coverage from overlapping ranges merges smoothly.
+
+The installed Order of the Flame terrain audit found outdoor snowy mountains in Wartok, Grimstone Mines and Grotto,
+plus the air versions of Arena of Death and Grotto of Death. The profile table records the observed footprints and
+local snow lines for those areas. The terrain audit sampled ground under ceilings to keep the lowest deposits above
+cave floors. At the first test position in Grimstone, the broad 100,000-unit line produced little snow on
+the exposed face. Its local lower line covers that face, and the sampled covered ground in that footprint reaches
+only 54,950 units. The direct-start replays and geometry samples are under `build/snow-ranges-20261119/`.

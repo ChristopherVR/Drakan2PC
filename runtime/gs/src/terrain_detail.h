@@ -13,6 +13,7 @@
 // Everything here is a pure function of its arguments. See docs/journal/2026-11-12/gfx-terrain.md.
 #pragma once
 #include <gsr/scene_guide_camera.h>
+#include <gsr/terrain_snow.h>
 
 #include <algorithm>
 #include <cmath>
@@ -419,16 +420,15 @@ struct ShaderConsts {
     float dy[4];               // w = debug mode
     float octave[kOctaves][4]; // xyz = offset of the anchor in noise tiles (fraction), w = 1 / period
     float amplitude[4];        // fine, medium, slow, relief
-    float sampling[4];         // xy = anchor world x/z, w = gradient scale (2^lod bias)
+    float sampling[4];         // xy = anchor world x/z, z = snow range count, w = gradient scale (2^lod bias)
     float side[4];             // xyz = anchor modulo kSideModulo
     float relief[4];           // x = fine weight, y = medium weight, z = fade start, w = 1 / fade range
     float reliefFar[4];        // x = relief strength at the far end of the fade
     float grid[4];             // xy = anchor in grid cells relative to the grid origin, zw = grid size (0 = no grid)
     float gridHeight[4]; // x = anchor height (world y), y = height tolerance, z = kCliffStart, w = 1 / kCliffRange
-    float pad[2][4];
-    float snowRanges[4][3][4];
+    float snowRanges[snow::kMaxRanges][3][4];
 };
-static_assert(sizeof(ShaderConsts) == 28 * 16, "cbuffer layout");
+static_assert(snow::kMaxRanges == 8 && sizeof(ShaderConsts) == 38 * 16, "cbuffer layout");
 
 inline void buildConsts(const Unproject& u, const Settings& s, float gradientScale, ShaderConsts& k,
                         const NormalGrid* grid = nullptr) {
