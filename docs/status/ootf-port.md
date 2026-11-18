@@ -860,8 +860,9 @@ with an estimated time per step. See [builder extras](../journal/2026-11-09/buil
 * Water: Rynn swims in converted water (water layers keep the PC water vertex kinds, moved into the PS2 range) and the
   surface draws with the engine's own water material (PC liquid textures map to the native Proc Textures water / lava entries,
   water layers carry no chunk data). Hole vertices of water layers are kept under the water and the bank (they drew as sheets in
-  the air). Mountain water uses Surdana Water, the Islands the plain Water material; waterfalls use the Drakan 2 Surdana falls
-  texture. Verified swimming in the Ruined Village ocean; Islands and Wartok water seen from Arokh. See
+  the air). Most mountain water uses Surdana Water. Wartok Canyons and the Islands use the plain Water material, and waterfalls
+  use the Drakan 2 Surdana falls texture. Verified swimming in the Ruined Village ocean and viewed the Islands and Wartok water
+  from Arokh. See
   [water](../journal/2026-11-08/ootf-water.md). Every layer now lists the water layers within 96 cells in its `visible` list (the PC lists were made for a short draw
   distance, so the Ruined Village sea ended in an edge against the sky); see [sea and sky](../journal/2026-11-09/ootf-sea-sky.md).
 * Floating water (2026-11-14): the PS2 water pass draws every cell of a water layer, holes included, so PC hole cells stood

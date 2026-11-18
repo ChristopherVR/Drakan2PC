@@ -9,6 +9,7 @@
 #include "ps2_runtime_macros.h"
 
 #include <atomic>
+#include <bit>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,11 @@ constexpr uint32_t kContextPtr = 0x5565d4u;
 constexpr uint32_t kDragonClass = 0x1001cu, kRynnClass = 0x10009u;
 constexpr uint32_t kProjectileClass = 0x10008u, kStreamClass = 0x10015u; // breath ball / breath stream engines
 constexpr uint16_t kFireBall = 0x340au, kFlameBreath = 0x29e4u;          // RESOURES 13322 / 10724
+constexpr uint32_t kFactory = 0x181ad8u, kImpactGeneratorReturn = 0x39c8f8u;
+constexpr uint16_t kFireBallExplosion = 11092u;
+constexpr uint32_t kGeneratorClass = 0x1003fu;
+constexpr uint32_t kCameraPosition = 0x4dad58u + 0x6cu;
+constexpr float kNearBurstDistance = 6.0f * 2048.0f;
 constexpr uint32_t kDragonHandler = 0x27d0e0u; // (dragon instance, message {sender, u16* payload})
 constexpr uint16_t kAddBreath = 0x1028u;       // payload: id, then (weapon, alternate weapon, 0, 0) at +4
 constexpr uint32_t kRider = 0x4d8u;            // dragon instance: u16 registry reference of the rider (0x3d2518)
@@ -31,6 +37,7 @@ constexpr uint32_t kFrame = 0x60u; // trampoline stack frame: message at +0x10, 
 bool g_enabled = false, g_log = true, g_give = false;
 uint32_t g_slot1 = 0, g_slot2 = 0;
 std::atomic<int> g_logBudget{64};
+PS2Runtime::RecompiledFunction g_factory = nullptr;
 
 struct Flight {
     uint32_t dragon = 0, weapon = 0, alt = 0, savedSp = 0, savedRa = 0;
@@ -75,16 +82,56 @@ void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
         std::memcpy(ram + (a & 0x1fffffffu), &v, 4);
 }
 
-// The resource record of an actor handle (handle +0x10 = u16 record index into ctx+0x320).
-uint32_t classOf(const uint8_t* ram, uint32_t handle) {
-    const uint32_t ctx = rd32(ram, kContextPtr);
+uint32_t resourceRecord(const uint8_t* ram, uint32_t ctx, uint32_t index) {
     const uint32_t res = ramPtr(ctx) ? rd32(ram, ctx + 0x320u) : 0;
-    if (!ramPtr(handle, 0x100) || !ramPtr(res, 0x14))
+    if (!ramPtr(res, 0x14) || index == 0xffffu || index > rd32(ram, res + 0x10u))
         return 0;
-    const uint16_t idx = rd16(ram, handle + 0x10u);
-    if (idx == 0xffffu || idx > rd32(ram, res + 0x10u))
+    return rd32(ram, res + 8u) + index * 0x24u;
+}
+
+uint32_t actorResource(const uint8_t* ram, uint32_t handle) {
+    if (!ramPtr(handle, 0x100))
         return 0;
-    return rd32(ram, rd32(ram, res + 8u) + idx * 0x24u + 8u);
+    return resourceRecord(ram, rd32(ram, kContextPtr), rd16(ram, handle + 0x10u));
+}
+
+uint32_t classOf(const uint8_t* ram, uint32_t handle) {
+    return rd32(ram, actorResource(ram, handle) + 8u);
+}
+
+bool isCloseMountedFireBallBurst(const uint8_t* ram, const R5900Context* c) {
+    if (getRegU32(c, 31) != kImpactGeneratorReturn || drakan_game::current() != drakan_game::Game::Ootf ||
+        drakan_arena::active())
+        return false;
+    const uint32_t game = rd32(ram, kContextPtr);
+    if (classOf(ram, rd32(ram, game + 0x4b0u)) != kDragonClass)
+        return false;
+    const uint32_t projectile = actorResource(ram, getRegU32(c, 5));
+    const uint32_t effect = resourceRecord(ram, game, getRegU32(c, 9));
+    if ((rd32(ram, projectile) & 0xffffu) != kFireBall || rd32(ram, projectile + 8u) != kProjectileClass ||
+        (rd32(ram, effect) & 0xffffu) != kFireBallExplosion || rd32(ram, effect + 8u) != kGeneratorClass)
+        return false;
+    const uint32_t impact = getRegU32(c, 6);
+    if (!ramPtr(impact, 12))
+        return false;
+    float distanceSq = 0;
+    for (uint32_t i = 0; i < 12; i += 4) {
+        const float d =
+            std::bit_cast<float>(rd32(ram, impact + i)) - std::bit_cast<float>(rd32(ram, kCameraPosition + i));
+        distanceSq += d * d;
+    }
+    return distanceSq < kNearBurstDistance * kNearBurstDistance;
+}
+
+void spawnEffect(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (isCloseMountedFireBallBurst(ram, c)) {
+        // The billboard burst can cover Arokh on a close impact. The ring, sparks and hit still run in the caller.
+        logf("suppressed the fireball billboard burst near the mounted camera");
+        SET_GPR_U32(c, 2, 0);
+        c->pc = getRegU32(c, 31);
+        return;
+    }
+    g_factory(ram, c, rt);
 }
 uint32_t dataOf(const uint8_t* ram, uint32_t handle) {
     const uint32_t holder = ramPtr(handle, 0x100) ? rd32(ram, handle + 0xfcu) : 0;
@@ -169,6 +216,10 @@ void install(PS2Runtime& rt) {
         return;
     } else {
         g_enabled = true;
+        if (rt.hasFunction(kFactory)) {
+            g_factory = rt.lookupFunction(kFactory);
+            rt.replaceFunction(kFactory, &spawnEffect);
+        }
         if (!rt.hasFunction(kDragonHandler)) {
             std::fprintf(stderr, "[dragon-breath] stand-in breath off: %x missing\n", kDragonHandler);
             return;
