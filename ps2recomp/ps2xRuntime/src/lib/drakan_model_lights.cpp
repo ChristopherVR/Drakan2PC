@@ -24,11 +24,14 @@ constexpr uint32_t kBuilder = 0x1c4148u;    // (a0 set, a1 limit, a2 sun, a3 lig
 constexpr uint32_t kCandidates = 0x56b6c0u; // {entries, capacity, count}; entry = {distance^2, light, list index}
 constexpr uint32_t kCount = 0x20u, kSlotBase = 0x24u, kSlotSize = 0x34u;
 constexpr uint32_t kModelLimit = 4u;
+constexpr uint32_t kPackColour = 0x129370u;
+constexpr uint32_t kModelLightColourReturn = 0x1ea860u;
 
 std::atomic<bool> g_installed{false};
 int g_setting = ml::kOriginal;
 bool g_log = false;
 PS2Runtime::RecompiledFunction g_original = nullptr;
+PS2Runtime::RecompiledFunction g_packColour = nullptr;
 
 struct Cached { // the lights the last full search of an object cut off (list indices)
     uint32_t list = 0;
@@ -52,6 +55,16 @@ struct Stats {
 };
 Stats g_stats;
 std::chrono::steady_clock::time_point g_nextReport;
+
+void packColour(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    if (GPR_U32(ctx, 31) == kModelLightColourReturn) {
+        // Model lights arrive as colour * 255. The retail packer divides by two and masks to eight bits.
+        for (unsigned reg = 5; reg <= 7; ++reg)
+            if (GPR_S32(ctx, reg) > 510)
+                SET_GPR_S32(ctx, reg, 510);
+    }
+    g_packColour(ram, ctx, rt);
+}
 
 bool inRam(uint32_t a, uint32_t bytes) {
     return a != 0 && a <= PS2_RAM_SIZE && bytes <= PS2_RAM_SIZE - a;
@@ -332,6 +345,10 @@ void install(PS2Runtime& rt) {
     if (rt.hasFunction(kBuilder)) {
         g_original = rt.lookupFunction(kBuilder);
         rt.replaceFunction(kBuilder, &builder);
+    }
+    if (rt.hasFunction(kPackColour)) {
+        g_packColour = rt.lookupFunction(kPackColour);
+        rt.replaceFunction(kPackColour, &packColour);
     }
     std::fprintf(stderr, "[model-lights] installed (lights per model %d%s)\n", g_setting,
                  g_setting == ml::kOriginal ? ", original" : "");

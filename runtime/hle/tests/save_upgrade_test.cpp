@@ -186,6 +186,40 @@ int main() {
         CHECK(!upgradeSave(container(fixture), {}, output, report, error, {&swap, 1}) && output.empty());
     }
 
+    {
+        auto fixture = levelSave();
+        std::vector<u8> databases;
+        p32(databases, 2);
+        for (const std::string path : {"cdrom0:/System/System", "cdrom0:/World Common/World Common/World Common"}) {
+            p16(databases, static_cast<u32>(path.size() + 1));
+            databases.insert(databases.end(), path.begin(), path.end());
+            databases.push_back(0);
+        }
+        fixture.push_back({0x22, 0, 0, std::move(databases)});
+        fixture[0].data[8] &= ~1;
+        const auto original = container(fixture);
+        const SaveVisibilityRepair repair{10, "/world common/world common/world common", 0x3a2b};
+        SaveUpgradeReport report;
+        std::vector<u8> output, repeated;
+        std::string error;
+        std::vector<Entry> after;
+        CHECK(upgradeSave(original, {}, output, report, error, {}, &repair));
+        CHECK(report.visibilityRestored && entries(output, after));
+        fixture[0].data[8] |= 1;
+        CHECK(after.size() == fixture.size());
+        if (after.size() == fixture.size())
+            for (size_t i = 0; i < fixture.size(); ++i)
+                CHECK(after[i].data == fixture[i].data);
+        CHECK(upgradeSave(output, {}, repeated, report, error, {}, &repair));
+        CHECK(!report.changed() && repeated == output);
+        const SaveVisibilityRepair differentClass{10, repair.database, 0x0500};
+        CHECK(upgradeSave(original, {}, repeated, report, error, {}, &differentClass));
+        CHECK(!report.changed() && repeated == original);
+        const SaveVisibilityRepair destroyed{99, repair.database, repair.classId};
+        CHECK(upgradeSave(original, {}, repeated, report, error, {}, &destroyed));
+        CHECK(!report.changed() && repeated == original);
+    }
+
     // ---- manifest rules
     {
         SaveRevisionRule r;

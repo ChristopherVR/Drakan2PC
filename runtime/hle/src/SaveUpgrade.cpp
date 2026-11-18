@@ -170,7 +170,8 @@ std::vector<const SaveRevisionRule*> rulesFor(const std::vector<SaveRevisionRule
 }
 
 bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevisionRule*>& rules, std::vector<u8>& out,
-                 SaveUpgradeReport& report, std::string& err, std::span<const SaveClassRemap> remaps) {
+                 SaveUpgradeReport& report, std::string& err, std::span<const SaveClassRemap> remaps,
+                 const SaveVisibilityRepair* visibility) {
     out.clear();
     report = {};
     std::vector<std::pair<u32, u32>> ids; // (id, required id or 0)
@@ -319,6 +320,28 @@ bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevision
         slotOf.emplace(id, slot);
     for (size_t i = 0; i < report.added.size(); ++i)
         slotOf.emplace(report.added[i], total + static_cast<u32>(i));
+    // Dynamic scenery can retain a hidden bit after its startup visibility was corrected in the level.
+    if (visibility && dbs >= 0) {
+        const auto slot = slotOf.find(visibility->object);
+        if (slot != slotOf.end() && slot->second < records) {
+            const auto e = std::find_if(ents.begin(), ents.end(),
+                                        [&](const Ent& x) { return x.type == 0x102 && x.id == slot->second + 1; });
+            const Ent& db = ents[static_cast<size_t>(dbs)];
+            std::vector<std::string> databases;
+            std::vector<u8> d, names;
+            if (e != ents.end() && unzlib(&in[e->off], e->size, d) && d.size() >= 12 &&
+                unzlib(&in[db.off], db.size, names) && readDatabases(names, databases)) {
+                const u32 resource = rd32(d.data()), database = resource >> 16;
+                const u32 flags = rd32(&d[8]);
+                if ((resource & 0xffffu) == visibility->classId && database < databases.size() &&
+                    databases[database].ends_with(visibility->database) && !(flags & 1)) {
+                    wr32(d, 8, flags | 1);
+                    patches.push_back({e->type, e->id, e->sub, zlibStored(d), false});
+                    report.visibilityRestored = true;
+                }
+            }
+        }
+    }
     for (const SaveRevisionRule* r : relink) {
         const auto dragon = slotOf.find(r->ids[0]);
         if (dragon == slotOf.end() || dragon->second >= records)

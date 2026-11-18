@@ -74,13 +74,22 @@ struct SaveClassRemap {
     u16 from, to;
 };
 
+struct SaveVisibilityRepair {
+    u32 object;
+    std::string_view database;
+    u16 classId;
+};
+
 struct SaveUpgradeReport {
     std::vector<u32> added; // level object ids appended
     size_t replaced = 0;    // spawned records given their inert class
     size_t relinked = 0;    // dragons whose power-up links were restored
     size_t togglers = 0;    // togglers whose saved state was cleared
     size_t reclassified = 0;
-    bool changed() const { return !added.empty() || replaced || relinked || togglers || reclassified; }
+    bool visibilityRestored = false;
+    bool changed() const {
+        return !added.empty() || replaced || relinked || togglers || reclassified || visibilityRestored;
+    }
 };
 
 // Upgrades a save or level state (SRSC container) by the given rules (any kind, already chosen for the save):
@@ -99,6 +108,7 @@ struct SaveUpgradeReport {
 // dropped. False with `err` when the save does not have the expected tables (`out` is then empty). Nothing to change:
 // `out` == `in`. Journal: docs/journal/2026-11-16/save-state-fix.md.
 bool upgradeSave(const std::vector<u8>& in, const std::vector<const SaveRevisionRule*>& rules, std::vector<u8>& out,
-                 SaveUpgradeReport& report, std::string& err, std::span<const SaveClassRemap> remaps = {});
+                 SaveUpgradeReport& report, std::string& err, std::span<const SaveClassRemap> remaps = {},
+                 const SaveVisibilityRepair* visibility = nullptr);
 
 } // namespace hle::mods

@@ -84,6 +84,7 @@ std::map<std::string, Upgraded> g_upgraded;
 constexpr char kBookLevel[] = "OotF 02 - Ruined Village Book";
 constexpr char kVillageLevel[] = "OotF 01 - Ruined Village";
 constexpr char kBookReturnFile[] = "OotF 01 - Ruined Village.rlt";
+constexpr hle::mods::SaveVisibilityRepair kVillageSpit{701, "/world common/world common/world common", 2416};
 struct BookReturn {
     fs::path requested;
     std::vector<uint8_t> state;
@@ -434,6 +435,7 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data, std::
     const std::string key = host.string(), level = host.stem().string(), name = host.filename().string();
     std::vector<const hle::mods::SaveRevisionRule*> rules;
     std::span<const hle::mods::SaveClassRemap> remaps;
+    const hle::mods::SaveVisibilityRepair* visibility = nullptr;
     std::string about;
     using Kind = hle::mods::SaveRevisionRule::Kind;
     const hle::mods::SaveRevisionRule statue{Kind::AddObjects, 1, "OotF 01 - Ruined Village", {3353}, {2855}};
@@ -449,6 +451,9 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data, std::
                 rules.push_back(&statue);
             about = "Order of the Flame build " + saved.build;
         }
+        if (pr.migrateOotfCreatures && (saved.build == kOotfCreatureSwapBuild || saved.build == kOotfPreviousBuild) &&
+            rev <= 1 && hle::mods::ruleLevelMatches(kVillageLevel, level))
+            visibility = &kVillageSpit;
         if (rev >= pr.revision)
             continue;
         for (const Kind kind : {Kind::AddObjects, Kind::ReplaceEffects, Kind::RelinkPowerUps, Kind::ResetTogglers})
@@ -457,8 +462,10 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data, std::
         about += (about.empty() ? "" : ", ") + ("pack '" + pr.id + "' revision ") + std::to_string(rev) + " < " +
                  std::to_string(pr.revision);
     }
-    if (rules.empty() && remaps.empty() && !(snapshot && snapshot->fromCatalog))
+    if (rules.empty() && remaps.empty() && !visibility && !(snapshot && snapshot->fromCatalog))
         return UpgradeState::Unchanged;
+    if (visibility && about.empty())
+        about = "Order of the Flame village scenery";
     if (!snapshot) {
         std::lock_guard<std::mutex> lock(g_mutex);
         const auto it = g_upgraded.find(key);
@@ -476,20 +483,23 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data, std::
     }
     hle::mods::SaveUpgradeReport report;
     std::string err;
-    if (!hle::mods::upgradeSave(snapshot ? snapshot->bytes : in, rules, u.data, report, err, remaps)) {
+    if (!hle::mods::upgradeSave(snapshot ? snapshot->bytes : in, rules, u.data, report, err, remaps, visibility)) {
         std::fprintf(stderr, "[saves] %s (%s): upgrade failed (%s)\n", name.c_str(), about.c_str(), err.c_str());
-        u.state = UpgradeState::Failed;
+        const bool visibilityOnly =
+            visibility && rules.empty() && remaps.empty() && !(snapshot && snapshot->fromCatalog);
+        u.state = visibilityOnly ? UpgradeState::Unchanged : UpgradeState::Failed;
     } else if (!report.changed()) {
         std::fprintf(stderr, "[saves] %s (%s): nothing to upgrade\n", name.c_str(), about.c_str());
     } else {
         std::string list;
         for (uint32_t id : report.added)
             list += (list.empty() ? "" : " ") + std::to_string(id);
-        std::fprintf(stderr,
-                     "[saves] %s (%s): upgraded on load: level objects added [%s], %zu spawned record(s) made inert, "
-                     "%zu dragon(s) given their power-ups again, %zu toggler(s) reset, %zu creature class(es) mapped\n",
-                     name.c_str(), about.c_str(), list.c_str(), report.replaced, report.relinked, report.togglers,
-                     report.reclassified);
+        std::fprintf(
+            stderr,
+            "[saves] %s (%s): upgraded on load: level objects added [%s], %zu spawned record(s) made inert, "
+            "%zu dragon(s) given their power-ups again, %zu toggler(s) reset, %zu creature class(es) mapped%s\n",
+            name.c_str(), about.c_str(), list.c_str(), report.replaced, report.relinked, report.togglers,
+            report.reclassified, report.visibilityRestored ? ", scenery visibility restored" : "");
         u.state = UpgradeState::Replaced;
     }
     if (u.state != UpgradeState::Replaced)
