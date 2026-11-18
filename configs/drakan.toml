@@ -861,6 +861,21 @@ critical = [
   "_multiply", # Uses SIMD instructions
 ]
 
+[patches]
+# Water tiles use an integer texture origin based on their layer bounds. If a layer is close enough to the
+# world origin, subtracting half its size can go negative. Both water paths must halve that result as a
+# signed value and convert it directly to float. The unsigned conversion wiped out an axis of the ripple UV.
+instructions = [
+  { address = "0x161c10", value = "0x00031043" }, # VU water U: sra v0, v1, 1
+  { address = "0x161c14", value = "0x00000000" }, # use the signed conversion
+  { address = "0x161c60", value = "0x00031043" }, # VU water V
+  { address = "0x161c64", value = "0x00000000" },
+  { address = "0x162e6c", value = "0x00031043" }, # CPU-clipped water U
+  { address = "0x162e70", value = "0x00000000" },
+  { address = "0x162ec0", value = "0x00031043" }, # CPU-clipped water V
+  { address = "0x162ec4", value = "0x00000000" },
+]
+
 # Terrain chunks with up to 32 texture references (docs/journal/2026-11-14/ootf-wide-chunks.md). A second copy of every
 # function that uses the 0x4c-byte chunk record: stride 0xa4, ref[32] at +0x14, the weight-array descriptor moved from
 # +0x3c to +0x94, and the terrain mesh drawer's per-group flag array (10 words on its stack) moved to 64 words. The

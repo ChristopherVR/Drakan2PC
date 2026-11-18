@@ -198,6 +198,9 @@ cell   = u16 flags, u32 texture, 8 x u16 uv      // row-major, top-left first, l
   vertices with bit 0x100 all drew in game, so the disc keeps a water layer's hole vertices at its surface, under the bank. A
   vertex far above or below the surface near the camera makes the water around it vanish (2048 off already cost part of a small
   pool) [game, journal 2026-11-14/ootf-water-sheets.md].
+  PAL recompiled builds use a signed texture origin in both native water paths (`configs/drakan.toml`). A water layer
+  near the world origin can have a negative tile offset after subtracting half its size. The original unsigned shift
+  wrapped that offset and collapsed one texture coordinate in the Wartok Canyons entrance river.
 * **Vertex words [inf]**: first u16 (0x200, 0x241, 0x000, ...): the low byte is the vertex type. PS2 list (ELF strings): 0 Normal,
   1..64 `Vertex Color 1..64` (the Level Properties colours), then the water kinds. Water layers use 0x41, 0x71, 0x5a; that is
   the Drakan 1 vertex type (PC type byte, `Dragon.rfl` list: 0 Normal, 1 Water Still, 2..25 currents, 37..44 Water Phase,
