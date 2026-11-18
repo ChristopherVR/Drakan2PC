@@ -404,11 +404,41 @@ bool MusicCategoryOverride::patch(std::vector<u8>& data) {
 
 // ---- campaign music level
 float CampaignMusicLevel::baseGain(float engineGain, float categoryGain) {
-    // engineGain = categoryGain * rest; the result is rest * min(categoryGain / kFullAt, 1)
-    if (!(categoryGain > 0.0f) || !(engineGain > 0.0f) || !std::isfinite(engineGain) || !std::isfinite(categoryGain))
+    if (!(categoryGain > 0.0f && categoryGain < 1.0f) || !(engineGain > 0.0f) || !std::isfinite(engineGain))
         return engineGain;
-    const float scale = std::min(1.0f / kFullAt, 1.0f / categoryGain);
-    return scale > 1.0f ? engineGain * scale : engineGain;
+    // The engine already applied g. The curve 3g / (1 + 2g) gives half level at the default (25)
+    // and full level at 100, leaving the engine's track gain and scene fades in the product.
+    return engineGain * (3.0f / (1.0f + 2.0f * categoryGain));
+}
+
+float CampaignSceneMusic::mixedLevel() const {
+    float level = underlying_;
+    for (const auto& entry : scenes_)
+        level = std::max(level, entry.second);
+    return level;
+}
+
+float CampaignSceneMusic::begin(u32 scene, float savedLevel, float sceneLevel) {
+    if (scenes_.empty())
+        underlying_ = savedLevel;
+    scenes_[scene] = sceneLevel;
+    return mixedLevel();
+}
+
+float CampaignSceneMusic::end(u32 scene, float savedLevel) {
+    if (scenes_.empty())
+        return savedLevel;
+    scenes_.erase(scene);
+    return mixedLevel();
+}
+
+float CampaignSceneMusic::setLevel(float level) {
+    underlying_ = level;
+    return mixedLevel();
+}
+
+void CampaignSceneMusic::reset() {
+    scenes_.clear();
 }
 
 // ---- campaign credits

@@ -363,20 +363,41 @@ int main() {
         std::vector<u8> e = desc(0);
         CHECK(!mc.apply(other, e) && e == desc(0) && mc.apply(music, e) && e == desc(2));
     }
-    // a campaign's music takes the Music Volume relative to its default: 25 and above play at full, below it scales
+    // Every slider step changes campaign music, including the upper three quarters.
     {
         auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
         const float track = 0.891f; // the converted tracks' descriptor gain (-100 mB)
-        // the owner's Music Volume 13: the engine's 0.13 * 0.891 plays as 0.52 * 0.891
-        CHECK(near(CampaignMusicLevel::baseGain(0.13f * track, 0.13f), 0.52f * track));
-        CHECK(near(CampaignMusicLevel::baseGain(0.25f * track, 0.25f), track)); // the default: full
-        CHECK(near(CampaignMusicLevel::baseGain(0.5f * track, 0.5f), track));   // above the default: full
+        float previous = 0.0f;
+        for (int volume = 1; volume <= 100; ++volume) {
+            const float category = volume / 100.0f;
+            const float gain = CampaignMusicLevel::baseGain(category * track, category);
+            CHECK(gain > previous && gain <= track);
+            previous = gain;
+        }
+        CHECK(near(CampaignMusicLevel::baseGain(0.25f * track, 0.25f), 0.5f * track));
+        CHECK(near(CampaignMusicLevel::baseGain(0.5f * track, 0.5f), 0.75f * track));
         CHECK(near(CampaignMusicLevel::baseGain(1.0f * track, 1.0f), track));   // 100: unchanged
         CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.0f), 0.0f));            // 0 stays silent
         CHECK(near(CampaignMusicLevel::baseGain(0.0f, 0.13f), 0.0f));           // a silent sound stays silent
-        // the scene and global levels inside the engine's product are kept: half level at 13 -> 0.26
-        CHECK(near(CampaignMusicLevel::baseGain(0.13f * 0.5f * track, 0.13f), 0.26f * track));
+        CHECK(near(CampaignMusicLevel::baseGain(0.25f * 0.5f * track, 0.25f), 0.25f * track));
         CHECK(std::isnan(CampaignMusicLevel::baseGain(NAN, 0.13f))); // nonsense is passed through
+    }
+    {
+        CampaignSceneMusic mix;
+        CHECK(mix.begin(10, 0.125f, 0.5f) == 0.5f);
+        CHECK(mix.begin(11, 0.5f, 0.5f) == 0.5f);
+        CHECK(mix.end(10, 0.125f) == 0.5f);
+        CHECK(!mix.active(10) && mix.active(11));
+        CHECK(mix.end(11, 0.5f) == 0.125f); // last scene saved the first scene's attenuation
+        CHECK(mix.begin(12, 0.75f, 0.5f) == 0.75f);
+        CHECK(mix.setLevel(0.25f) == 0.5f); // a music cue changes the underlying mix during dialogue
+        CHECK(mix.begin(12, 0.5f, 0.5f) == 0.5f);
+        CHECK(mix.end(12, 0.75f) == 0.25f);
+        CHECK(mix.begin(13, 0.0f, 0.5f) == 0.5f);
+        mix.reset();
+        CHECK(!mix.active(13));
+        CHECK(mix.end(13, 0.25f) == 0.25f);
+        CHECK(mix.setLevel(0.0f) == 0.0f);
     }
     // ---- campaign credits through plain file reads: the overlay rewrites the two entries inside the opened RRC, at
     // read time

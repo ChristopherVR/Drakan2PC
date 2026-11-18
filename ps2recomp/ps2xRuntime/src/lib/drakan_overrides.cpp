@@ -1532,33 +1532,9 @@ PS2Runtime::RecompiledFunction g_musicLevelOrig = nullptr;
 PS2Runtime::RecompiledFunction g_musicStopFn = nullptr;
 uint32_t g_musicLevelAt = 0, g_musicStopAt = 0;
 std::atomic<int> g_musicStopLog{0};
-// A scene's own music level: at its start the engine lowers the music category to half (0x1b6930 from 0x1a4304) and
-// at its end it ramps back to the level it saved at the start (from 0x1a4680). Scenes that follow each other save the
-// half level of the previous one, so after Ruined Village 1.2a and 1.3 the campaign's music stayed at half volume. The
-// campaign skips both and keeps only the levels of the scenes' own music actions (the PC scenes have no such level; how
-// loud the PC plays music under a scene was not measured).
-uint32_t g_sceneStartLevelRa = 0, g_sceneEndLevelRa = 0;
-bool campaignMusic();
-
-void sceneMusicStopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
-    const uint32_t ra = getRegU32(ctx, 31);
-    if (ctx->pc == g_musicLevelAt && (ra == g_sceneStartLevelRa || ra == g_sceneEndLevelRa) && ra &&
-        getRegU32(ctx, 5) == 2 && campaignMusic()) {
-        ctx->pc = ra;
-        return;
-    }
-    if (ctx->pc == g_musicLevelAt && ctx->f[12] == kSceneMusicStop && g_musicStopFn) {
-        const float fade = ctx->f[13] > 0.0f ? ctx->f[13] : 0.0f;
-        if (g_musicStopLog.fetch_add(1) < 64)
-            std::fprintf(stderr, "[music] scene stop: category %d, fade %.2f s (ra=%x)\n",
-                         static_cast<int32_t>(getRegU32(ctx, 5)), fade, getRegU32(ctx, 31));
-        ctx->f[12] = fade;
-        ctx->pc = g_musicStopAt;
-        g_musicStopFn(rdram, ctx, rt);
-        return;
-    }
-    g_musicLevelOrig(rdram, ctx, rt);
-}
+uint32_t g_sceneStartLevelRa = 0, g_sceneEndLevelRa = 0, g_sceneCueLevelRa = 0;
+hle::CampaignSceneMusic g_sceneMusic;
+std::mutex g_sceneMusicMutex;
 
 // Campaign music hand-over, as on the PC (DirectMusic): a new track replaces the playing one with both fades at once,
 // and a scene's music outlives the scene. The sound manager (0x4db4f0) keeps a music category (record 2 at +0x48c,
@@ -1609,6 +1585,44 @@ void gputf(uint8_t* rdram, uint32_t a, float v) {
 }
 uint32_t musicCategory() {
     return drakan_region::guestAddress(kSoundManager) + 0x48c + kMusicCategory * 0x2c;
+}
+
+void sceneMusicStopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t ra = getRegU32(ctx, 31);
+    const bool stop = ctx->f[12] == kSceneMusicStop;
+    if (ctx->pc == g_musicLevelAt && ra && getRegU32(ctx, 5) == kMusicCategory && campaignMusic()) {
+        std::lock_guard<std::mutex> guard(g_sceneMusicMutex);
+        // At both scene boundaries s2 is the sequence instance. At entry +0x2c holds the category level
+        // saved by the game. An overlapping scene may have saved the first one's attenuation.
+        const uint32_t scene = getRegU32(ctx, ra == g_sceneCueLevelRa ? 22 : 18);
+        if (ra == g_sceneStartLevelRa && guestOk(scene, 0x30))
+            ctx->f[12] = g_sceneMusic.begin(scene, gf32(rdram, scene + 0x2c), ctx->f[12]);
+        else if (ra == g_sceneEndLevelRa)
+            ctx->f[12] = g_sceneMusic.end(scene, ctx->f[12]);
+        else if (ra == g_sceneCueLevelRa) {
+            // A cue's "keep" clears bit 0x1000, which also suppresses the scene's level restore. For
+            // a scene that lowered the music, restore its level at exit and keep the track it selected
+            // (bit 0x800 would pop the previously paused track). The engine still handles the fade.
+            if (guestOk(scene, 0x30) && g_sceneMusic.active(scene)) {
+                const uint32_t flags = gu32(rdram, scene + 8);
+                if (!(flags & 0x1000u))
+                    gput(rdram, scene + 8, (flags | 0x1000u) & ~0x800u);
+            }
+            if (!stop)
+                ctx->f[12] = g_sceneMusic.setLevel(ctx->f[12]);
+        }
+    }
+    if (ctx->pc == g_musicLevelAt && stop && g_musicStopFn) {
+        const float fade = ctx->f[13] > 0.0f ? ctx->f[13] : 0.0f;
+        if (g_musicStopLog.fetch_add(1) < 64)
+            std::fprintf(stderr, "[music] scene stop: category %d, fade %.2f s (ra=%x)\n",
+                         static_cast<int32_t>(getRegU32(ctx, 5)), fade, getRegU32(ctx, 31));
+        ctx->f[12] = fade;
+        ctx->pc = g_musicStopAt;
+        g_musicStopFn(rdram, ctx, rt);
+        return;
+    }
+    g_musicLevelOrig(rdram, ctx, rt);
 }
 
 // The track started early by musicSortHook (0 = none): the engine would start it a second time, with its fade in from
@@ -1743,8 +1757,8 @@ void musicPopHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
 
 // Campaign music level (hle::CampaignMusicLevel): 0x1b30b8 (f12 gain, a0 instance) stores an instance's base gain,
 // which the engine computes with the category's gain (the Music Volume option / 100). While a campaign with its own
-// music is the current game, a music instance takes the option relative to its default 25 (full there and above, scaled
-// below). The instance's category is its descriptor's (+0x10, +0x3c, as 0x1b3098 reads it): a new instance is not
+// music is the current game, a music instance takes the campaign's volume curve. The instance's category is its
+// descriptor's (+0x10, +0x3c, as 0x1b3098 reads it): a new instance is not
 // sorted into its category (+0x18) yet when the sort sets its gain. DRAKAN_CAMPAIGN_MUSIC_LEVEL=0 leaves the engine's
 // gain.
 PS2Runtime::RecompiledFunction g_baseGainOrig = nullptr;
@@ -2295,6 +2309,12 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 g_musicLevelOrig = runtime.lookupFunction(g_musicLevelAt);
                 g_musicStopFn = runtime.lookupFunction(g_musicStopAt);
                 runtime.replaceFunction(g_musicLevelAt, &sceneMusicStopHook);
+                const auto resetSceneMusic = [](const drakan_lifecycle::Event&) {
+                    std::lock_guard<std::mutex> guard(g_sceneMusicMutex);
+                    g_sceneMusic.reset();
+                };
+                drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, resetSceneMusic);
+                drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, resetSceneMusic);
             }
             g_musicSortAt = drakan_region::guestAddress(0x1b7758u);
             g_musicStartAt = drakan_region::guestAddress(0x1b15e0u);
@@ -2305,6 +2325,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             g_sceneStartPauseRa = drakan_region::guestAddress(0x1a42a0u);
             g_sceneStartLevelRa = drakan_region::guestAddress(0x1a4304u);
             g_sceneEndLevelRa = drakan_region::guestAddress(0x1a4680u);
+            g_sceneCueLevelRa = drakan_region::guestAddress(0x1a58ccu);
             const char* hand = std::getenv("DRAKAN_MUSIC_HANDOVER");
             if (drakan_region::build().identityAddresses && (!hand || hand[0] != '0') &&
                 runtime.hasFunction(g_musicSortAt) && runtime.hasFunction(g_musicStartAt) &&
@@ -2320,7 +2341,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 runtime.replaceFunction(g_musicPopAt, &musicPopHook);
                 runtime.replaceFunction(g_musicPauseAt, &musicPauseHook);
             }
-            // a campaign's music follows the Music Volume relative to its default (musicBaseGainHook)
+            // Apply the campaign music volume curve (musicBaseGainHook).
             const uint32_t baseGainAt = drakan_region::guestAddress(0x1b30b8u);
             const char* level = std::getenv("DRAKAN_CAMPAIGN_MUSIC_LEVEL");
             if (drakan_region::build().identityAddresses && (!level || level[0] != '0') && baseGainAt &&

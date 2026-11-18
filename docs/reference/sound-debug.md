@@ -131,10 +131,17 @@ state (1 in, 2 out); `0x1b2ee8` / `0x1b2f20` start the fades, `0x1b7cf8` stops, 
 Converted Order of the Flame tracks had category 0 until 15 November; `hle::MusicCategoryOverride` serves them with 2.
 While a campaign with its own music is the current game, `drakan_overrides.cpp` makes the music category hand over as
 on the PC: a new track starts at once with its fade in while the old one fades out (the engine holds it, and a
-Triggered Music Loop's emitter then stops the held instance), and a scene neither pauses the playing music at its start,
-nor fades its own music out at its end, nor sets a music level of its own. Diagnostics: `[music]` lines in the log;
+Triggered Music Loop's emitter then stops the held instance). Music continues across scene boundaries.
+When a scene requests the engine's half-volume dialogue mix, the music fades down. Overlapping scenes
+retain that attenuation until the last one ends. A cue may keep or stop its track while the scene still
+restores the prior mix. The runtime logs track changes under `[music]`.
 `DRAKAN_MUSIC_CATEGORY_FIX=0` and `DRAKAN_MUSIC_HANDOVER=0` restore the engine's behaviour for comparisons. Evidence:
-`docs/journal/2026-11-15/ootf-opening-scenes.md` section 9. Since 17 November a campaign's music also takes the Music Volume
-relative to its default 25 (full there and above, scaled below; `musicBaseGainHook` on `0x1b30b8`,
-`hle::CampaignMusicLevel`, `DRAKAN_CAMPAIGN_MUSIC_LEVEL=0` turns it off): at 13 the scenes' music was buried under their
-speech (`docs/journal/2026-11-17/ootf-scene-music.md`).
+`docs/journal/2026-11-15/ootf-opening-scenes.md` section 9. For campaign music the category gain is
+`3g / (1 + 2g)`, where `g` is Music Volume divided by 100. Every slider step takes effect. The default of 25
+gives half gain, 50 gives three quarters, and 100 gives full gain. The engine still applies track gain and fades.
+`musicBaseGainHook` at `0x1b30b8` applies this curve. `DRAKAN_CAMPAIGN_MUSIC_LEVEL=0` selects the engine's linear gain.
+
+During Order of the Flame conversion, spoken lines in the PC System bank's Rynn/Comments group and its child groups
+are compared with the effective level of equivalent disc interaction lines (about -23 dBFS RMS). Quiet lines can regain
+up to 9 dB of descriptor gain, capped at unity. Loops and muted clips keep their authored volume. The PCM, distance
+attenuation, master control and lip-sync data retain their usual processing.

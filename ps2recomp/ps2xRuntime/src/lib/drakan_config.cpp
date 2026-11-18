@@ -251,9 +251,8 @@ const Entry kEntries[] = {
     {"video", "far_scenery", "1",
      "1 = with view_distance above 1 the world also draws the hills, islands and sea the level only shows from "
      "nearer places, so it does not end in a straight edge; in the Order of the Flame levels it also draws the "
-     "hills and river banks in sight up to 32 cells away that their own lists leave out, at view_distance 1; 0 = only "
-     "what the level lists for "
-     "each place (PAL only, needs heap_extend; env DRAKAN_FAR_SCENERY)"},
+     "hills and river banks visible from the camera out to the current fog horizon at view_distance 1; "
+     "0 = only what the level lists for each place (PAL only, needs heap_extend; env DRAKAN_FAR_SCENERY)"},
     {"video", "terrain_cliffs", "0",
      "1 = steep mountain faces take their ground texture from the side instead of from above, so it is not stretched "
      "into streaks; patches of grass and rock on such faces then sit elsewhere than in the original picture "
