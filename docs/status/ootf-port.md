@@ -705,6 +705,10 @@ puzzle with real input, the crystal taken, F5 / F8, all tiles drawn and pressing
 well (the other 38 campaign plates had the same defect). Not compared with the PC: the look of the open pit after the ring
 hides. Needs a regenerated pack and a new game. See [crystal plates](../journal/2026-11-14/ootf-ruined-crystal-plates.md).
 
+**November 18 ceiling flicker near Heron's Crystal:** the cave-facing rock and hall-facing plaster in the end arch shared
+a plane. The converter separates the two faces, which restores the plaster from the hall and the rock from the cave.
+Rebuilding preserves the installed save build. See [crystal arch](../journal/2026-11-18/ruined-village-crystal-arch.md).
+
 **November 14 boulders and the felled tree in Ruined Village (round 7):** the owner's boulders that "roll down but don't
 set off the explosive barrels or kill the NPCs", and the tree that "has to be chopped down to walk over it". Boulders: PC
 "Boulder" was name-mapped onto the disc's "Boulder", whose damage is 1 per lu/s, so a boulder hit sent 1 or 2 damage (a
