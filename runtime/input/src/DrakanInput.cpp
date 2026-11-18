@@ -419,7 +419,7 @@ void InputModule::beginFrame(const FrameInput& injected) {
             focusLost_ = false;
             userReleased_ = false;
             if (!menuCtx)
-                recaptureButtons_ |= MBTN_LEFT;
+                suppressedMouseButtons_ |= MBTN_LEFT;
         } else if (toggled) {
             focusLost_ = false;
             userReleased_ = !userReleased_;
@@ -468,10 +468,10 @@ void InputModule::beginFrame(const FrameInput& injected) {
             frame_.wheel = 0;
         }
     }
-    recaptureButtons_ &= static_cast<uint8_t>(injected.mouseDown | injected.mousePressed);
-    frame_.mouseDown &= static_cast<uint8_t>(~recaptureButtons_);
-    frame_.mousePressed &= static_cast<uint8_t>(~recaptureButtons_);
-    frame_.mouseReleased &= static_cast<uint8_t>(~recaptureButtons_);
+    suppressedMouseButtons_ &= static_cast<uint8_t>(injected.mouseDown | injected.mousePressed);
+    frame_.mouseDown &= static_cast<uint8_t>(~suppressedMouseButtons_);
+    frame_.mousePressed &= static_cast<uint8_t>(~suppressedMouseButtons_);
+    frame_.mouseReleased &= static_cast<uint8_t>(~suppressedMouseButtons_);
     bowAimFrame();
     // Counts are displacement, not a per-frame stick rate. Keep samples when
     // the native camera skips a tick; discard them whenever ownership changes.

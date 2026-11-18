@@ -1,6 +1,7 @@
-// Modern bow aiming (src/BowAim.cpp): aim / release state, the Square tap, the FOV zoom and the arrow retarget, on a
+// Modern bow aiming (src/BowAim.cpp): aim / release state, the attack tap, the FOV zoom and the arrow retarget, on a
 // fake guest.
 #include "input/DrakanInput.h"
+#include "input/QuickSlots.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -64,7 +65,20 @@ struct FakeGuest : IGuest {
 constexpr uint32_t CTX = 0x600000, CAMH = 0x610000, CAM = 0x620000, CAMOBJ = 0x630000, PLH = 0x640000,
                    PLAYER = 0x650000, TABLE = 0x660000, BOW = 0x670000, ARROW = 0x680000;
 
+constexpr uint32_t kPadMgr = 0x4e90c0;
+constexpr uint32_t kCrossAction = 0x123, kSquareAction = 0x124, kR1Action = 0x128;
+
 void setup(FakeGuest& g) {
+    const uint32_t buttons = kPadMgr + quickslot::kPadTable, keymap = kPadMgr + quickslot::kKeymap;
+    auto addButton = [&](uint32_t slot, uint32_t action, uint16_t mask, uint16_t command) {
+        const uint32_t record = buttons + slot * quickslot::kPadTableStride;
+        g.write32(record, action);
+        g.write32(record + 4, mask);
+        g.write16(keymap + 2 * action, command);
+    };
+    addButton(0, kCrossAction, Pad::CROSS, 0x4012);
+    addButton(1, kSquareAction, Pad::SQUARE, quickslot::kCmdAttack);
+    addButton(2, kR1Action, Pad::R1, quickslot::kCmdQuickInventory);
     g.write32(0x5565d4, CTX);
     g.write32(CTX + 0x4b4, CAMH);
     g.write32(CAMH + 0xfc, CAMH + 0x100);
@@ -119,6 +133,51 @@ float col(FakeGuest& g, int j, int i) {
     return g.readF(ARROW + 0x20 + 4 * static_cast<uint32_t>(3 * i + j));
 }
 } // namespace
+
+static void testBowAttackBinding(uint16_t attack) {
+    FakeGuest g;
+    setup(g);
+    const uint32_t keymap = kPadMgr + quickslot::kKeymap;
+    g.write16(keymap + 2 * kSquareAction, quickslot::kCmdQuickInventory);
+    g.write16(keymap + 2 * kCrossAction, attack == Pad::CROSS ? quickslot::kCmdAttack : 0x400b);
+    g.write16(keymap + 2 * kR1Action, attack == Pad::R1 ? quickslot::kCmdAttack : 0x400b);
+
+    Config c = Config::defaults();
+    c.bowAimModern = true;
+    InputModule m;
+    m.initHeadless(c);
+    m.beginFrame(FrameInput{});
+    m.updateBowAim(g);
+    CHECK(pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0)).buttons & Pad::SQUARE); // left click is Quick Inventory
+    CHECK(!m.bowCrosshairVisible());
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    CHECK(pad(m, FrameInput{}).buttons == 0);
+
+    c.game = {Binding{Binding::Mouse, MBTN_LEFT, Binding::PadBtn, attack}};
+    m.reloadConfig(c);
+    m.beginFrame(FrameInput{});
+    m.updateBowAim(g);
+    CHECK(!(pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0)).buttons & attack));
+    CHECK(m.bowCrosshairVisible());
+    CHECK(!(pad(m, mouse(MBTN_LEFT, 0, 0)).buttons & attack));
+    pad(m, mouse(0, 0, MBTN_LEFT));
+    CHECK(!m.bowCrosshairVisible());
+    CHECK(pad(m, FrameInput{}).buttons == attack);
+    CHECK(pad(m, FrameInput{}).buttons == attack);
+    CHECK(pad(m, FrameInput{}).buttons == 0);
+
+    pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0));
+    CHECK(m.bowCrosshairVisible());
+    g.write16(keymap + 2 * kCrossAction, 0x4012); // switch back to Standard
+    g.write16(keymap + 2 * kSquareAction, quickslot::kCmdAttack);
+    g.write16(keymap + 2 * kR1Action, quickslot::kCmdQuickInventory);
+    m.updateBowAim(g);
+    CHECK(!m.bowCrosshairVisible());
+    CHECK(pad(m, mouse(MBTN_LEFT, 0, 0)).buttons == 0); // changing schemes while aiming cancels that click
+    CHECK(pad(m, mouse(0, 0, MBTN_LEFT)).buttons == 0);
+    CHECK(pad(m, FrameInput{}).buttons == 0);
+    CHECK(pad(m, mouse(MBTN_LEFT, MBTN_LEFT, 0)).buttons == attack); // a fresh click can use its new action
+}
 
 static void testAimAndRelease() {
     Config c = Config::defaults();
@@ -1100,6 +1159,8 @@ int main() {
         NEAR(g.readF(CAM + 0x60), 60.0, 1e-4);
     }
     testAimAndRelease();
+    testBowAttackBinding(Pad::CROSS); // Alternate
+    testBowAttackBinding(Pad::R1);    // Dual Control
     testZoomHandsOver();
     testShoulderView();
     testHeldDraw();

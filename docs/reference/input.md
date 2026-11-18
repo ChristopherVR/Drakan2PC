@@ -679,9 +679,11 @@ Native bow (static analysis, live-checked where noted):
 | Shot (Square) | Press sets attack bit 2 (`0x307198`); `FUN_003016e8` plays the draw animation 0xe1 (0xe7 crouched) on channel `player+0xaec` (0 = base) and on the torso channel (property 0x52). The arrow leaves on the animation event, not on button release: `FUN_0020e6c8(bow)` launches `*(bow+0x158)` and sets the cooldown `player+0xb38`. |
 | Launch direction | `FUN_0020e6c8`: with a locked target (`player+0x4da`) or a homing arrow (prop 0x10) it solves a ballistic direction and rewrites the arrow matrix (column 0 = -dir); otherwise the arrow flies along its own matrix (the hand pose). Live: an arrow whose column 0 was set to -d flew exactly along d with no visible drop over 7400 units. |
 
-Modern mode: with the bow out (on foot, gameplay, sight closed, mouse / keyboard owner), LMB (when bound to SQUARE) no
-longer reaches the pad. Holding it aims: `cam+0x60` x `bow_zoom` (restored on release unless the game set its own),
-an over-the-shoulder view, and a host crosshair at the centre of the game image. Release sends one Square tap (2 frames).
+In OotF and modern bow modes, holding the left mouse button aims when it is bound to the current scheme's Attack button
+(Square in A, Cross in B, R1 in C). This requires a drawn bow on foot, the native sight closed and mouse control.
+While aiming, the camera moves over Rynn's shoulder, the host draws a centred crosshair and the FOV target
+at `cam+0x60` is multiplied by `bow_zoom`. Release taps Attack for two frames and restores the FOV unless the
+game has changed it. Changing schemes during the draw cancels the shot.
 Over the shoulder (revised 2026-11-12, issue 6): after each native follow tick `0x41f848` the glue's
 `afterCameraFollow` moves the camera transform (`*(cam+0x148)+0x14`) 210 units along its own right axis and 40 along
 its up axis, eased in and out at 8/s (engine dt `ctx+0x3c`) and scaled down when the camera is nearer than 700 units to

@@ -1,10 +1,8 @@
-// Default OotF bow: press fires, alternate attack toggles the native sight; camera-centred native target acquisition
-// uses the original PC aiming model. Optional modern aiming
-// (`[mouse] bow_aim = modern`): with the bow out on foot, holding the left button aims (a slight
-// zoom through the camera's own FOV ramp and a crosshair drawn by the host) and releasing it sends one Square tap; the
-// arrow of that shot is pointed at the crosshair just before the native launch. Static analysis and measurements:
-// docs/reference/input.md section 16.
+// OotF and modern bow aiming share the left-button draw and release when it is bound to Attack.
+// The camera's FOV ramp zooms the view and the arrow aims at the crosshair on launch.
+// See docs/reference/input.md section 16 for the native sight and camera behavior.
 #include "input/DrakanInput.h"
+#include "input/QuickSlots.h"
 #include <algorithm>
 #include <charconv>
 #include <sstream>
@@ -59,9 +57,10 @@ bool finite3(const float v[3]) {
 
 } // namespace
 
-bool InputModule::bowLmbIsSquare() const {
-    return std::any_of(cfg_.game.begin(), cfg_.game.end(), [](const Binding& b) {
-        return b.src == Binding::Mouse && b.code == MBTN_LEFT && b.act == Binding::PadBtn && b.value == Pad::SQUARE;
+bool InputModule::bowLmbIsAttack() const {
+    return std::any_of(cfg_.game.begin(), cfg_.game.end(), [this](const Binding& b) {
+        return b.src == Binding::Mouse && b.code == MBTN_LEFT && b.act == Binding::PadBtn &&
+               b.value == bowAttackButton_;
     });
 }
 
@@ -70,8 +69,8 @@ void InputModule::bowAimFrame() {
         --bowShotFrames_;
     if (bowChannelFrames_ > 0)
         --bowChannelFrames_;
-    const bool ready = bowHoldAim() && bowReady_.load() && frame_.captured && !layerIsMenu_ && !menuActive_.load() &&
-                       !hostOwned() && bowLmbIsSquare();
+    const bool ready = bowHoldAim() && bowAttackButton_ && frame_.captured && !layerIsMenu_ && !menuActive_.load() &&
+                       !hostOwned() && bowLmbIsAttack();
     if (!ready) {
         if (bowAiming_.exchange(false))
             bowReleaseTapped_ = false; // a sight, weapon change or menu cancels the aim without a shot
@@ -84,11 +83,11 @@ void InputModule::bowAimFrame() {
         bowAiming_.store(true);
     if (bowAiming_.load() && (released || !down)) {
         bowAiming_.store(false);
-        injectPadTap(Pad::SQUARE, 2); // the native draw-and-shoot animation; the arrow leaves on its event
+        injectPadTap(bowAttackButton_, 2); // the native draw-and-shoot animation; the arrow leaves on its event
         bowShotFrames_ = bowChannelFrames_ = kBowShotFrames;
         bowReleaseTapped_ = true;
     }
-    // The button belongs to the aim while the bow is out: it never reaches the pad as Square.
+    // The held mouse button belongs to the draw. Only the release sends Attack to the pad.
     frame_.mouseDown &= static_cast<uint8_t>(~left);
     frame_.mousePressed &= static_cast<uint8_t>(~left);
     frame_.mouseReleased &= static_cast<uint8_t>(~left);
@@ -115,7 +114,13 @@ InputModule::BowDrawAction InputModule::updateBowAimLocked(IGuest& g) {
     const bool ready = bowHoldAim() && camOk && player && !dragon_ && mouseKeyboardOwner_ &&
                        (g.read32(player + 0xe90) == kBowMode || g.read32(player + 0xe90) == kCrossbowMode) &&
                        g.read32(0x4fb730) && !g.read32(0x4fbafc);
-    bowReady_.store(ready);
+    const uint16_t attack = ready ? nativePadButton(g, cfg_.addrPadMgr, quickslot::kCmdAttack) : 0;
+    if (attack != bowAttackButton_ && bowAiming_.exchange(false)) {
+        bowReleaseTapped_ = false;
+        // A held click still belongs to its original draw when the scheme or weapon changes.
+        suppressedMouseButtons_ |= MBTN_LEFT;
+    }
+    bowAttackButton_ = attack;
     const BowDrawAction draw = bowDrawFrame(g, player,
                                             ready && bowAiming_.load() && cfg_.bowDrawPose && bowShotFrames_ <= 0 &&
                                                 (g.read32(player + 0x94) & 0x80u) == 0);
@@ -916,7 +921,7 @@ void InputModule::afterCameraFollow(IGuest& g, uint32_t cam) {
     float dt = g.readF(ctx + 0x3c); // the engine's averaged frame time (the native follow uses it the same way)
     if (!(dt > 0.0f && dt < 0.25f))
         dt = 1.0f / 60.0f;
-    const float target = bowReady_.load() && bowAiming_.load() ? 1.0f : 0.0f;
+    const float target = bowAiming_.load() ? 1.0f : 0.0f;
     const float side = kBowShoulderSide, up = kBowShoulderUp;
     bowShiftAmount_ += (target - bowShiftAmount_) * std::min(1.0f, dt * kBowShoulderEase);
     if (target == 0.0f && bowShiftAmount_ < 0.01f)

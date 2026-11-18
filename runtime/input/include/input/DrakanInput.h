@@ -238,9 +238,10 @@ private:
     bool nativeLookControlActive() const;
     float pitchViewGain(IGuest& g, uint32_t player, uint32_t cam) const;
     bool bowHoldAim() const { return cfg_.bowHoldAim && !cfg_.bowAimNative; } // hold LMB to aim, release to shoot
-    void bowAimFrame(); // beginFrame, m_ held: LMB = aim while the bow is out, release = one Square tap
-    bool bowLmbIsSquare() const;
-    std::atomic<bool> bowReady_{false}, bowAiming_{false}, bowSightOpen_{false};
+    void bowAimFrame(); // beginFrame, m_ held: when LMB is bound to Attack, hold to aim and release to fire
+    bool bowLmbIsAttack() const;
+    uint16_t bowAttackButton_ = 0; // m_ held: native Attack button while a bow is ready for mouse aiming
+    std::atomic<bool> bowAiming_{false}, bowSightOpen_{false};
     bool bowSightCrosshair(IGuest& g) const; // m_ held: the native first-person bow sight is open in gameplay
     int bowChannelFrames_ = 0;      // frames after a release in which the attack start may take the torso channel
     int bowDrawRelease_ = 0;        // frames the frozen draw still waits for the release tap's native attack
@@ -358,7 +359,7 @@ private:
     std::atomic<int> cfgGen_{0};
     bool userReleased_ = false;
     bool focusLost_ = false;
-    uint8_t recaptureButtons_ = 0; // click restoring gameplay capture is consumed until physical release
+    uint8_t suppressedMouseButtons_ = 0; // consumed clicks stay hidden from gameplay until physical release
     bool layerIsMenu_ = false;
     bool inputWasSuspended_ = false;
     bool titleQuickLoad_ = false;
