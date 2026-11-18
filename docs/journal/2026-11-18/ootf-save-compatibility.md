@@ -84,3 +84,32 @@ The final native Load Game run uses the replay template and leaves its contents 
 ```powershell
 python scripts/harness/play_run.py --exe dist/DrakanPC/drakan.exe --name recovered-nov14-book-final --save-ootf build/legacy-save-recovery/nov14-slot1/book-template/mc0_ootf --recipe build/historical-save-probe/book-final.txt --env DRAKAN_GAME=d1 --env DRAKAN_AUTOPRESS=0 --env DRAKAN_FULLSCREEN=0 --env DRAKAN_SAVE_PACK_CHECK=1 --env DRAKAN_SAVE_MENU=native --env DRAKAN_TITLE_MENU=native --env DRAKAN_MENU_MOUSE_LOG=1 --attempts 1 --timeout 65
 ```
+
+## Normal Load Game import
+
+The installed card's 62 original files are archived under `dist/DrakanPC/save-backups`, alongside a SHA-256
+manifest. The recovered Village saves keep slots 1 through 4. Slots 5 and 6 hold the Book saves formerly stored
+alongside the Village saves in slots 1 and 2. Each Book save has its own paired Village state. Other saves on the
+card retain their bytes. The migrated entries keep their original save times and matching previews.
+
+The November 9 migration compares the exact old pack with the installed pack and checks each input save's hash.
+It keeps existing record slots, remaps the moved Rope, Fire Fly, and Atimar's Blade Glow classes, and translates
+the changed Village object IDs. The three old decorative pressure plate records and the buried push block use the
+current game's unsolved puzzle state. The saved gate, counter, player and character stats retain their original data.
+The closed point exit and surviving Book helpers match the native post-Book save layout.
+
+The native Book exit probes the active card root, restores the Village `.rlt`, then reopens it when writing the
+Village level-start `.rsg`. The save guard snapshots a compatible companion from the selected Book slot and
+serves those reads from the snapshot. When the game consumes the virtual entry, the card reader leaves any
+separate physical root file intact. The loader still checks the recorded pack build and applies revision-specific
+upgrade rules.
+
+The historical source card no longer carried a contemporaneous return state for either Book save. Slot 5 uses
+the migrated Village save made about 30 seconds after its Book save. Slot 6 uses its own paired Village save,
+made about four minutes later. These pairs preserve the available follow-on Village progress.
+
+The original Load Game screen showed slots 1 through 4 as unavailable before the import. The final Windows build
+loaded the six entries on a copy of the combined card. The Book test kept both an injected unrelated root level-state
+file and its pack record byte-for-byte. A separate run loaded slot 33 immediately after the Book return and restored
+that save's distinct player position. The private scripts, game captures, and validation logs are under
+`build/normal-ootf-recovery` and `build/harness`.

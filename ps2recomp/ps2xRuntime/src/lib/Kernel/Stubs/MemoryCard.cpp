@@ -71,6 +71,7 @@ struct McOpenFile {
     FILE* file = nullptr;
     int32_t port = 0;
     std::filesystem::path hostPath;
+    bool writable = false;
     bool wrote = false;
     bool writeFailed = false;
 };
@@ -83,6 +84,7 @@ struct McPortState {
 std::mutex g_mcStateMutex;
 std::array<McFileWrittenCallback, static_cast<size_t>(McWriteObserver::Count)> g_fileWritten{};
 std::atomic<McReadFilter> g_readFilter{nullptr};
+McDeleteVirtual g_deleteVirtual = nullptr; // g_mcStateMutex
 int32_t g_mcNextFd = 1;
 int32_t g_mcLastCmd = 0;
 bool g_mcCommandPending = false;
@@ -330,7 +332,7 @@ void closeMcFilesForPortLocked(int32_t port) {
     }
 }
 
-int32_t allocateMcFdLocked(FILE* file, int32_t port, const std::filesystem::path& hostPath) {
+int32_t allocateMcFdLocked(FILE* file, int32_t port, const std::filesystem::path& hostPath, bool writable) {
     if (!file) {
         return kMcResultDeniedPermit;
     }
@@ -348,7 +350,7 @@ int32_t allocateMcFdLocked(FILE* file, int32_t port, const std::filesystem::path
             continue;
         }
 
-        g_mcFiles.emplace(fd, McOpenFile{file, port, hostPath});
+        g_mcFiles.emplace(fd, McOpenFile{file, port, hostPath, writable});
         return fd;
     }
 
@@ -476,6 +478,10 @@ void sceMcChdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 void setMcReadFilter(McReadFilter filter) {
     g_readFilter.store(filter);
 }
+void setMcDeleteVirtual(McDeleteVirtual callback) {
+    std::lock_guard<std::mutex> lock(g_mcStateMutex);
+    g_deleteVirtual = callback;
+}
 void setMcFileWrittenCallback(McFileWrittenCallback callback, McWriteObserver who) {
     std::lock_guard<std::mutex> lock(g_mcStateMutex);
     g_fileWritten[static_cast<size_t>(who)] = callback;
@@ -519,6 +525,7 @@ void sceMcClose(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 }
 
 void sceMcDelete(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    mcTrace("sceMcDelete", ctx);
     const int32_t port = static_cast<int32_t>(getRegU32(ctx, 4));
     const int32_t slot = static_cast<int32_t>(getRegU32(ctx, 5));
     const std::string path = readPs2CStringBounded(rdram, getRegU32(ctx, 6), kMcMaxPathLen);
@@ -535,7 +542,9 @@ void sceMcDelete(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                 if (guestPath != "/") {
                     const std::filesystem::path hostPath = guestMcPathToHostPath(port, guestPath);
                     std::error_code ec;
-                    if (std::filesystem::exists(hostPath, ec) && !ec) {
+                    if (g_deleteVirtual && g_deleteVirtual(hostPath)) {
+                        result = kMcResultSucceed;
+                    } else if (std::filesystem::exists(hostPath, ec) && !ec) {
                         if (std::filesystem::is_directory(hostPath, ec) && !std::filesystem::is_empty(hostPath, ec)) {
                             result = kMcResultNotEmpty;
                         } else if (std::filesystem::remove(hostPath, ec) && !ec) {
@@ -854,16 +863,13 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     const uint32_t flags = getRegU32(ctx, 7);
 
     int32_t result = kMcResultNoEntry;
-    // A read-only open of an existing file may be served from memory (setMcReadFilter); asked outside the card lock.
+    // A read-only open may be served from memory (setMcReadFilter); asked outside the card lock.
     std::vector<uint8_t> replacement;
     McReadResult readResult = McReadResult::Unchanged;
-    if ((flags & PS2_FIO_O_RDWR) == PS2_FIO_O_RDONLY && isValidMcPortSlot(port, slot)) {
-        if (const McReadFilter filter = g_readFilter.load()) {
-            const std::filesystem::path host = mcHostPath(port, path);
-            std::error_code ec;
-            if (std::filesystem::is_regular_file(host, ec))
-                readResult = filter(host, replacement);
-        }
+    if ((flags & (PS2_FIO_O_RDWR | PS2_FIO_O_CREAT | PS2_FIO_O_TRUNC)) == PS2_FIO_O_RDONLY &&
+        isValidMcPortSlot(port, slot)) {
+        if (const McReadFilter filter = g_readFilter.load())
+            readResult = filter(mcHostPath(port, path), replacement);
     }
     {
         std::lock_guard<std::mutex> lock(g_mcStateMutex);
@@ -877,17 +883,18 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                 std::error_code ec;
                 const bool create = (flags & PS2_FIO_O_CREAT) != 0u;
                 const bool exists = std::filesystem::exists(hostPath, ec) && !ec;
+                const bool replaced = readResult == McReadResult::Replaced;
                 if (guestPath == "/" || readResult == McReadResult::Refused) {
                     result = kMcResultDeniedPermit;
                 } else if (exists && std::filesystem::is_directory(hostPath, ec)) {
                     result = kMcResultDeniedPermit;
-                } else if (!exists && !create) {
+                } else if (!exists && !create && !replaced) {
                     result = kMcResultNoEntry;
                 } else if (!std::filesystem::exists(hostPath.parent_path(), ec) || ec) {
                     result = kMcResultNoEntry;
                 } else {
                     FILE* file = nullptr;
-                    if (readResult == McReadResult::Replaced && exists) {
+                    if (replaced) {
                         file = std::tmpfile();
                         if (file &&
                             (std::fwrite(replacement.data(), 1, replacement.size(), file) != replacement.size() ||
@@ -903,7 +910,9 @@ void sceMcOpen(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                     if (!file) {
                         result = exists ? kMcResultDeniedPermit : kMcResultNoEntry;
                     } else {
-                        result = allocateMcFdLocked(file, port, hostPath);
+                        const uint32_t access = flags & PS2_FIO_O_RDWR;
+                        const bool writable = access == PS2_FIO_O_WRONLY || access == PS2_FIO_O_RDWR;
+                        result = allocateMcFdLocked(file, port, hostPath, writable);
                         if (result < 0) {
                             std::fclose(file);
                         }
@@ -1116,7 +1125,7 @@ void sceMcWrite(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
             result = 0;
         } else if (it == g_mcFiles.end() || !it->second.file) {
             result = kMcResultNoEntry;
-        } else if (!src) {
+        } else if (!src || !it->second.writable) {
             result = kMcResultDeniedPermit;
         } else {
             const size_t bytesWritten = std::fwrite(src, 1u, static_cast<size_t>(size), it->second.file);

@@ -13,10 +13,14 @@ using McFileWrittenCallback = void (*)(const std::filesystem::path&);
 // Observers of a successful write (a close after writes), one slot per user, called outside the card lock.
 enum class McWriteObserver { Previews, SaveRecords, Count };
 void setMcFileWrittenCallback(McFileWrittenCallback callback, McWriteObserver who = McWriteObserver::Previews);
-// Called outside the card lock for a read-only file open. A replacement is served from data; a refusal fails the open.
+// Called outside the card lock for a read-only file open, even if the path is absent. A replacement supplies a
+// read-only file from memory; a refusal fails the open.
 enum class McReadResult { Unchanged, Replaced, Refused };
 using McReadFilter = McReadResult (*)(const std::filesystem::path& hostPath, std::vector<uint8_t>& data);
 void setMcReadFilter(McReadFilter filter);
+// Called under the card lock before a host file is deleted. True consumes a virtual file instead.
+using McDeleteVirtual = bool (*)(const std::filesystem::path& hostPath);
+void setMcDeleteVirtual(McDeleteVirtual callback);
 // Host path of a guest card path ("mc0:/BESCES-50006Slot1/x.rsg", "BESCES-50006Slot1/x.rsg" relative to the port's
 // current directory) on `port`.
 std::filesystem::path mcHostPath(int32_t port, const std::string& guestPath);

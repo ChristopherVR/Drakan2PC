@@ -468,6 +468,10 @@ was made with, and the game refuses a save it cannot vouch for.
   applies to saved level states. An older level state without its own record can inherit a build when the saves in its
   slot agree. Saving over that slot records the inherited build beside each earlier level state before changing the
   slot's build. The game keeps checking the builds of other recorded packs.
+* **Ruined Village Book saves.** A numbered Book save can carry a compatible `OotF 01 - Ruined Village.rlt` and its
+  `.mods` record beside the `.rsg`. The Book exit restores that Village state from the selected slot, including when
+  the active card has a different Village state at its root. The game uses a read-only copy during the transition.
+  Consuming that copy leaves the saved companion and any existing card-root state file intact.
 * **`save_scope = "levels"`** (top-level manifest key; the OotF converter writes it): the pack's saved classes and objects
   only concern its own `levels` (it adds classes and levels and changes no disc class or level). A save of another level
   does not record it, and an older record of it is not checked for such a save (`ActivePacks::levelScoped`), so Drakan 2

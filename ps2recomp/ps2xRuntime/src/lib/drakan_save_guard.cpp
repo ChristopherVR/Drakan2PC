@@ -2,6 +2,8 @@
 
 #include "Kernel/Stubs/MemoryCard.h"
 #include "drakan_config.h"
+#include "drakan_game.h"
+#include "drakan_lifecycle.h"
 #include "drakan_region.h"
 #include "hle/ModPack.h"
 #include "hle/SaveRecord.h"
@@ -18,6 +20,7 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -74,6 +77,17 @@ struct Upgraded {
     std::vector<uint8_t> data;
 };
 std::map<std::string, Upgraded> g_upgraded;
+
+constexpr char kBookLevel[] = "OotF 02 - Ruined Village Book";
+constexpr char kVillageLevel[] = "OotF 01 - Ruined Village";
+constexpr char kBookReturnFile[] = "OotF 01 - Ruined Village.rlt";
+struct BookReturn {
+    fs::path requested;
+    std::vector<uint8_t> state;
+    bool restored = false;
+};
+std::optional<BookReturn> g_bookReturn; // g_mutex
+
 struct Cached {
     Verdict verdict;
     Clock::time_point at;
@@ -454,15 +468,123 @@ UpgradeState upgradeFile(const fs::path& host, std::vector<uint8_t>* data) {
     return u.state;
 }
 ps2_stubs::McReadResult upgradeOnRead(const fs::path& host, std::vector<uint8_t>& data) {
+    using ps2_stubs::McReadResult;
+    if (host.extension() != ".rsg" && host.extension() != ".rlt")
+        return McReadResult::Unchanged;
+
+    if (host.filename() == kBookReturnFile && drakan_game::current() == drakan_game::Game::Ootf) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_bookReturn && g_bookReturn->requested == host) {
+            data = g_bookReturn->state;
+            return McReadResult::Replaced;
+        }
+    }
+    std::error_code ec;
+    if (!fs::is_regular_file(host, ec))
+        return McReadResult::Unchanged;
+
     switch (upgradeFile(host, &data)) {
         case UpgradeState::Unchanged:
-            return ps2_stubs::McReadResult::Unchanged;
+            return McReadResult::Unchanged;
         case UpgradeState::Replaced:
-            return ps2_stubs::McReadResult::Replaced;
+            return McReadResult::Replaced;
         case UpgradeState::Failed:
-            return ps2_stubs::McReadResult::Refused;
+            return McReadResult::Refused;
     }
-    return ps2_stubs::McReadResult::Refused;
+
+    return McReadResult::Refused;
+}
+
+void clearBookReturn() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_bookReturn.reset();
+}
+
+void onBeforeSaveRestore(const drakan_lifecycle::Event& event) {
+    const int port = event.path.starts_with("mc1:") || event.path.starts_with("MC1:");
+    const fs::path path = ps2_stubs::mcHostPath(port, event.path);
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_bookReturn && g_bookReturn->requested != path)
+        g_bookReturn.reset();
+}
+
+void onAfterSaveRestore(const drakan_lifecycle::Event& event) {
+    const int port = event.path.starts_with("mc1:") || event.path.starts_with("MC1:");
+    const fs::path path = ps2_stubs::mcHostPath(port, event.path);
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (event.ok && g_bookReturn && g_bookReturn->requested == path) {
+            g_bookReturn->restored = true;
+            return;
+        }
+        g_bookReturn.reset();
+    }
+    if (!event.ok || drakan_game::current() != drakan_game::Game::Ootf ||
+        !hle::mods::ruleLevelMatches(kBookLevel, event.level))
+        return;
+
+    const fs::path slot = path.parent_path();
+    const fs::path root = ps2_stubs::mcHostPath(port, "/");
+    if (!isRecordedSave(path) || slot.parent_path() != root || !slot.filename().string().starts_with(slotPrefix()))
+        return;
+
+    const fs::path companion = slot / kBookReturnFile;
+    std::error_code ec;
+    std::string text;
+    hle::mods::SaveCheckInput in;
+    in.level = kVillageLevel;
+    in.hasRecord = true;
+    if (!fs::is_regular_file(companion, ec) || !readText(recordPath(companion), text) ||
+        !hle::mods::parseSaveRecord(text, in.record) ||
+        std::none_of(in.record.begin(), in.record.end(),
+                     [](const hle::mods::PackStamp& stamp) { return stamp.id == "ootf-levels"; }))
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        const hle::mods::SaveCheck check = hle::mods::checkSave(in, g_active);
+        if (check.verdict != SaveVerdict::Ok || check.overridden)
+            return;
+    }
+
+    std::vector<uint8_t> state;
+    const UpgradeState upgrade = upgradeFile(companion, &state);
+    if (upgrade == UpgradeState::Failed)
+        return;
+    if (upgrade == UpgradeState::Unchanged) {
+        std::ifstream file(companion, std::ios::binary);
+        state.assign(std::istreambuf_iterator<char>(file), {});
+        std::vector<uint8_t> unused;
+        hle::mods::SaveUpgradeReport report;
+        std::string error;
+        if (!file || !hle::mods::upgradeSave(state, {}, unused, report, error))
+            return;
+    }
+
+    // The native Book exit probes, restores and rereads the card-root state before writing its new level-start save.
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_bookReturn = BookReturn{root / kBookReturnFile, std::move(state)};
+    std::fprintf(stderr, "[saves] Book return will use the paired Village state in %s\n",
+                 slot.filename().string().c_str());
+}
+
+bool deleteRestoredBookReturn(const fs::path& path) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (!g_bookReturn || !g_bookReturn->restored || g_bookReturn->requested != path)
+        return false;
+    g_bookReturn.reset();
+    return true;
+}
+
+void onAfterSaveWrite(const drakan_lifecycle::Event& event) {
+    if (event.level != kVillageLevel)
+        return;
+    const int port = event.path.starts_with("mc1:") || event.path.starts_with("MC1:");
+    const fs::path path = ps2_stubs::mcHostPath(port, event.path);
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (g_bookReturn && g_bookReturn->restored && path.parent_path() == g_bookReturn->requested.parent_path() &&
+        path.extension() == ".rsg")
+        g_bookReturn.reset();
 }
 } // namespace
 
@@ -505,6 +627,7 @@ void configure(const hle::mods::ModManager* mods) {
     g_active = std::move(active);
     g_revisions = std::move(revisions);
     g_upgraded.clear();
+    g_bookReturn.reset();
     g_slotCache.clear();
     g_entryCache.clear();
 }
@@ -512,6 +635,17 @@ void configure(const hle::mods::ModManager* mods) {
 void install(PS2Runtime& runtime) {
     ps2_stubs::setMcFileWrittenCallback(&written, ps2_stubs::McWriteObserver::SaveRecords);
     ps2_stubs::setMcReadFilter(&upgradeOnRead);
+    if (drakan_lifecycle::installed()) {
+        using drakan_lifecycle::Kind;
+        ps2_stubs::setMcDeleteVirtual(&deleteRestoredBookReturn);
+        drakan_lifecycle::subscribe(Kind::BeforeSaveRestore, onBeforeSaveRestore);
+        drakan_lifecycle::subscribe(Kind::AfterSaveRestore, onAfterSaveRestore);
+        drakan_lifecycle::subscribe(Kind::AfterSaveWrite, onAfterSaveWrite);
+        drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const drakan_lifecycle::Event& event) {
+            if (!event.fromSave || event.level != kVillageLevel)
+                clearBookReturn();
+        });
+    }
     const uint32_t addr = drakan_region::guestAddress(kValidateSave);
     if (!runtime.hasFunction(addr)) {
         std::fprintf(stderr,
