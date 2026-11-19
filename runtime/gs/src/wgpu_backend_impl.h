@@ -616,7 +616,7 @@ struct WgpuBackend::Impl {
     DrawVertex* beginVertices(const DrawVertex* v, uint32_t count);
     void endVertices() {}
     void bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW, float viewportH,
-                  const int32_t scissor[4], bool samplesTarget);
+                  const int32_t scissor[4], bool samplesTarget, uint32_t pixelFlags);
     void setPass(const PSConsts& k, const rhi::BlendState& blend, const rhi::DepthState& depth);
     void drawVertices(uint32_t count);
     void endDraw() {}

@@ -1097,8 +1097,8 @@ void D3D11Backend::Impl::drawProgramVelocity(RT& rt, DepthBuf& db, const VertexP
     const UINT zero = 0;
     ctx->IASetVertexBuffers(1, 1, &nullBuffer, &zero, &zero);
     ctx->VSSetShader(sh.vs.Get(), nullptr, 0);
-    ID3D11PixelShader* const colorShader =
-        materialDraw ? (useHw ? materialGpu.psHw.Get() : materialGpu.psSb.Get()) : (useHw ? psHw.Get() : psSb.Get());
+    ID3D11PixelShader* const colorShader = materialDraw ? (useHw ? materialGpu.psHw.Get() : materialGpu.psSb.Get())
+                                                        : drawPixelShader(useHw, cbPSContent.a[0]);
     ctx->PSSetShader(colorShader, nullptr, 0);
 }
 

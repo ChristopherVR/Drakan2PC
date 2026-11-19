@@ -227,8 +227,17 @@ void D3D11Backend::Impl::logDrawState(bool force) {
                      (unsigned long long)motionHistory.verifyDiffer());
 }
 
+ID3D11PixelShader* D3D11Backend::Impl::drawPixelShader(bool useHw, uint32_t flags) const {
+    const auto& simple = useHw ? psHwSimple : psSbSimple;
+    const bool singleProjectionTerrain =
+        (flags & (PF_TERRAIN | PF_TERRAIN_RELIEF)) && !(flags & (PF_TERRAIN_SIDE | PF_TERRAIN_SNOW));
+    if (simple && singleProjectionTerrain)
+        return simple.Get();
+    return useHw ? psHw.Get() : psSb.Get();
+}
+
 void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW,
-                                  float viewportH, const int32_t scissor[4], bool samplesTarget) {
+                                  float viewportH, const int32_t scissor[4], bool samplesTarget, uint32_t pixelFlags) {
     using draw_state::Slot;
     ID3D11DeviceContext* const c = ctx.raw();
     logDrawState(false);
@@ -256,7 +265,7 @@ void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView text
         c->VSSetConstantBuffers(0, 1, cbPS.GetAddressOf());
     if (drawState.set(Slot::PixelConstants, word(cbPS.Get())))
         c->PSSetConstantBuffers(0, 1, cbPS.GetAddressOf());
-    ID3D11PixelShader* const ps = useHw ? psHw.Get() : psSb.Get();
+    ID3D11PixelShader* const ps = drawPixelShader(useHw, pixelFlags);
     if (drawState.set(Slot::PixelShader, word(ps)))
         c->PSSetShader(ps, nullptr, 0);
     if (drawState.set(Slot::Textures, draw_state::pair(word(texture), word(dest)))) {
@@ -395,8 +404,8 @@ void D3D11Backend::Impl::drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi:
     }
     if (drawState.set(Slot::VertexShader, word(vs.Get())))
         c->VSSetShader(vs.Get(), nullptr, 0);
-    ID3D11PixelShader* const colorShader =
-        materialDraw ? (useHw ? materialGpu.psHw.Get() : materialGpu.psSb.Get()) : (useHw ? psHw.Get() : psSb.Get());
+    ID3D11PixelShader* const colorShader = materialDraw ? (useHw ? materialGpu.psHw.Get() : materialGpu.psSb.Get())
+                                                        : drawPixelShader(useHw, cbPSContent.a[0]);
     if (drawState.set(Slot::PixelShader, word(colorShader)))
         c->PSSetShader(colorShader, nullptr, 0);
 }

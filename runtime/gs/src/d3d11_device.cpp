@@ -44,6 +44,8 @@ bool D3D11Backend::Impl::compile(const char* entry, const char* target, const ch
 
 bool D3D11Backend::Impl::init() {
     const auto initStart = std::chrono::steady_clock::now();
+    const char* simpleShader = std::getenv("GSR_SIMPLE_PIXEL_SHADER");
+    const bool wantSimple = !simpleShader || simpleShader[0] != '0';
     shader_compile::configureDirectory();
     {
         // The uber shader variants are independent compiles of one source: run them side by side (the sequential
@@ -64,6 +66,12 @@ bool D3D11Backend::Impl::init() {
                 ComPtr<ID3DBlob> ignored;
                 compile(v.entry, v.target, v.define, ignored);
             });
+        if (wantSimple)
+            for (const char* define : {"0", "1"})
+                compilers.emplace_back([this, define] {
+                    ComPtr<ID3DBlob> ignored;
+                    compile("PSMainSimple", "ps_5_0", define, ignored);
+                });
         for (auto& t : compilers)
             t.join();
     }
@@ -160,6 +168,21 @@ bool D3D11Backend::Impl::init() {
     if (!compile("PSMain", "ps_5_0", "0", p))
         return false;
     dev->CreatePixelShader(p->GetBufferPointer(), p->GetBufferSize(), nullptr, &psSb);
+    if (wantSimple) {
+        auto makeSimple = [&](const char* define, ComPtr<ID3D11PixelShader>& shader) {
+            ComPtr<ID3DBlob> bytecode;
+            return compile("PSMainSimple", "ps_5_0", define, bytecode) &&
+                   SUCCEEDED(dev->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr,
+                                                    shader.GetAddressOf()));
+        };
+        if (!makeSimple("1", psHwSimple) || !makeSimple("0", psSbSimple)) {
+            psHwSimple.Reset();
+            psSbSimple.Reset();
+            std::fprintf(stderr, "[gsr-shader] single-projection shader unavailable; using the full shader\n");
+        } else {
+            std::fprintf(stderr, "[gsr-shader] single-projection shader active\n");
+        }
+    }
     auto mk = [&](const char* e, const char* t, ComPtr<ID3D11PixelShader>* ps, ComPtr<ID3D11VertexShader>* v) {
         ComPtr<ID3DBlob> bb;
         if (!compile(e, t, "0", bb))
@@ -317,7 +340,9 @@ void D3D11Backend::Impl::warmMainPipelines() {
     ctx->OMSetRenderTargets(1, colorRtv.GetAddressOf(), dsv.Get());
     ID3D11BlendState* blends[2] = {
         blendOff.Get(), getBlendState(true, D3D11_BLEND_OP_ADD, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, 0xF)};
-    for (ID3D11PixelShader* ps : {psHw.Get(), psSb.Get()})
+    for (ID3D11PixelShader* ps : {psHw.Get(), psSb.Get(), psHwSimple.Get(), psSbSimple.Get()}) {
+        if (!ps)
+            continue;
         for (ID3D11BlendState* bs : blends)
             for (bool zw : {false, true}) {
                 ctx->PSSetShader(ps, nullptr, 0);
@@ -325,6 +350,7 @@ void D3D11Backend::Impl::warmMainPipelines() {
                 ctx->OMSetDepthStencilState(getDepthState(D3D11_COMPARISON_GREATER_EQUAL, zw), 0);
                 ctx->Draw(3, 0);
             }
+    }
     // Velocity pass of the motion pipeline.
     ctx->PSSetShaderResources(0, 2, nulls);
     ctx->OMSetRenderTargets(1, motionRtv.GetAddressOf(), dsv.Get());

@@ -1297,7 +1297,8 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     sr[3] = std::min<int32_t>(sr[3], rt->h * scale);
     {
         CpuProfile::Scope bindProfile(cpuProfile, CpuProfile::DrawBind);
-        bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr, haveTex && tb.isRT);
+        bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr, haveTex && tb.isRT,
+                 k.a[0]);
     }
     // A joined draw: drawVertices and drawVelocity draw the kept segments in order, each with its own texture.
     joinDraws.clear();

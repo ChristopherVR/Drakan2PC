@@ -540,6 +540,7 @@ struct D3D11Backend::Impl {
     ComPtr<ID3D11Buffer> motionVb;
     uint32_t motionVbCapacity = 0, motionVbOffset = 0, motionVbDrawOffset = 0; // ring: NO_OVERWRITE appends
     ComPtr<ID3D11PixelShader> psHw, psSb, psDisplay, psBlit, psBlitPt, psPresent, psCopyRGBA, psStretchDepth;
+    ComPtr<ID3D11PixelShader> psHwSimple, psSbSimple;
     // Window-sized upscaler output (rule: upscale_render_size.h; d3d11_world.cpp writes, d3d11_present.cpp shows).
     ComPtr<ID3D11PixelShader> psPresentView;
     ComPtr<ID3D11Texture2D> viewTex; // the latched display at window size: the upscaler's pixels where untouched
@@ -968,8 +969,9 @@ struct D3D11Backend::Impl {
     bool fixedFunctionBlend() const { return true; }
     DrawVertex* beginVertices(const DrawVertex* v, uint32_t count);
     void endVertices();
+    ID3D11PixelShader* drawPixelShader(bool useHw, uint32_t flags) const;
     void bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView texture, GpuView dest, float viewportW, float viewportH,
-                  const int32_t scissor[4], bool samplesTarget);
+                  const int32_t scissor[4], bool samplesTarget, uint32_t pixelFlags);
     void setPass(const PSConsts& k, const rhi::BlendState& blend, const rhi::DepthState& depth);
     void drawVertices(uint32_t count);
     void drawVelocity(RT& rt, DepthBuf& db, uint32_t count, rhi::Compare depthCompare, bool restore, bool materialDraw,
