@@ -167,7 +167,8 @@ Ghidra found 12,128 USA functions (99.42 % of `.text`); `region_map.py` splits G
 matched PAL entry is also a USA entry (`functions.csv`). Regenerate `configs/drakan-usa.toml` whenever
 `configs/drakan.toml` changes. A regression test compares the regenerated output to the committed config. The
 translation tool reads hand-checked entries and `allowed_missing` from `config_overrides.json` beside the maps;
-new missing exports cause an error before output is written. There are no USA-specific mapping defaults in the tool.
+new missing exports cause an error before output is written. PAL instruction patches and function variants stay
+in the PAL configuration. There are no USA-specific mapping defaults in the tool.
 
 ## NTSC
 

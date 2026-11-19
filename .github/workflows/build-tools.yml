@@ -3,7 +3,7 @@ name: Build compiler tools (no game data)
 on:
   push:
     branches: [main]
-    paths: ['CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'third_party/**', 'runtime/**', 'ps2recomp/**', 'scripts/buildtool/**', 'scripts/repository_guard.py', 'scripts/run_tests.py', 'scripts/prepare_local_runtime.py', 'scripts/tests/**', 'analysis/scripts/character_*', 'configs/**', '.github/workflows/build-tools.yml', 'BUILDING.md']
+    paths: ['CMakeLists.txt', 'CMakePresets.json', 'cmake/**', 'third_party/**', 'runtime/**', 'ps2recomp/**', 'scripts/buildtool/**', 'scripts/repository_guard.py', 'scripts/run_tests.py', 'scripts/prepare_local_runtime.py', 'scripts/tests/**', 'analysis/scripts/character_*', 'analysis/scripts/region_config.py', 'configs/**', '.github/workflows/build-tools.yml', 'BUILDING.md']
   pull_request:
   workflow_dispatch:
     inputs:
