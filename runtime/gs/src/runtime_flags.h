@@ -59,6 +59,7 @@ struct RuntimeFlags {
     bool rayReflections = false;        // GSR_RAY_REFLECTIONS: not-"0"; default off
     bool rayGlobalIllumination = false; // GSR_RAY_GI: not-"0"; default off
     bool rayGpuTiming = false;          // GSR_RAY_GPU_TIMING: presence; delayed DXR stage timestamps
+    bool rayNativeOpaque = true;        // GSR_RAY_NATIVE_OPAQUE=0: test every resident terrain hit in the shader
     bool rayCachedCompose = true;       // GSR_RAY_CACHED_COMPOSE=0: fetch each transport sample directly
     bool rayAlphaFastPath = true;       // GSR_RAY_ALPHA_FAST_PATH=0: evaluate constant alpha tests through texels
     bool rayAlphaCoverage = true;       // GSR_RAY_ALPHA_COVERAGE=0: sample native cutouts with proven coverage

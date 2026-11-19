@@ -195,22 +195,23 @@ int main(int argc, char** argv) {
         snapshots.open(path, std::ios::binary | std::ios::trunc);
         assert(snapshots.is_open());
     }
-    auto read = [&]() {
+    auto read = [&](ID3D11Texture2D* source = nullptr) {
+        auto* result = source ? source : output.Get();
         D3D11_TEXTURE2D_DESC d{};
-        output->GetDesc(&d);
+        result->GetDesc(&d);
         d.BindFlags = 0;
         d.Usage = D3D11_USAGE_STAGING;
         d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         ComPtr<ID3D11Texture2D> t;
         assert(SUCCEEDED(device->CreateTexture2D(&d, nullptr, &t)));
-        context->CopyResource(t.Get(), output.Get());
+        context->CopyResource(t.Get(), result);
         D3D11_MAPPED_SUBRESOURCE m{};
         assert(SUCCEEDED(context->Map(t.Get(), 0, D3D11_MAP_READ, 0, &m)));
         std::vector<uint16_t> data(w * h * 4);
         for (unsigned y = 0; y < h; ++y)
             std::memcpy(data.data() + y * w * 4, static_cast<const char*>(m.pData) + y * m.RowPitch, w * 8);
         context->Unmap(t.Get(), 0);
-        if (snapshots.is_open()) {
+        if (!source && snapshots.is_open()) {
             snapshots.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(data[0]));
             assert(snapshots.good());
         }
@@ -319,6 +320,14 @@ int main(int argc, char** argv) {
     auto off = read();
     assert(water.render(color.Get(), depth.Get(), output.Get(), c, triangles, 1, true));
     auto on = read();
+    {
+        auto inPlace = texture(DXGI_FORMAT_R16G16B16A16_FLOAT);
+        context->CopyResource(inPlace.Get(), color.Get());
+        auto frame = triangles;
+        assert(water.submit(inPlace.Get(), depth.Get(), inPlace.Get(), c, frame, 1, true, {}, nullptr));
+        assert(read(inPlace.Get()) == on);
+        water.finish();
+    }
     {
         // GSR_VERTEX_SURFACE=gpu: the dry frame triangles handed over as GPU-built slots (the shared texture written
         // here with the CPU packing, with inactive NaN slots between them) give the picture of the same triangles in

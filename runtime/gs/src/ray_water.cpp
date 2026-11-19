@@ -62,6 +62,11 @@ D3D12_RESOURCE_BARRIER transition(ID3D12Resource* r, D3D12_RESOURCE_STATES a, D3
     v.Transition = {r, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, a, b};
     return v;
 }
+bool nativeTriangleIsOpaque(const Triangle& tri) {
+    // packAttributes sets neither the model bit nor the water-layer bit for this combination.
+    // An unblended ALWAYS alpha test accepts regardless of texture or vertex alpha.
+    return !tri.water && tri.shadowGeometry && tri.alphaTest == 1 && !tri.transparent && tri.textureFunction <= 3;
+}
 struct alignas(256) Parameters {
     float projection[16], inverse[16], right[4], up[4], forward[4], sizeTime[4], jitter[4], limits[4];
     uint32_t scene[4];
@@ -519,6 +524,7 @@ struct RayWater::Impl {
     bool staticUploaded = false; // staticAttributeData has been copied into the materials buffer
     Point staticBase{};
     uint32_t staticCounts[3]{}, staticTextured = 0;
+    uint32_t staticNativeTestedCount = 0;
     std::vector<Attribute> staticAttributeData;
     // Per geometry version: welded vertex normals and each triangle's attribute slot (instance group order).
     std::vector<Point> staticNormals;
@@ -1155,6 +1161,7 @@ void RayWater::Impl::execute(Job& job) {
     const size_t textureCount = job.textureCount;
     const uint32_t nativeTextureBase = job.nativeTextureBase;
     const bool cpuCache = job.cpuCache, checkCache = job.checkCache;
+    const bool classifyNativeOpaque = runtimeFlags().rayNativeOpaque;
     if (models && s.modelLevel != models->level) {
         // Resource/topology IDs are level-local. Keep old GPU allocations alive until a later queued frame's
         // completion fence; CPU normal/material state may be discarded immediately on this ordered worker.
@@ -1197,6 +1204,7 @@ void RayWater::Impl::execute(Job& job) {
         if (staticTriangles.empty()) {
             s.staticCounts[0] = s.staticCounts[1] = s.staticCounts[2] = 0;
             s.staticTextured = 0;
+            s.staticNativeTestedCount = 0;
             s.staticGeometry = s.staticAttributes = ~0ull;
             s.staticTextureCount = ~size_t(0);
             s.staticAttributeData.clear();
@@ -1295,6 +1303,7 @@ void RayWater::Impl::execute(Job& job) {
             if (!previous) {
                 s.staticAttributeData.assign(staticTriangles.size() * kTriangleAttributes, Attribute{});
                 s.staticTextured = 0;
+                s.staticNativeTestedCount = 0;
                 s.staticUploaded = false;
             }
             const size_t oldTextures = previous ? s.staticTextureCount : 0;
@@ -1302,16 +1311,19 @@ void RayWater::Impl::execute(Job& job) {
             std::vector<uint32_t> dirty;
             const auto repack = [&](size_t i) {
                 const Triangle& t = staticTriangles[i];
+                const uint32_t slot = s.staticSlot[i];
+                const bool nativeSlot = classifyNativeOpaque && slot < s.staticSlotCount[0];
                 if (previous) {
                     const Triangle& old = (*previous)[i];
                     if (std::memcmp(&old, &t, sizeof(Triangle)) == 0 &&
                         (t.texture < oldTextures) == (t.texture < textureCount))
                         return;
                     s.staticTextured -= old.texture < oldTextures ? 1u : 0u;
+                    s.staticNativeTestedCount -= nativeSlot && !nativeTriangleIsOpaque(old);
                 }
                 packed.clear();
                 s.staticTextured += packAttributes(t, textureCount, packed, &s.staticNormals[i * 3]);
-                const uint32_t slot = s.staticSlot[i];
+                s.staticNativeTestedCount += nativeSlot && !nativeTriangleIsOpaque(t);
                 std::copy(packed.begin(), packed.end(),
                           s.staticAttributeData.begin() + size_t(slot) * kTriangleAttributes);
                 if (previous)
@@ -1342,13 +1354,16 @@ void RayWater::Impl::execute(Job& job) {
             if (checkCache) {
                 std::vector<Attribute> reference(s.staticAttributeData.size()), one;
                 uint32_t referenceTextured = 0;
+                uint32_t referenceNativeTested = 0;
                 for (size_t i = 0; i < staticTriangles.size(); ++i) {
                     one.clear();
                     referenceTextured += packAttributes(staticTriangles[i], textureCount, one, &s.staticNormals[i * 3]);
+                    referenceNativeTested += classifyNativeOpaque && s.staticSlot[i] < s.staticSlotCount[0] &&
+                                             !nativeTriangleIsOpaque(staticTriangles[i]);
                     std::copy(one.begin(), one.end(),
                               reference.begin() + size_t(s.staticSlot[i]) * kTriangleAttributes);
                 }
-                if (referenceTextured != s.staticTextured ||
+                if (referenceTextured != s.staticTextured || referenceNativeTested != s.staticNativeTestedCount ||
                     std::memcmp(reference.data(), s.staticAttributeData.data(), reference.size() * sizeof(Attribute)))
                     throw std::runtime_error("DXR static material repack differs from a full pack");
             }
@@ -1720,6 +1735,8 @@ void RayWater::Impl::execute(Job& job) {
         params.effects[3] |= runtimeFlags().rayAlphaCoverage ? 4096u : 0u;
         params.effects[3] |= runtimeFlags().rayAcceptedAlpha ? 8192u : 0u;
         params.effects[3] |= pruneRejected ? 32768u : 0u;
+        const bool nativeOpaque = classifyNativeOpaque && s.staticPacked && s.staticCounts[0] &&
+                                  s.staticCounts[0] == s.staticSlotCount[0] && !s.staticNativeTestedCount;
         params.effects[3] |= rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
         const uint64_t skyLevel = models ? models->level : 0;
         if (s.skyLevel != skyLevel) {
@@ -1946,6 +1963,8 @@ void RayWater::Impl::execute(Job& job) {
                     i.Transform[2][3] = translate.z;
                     i.InstanceID = (31u << 19) | materialBase;
                     i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask | kValidatedGeometryMask : 0u);
+                    if (g == 0 && nativeOpaque)
+                        i.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
                     i.AccelerationStructure = s.staticBlas[g]->GetGPUVirtualAddress();
                     instances.push_back(i);
                 }
@@ -2200,7 +2219,7 @@ void RayWater::Impl::execute(Job& job) {
             frame.timedPass = job.consumed;
             frame.timedWidth = uint32_t(d.Width);
             frame.timedHeight = d.Height;
-            frame.timedEffects = params.effects[3];
+            frame.timedEffects = params.effects[3] | (nativeOpaque ? 1u << 17 : 0u);
             frame.timedRejectedTriangles = validatedFrame ? 0 : counts[0];
             frame.timedCachedCompose = transportEnabled && s.cachedCompose;
             frame.timedUploadBytes = stagingBytes;

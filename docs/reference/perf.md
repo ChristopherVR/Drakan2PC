@@ -926,3 +926,13 @@ conversions reduced the CPU cost of reconstructing ray-traced terrain
 surfaces. Surdana with 4K DLSS Quality and ray shadows, reflections, and GI
 went from 69.1 to 74.0 world FPS across ten paired intervals in two launches.
 The OotF gains were smaller at the GPU limit. [Profile and level retests](../journal/2026-11-20/dlss-render-worker.md).
+
+## DXR resident terrain and color handoff (2026-11-20)
+
+DXR accepts resident terrain hits directly when every triangle passes the
+shader's hit tests unconditionally. The interop result also goes straight
+back into the D3D11 color guide, removing a second copy before DLSS.
+At 4K DLSS Quality, Volcanic improved in all five pairs. Ruined Village
+and Grotto gained about 1–1.5 FPS in median throughput. Rift World's
+tunnel was primarily limited by the game thread in the profile.
+[Profiles and five-level retest](../journal/2026-11-20/ootf-4k-gpu.md).

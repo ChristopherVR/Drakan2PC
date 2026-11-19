@@ -756,8 +756,9 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                 writeStage("water-cpu", textures.output.texture);
             }
         }
+        // The interop pass snapshots the input before it queues the result copy back to the guide.
         if (waterRenderer->ready() &&
-            waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture, constants,
+            waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.color.texture, constants,
                                   rayScene, waterSeconds, rayReflections, reflectionTextures, nativeModels,
                                   surface::RayOptions{wantWater, wantShadows,
                                                       motionEpoch == runtimeFlags().raySceneDumpEpoch
@@ -766,7 +767,6 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
                                                       true, rayGlobalIllumination, rayReflections},
                                   gpuBuilt ? &gpuTriangles : nullptr)) {
             ctx->OMSetRenderTargets(0, nullptr, nullptr);
-            ctx->CopyResource(textures.color.texture, textures.output.texture);
             waterEvaluated = wantWater;
             rayEvaluated = true;
             if (tpLog || runtimeFlags().waterLog)
@@ -836,7 +836,7 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     if (!success)
         neuralStatusText = neuralGuides->status();
     if (success && neuralBeforeSr) {
-        // textures.output only held the ray-scene scratch result, which is already copied into textures.color.
+        // The ray-scene result is already in textures.color, leaving textures.output available for NR.
         neuralBeforeSrOk = evaluateNeural(textures, constants);
     }
     if (success && wantSR) {
