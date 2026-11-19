@@ -129,7 +129,9 @@ my_mod/
   textures than the disc's 9, so the runtime reads chunk records in its wide layout (`drakan_terrain_chunks.cpp`) for
   every start with the pack enabled, whatever `[general] terrain_wide_chunks` says. The OotF converter writes it with
   `DRAKAN_TERRAIN_CHUNKS=wide` ([journal](../journal/2026-11-14/ootf-wide-chunks.md)). An exe without the wide layout
-  hangs on such a pack.
+  hangs on such a pack. A pack can mix levels converted with either texture limit. The manifest declares the largest
+  limit in use. Wider chunks reduce draw calls on crowded terrain, and they can increase GPU work at the ground texture
+  fade distance. See the [Order of the Flame comparison](../journal/2026-11-19/ootf-terrain-performance.md).
 * **One-way exits**: `one_way_exits = ["Level title @ x, y, z"]` (top-level key; the exit object's position, matched
   within 64 units). When the level-change save of such an exit is written (the player said yes on its save screen), the
   exit is closed in that save (instance flag `0x4`, what message `0x1002` sets), so the level restored after the next
