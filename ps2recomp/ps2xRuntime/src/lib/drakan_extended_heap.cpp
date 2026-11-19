@@ -2,6 +2,7 @@
 
 #include "drakan_config.h"
 #include "drakan_region.h"
+#include "drakan_texture_budget.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "world/ExtendedHeap.h"
@@ -27,11 +28,16 @@ constexpr uint32_t kExtBase = PS2_RETAIL_RAM_SIZE;
 constexpr uint32_t kMaxExtendedMb = (PS2_RAM_SIZE - PS2_RETAIL_RAM_SIZE) >> 20;
 constexpr uint32_t kReportStep = 1u << 20; // log each new MB of peak
 
+constexpr uint32_t kEvictTerrainPages = 0x15e5a0u;
+constexpr uint32_t kSplatCacheBudget = 0x4dff0cu; // native terrain draw-page cache, bytes
+
 static_assert(PS2_RAM_SIZE > PS2_RETAIL_RAM_SIZE, "the extended heap lives above the retail RAM");
 
 std::atomic<bool> g_installed{false};
 bool g_log = false;
 uint32_t g_extLimit = kExtBase; // end of the usable extended range
+uint32_t g_terrainBudget = 0;
+PS2Runtime::RecompiledFunction g_origEvictTerrainPages = nullptr;
 
 // ---- heap extension (sbrk)
 PS2Runtime::RecompiledFunction g_origSbrk = nullptr;
@@ -48,6 +54,22 @@ uint32_t rd32(const uint8_t* ram, uint32_t a) {
 }
 void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
     std::memcpy(ram + a, &v, 4);
+}
+
+void hookEvictTerrainPages(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == kEvictTerrainPages && drakan_texture_budget::convertedLevel()) {
+        const uint32_t current = rd32(ram, kSplatCacheBudget);
+        if (current < g_terrainBudget) {
+            wr32(ram, kSplatCacheBudget, g_terrainBudget);
+            static uint32_t lastReported = ~0u;
+            if (current != lastReported) {
+                std::fprintf(stderr, "[terrain-pages] converted-level cache budget %u -> %u bytes\n", current,
+                             g_terrainBudget);
+                lastReported = current;
+            }
+        }
+    }
+    g_origEvictTerrainPages(ram, c, rt);
 }
 
 void giveBack(R5900Context* c, uint32_t value) {
@@ -314,6 +336,12 @@ void install(PS2Runtime& rt) {
     const bool extend = drakan_cfg::getBool("general", "heap_extend", "DRAKAN_HEAP_EXTEND", true);
     const bool pages = drakan_cfg::getBool("general", "terrain_page_pool", "DRAKAN_TERRAIN_PAGE_POOL", true);
     if (extend && installHeap(rt)) {
+        // Level setup can reset the budget after loading. Set the floor when the game is about to use it.
+        if (rt.hasFunction(kEvictTerrainPages)) {
+            g_terrainBudget = std::min(16u << 20, (g_extLimit - kExtBase) / 4u);
+            g_origEvictTerrainPages = rt.lookupFunction(kEvictTerrainPages);
+            rt.replaceFunction(kEvictTerrainPages, &hookEvictTerrainPages);
+        }
         if (pages && g_log)
             std::fprintf(stderr, "[terrain-pages] not needed: the terrain draw pages come from the extended heap\n");
         g_installed = true;

@@ -124,3 +124,21 @@ steady camera and actor positions. The corrected runs found none in 31 such trip
 The installed executable was checked on a separate replay that turns while Arokh is moving under the lower roof.
 The 264 presented frames showed continuous camera movement through the turns and no full-view blackouts. The
 test used the byte-identical quick-slot copy and left the player's save intact.
+
+## Outdoor turns above the first rope bridge
+
+After a full turn on Arokh, pieces of the valley floor disappeared and returned over subsequent frames. The clear
+colour showed where a floor should be while the trees, river and buildings still drew. Ray samples from a missing
+patch hit layers 292 and 413 in the authored visibility list. The HD texture cache recorded zero evictions or
+rebuilds in the replay.
+
+The guest's terrain draw-page cache in Wartok had a 2,044,723-byte budget. In the turn, the game used up to
+2,875,872 bytes and evicted layer 292 during both turns. The draw-page builder admits one new layer per frame, so
+evicted terrain needed several frames to return. On the same executable and two turns, the native budget produced
+clear-colour gaps in 9 of 71 captures. A 16 MiB budget produced none, and the terrain cache used 3,517,552 bytes at
+its largest sampled size. Larger view distance alone made the gaps last longer.
+
+Wartok resets the cache budget after level load. The runtime therefore sets a floor as the native eviction pass
+starts. Converted levels with the extended heap get up to 16 MiB, capped at one quarter of the configured extra
+heap. The installed build held the 16 MiB budget before and after the turns and showed no gaps in 71 captures.
+Captures and logs are in `build/outdoor-turn-20261119/`.

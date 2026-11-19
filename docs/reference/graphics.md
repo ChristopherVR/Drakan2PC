@@ -606,12 +606,15 @@ with its own bookkeeping; its trim (sbrk with a negative size) gives host pages 
 (`world_extended_heap_test`). Host-side readers of game objects bound pointers by `PS2_RAM_SIZE` (round 6 audit), the
 harness by `live_drive.RAM_SIZE`.
 
+**Terrain draw-page cache.** For a converted level with the extended heap, the native eviction pass raises its budget to
+16 MiB or one quarter of the configured extra heap, whichever is smaller. Higher level budgets are preserved.
+The extra room keeps recently visible terrain available through a turn. The guest still builds and evicts draw pages.
+
 **Terrain draw page pool** (`[general] terrain_page_pool`, used only with `heap_extend = 0`): allocations whose return
 address lies in the terrain builder take a block of a best-fit pool over the extended range instead (malloc, realloc
 and free wrapped; frees and reallocs of pool addresses go back to it, everything else runs the original allocator, a
 full pool falls back to the game heap). The pool commits host pages in 2 MB steps as it grows and gives whole steps
-back when its top runs free. The engine builds, budgets and evicts the same pages either way, only their addresses
-differ, so the picture does not change.
+back when its top runs free. The pool relocates terrain allocations and uses the level's native cache budget.
 
 **World position per pixel.** The vertex Q is 1 / clip w at full float precision and is linear in screen space, so a
 pixel's camera-relative world position follows from its pixel position, Q and the engine camera the host publishes
