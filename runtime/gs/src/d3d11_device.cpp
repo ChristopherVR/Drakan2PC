@@ -2,6 +2,8 @@
 #include "d3d11_backend_impl.h"
 #include "shader_cache.h"
 
+#include <cstring>
+
 namespace gsr {
 
 D3D11Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cfg(c), st(s) {
@@ -45,7 +47,18 @@ bool D3D11Backend::Impl::compile(const char* entry, const char* target, const ch
 bool D3D11Backend::Impl::init() {
     const auto initStart = std::chrono::steady_clock::now();
     const char* simpleShader = std::getenv("GSR_SIMPLE_PIXEL_SHADER");
-    const bool wantSimple = !simpleShader || simpleShader[0] != '0';
+    const char* snowShader = std::getenv("GSR_SNOW_PIXEL_SHADER");
+    struct TerrainShaders {
+        const char* entry;
+        const char* label;
+        bool enabled;
+        ComPtr<ID3D11PixelShader>& hw;
+        ComPtr<ID3D11PixelShader>& sw;
+    };
+    const TerrainShaders terrainShaders[] = {
+        {"PSMainSimple", "single-projection", !simpleShader || simpleShader[0] != '0', psHwSimple, psSbSimple},
+        {"PSMainSnow", "single-projection snow", !snowShader || snowShader[0] != '0', psHwSnow, psSbSnow},
+    };
     shader_compile::configureDirectory();
     {
         // The uber shader variants are independent compiles of one source: run them side by side (the sequential
@@ -66,12 +79,15 @@ bool D3D11Backend::Impl::init() {
                 ComPtr<ID3DBlob> ignored;
                 compile(v.entry, v.target, v.define, ignored);
             });
-        if (wantSimple)
+        for (const auto& terrain : terrainShaders) {
+            if (!terrain.enabled)
+                continue;
             for (const char* define : {"0", "1"})
-                compilers.emplace_back([this, define] {
+                compilers.emplace_back([this, entry = terrain.entry, define] {
                     ComPtr<ID3DBlob> ignored;
-                    compile("PSMainSimple", "ps_5_0", define, ignored);
+                    compile(entry, "ps_5_0", define, ignored);
                 });
+        }
         for (auto& t : compilers)
             t.join();
     }
@@ -168,19 +184,21 @@ bool D3D11Backend::Impl::init() {
     if (!compile("PSMain", "ps_5_0", "0", p))
         return false;
     dev->CreatePixelShader(p->GetBufferPointer(), p->GetBufferSize(), nullptr, &psSb);
-    if (wantSimple) {
-        auto makeSimple = [&](const char* define, ComPtr<ID3D11PixelShader>& shader) {
+    for (const auto& terrain : terrainShaders) {
+        if (!terrain.enabled)
+            continue;
+        const auto makeShader = [&](const char* define, ComPtr<ID3D11PixelShader>& shader) {
             ComPtr<ID3DBlob> bytecode;
-            return compile("PSMainSimple", "ps_5_0", define, bytecode) &&
+            return compile(terrain.entry, "ps_5_0", define, bytecode) &&
                    SUCCEEDED(dev->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr,
                                                     shader.GetAddressOf()));
         };
-        if (!makeSimple("1", psHwSimple) || !makeSimple("0", psSbSimple)) {
-            psHwSimple.Reset();
-            psSbSimple.Reset();
-            std::fprintf(stderr, "[gsr-shader] single-projection shader unavailable; using the full shader\n");
+        if (!makeShader("1", terrain.hw) || !makeShader("0", terrain.sw)) {
+            terrain.hw.Reset();
+            terrain.sw.Reset();
+            std::fprintf(stderr, "[gsr-shader] %s shader unavailable; using the full shader\n", terrain.label);
         } else {
-            std::fprintf(stderr, "[gsr-shader] single-projection shader active\n");
+            std::fprintf(stderr, "[gsr-shader] %s shader active\n", terrain.label);
         }
     }
     auto mk = [&](const char* e, const char* t, ComPtr<ID3D11PixelShader>* ps, ComPtr<ID3D11VertexShader>* v) {
@@ -340,7 +358,9 @@ void D3D11Backend::Impl::warmMainPipelines() {
     ctx->OMSetRenderTargets(1, colorRtv.GetAddressOf(), dsv.Get());
     ID3D11BlendState* blends[2] = {
         blendOff.Get(), getBlendState(true, D3D11_BLEND_OP_ADD, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, 0xF)};
-    for (ID3D11PixelShader* ps : {psHw.Get(), psSb.Get(), psHwSimple.Get(), psSbSimple.Get()}) {
+    ID3D11PixelShader* const gsShaders[] = {psHw.Get(),       psSb.Get(),     psHwSimple.Get(),
+                                            psSbSimple.Get(), psHwSnow.Get(), psSbSnow.Get()};
+    for (ID3D11PixelShader* ps : gsShaders) {
         if (!ps)
             continue;
         for (ID3D11BlendState* bs : blends)

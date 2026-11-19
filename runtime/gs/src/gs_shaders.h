@@ -231,8 +231,7 @@ struct PSOut
 #endif
 };
 
-// The entry points pass a constant so the simple shader has only the original UV projection.
-float4 sourcePixel(VSOut i, bool extendedTerrain)
+float4 sourcePixel(VSOut i, uint terrainEffects)
 {
     uint fl = cb_a.x;
     float4 cv = floor(i.col + 0.5);
@@ -258,15 +257,15 @@ float4 sourcePixel(VSOut i, bool extendedTerrain)
         // up to two more.
         float2 puv[3], pdx[3], pdy[3];
         float pw[3];
-        if (extendedTerrain)
+        if (terrainEffects & F_TERRAIN_SIDE)
         {
             puv[0] = uv; pdx[0] = uvDx; pdy[0] = uvDy; pw[0] = 1.0;
             puv[1] = uv; pdx[1] = uvDx; pdy[1] = uvDy; pw[1] = 0.0;
             puv[2] = uv; pdx[2] = uvDx; pdy[2] = uvDy; pw[2] = 0.0;
         }
         int projections = 1;
-        bool side = extendedTerrain && (fl & F_TERRAIN_SIDE) != 0u;
-        uint terrainColorFlags = F_TERRAIN | F_TERRAIN_RELIEF | (extendedTerrain ? F_TERRAIN_SNOW : 0u);
+        bool side = (terrainEffects & fl & F_TERRAIN_SIDE) != 0u;
+        uint terrainColorFlags = F_TERRAIN | F_TERRAIN_RELIEF | (terrainEffects & F_TERRAIN_SNOW);
         TerrainShading terrain = {1.0, 0.0, 0.0, 0.0, 0.0};
         // A layer pixel with vertex alpha zero has no weight.
         if (((fl & terrainColorFlags) != 0u || side) && cv.a >= 0.5)
@@ -274,7 +273,7 @@ float4 sourcePixel(VSOut i, bool extendedTerrain)
             TerrainPoint tp = terrainPoint(i.pos.xy, q, dq);
             bool detail = (fl & F_TERRAIN) != 0u && t_d0.w > 0.5;
             float cliffWeight = (fl & F_TERRAIN_RELIEF) != 0u ? terrainCliffWeight(tp) : 0.0;
-            float mountainWeight = extendedTerrain && (fl & F_TERRAIN_SNOW) != 0u ? mountainSnowWeight(tp) : 0.0;
+            float mountainWeight = (terrainEffects & fl & F_TERRAIN_SNOW) != 0u ? mountainSnowWeight(tp) : 0.0;
             if (detail || cliffWeight > 0.0 || mountainWeight > 0.0)
                 terrain = terrainShading(tp, detail, cliffWeight, mountainWeight);
             else if (side) terrain.medium = terrainMedium(tp);
@@ -285,7 +284,7 @@ float4 sourcePixel(VSOut i, bool extendedTerrain)
             }
         }
         float4 ts;
-        if (extendedTerrain)
+        if (terrainEffects & F_TERRAIN_SIDE)
         {
             ts = float4(0, 0, 0, 0);
             [loop] for (int pi = 0; pi < projections; ++pi)
@@ -307,7 +306,7 @@ float4 sourcePixel(VSOut i, bool extendedTerrain)
         // material detail (material_detail.h): this variant is only bound for draws that take it
         t.rgb = materialShade(t.rgb, uv, ddx(uv), ddy(uv), i.pos.xy, q);
 #endif
-        if (extendedTerrain && terrain.snowCoverage > 0.0 && t_dy.w < 0.5)
+        if ((terrainEffects & F_TERRAIN_SNOW) != 0u && terrain.snowCoverage > 0.0 && t_dy.w < 0.5)
         {
             float3 snowColor = terrain.snowBrightness * lerp(float3(240.0, 247.0, 252.0),
                                                             float3(224.0, 240.0, 240.0), terrain.blueSnow);
@@ -378,10 +377,10 @@ void alphaCoverage(float a)
 
 }
 
-PSOut colorPixel(VSOut i, bool extendedTerrain)
+PSOut colorPixel(VSOut i, uint terrainEffects)
 {
     uint fl = cb_a.x;
-    float4 source = sourcePixel(i, extendedTerrain);
+    float4 source = sourcePixel(i, terrainEffects);
     float3 c = source.rgb;
     float a = source.a;
     alphaCoverage(a);
@@ -468,12 +467,17 @@ PSOut colorPixel(VSOut i, bool extendedTerrain)
 
 PSOut PSMain(VSOut i)
 {
-    return colorPixel(i, true);
+    return colorPixel(i, F_TERRAIN_SIDE | F_TERRAIN_SNOW);
 }
 
 PSOut PSMainSimple(VSOut i)
 {
-    return colorPixel(i, false);
+    return colorPixel(i, 0u);
+}
+
+PSOut PSMainSnow(VSOut i)
+{
+    return colorPixel(i, F_TERRAIN_SNOW);
 }
 
 // Separate coverage/depth-matched velocity pass: GS dual-source colour
@@ -500,7 +504,7 @@ MotionOut VSMotion(MotionIn i) {
 }
 float4 PSMotion(MotionOut i) : SV_Target {
     VSOut base; base.pos=i.pos; base.col=i.col; base.stq=i.stq; base.fog=i.fog;
-    const float4 source=sourcePixel(base, true);
+    const float4 source=sourcePixel(base, F_TERRAIN_SIDE | F_TERRAIN_SNOW);
     alphaCoverage(source.a);
     const uint fl=cb_a.x;
     float4 dst=0;

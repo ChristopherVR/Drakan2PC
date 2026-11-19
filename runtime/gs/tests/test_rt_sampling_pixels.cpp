@@ -35,6 +35,12 @@ struct Vertex {
 };
 static_assert(sizeof(Vertex) == 44);
 using Pixel = std::array<float, 4>;
+struct TerrainCB {
+    Pixel base, direction, dx, dy, octave[3], amplitude, sampling, side, relief, reliefFar, grid, gridY;
+    Pixel snowRanges[8][3];
+};
+static_assert(sizeof(TerrainCB) == 608);
+enum class ColorShader { Full, Snow };
 void must(HRESULT hr, const char* operation) {
     if (FAILED(hr))
         throw std::runtime_error(std::string(operation) + " HRESULT=" + std::to_string(hr));
@@ -67,13 +73,13 @@ class Harness {
     ComPtr<ID3D11Device> dev;
     ComPtr<ID3D11DeviceContext> ctx;
     ComPtr<ID3D11VertexShader> vs;
-    ComPtr<ID3D11PixelShader> ps[2];
+    ComPtr<ID3D11PixelShader> ps[2], psSnow[2];
     ComPtr<ID3D11InputLayout> layout;
-    ComPtr<ID3D11Buffer> vb, cb;
+    ComPtr<ID3D11Buffer> vb, cb, terrainCB;
     ComPtr<ID3D11Texture2D> target, staging;
     ComPtr<ID3D11RenderTargetView> rtv;
-    ComPtr<ID3D11ShaderResourceView> destination;
-    ComPtr<ID3D11SamplerState> point, linear;
+    ComPtr<ID3D11ShaderResourceView> destination, terrainNoise;
+    ComPtr<ID3D11SamplerState> point, linear, wrap;
     ComPtr<ID3D11RasterizerState> raster;
     ComPtr<ID3D11DepthStencilState> depth;
     ComPtr<ID3D11BlendState> blend;
@@ -107,6 +113,11 @@ public:
         must(dev->CreateVertexShader(vsCode->GetBufferPointer(), vsCode->GetBufferSize(), nullptr, &vs), "VSMain");
         must(dev->CreatePixelShader(p0->GetBufferPointer(), p0->GetBufferSize(), nullptr, &ps[0]), "PSMain SW");
         must(dev->CreatePixelShader(p1->GetBufferPointer(), p1->GetBufferSize(), nullptr, &ps[1]), "PSMain HW");
+        for (unsigned hw = 0; hw < 2; ++hw) {
+            auto code = compile("PSMainSnow", "ps_5_0", hw ? "1" : "0");
+            must(dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &psSnow[hw]),
+                 "PSMainSnow");
+        }
         const D3D11_INPUT_ELEMENT_DESC elements[] = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
             {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -115,6 +126,7 @@ public:
              "input layout");
         vb = buffer(UINT(6 * sizeof(Vertex)), D3D11_BIND_VERTEX_BUFFER);
         cb = buffer(UINT(sizeof(CB)), D3D11_BIND_CONSTANT_BUFFER);
+        terrainCB = buffer(UINT(sizeof(TerrainCB)), D3D11_BIND_CONSTANT_BUFFER);
         D3D11_TEXTURE2D_DESC td{};
         td.Width = td.Height = outputSize;
         td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
@@ -136,6 +148,8 @@ public:
         must(dev->CreateSamplerState(&sd, &point), "point sampler");
         sd.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
         must(dev->CreateSamplerState(&sd, &linear), "linear sampler");
+        sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        must(dev->CreateSamplerState(&sd, &wrap), "linear wrap sampler");
         D3D11_RASTERIZER_DESC rd{};
         rd.FillMode = D3D11_FILL_SOLID;
         rd.CullMode = D3D11_CULL_NONE;
@@ -148,7 +162,26 @@ public:
         bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
         must(dev->CreateBlendState(&bd, &blend), "blend disabled");
     }
-    ComPtr<ID3D11ShaderResourceView> source(const std::vector<Pixel>& pixels, UINT size = sourceSize) {
+    void setTerrain(const TerrainCB& constants) {
+        if (!terrainNoise) {
+            const float texel[] = {0.63f, 0.40f};
+            D3D11_TEXTURE3D_DESC desc{};
+            desc.Width = desc.Height = desc.Depth = desc.MipLevels = 1;
+            desc.Format = DXGI_FORMAT_R32G32_FLOAT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            desc.Usage = D3D11_USAGE_IMMUTABLE;
+            const D3D11_SUBRESOURCE_DATA data{texel, sizeof(texel), sizeof(texel)};
+            ComPtr<ID3D11Texture3D> texture;
+            must(dev->CreateTexture3D(&desc, &data, &texture), "terrain noise texture");
+            must(dev->CreateShaderResourceView(texture.Get(), nullptr, &terrainNoise), "terrain noise SRV");
+        }
+        ctx->UpdateSubresource(terrainCB.Get(), 0, nullptr, &constants, 0, 0);
+        ctx->PSSetConstantBuffers(3, 1, terrainCB.GetAddressOf());
+        ctx->PSSetShaderResources(2, 1, terrainNoise.GetAddressOf());
+        ctx->PSSetSamplers(2, 1, linear.GetAddressOf());
+    }
+    ComPtr<ID3D11ShaderResourceView> source(const std::vector<Pixel>& pixels, UINT size = sourceSize,
+                                            UINT mipLevels = 1) {
         // Match the renderer's byte RT storage; float output below avoids
         // introducing an additional UNORM conversion in the pixel oracle.
         std::vector<std::array<uint8_t, 4>> bytes(pixels.size());
@@ -157,22 +190,32 @@ public:
                 bytes[i][c] = static_cast<uint8_t>(std::lround(pixels[i][c] * 255));
         D3D11_TEXTURE2D_DESC td{};
         td.Width = td.Height = size;
-        td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
+        td.MipLevels = mipLevels;
+        td.ArraySize = td.SampleDesc.Count = 1;
         td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         td.Usage = D3D11_USAGE_IMMUTABLE;
         td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        D3D11_SUBRESOURCE_DATA data{bytes.data(), size * 4, 0};
+        std::vector<D3D11_SUBRESOURCE_DATA> data;
+        size_t offset = 0;
+        for (UINT mip = 0; mip < mipLevels; ++mip) {
+            const UINT extent = size >> mip;
+            data.push_back({bytes.data() + offset, extent * 4, 0});
+            offset += size_t(extent) * extent;
+        }
         ComPtr<ID3D11Texture2D> tex;
-        must(dev->CreateTexture2D(&td, &data, &tex), "source texture");
+        must(dev->CreateTexture2D(&td, data.data(), &tex), "source texture");
         ComPtr<ID3D11ShaderResourceView> srv;
         must(dev->CreateShaderResourceView(tex.Get(), nullptr, &srv), "source SRV");
         return srv;
     }
     std::vector<Pixel> draw(const CB& constants, ID3D11ShaderResourceView* texture, float u, float v, unsigned hw,
-                            bool footprintProbe = false) {
+                            bool footprintProbe = false, ColorShader shader = ColorShader::Full, float stqStep = 0.f) {
         if ((constants.a[0] & (1u << 24)) && !footprintProbe)
             throw std::runtime_error("RT cases must keep sprite footprint off");
-        const auto vertex = [&](float x, float y) { return Vertex{x, y, 1, 0, 128, 128, 128, 128, u, v, 1}; };
+        const auto vertex = [&](float x, float y) {
+            return Vertex{
+                x, y, 1, 0, 128, 128, 128, 128, u + x * stqStep, v + y * stqStep * 0.25f, 1 + y * stqStep * 0.5f};
+        };
         const Vertex vertices[] = {vertex(0, 0), vertex(4, 0), vertex(0, 4), vertex(4, 0), vertex(4, 4), vertex(0, 4)};
         ctx->UpdateSubresource(vb.Get(), 0, nullptr, vertices, 0, 0);
         ctx->UpdateSubresource(cb.Get(), 0, nullptr, &constants, 0, 0);
@@ -187,13 +230,14 @@ public:
         UINT stride = sizeof(Vertex), offset = 0;
         ctx->IASetVertexBuffers(0, 1, buffers, &stride, &offset);
         ctx->VSSetShader(vs.Get(), nullptr, 0);
-        ctx->PSSetShader(ps[hw].Get(), nullptr, 0);
+        ctx->PSSetShader(shader == ColorShader::Snow ? psSnow[hw].Get() : ps[hw].Get(), nullptr, 0);
         ctx->VSSetConstantBuffers(0, 1, cb.GetAddressOf());
         ctx->PSSetConstantBuffers(0, 1, cb.GetAddressOf());
         ID3D11ShaderResourceView* resources[] = {texture, destination.Get()};
         ctx->PSSetShaderResources(0, 2, resources);
         ID3D11SamplerState* samplers[] = {point.Get(), linear.Get()};
         ctx->PSSetSamplers(0, 2, samplers);
+        ctx->PSSetSamplers(4, 1, wrap.GetAddressOf());
         ctx->OMSetDepthStencilState(depth.Get(), 0);
         ctx->OMSetBlendState(blend.Get(), nullptr, 0xffffffffu);
         ctx->OMSetRenderTargets(1, rtv.GetAddressOf(), nullptr);
@@ -260,6 +304,67 @@ int main(int argc, char** argv) {
     try {
         Harness h;
         unsigned cases = 0, checks = 0, failures = 0;
+        {
+            constexpr uint32_t snowFlag = 1u << 29;
+            constexpr UINT mipLevels = 3;
+            std::vector<Pixel> texels;
+            for (UINT level = 0; level < mipLevels; ++level) {
+                const UINT extent = sourceSize >> level;
+                for (UINT y = 0; y < extent; ++y)
+                    for (UINT x = 0; x < extent; ++x)
+                        texels.push_back({float(x) / extent, float(y) / extent, 0.35f + 0.1f * level, 1.f});
+            }
+            auto texture = h.source(texels, sourceSize, mipLevels);
+            CB k = constants({1, 1}, false, true);
+            k.a[0] = (1u << 0) | (1u << 3) | (1u << 17) | snowFlag;
+            k.b[1] = k.b[2] = sourceSize;
+            k.d[0] = (mipLevels - 1) | (1u << 5) | (5u << 6) | (1u << 14);
+            k.f[2] = 16.f;
+            TerrainCB terrain{};
+            terrain.base[1] = -2000.f;
+            terrain.dx[0] = 1000.f;
+            terrain.dy[2] = -1000.f;
+            terrain.octave[1][3] = terrain.octave[2][3] = 1.f / 32768.f;
+            terrain.sampling = {0.f, 0.f, 2.f, 1.f};
+            terrain.gridY[0] = 62000.f;
+            terrain.snowRanges[0][0] = {-1000.f, -6000.f, 0.f, -4000.f};
+            terrain.snowRanges[0][1] = {1100.f, 0.f, 3000.f, 1000.f};
+            terrain.snowRanges[0][2] = {57000.f, 1.f, 0.f, 0.f};
+            terrain.snowRanges[1][0] = {-1000.f, -6000.f, 0.f, -4000.f};
+            terrain.snowRanges[1][1] = {2000.f, 0.f, 4000.f, 1000.f};
+            terrain.snowRanges[1][2] = {59000.f, 1.f, 1.f, 0.f};
+            h.setTerrain(terrain);
+            for (auto& pixel : texels)
+                pixel[3] = 0.f;
+            auto transparent = h.source(texels, sourceSize, mipLevels);
+            CB alphaTest = k;
+            alphaTest.a[0] |= (1u << 6) | (6u << 7);
+            const std::vector<Pixel> cleared(outputSize * outputSize, Pixel{-1, -1, -1, -1});
+            for (unsigned hw = 0; hw < 2; ++hw) {
+                cases += 2;
+                const auto draw = [&](const CB& config, ID3D11ShaderResourceView* tex, ColorShader shader) {
+                    return h.draw(config, tex, 0.12f, 0.19f, hw, false, shader, 0.10f);
+                };
+                const auto full = draw(k, texture.Get(), ColorShader::Full);
+                const auto snow = draw(k, texture.Get(), ColorShader::Snow);
+                CB bare = k;
+                bare.a[0] &= ~snowFlag;
+                const auto noSnow = draw(bare, texture.Get(), ColorShader::Full);
+                checks += 2;
+                if (full != snow || full == noSnow) {
+                    ++failures;
+                    std::fprintf(stderr, "FAIL snow color or coverage HW_BLEND=%u: matches=%d snow visible=%d\n", hw,
+                                 full == snow, full != noSnow);
+                }
+                const auto fullDiscard = draw(alphaTest, transparent.Get(), ColorShader::Full);
+                const auto snowDiscard = draw(alphaTest, transparent.Get(), ColorShader::Snow);
+                ++checks;
+                if (fullDiscard != cleared || snowDiscard != cleared) {
+                    ++failures;
+                    std::fprintf(stderr, "FAIL snow alpha discard HW_BLEND=%u\n", hw);
+                }
+            }
+        }
         const auto run = [&](const char* name, Scale scale, Pattern p, bool ct24, bool repeat, float u, float v,
                              Pixel expected, bool lin = true, bool discard = false) {
             auto texture = h.source(pattern(scale, p, ct24));

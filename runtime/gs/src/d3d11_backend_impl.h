@@ -540,7 +540,7 @@ struct D3D11Backend::Impl {
     ComPtr<ID3D11Buffer> motionVb;
     uint32_t motionVbCapacity = 0, motionVbOffset = 0, motionVbDrawOffset = 0; // ring: NO_OVERWRITE appends
     ComPtr<ID3D11PixelShader> psHw, psSb, psDisplay, psBlit, psBlitPt, psPresent, psCopyRGBA, psStretchDepth;
-    ComPtr<ID3D11PixelShader> psHwSimple, psSbSimple;
+    ComPtr<ID3D11PixelShader> psHwSimple, psSbSimple, psHwSnow, psSbSnow;
     // Window-sized upscaler output (rule: upscale_render_size.h; d3d11_world.cpp writes, d3d11_present.cpp shows).
     ComPtr<ID3D11PixelShader> psPresentView;
     ComPtr<ID3D11Texture2D> viewTex; // the latched display at window size: the upscaler's pixels where untouched

@@ -228,11 +228,12 @@ void D3D11Backend::Impl::logDrawState(bool force) {
 }
 
 ID3D11PixelShader* D3D11Backend::Impl::drawPixelShader(bool useHw, uint32_t flags) const {
-    const auto& simple = useHw ? psHwSimple : psSbSimple;
-    const bool singleProjectionTerrain =
-        (flags & (PF_TERRAIN | PF_TERRAIN_RELIEF)) && !(flags & (PF_TERRAIN_SIDE | PF_TERRAIN_SNOW));
-    if (simple && singleProjectionTerrain)
-        return simple.Get();
+    if (!(flags & PF_TERRAIN_SIDE) && (flags & (PF_TERRAIN | PF_TERRAIN_RELIEF | PF_TERRAIN_SNOW))) {
+        const bool snow = (flags & PF_TERRAIN_SNOW) != 0u;
+        const auto& single = snow ? (useHw ? psHwSnow : psSbSnow) : (useHw ? psHwSimple : psSbSimple);
+        if (single)
+            return single.Get();
+    }
     return useHw ? psHw.Get() : psSb.Get();
 }
 
