@@ -268,6 +268,8 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
     }
     if (!flags)
         return 0;
+    if (psHwTerrainRepeat && !(flags & (PF_TERRAIN_SIDE | PF_TERRAIN_SNOW)) && k.b[3] == 0u && (k.d[0] & (1u << 14)))
+        flags |= kTerrainRepeatFilter;
     ++g.draws;
     ctx->PSSetConstantBuffers(3, 1, g.cb.GetAddressOf());
     // t2 and t4: t3, s3 and b4 belong to the material maps (gs_material.inc)

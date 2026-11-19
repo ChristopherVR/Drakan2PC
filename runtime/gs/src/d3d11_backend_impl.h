@@ -541,6 +541,9 @@ struct D3D11Backend::Impl {
     uint32_t motionVbCapacity = 0, motionVbOffset = 0, motionVbDrawOffset = 0; // ring: NO_OVERWRITE appends
     ComPtr<ID3D11PixelShader> psHw, psSb, psDisplay, psBlit, psBlitPt, psPresent, psCopyRGBA, psStretchDepth;
     ComPtr<ID3D11PixelShader> psHwSimple, psSbSimple, psHwSnow, psSbSnow;
+    ComPtr<ID3D11PixelShader> psHwTerrainRepeat, psSbTerrainRepeat;
+    static constexpr uint32_t kTerrainRepeatFilter = 1u << 30;
+    bool terrainRepeatLogged = false;
     // Window-sized upscaler output (rule: upscale_render_size.h; d3d11_world.cpp writes, d3d11_present.cpp shows).
     ComPtr<ID3D11PixelShader> psPresentView;
     ComPtr<ID3D11Texture2D> viewTex; // the latched display at window size: the upscaler's pixels where untouched
@@ -870,7 +873,7 @@ struct D3D11Backend::Impl {
 
     // ---------------------------------------------------------------------------------------------
     bool compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out,
-                 bool material = false);
+                 bool material = false, bool terrainRepeatFilter = false);
     bool init();
     void createSwapchain();
     std::wstring neuralDirectory() const;

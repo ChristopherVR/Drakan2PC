@@ -40,13 +40,14 @@ struct TerrainCB {
     Pixel snowRanges[8][3];
 };
 static_assert(sizeof(TerrainCB) == 608);
-enum class ColorShader { Full, Snow };
+enum class ColorShader { Full, Snow, Simple, Repeat };
 void must(HRESULT hr, const char* operation) {
     if (FAILED(hr))
         throw std::runtime_error(std::string(operation) + " HRESULT=" + std::to_string(hr));
 }
-ComPtr<ID3DBlob> compile(const char* entry, const char* target, const char* hw) {
-    D3D_SHADER_MACRO macros[] = {{"HW_BLEND", hw}, {nullptr, nullptr}};
+ComPtr<ID3DBlob> compile(const char* entry, const char* target, const char* hw, bool repeatFilter = false) {
+    D3D_SHADER_MACRO macros[] = {
+        {"HW_BLEND", hw}, {repeatFilter ? "TERRAIN_REPEAT_FILTER" : nullptr, "1"}, {nullptr, nullptr}};
     ComPtr<ID3DBlob> code, error;
     const HRESULT hr = D3DCompile(gsr::kHlslMain, std::strlen(gsr::kHlslMain), "integrated_rt_pixels", macros, nullptr,
                                   entry, target, D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &error);
@@ -73,7 +74,7 @@ class Harness {
     ComPtr<ID3D11Device> dev;
     ComPtr<ID3D11DeviceContext> ctx;
     ComPtr<ID3D11VertexShader> vs;
-    ComPtr<ID3D11PixelShader> ps[2], psSnow[2];
+    ComPtr<ID3D11PixelShader> ps[2], psSnow[2], psSimple[2], psRepeat[2];
     ComPtr<ID3D11InputLayout> layout;
     ComPtr<ID3D11Buffer> vb, cb, terrainCB;
     ComPtr<ID3D11Texture2D> target, staging;
@@ -114,9 +115,13 @@ public:
         must(dev->CreatePixelShader(p0->GetBufferPointer(), p0->GetBufferSize(), nullptr, &ps[0]), "PSMain SW");
         must(dev->CreatePixelShader(p1->GetBufferPointer(), p1->GetBufferSize(), nullptr, &ps[1]), "PSMain HW");
         for (unsigned hw = 0; hw < 2; ++hw) {
-            auto code = compile("PSMainSnow", "ps_5_0", hw ? "1" : "0");
-            must(dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &psSnow[hw]),
-                 "PSMainSnow");
+            const auto makeShader = [&](const char* entry, ComPtr<ID3D11PixelShader>& result, bool repeat = false) {
+                auto code = compile(entry, "ps_5_0", hw ? "1" : "0", repeat);
+                must(dev->CreatePixelShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &result), entry);
+            };
+            makeShader("PSMainSnow", psSnow[hw]);
+            makeShader("PSMainSimple", psSimple[hw]);
+            makeShader("PSMainSimple", psRepeat[hw], true);
         }
         const D3D11_INPUT_ELEMENT_DESC elements[] = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -209,12 +214,13 @@ public:
         return srv;
     }
     std::vector<Pixel> draw(const CB& constants, ID3D11ShaderResourceView* texture, float u, float v, unsigned hw,
-                            bool footprintProbe = false, ColorShader shader = ColorShader::Full, float stqStep = 0.f) {
+                            bool footprintProbe = false, ColorShader shader = ColorShader::Full, float stqStep = 0.f,
+                            float crossStep = 1.f) {
         if ((constants.a[0] & (1u << 24)) && !footprintProbe)
             throw std::runtime_error("RT cases must keep sprite footprint off");
         const auto vertex = [&](float x, float y) {
-            return Vertex{
-                x, y, 1, 0, 128, 128, 128, 128, u + x * stqStep, v + y * stqStep * 0.25f, 1 + y * stqStep * 0.5f};
+            const float cross = y * stqStep * crossStep;
+            return Vertex{x, y, 1, 0, 128, 128, 128, 128, u + x * stqStep, v + cross * 0.25f, 1 + cross * 0.5f};
         };
         const Vertex vertices[] = {vertex(0, 0), vertex(4, 0), vertex(0, 4), vertex(4, 0), vertex(4, 4), vertex(0, 4)};
         ctx->UpdateSubresource(vb.Get(), 0, nullptr, vertices, 0, 0);
@@ -230,7 +236,8 @@ public:
         UINT stride = sizeof(Vertex), offset = 0;
         ctx->IASetVertexBuffers(0, 1, buffers, &stride, &offset);
         ctx->VSSetShader(vs.Get(), nullptr, 0);
-        ctx->PSSetShader(shader == ColorShader::Snow ? psSnow[hw].Get() : ps[hw].Get(), nullptr, 0);
+        ID3D11PixelShader* variants[] = {ps[hw].Get(), psSnow[hw].Get(), psSimple[hw].Get(), psRepeat[hw].Get()};
+        ctx->PSSetShader(variants[static_cast<unsigned>(shader)], nullptr, 0);
         ctx->VSSetConstantBuffers(0, 1, cb.GetAddressOf());
         ctx->PSSetConstantBuffers(0, 1, cb.GetAddressOf());
         ID3D11ShaderResourceView* resources[] = {texture, destination.Get()};
@@ -362,6 +369,70 @@ int main(int argc, char** argv) {
                 if (fullDiscard != cleared || snowDiscard != cleared) {
                     ++failures;
                     std::fprintf(stderr, "FAIL snow alpha discard HW_BLEND=%u\n", hw);
+                }
+            }
+        }
+        {
+            constexpr UINT mipLevels = 7;
+            std::vector<Pixel> texels;
+            for (UINT level = 0; level < mipLevels; ++level) {
+                const UINT extent = sourceSize >> level;
+                for (UINT y = 0; y < extent; ++y)
+                    for (UINT x = 0; x < extent; ++x) {
+                        const float alpha = level + 1 == mipLevels || (x + y) % 3 != 0 ? 1.f : 0.f;
+                        texels.push_back({float(x) / extent, float(y) / extent, 0.2f + 0.1f * level, alpha});
+                    }
+            }
+            auto texture = h.source(texels, sourceSize, mipLevels);
+            for (unsigned hw = 0; hw < 2; ++hw) {
+                bool filtersDiffer = false;
+                for (unsigned factor : {1u, 4u, 8u}) {
+                    CB k = constants({1, 1}, false, true);
+                    k.a[0] = (1u << 0) | (1u << 3) | (1u << 17) | (1u << 6) | (6u << 7);
+                    k.b[1] = k.b[2] = sourceSize / factor;
+                    k.d[0] = (mipLevels - 1) | (5u << 6) | (1u << 13) | (1u << 14);
+                    k.f[0] = float(factor);
+                    k.f[2] = 16.f;
+                    k.f[3] = std::log2(float(factor));
+                    for (float lod : {0.25f, 12.f}) {
+                        const bool fixed = lod > 1.f;
+                        k.d[0] = (k.d[0] & ~(1u << 4)) | (fixed ? 1u << 4 : 0u);
+                        k.e[0] = lod;
+                        std::vector<Pixel> point;
+                        for (float filter : {1.f, 2.f, 0.f}) {
+                            k.e[1] = filter;
+                            const auto draw = [&](ColorShader shader) {
+                                if (fixed)
+                                    return h.draw(k, texture.Get(), 0.125f, 0.125f, hw, false, shader);
+                                return h.draw(k, texture.Get(), -1.13f, 1.39f, hw, false, shader, 0.17f, 0.05f);
+                            };
+                            const auto baseline = draw(ColorShader::Simple);
+                            const auto repeat = draw(ColorShader::Repeat);
+                            if (filter == 1.f)
+                                point = baseline;
+                            if (filter == 2.f)
+                                filtersDiffer |= baseline != point;
+                            ++cases;
+                            ++checks;
+                            if (fixed) {
+                                ++checks;
+                                if (baseline.front()[2] < 0.79f) {
+                                    ++failures;
+                                    std::fprintf(stderr, "FAIL repeat fixture did not draw the coarsest mip\n");
+                                }
+                            }
+                            if (baseline != repeat) {
+                                ++failures;
+                                std::fprintf(stderr, "FAIL repeat filter HW_BLEND=%u factor=%u LOD=%g filter=%g\n", hw,
+                                             factor, lod, filter);
+                            }
+                        }
+                    }
+                }
+                ++checks;
+                if (!filtersDiffer) {
+                    ++failures;
+                    std::fprintf(stderr, "FAIL repeat fixture did not exercise distinct point and bilinear pixels\n");
                 }
             }
         }

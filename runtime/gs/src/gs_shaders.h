@@ -128,6 +128,13 @@ float4 sampleLvl(float2 uv, int lvl, bool lin)
 {
     int2 dim = int2(max(1, (int)cb_b.y >> lvl), max(1, (int)cb_b.z >> lvl));
     float2 p = uv * (cb_f.x / (float)(1 << lvl));
+#if defined(TERRAIN_REPEAT_FILTER)
+    if (lin) return sampleLvlHw(p, lvl, 0u, 0u);
+    // Logical dimensions and the upscale factor are powers of two. Their combined mask repeats both the logical
+    // cell and its subtexel, including levels where the logical dimension has reached one.
+    int2 mask = dim * (int)cb_f.x - 1;
+    return TexA.Load(int3((int2)floor(p) & mask, lvl));
+#else
     uint wms = cb_b.w & 3u, wmt = (cb_b.w >> 2) & 3u;
     if (lin && ((cb_d.x >> 14) & 1u) != 0u && wms != 3u && wmt != 3u) return sampleLvlHw(p, lvl, wms, wmt);
     if (lin)
@@ -143,6 +150,7 @@ float4 sampleLvl(float2 uv, int lvl, bool lin)
         return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
     }
     return fetchTexel((int2)floor(p), lvl, dim);
+#endif
 }
 
 )HLSL"
@@ -179,7 +187,9 @@ float4 sampleTexture(float2 uv, float q, uint flags, float2 duvdx, float2 duvdy)
     bool mag = lodB < 0.0;
     bool lin = mag ? (mmag == 1u) : (mmin == 1u || mmin >= 4u);
     if (cb_e.y > 0.5) lin = cb_e.y > 1.5; // user override: 1 = point, 2 = bilinear
+#if !defined(TERRAIN_REPEAT_FILTER)
     if ((flags & F_TEXRT) != 0u) return sampleRT(uv, lin);
+#endif
     // hd_texture_mips (cb_d.x bit 13, set for mip-mapped draws of an N times larger HD / upscaled copy): the mip level
     // is chosen on the copy's own texels, log2(N) = cb_f.w above the GS level, up to the copy's last level (mxl); the
     // filter (MMAG / MMIN) still follows the game's level. Without it level l of the copy has N times the texels the

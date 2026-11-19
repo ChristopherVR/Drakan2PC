@@ -228,6 +228,11 @@ void D3D11Backend::Impl::logDrawState(bool force) {
 }
 
 ID3D11PixelShader* D3D11Backend::Impl::drawPixelShader(bool useHw, uint32_t flags) const {
+    if (flags & kTerrainRepeatFilter) {
+        const auto& repeat = useHw ? psHwTerrainRepeat : psSbTerrainRepeat;
+        if (repeat)
+            return repeat.Get();
+    }
     if (!(flags & PF_TERRAIN_SIDE) && (flags & (PF_TERRAIN | PF_TERRAIN_RELIEF | PF_TERRAIN_SNOW))) {
         const bool snow = (flags & PF_TERRAIN_SNOW) != 0u;
         const auto& single = snow ? (useHw ? psHwSnow : psSbSnow) : (useHw ? psHwSimple : psSbSimple);
@@ -267,6 +272,10 @@ void D3D11Backend::Impl::bindDraw(RT& rt, DepthBuf& db, bool useHw, GpuView text
     if (drawState.set(Slot::PixelConstants, word(cbPS.Get())))
         c->PSSetConstantBuffers(0, 1, cbPS.GetAddressOf());
     ID3D11PixelShader* const ps = drawPixelShader(useHw, pixelFlags);
+    if ((pixelFlags & kTerrainRepeatFilter) && !terrainRepeatLogged) {
+        terrainRepeatLogged = true;
+        std::fputs("[gsr-shader] terrain repeat filtering in use\n", stderr);
+    }
     if (drawState.set(Slot::PixelShader, word(ps)))
         c->PSSetShader(ps, nullptr, 0);
     if (drawState.set(Slot::Textures, draw_state::pair(word(texture), word(dest)))) {

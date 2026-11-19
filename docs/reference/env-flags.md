@@ -98,6 +98,7 @@ Fresh settings now default reflections off because they can run on opaque scenes
 | `GSR_HW_FILTER` | `1` / `0` | config | `hardware_texture_filter`: bilinear taps of the GS texture filter by the texture unit (default 1) or by the shader (0). |
 | `GSR_SIMPLE_PIXEL_SHADER` | `0` for the full shader | enabled | Direct3D 11 uses a single-projection pixel shader for terrain detail or cliff relief when the draw has no mountain snow or side projection. Set to `0` for shader comparisons. |
 | `GSR_SNOW_PIXEL_SHADER` | `0` for the full shader | enabled | Direct3D 11 uses a single-projection pixel shader on snowy terrain draws that use the original UV projection. Side-projected draws use the full shader. |
+| `GSR_TERRAIN_REPEAT_FILTER` | `0` for the general sampler | enabled | Direct3D 11 specializes hardware-filtered single-projection terrain draws that use repeat wrapping and have no snow. Mip selection and anisotropy share the existing shader calculations. `GSR_SIMPLE_PIXEL_SHADER=0` also disables this variant. |
 | `GSR_MIPBIAS` | `auto` or atof | config | Mip bias. |
 | `GSR_TEXDUMP`, `GSR_TEXREPLACE`, `GSR_TEXUP_SYNC` | atoi | config | Dump / replace / synchronous upscaling. |
 | `DRAKAN_HEAP_EXTEND`, `DRAKAN_EXTENDED_HEAP_MB` | 0/1; 0..224 | config (`[general] heap_extend`, 1; `extended_heap_mb`, 224) | The game heap continues above the retail 32 MB when it is full (`drakan_extended_heap.cpp`, the guest sbrk answered by the runtime, PAL only), up to 0x2000000 + the given MB; host pages are committed only as far as it reaches. 0 / 0 MB = the retail heap. |

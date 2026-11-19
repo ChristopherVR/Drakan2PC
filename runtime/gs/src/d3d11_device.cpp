@@ -29,10 +29,11 @@ D3D11Backend::Impl::Impl(LocalMemory& m, const Config& c, Stats& s) : mem(m), cf
 }
 
 bool D3D11Backend::Impl::compile(const char* entry, const char* target, const char* defines, ComPtr<ID3DBlob>& out,
-                                 bool material) {
+                                 bool material, bool terrainRepeatFilter) {
     // MATERIAL adds the material detail variant of the pixel shader (gs_material.inc); without it the source is
     // the one every other draw uses.
-    D3D_SHADER_MACRO macros[] = {{"HW_BLEND", defines}, {material ? "MATERIAL" : nullptr, "1"}, {nullptr, nullptr}};
+    const char* mode = material ? "MATERIAL" : terrainRepeatFilter ? "TERRAIN_REPEAT_FILTER" : nullptr;
+    D3D_SHADER_MACRO macros[] = {{"HW_BLEND", defines}, {mode, "1"}, {nullptr, nullptr}};
     ComPtr<ID3DBlob> err;
     HRESULT hr = shader_compile::compile(kHlslMain, std::strlen(kHlslMain), "gs_shaders", macros, entry, target,
                                          D3DCOMPILE_OPTIMIZATION_LEVEL3, &out, &err);
@@ -48,16 +49,21 @@ bool D3D11Backend::Impl::init() {
     const auto initStart = std::chrono::steady_clock::now();
     const char* simpleShader = std::getenv("GSR_SIMPLE_PIXEL_SHADER");
     const char* snowShader = std::getenv("GSR_SNOW_PIXEL_SHADER");
+    const char* repeatShader = std::getenv("GSR_TERRAIN_REPEAT_FILTER");
+    const bool simpleEnabled = !simpleShader || simpleShader[0] != '0';
     struct TerrainShaders {
         const char* entry;
         const char* label;
         bool enabled;
+        bool repeatFilter;
         ComPtr<ID3D11PixelShader>& hw;
         ComPtr<ID3D11PixelShader>& sw;
     };
     const TerrainShaders terrainShaders[] = {
-        {"PSMainSimple", "single-projection", !simpleShader || simpleShader[0] != '0', psHwSimple, psSbSimple},
-        {"PSMainSnow", "single-projection snow", !snowShader || snowShader[0] != '0', psHwSnow, psSbSnow},
+        {"PSMainSimple", "single-projection", simpleEnabled, false, psHwSimple, psSbSimple},
+        {"PSMainSnow", "single-projection snow", !snowShader || snowShader[0] != '0', false, psHwSnow, psSbSnow},
+        {"PSMainSimple", "terrain repeat filter", simpleEnabled && (!repeatShader || repeatShader[0] != '0'), true,
+         psHwTerrainRepeat, psSbTerrainRepeat},
     };
     shader_compile::configureDirectory();
     {
@@ -83,9 +89,9 @@ bool D3D11Backend::Impl::init() {
             if (!terrain.enabled)
                 continue;
             for (const char* define : {"0", "1"})
-                compilers.emplace_back([this, entry = terrain.entry, define] {
+                compilers.emplace_back([this, entry = terrain.entry, define, repeat = terrain.repeatFilter] {
                     ComPtr<ID3DBlob> ignored;
-                    compile(entry, "ps_5_0", define, ignored);
+                    compile(entry, "ps_5_0", define, ignored, false, repeat);
                 });
         }
         for (auto& t : compilers)
@@ -189,14 +195,14 @@ bool D3D11Backend::Impl::init() {
             continue;
         const auto makeShader = [&](const char* define, ComPtr<ID3D11PixelShader>& shader) {
             ComPtr<ID3DBlob> bytecode;
-            return compile(terrain.entry, "ps_5_0", define, bytecode) &&
+            return compile(terrain.entry, "ps_5_0", define, bytecode, false, terrain.repeatFilter) &&
                    SUCCEEDED(dev->CreatePixelShader(bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr,
                                                     shader.GetAddressOf()));
         };
         if (!makeShader("1", terrain.hw) || !makeShader("0", terrain.sw)) {
             terrain.hw.Reset();
             terrain.sw.Reset();
-            std::fprintf(stderr, "[gsr-shader] %s shader unavailable; using the full shader\n", terrain.label);
+            std::fprintf(stderr, "[gsr-shader] %s shader unavailable\n", terrain.label);
         } else {
             std::fprintf(stderr, "[gsr-shader] %s shader active\n", terrain.label);
         }
@@ -358,8 +364,9 @@ void D3D11Backend::Impl::warmMainPipelines() {
     ctx->OMSetRenderTargets(1, colorRtv.GetAddressOf(), dsv.Get());
     ID3D11BlendState* blends[2] = {
         blendOff.Get(), getBlendState(true, D3D11_BLEND_OP_ADD, D3D11_BLEND_SRC_ALPHA, D3D11_BLEND_INV_SRC_ALPHA, 0xF)};
-    ID3D11PixelShader* const gsShaders[] = {psHw.Get(),       psSb.Get(),     psHwSimple.Get(),
-                                            psSbSimple.Get(), psHwSnow.Get(), psSbSnow.Get()};
+    ID3D11PixelShader* const gsShaders[] = {
+        psHw.Get(),     psSb.Get(),     psHwSimple.Get(),        psSbSimple.Get(),
+        psHwSnow.Get(), psSbSnow.Get(), psHwTerrainRepeat.Get(), psSbTerrainRepeat.Get()};
     for (ID3D11PixelShader* ps : gsShaders) {
         if (!ps)
             continue;
