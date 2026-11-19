@@ -68,18 +68,17 @@ function(drakan_stage_webgpu target)
   if(NOT WIN32)
     set_property(TARGET ${target} APPEND PROPERTY BUILD_RPATH "$ORIGIN")
   endif()
-  add_custom_command(TARGET ${target} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:drakan_wgpu_native>" "$<TARGET_FILE_DIR:${target}>"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target}>/licenses/wgpu-native"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${DRAKAN_ROOT_DIR}/third_party/wgpu-native/LICENSE.APACHE"
-      "${DRAKAN_ROOT_DIR}/third_party/wgpu-native/LICENSE.MIT"
-      "$<TARGET_FILE_DIR:${target}>/licenses/wgpu-native"
-    VERBATIM)
+  set(dxc_dir "")
   if(WIN32 AND DRAKAN_DXC_RUNTIME_DIR)
-    add_custom_command(TARGET ${target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${DRAKAN_DXC_RUNTIME_DIR}/dxcompiler.dll" "${DRAKAN_DXC_RUNTIME_DIR}/dxil.dll" "$<TARGET_FILE_DIR:${target}>"
-      VERBATIM)
+    set(dxc_dir "${DRAKAN_DXC_RUNTIME_DIR}")
   endif()
+  add_custom_command(TARGET ${target} POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+      "-Dstage_dir=$<TARGET_FILE_DIR:${target}>"
+      "-Dstage_lock=${CMAKE_BINARY_DIR}/CMakeFiles/drakan-wgpu-stage.lock"
+      "-Druntime_file=$<TARGET_FILE:drakan_wgpu_native>"
+      "-Dlicense_dir=${DRAKAN_ROOT_DIR}/third_party/wgpu-native"
+      "-Ddxc_dir=${dxc_dir}"
+      -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/StageWebGpu.cmake"
+    VERBATIM)
 endfunction()

@@ -75,3 +75,12 @@ deployment and testing.
 
 Raw captures, symbolized profile inputs, and comparison scripts are under
 `build/dlss-worker-20261120/`.
+
+## Parallel Linux builds
+
+The first CI run failed while two native WebGPU executables staged licenses
+into the same directory. A Linux stress test reproduced six failures in 180
+parallel invocations. Serializing the post-build copies through a lock in the
+build directory passed all 180 invocations with exact runtime and license
+contents. The two Windows WebGPU test executables also built with the same
+staging script.

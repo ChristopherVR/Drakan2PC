@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.21)
+
+# Several executables can finish linking at once in the same output directory.
+file(LOCK "${stage_lock}" GUARD PROCESS TIMEOUT 90)
+file(MAKE_DIRECTORY "${stage_dir}/licenses/wgpu-native")
+get_filename_component(runtime_name "${runtime_file}" NAME)
+file(COPY_FILE "${runtime_file}" "${stage_dir}/${runtime_name}" ONLY_IF_DIFFERENT)
+foreach(name IN ITEMS LICENSE.APACHE LICENSE.MIT)
+  file(COPY_FILE "${license_dir}/${name}" "${stage_dir}/licenses/wgpu-native/${name}" ONLY_IF_DIFFERENT)
+endforeach()
+if(dxc_dir)
+  foreach(name IN ITEMS dxcompiler.dll dxil.dll)
+    file(COPY_FILE "${dxc_dir}/${name}" "${stage_dir}/${name}" ONLY_IF_DIFFERENT)
+  endforeach()
+endif()
