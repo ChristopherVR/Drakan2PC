@@ -660,6 +660,7 @@ The EE profile is diffuse guest code (more objects in view), our capture hooks a
 * The renderer decodes the common packed vertex sequence in groups of four commands. The
   [Ruined Village 4K CPU retest](../journal/2026-11-19/ootf-ruined-cpu.md) records CPU profiles, replay parity, and gameplay throughput.
 * The [Wartok, Volcanic, and Rift World 4K retest](../journal/2026-11-19/ootf-latest-4k-retest.md) compares the repeat shader and grouped decoder and profiles the remaining CPU work.
+* The [Volcanic 4K follow-up](../journal/2026-11-19/ootf-volcanic-4k-dip.md) isolates the repeat-filter slowdown and measures the effect of reusing terrain bindings.
 * `PS2X_HOSTPROF_STACKS=1` with `PS2X_HOSTPROF` records EE call chains; `scripts/perf/hostprof_stacks.py` gives
   inclusive cost. At spot C about 23 percent of the EE thread is the guest polling GS FINISH (`f_0x1dbfa8`, loop at
   0x1dc688) before a per-frame readback, i.e. waiting for the VU1 and GS workers; JALR dispatch is negligible; scene
