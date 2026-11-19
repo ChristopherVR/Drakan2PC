@@ -648,6 +648,8 @@ The EE profile is diffuse guest code (more objects in view), our capture hooks a
   [the in-game comparison](../journal/2026-11-19/ootf-renderer-performance.md).
 * The [4K Order of the Flame level survey](../journal/2026-11-19/ootf-4k-level-survey.md) records repeatable
   camera views, the GPU limit in the Grotto, and the game thread's terrain-layer lookup cost in Volcanic.
+* PAL actor refiling uses a fast terrain-layer search for cell-center probes. It preserves authored layer order
+  and batches the original guest cycle charges. See the [Volcanic and Rift World retest](../journal/2026-11-19/ootf-terrain-layer-lookup.md).
 * `PS2X_HOSTPROF_STACKS=1` with `PS2X_HOSTPROF` records EE call chains; `scripts/perf/hostprof_stacks.py` gives
   inclusive cost. At spot C about 23 percent of the EE thread is the guest polling GS FINISH (`f_0x1dbfa8`, loop at
   0x1dc688) before a per-frame readback, i.e. waiting for the VU1 and GS workers; JALR dispatch is negligible; scene
