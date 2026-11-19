@@ -342,7 +342,7 @@ int main() {
 
         // translated on the title screen; the Mods page has its own row
         gameui::setMenuLanguage("german");
-        CHECK(unreadablePacksText(u, true) == "Ein Paket im Mod-Ordner konnte nicht gelesen werden: newbad.zip.");
+        CHECK(unreadablePacksText(u, true) == "Ein Paket im Mods-Ordner konnte nicht geladen werden: newbad.zip.");
         gameui::setMenuLanguage("english");
         bool sawRow = false;
         for (const auto& sec : buildModsPage(u).sections)
@@ -375,7 +375,7 @@ int main() {
                 sawRow = sawRow || (r.label == "Missing" && r.text.find("ootf-levels") != std::string::npos);
         CHECK(sawRow);
         gameui::setMenuLanguage("german");
-        CHECK(missingPacksText(g, true) == "Ein in mods.ini aktiviertes Mod-Paket fehlt: ootf-levels.");
+        CHECK(missingPacksText(g, true) == "Das in mods.ini aktivierte Mod-Paket ootf-levels fehlt.");
         gameui::setMenuLanguage("english");
 
         ModsModel two;
