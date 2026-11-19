@@ -119,8 +119,9 @@ void skyMain(uint3 thread : SV_GroupThreadID) {
 }
 float3 viewPosition(float3 p) {return float3(dot(p,CameraRight.xyz),dot(p,CameraUp.xyz),-dot(p,CameraForward.xyz));}
 float4 texel(uint texture,int2 p) {
-    uint size=SceneInfo.z;p=(p%int(size)+int(size))%int(size);
-    uint index=texture*size*size+uint(p.y)*size+uint(p.x);
+    uint size=SceneInfo.z;
+    uint2 wrapped=asuint(p)&(size-1);
+    uint index=texture*size*size+wrapped.y*size+wrapped.x;
     if(Effects.w&16) {
         // Four original RGBA8 texels occupy one float4-sized storage entry.
         // Reinterpret the bits before conversion; packed bytes are not floats.
@@ -588,7 +589,32 @@ void transportMain(uint3 id : SV_DispatchThreadID) {
         TransportGuide[id.xy]=float4(normal,transportMaterialKey(primary.primitive));
     }
 }
-float4 filteredTransport(uint2 pixel,float depth,float3 normal,uint materialClass) {
+#ifdef RAY_CACHE_TRANSPORT
+// A group of 8x8 output pixels covers a 4x4 transport tile and two samples of halo on each side.
+groupshared float4 FilterPosition[64];
+groupshared float4 FilterGuide[64];
+groupshared float4 FilterIncoming[64];
+groupshared float3 FilterAlbedo[64];
+
+void loadTransportTile(uint2 groupOrigin,uint2 local,uint lane) {
+    int2 q=int2(groupOrigin/2+local)-2;
+    int2 size=(int2(SizeTime.xy)+1)/2;
+    FilterPosition[lane]=0;
+    if(all(q>=0) && all(q<size)) {
+        uint2 source=min(uint2(q)*2+1,uint2(SizeTime.xy)-1);
+        float depth=Depth.Load(int3(source,0));
+        if(depth>0 && isfinite(depth)) {
+            FilterPosition[lane]=float4(worldPosition(source,depth),depth);
+            FilterGuide[lane]=TransportGuide[q];
+            FilterIncoming[lane]=Transport[q];
+            FilterAlbedo[lane]=toLinear(Color.Load(int3(source,0)).rgb);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+}
+#endif
+
+float4 filteredTransport(uint2 pixel,uint2 local,float depth,float3 normal,uint materialClass) {
     float3 centre=worldPosition(pixel,depth);
     if(dot(normal,normal)<.5)return 0;
     float3 albedo=toLinear(Color.Load(int3(pixel,0)).rgb);float4 sum=0;float total=0;
@@ -596,24 +622,42 @@ float4 filteredTransport(uint2 pixel,float depth,float3 normal,uint materialClas
     footprint/=max(.05,abs(dot(normal,normalize(centre))));
     int2 size=(int2(SizeTime.xy)+1)/2,base=int2(pixel/2);
     [unroll]for(int y=-2;y<=2;++y)[unroll]for(int x=-2;x<=2;++x){
+#ifdef RAY_CACHE_TRANSPORT
+        uint2 tile=local/2+uint2(x+2,y+2);
+        uint lane=tile.y*8+tile.x;
+        float4 position=FilterPosition[lane];
+        if(position.w<=0)continue;
+        float4 guide=FilterGuide[lane];if(uint(guide.w)!=materialClass)continue;
+        float4 sample=FilterIncoming[lane];
+        float3 delta=position.xyz-centre;
+#else
         int2 q=base+int2(x,y);if(any(q<0) || any(q>=size))continue;
         float4 guide=TransportGuide[q];if(uint(guide.w)!=materialClass)continue;
         uint2 source=min(uint2(q)*2+1,uint2(SizeTime.xy)-1);
         float sourceDepth=Depth.Load(int3(source,0));if(sourceDepth<=0 || !isfinite(sourceDepth))continue;
         float4 sample=Transport[q];
         float3 delta=worldPosition(source,sourceDepth)-centre;
+#endif
         if(length(delta)>max(32,footprint*8))continue;
         float plane=abs(dot(delta,normal)),tolerance=max(4,length(centre)*.005);
         if(plane>3*tolerance)continue;
         float weight=exp(-float(x*x+y*y)/8)*exp(-plane/tolerance);
         weight*=smoothstep(.75,.95,dot(normal,guide.xyz));
+#ifdef RAY_CACHE_TRANSPORT
+        weight*=exp(-length(FilterAlbedo[lane]-albedo)*4);
+#else
         weight*=exp(-length(toLinear(Color.Load(int3(source,0)).rgb)-albedo)*4);
+#endif
         sum+=sample*weight;total+=weight;
     }
     return total>1e-5?sum/total:0;
 }
 [numthreads(8,8,1)]
-void main(uint3 id : SV_DispatchThreadID) {
+void main(uint3 id : SV_DispatchThreadID,uint3 local : SV_GroupThreadID,uint lane : SV_GroupIndex) {
+    bool transportActive=(Effects.w&1536) && !(Effects.w&224);
+#ifdef RAY_CACHE_TRANSPORT
+    if(transportActive)loadTransportTile(id.xy-local.xy,local.xy,lane);
+#endif
     if(any(id.xy>=uint2(SizeTime.xy)))return;
     float4 original=Color.Load(int3(id.xy,0));Output[id.xy]=original;float3 receiverShadow=1;
     float sceneDepth=Depth.Load(int3(id.xy,0));
@@ -635,7 +679,6 @@ void main(uint3 id : SV_DispatchThreadID) {
     float rotation=pixelNoise(id.xy,0);
     Lighting waterLight;waterLight.lit=waterLight.unshadowed=1;waterLight.sun=0;
     if(haveWater)waterLight=nativeLighting(p,geometric,geometric,rotation,1,kNoInstance);
-    bool transportActive=(Effects.w&1536) && !(Effects.w&224);
     float3 receiver=0,receiverNormal=0,receiverShading=0;float receiverConfidence=0;uint receiverSelf=kNoInstance;
     SurfaceHit receiverHit=(SurfaceHit)0;bool haveReceiver=false;
     if(!haveWater && sceneDepth>0 && (Effects.y || transportActive)){
@@ -664,7 +707,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     // remain isolated so AO/direct/receiver views continue to measure only their named effect.
     if(transportActive && haveReceiver && receiverHit.direct){
         uint materialKey=transportMaterialKey(receiverHit.primitive);
-        float4 incoming=filteredTransport(id.xy,sceneDepth,receiverNormal,materialKey)*receiverConfidence;
+        float4 incoming=filteredTransport(id.xy,local.xy,sceneDepth,receiverNormal,materialKey)*receiverConfidence;
         float3 after=toLinear(Output[id.xy].rgb)*(1-saturate(incoming.a))+incoming.rgb;
         if(SceneInfo.w==6)after=incoming.rgb*4; // 6: incoming bounce light alone (white receivers), times four
         if(all(isfinite(after)))Output[id.xy]=float4(toDisplay(max(0,after)),original.a);

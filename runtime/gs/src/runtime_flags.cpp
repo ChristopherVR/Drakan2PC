@@ -64,6 +64,7 @@ RuntimeFlags parse() {
     f.rayShadows = setAndNotZero("GSR_RAY_SHADOWS");
     f.rayGlobalIllumination = setAndNotZero("GSR_RAY_GI");
     f.rayGpuTiming = present("GSR_RAY_GPU_TIMING");
+    f.rayCachedCompose = firstCharNotZeroDefaultOn("GSR_RAY_CACHED_COMPOSE");
     f.rayAlphaFastPath = firstCharNotZeroDefaultOn("GSR_RAY_ALPHA_FAST_PATH");
     f.rayAlphaCoverage = firstCharNotZeroDefaultOn("GSR_RAY_ALPHA_COVERAGE");
     f.rayAcceptedAlpha = firstCharNotZeroDefaultOn("GSR_RAY_ACCEPTED_ALPHA");

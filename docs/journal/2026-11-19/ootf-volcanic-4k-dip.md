@@ -67,3 +67,11 @@ The lookup candidate used the lowest and highest encoded corner heights to class
 In Volcanic's two completed 4K screening pairs, the original path ran at 99.21 and 87.92 FPS. The candidate ran at 88.35 and 85.00 FPS. Windows rejected the next control launch at its memory commit limit, and a retry reached gameplay but timed out before the benchmark finished. These samples establish no throughput gain for the candidate.
 
 All three candidates were removed. The follow-up records the earlier repeat-filter regression and the workloads it exposed. A reliable 4K frame-rate fix remains open.
+
+## Same-process shader comparison
+
+A temporary diagnostic alternated general and repeat sampling every five seconds at world boundaries. Two launches held the same Volcanic arrival camera at native 3840 × 2160 output and internal scale 8, with ray effects and DLSS off. The analysis paired adjacent complete windows, discarded half a second after and before each switch, and counted completed world frames.
+
+Repeat sampling was faster in 11 of 12 pairs. Median world FPS was 87.27 with general sampling (85.27–89.21) and 89.10 with repeat sampling (86.24–92.82). Median 99th-percentile frame time was 16.47 and 16.79 ms, respectively. The controlled run did not reproduce the earlier throughput dip. The default remains repeat sampling.
+
+The temporary diagnostic, raw windows, and screenshots are under `build/ootf-rt-perf-20261119/`.

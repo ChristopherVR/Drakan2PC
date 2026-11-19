@@ -2,6 +2,7 @@
 #include "thread_name.h"
 #ifdef GSR_HAVE_DXR_WATER
 #include "ray_water_bytecode.h"
+#include "ray_cached_compose_bytecode.h"
 #include "ray_sky_bytecode.h"
 #include "ray_transport_bytecode.h"
 #include "nr_interop.h"
@@ -26,6 +27,7 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstring>
 #include <cstdio>
 #include <stdexcept>
@@ -104,6 +106,7 @@ struct RayWater::Impl {
         uint64_t timedUploadBytes = 0, timedDynamicBytes = 0, timedDynamicTotal = 0;
         uint32_t timedWidth = 0, timedHeight = 0, timedEffects = 0;
         uint32_t timedRejectedTriangles = 0;
+        bool timedCachedCompose = false;
     };
     struct TextureUpload {
         uint32_t slot = 0;
@@ -452,6 +455,7 @@ struct RayWater::Impl {
     unsigned frameIndex = 0;
     ComPtr<ID3D12RootSignature> root;
     ComPtr<ID3D12PipelineState> pipeline, skyPipeline, transportPipeline;
+    bool cachedCompose = false;
     ComPtr<ID3D12Resource> materials, scratch, blas[3], tlas, sky;
     uint64_t skyLevel = UINT64_MAX;
     // Replaced by the renderer thread only while the pass thread is idle; the watchdog holds its own reference.
@@ -573,12 +577,13 @@ struct RayWater::Impl {
         std::fprintf(stderr,
                      "[ray-gpu] pass=%llu size=%ux%u effects=%u build=%.4fms sky=%.4fms transport=%.4fms "
                      "compose=%.4fms total=%.4fms upload_bytes=%llu dynamic_bytes=%llu dynamic_total=%llu "
-                     "rejected_frame_triangles=%u\n",
+                     "rejected_frame_triangles=%u cached_compose=%u\n",
                      static_cast<unsigned long long>(f.timedPass), f.timedWidth, f.timedHeight, f.timedEffects,
                      elapsed(0, 1), elapsed(1, 2), elapsed(2, 3), elapsed(3, 4), elapsed(0, 4),
                      static_cast<unsigned long long>(f.timedUploadBytes),
                      static_cast<unsigned long long>(f.timedDynamicBytes),
-                     static_cast<unsigned long long>(f.timedDynamicTotal), f.timedRejectedTriangles);
+                     static_cast<unsigned long long>(f.timedDynamicTotal), f.timedRejectedTriangles,
+                     unsigned(f.timedCachedCompose));
         const D3D12_RANGE written{0, 0};
         f.timestampReadback->Unmap(0, &written);
         f.timedPass = 0;
@@ -779,8 +784,17 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
               "DXR root signature");
         D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
         pd.pRootSignature = s.root.Get();
-        pd.CS = {g_rayWater, sizeof(g_rayWater)};
-        check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.pipeline)), "DXR water pipeline");
+        if (runtimeFlags().rayCachedCompose) {
+            pd.CS = {g_rayCachedCompose, sizeof(g_rayCachedCompose)};
+            const HRESULT hr = s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.pipeline));
+            s.cachedCompose = SUCCEEDED(hr);
+            if (FAILED(hr))
+                logLine("DXR cached composition pipeline unavailable (0x%08lx)", static_cast<unsigned long>(hr));
+        }
+        if (!s.cachedCompose) {
+            pd.CS = {g_rayWater, sizeof(g_rayWater)};
+            check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.pipeline)), "DXR water pipeline");
+        }
         pd.CS = {g_raySky, sizeof(g_raySky)};
         check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.skyPipeline)), "DXR sky reduction pipeline");
         pd.CS = {g_rayTransport, sizeof(g_rayTransport)};
@@ -1694,6 +1708,7 @@ void RayWater::Impl::execute(Job& job) {
         params.limits[3] = origin.z;
         params.scene[0] = texelOffset;
         params.scene[1] = uint32_t(textureCount);
+        static_assert(std::has_single_bit(Texture::size), "DXR atlas wrapping requires a power-of-two texture size");
         params.scene[2] = Texture::size;
         params.scene[3] = job.coverageDebug;
         params.effects[0] = options.water && (totalCounts[1] || totalCounts[2]);
@@ -2149,7 +2164,6 @@ void RayWater::Impl::execute(Job& job) {
         ID3D12DescriptorHeap* heaps[] = {frame.heap.Get()};
         s.list->SetDescriptorHeaps(1, heaps);
         s.list->SetComputeRootSignature(s.root.Get());
-        s.list->SetPipelineState(s.pipeline.Get());
         s.list->SetComputeRootConstantBufferView(0, frame.constants->GetGPUVirtualAddress());
         s.list->SetComputeRootShaderResourceView(1, s.tlas->GetGPUVirtualAddress());
         s.list->SetComputeRootShaderResourceView(2, s.materials->GetGPUVirtualAddress());
@@ -2188,6 +2202,7 @@ void RayWater::Impl::execute(Job& job) {
             frame.timedHeight = d.Height;
             frame.timedEffects = params.effects[3];
             frame.timedRejectedTriangles = validatedFrame ? 0 : counts[0];
+            frame.timedCachedCompose = transportEnabled && s.cachedCompose;
             frame.timedUploadBytes = stagingBytes;
             frame.timedDynamicBytes = 0;
             for (const auto& [first, end] : dynamicDirty)

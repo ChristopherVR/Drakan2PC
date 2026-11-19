@@ -336,6 +336,12 @@ if(GSR_DXR)
         "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_water.hlsl"
       DEPENDS src/ray_water.hlsl VERBATIM)
     target_sources(gsr_d3d11_backend PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_water_bytecode.h")
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ray_cached_compose_bytecode.h"
+      COMMAND "${GSR_DXC}" -T cs_6_5 -E main -O3 -Ges -D RAY_CACHE_TRANSPORT=1
+        -Fh "${CMAKE_CURRENT_BINARY_DIR}/ray_cached_compose_bytecode.h" -Vn g_rayCachedCompose
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ray_water.hlsl"
+      DEPENDS src/ray_water.hlsl VERBATIM)
+    target_sources(gsr_d3d11_backend PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ray_cached_compose_bytecode.h")
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/ray_sky_bytecode.h"
       COMMAND "${GSR_DXC}" -T cs_6_5 -E skyMain -O3 -Ges
         -Fh "${CMAKE_CURRENT_BINARY_DIR}/ray_sky_bytecode.h" -Vn g_raySky

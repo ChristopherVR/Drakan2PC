@@ -909,3 +909,12 @@ check); about a fifth of the EE's samples are guest accesses off the RAM fast pa
 ray variables now also win over a live change of any water key (it reverted to the ini's water before). Texture
 resolve and target refresh shortcuts exist as `GSR_CPU_CUTS=1` (opt-in, verified to take the same decisions, gain not
 measured). Details and what is open: [journal](../journal/2026-11-17/perf-cpu-offload.md).
+
+## DXR lighting composition at 4K (2026-11-19)
+
+DXR composition shares reconstructed half-resolution lighting samples among
+neighboring pixels. In same-process tests in Surdana, native world FPS rose
+from 26.46 to 28.19 with ray shadows, reflections, and global illumination.
+With DLSS Quality, composition fell from 3.80 to 3.26 ms and world FPS
+stayed near 58. The atlas also wraps samples with a bit mask. Both changes
+matched the hardware image fixtures exactly. [Test details](../journal/2026-11-19/rt-dlss-performance.md).
