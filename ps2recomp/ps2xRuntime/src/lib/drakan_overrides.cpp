@@ -159,18 +159,19 @@ constexpr uint32_t kMovieScreenTick = 0x440080u;
 PS2Runtime::RecompiledFunction g_origMovieScreenTick = nullptr;
 
 void hookMovieScreenTick(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
-    static const bool skip = drakan_cfg::getBool("general", "skip_intro_videos", "DRAKAN_SKIP_INTRO_VIDEOS", false);
+    static const bool skipStartup =
+        drakan_cfg::getBool("general", "skip_intro_videos", "DRAKAN_SKIP_INTRO_VIDEOS", false);
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
     const bool escape = drakan_input::module().frame().keyPressed[0x01];
 #else
     constexpr bool escape = false;
 #endif
-    if (ctx->pc == kMovieScreenTick && (skip || escape)) {
+    if (ctx->pc == kMovieScreenTick && (skipStartup || escape)) {
         const uint32_t screen = getRegU32(ctx, 4);
         const uint32_t entries = kScreenManager + drakan_region::build().movie.screenEntries;
         const bool logo = screen == READ32(entries + 4 * gameui::addr::title::kScreenLogoMovie);
         const bool intro = screen == READ32(entries + 4 * gameui::addr::title::kScreenIntroMovie);
-        if (logo || intro) {
+        if ((logo && skipStartup) || (escape && (logo || intro))) {
             constexpr uint32_t kStartPending = 0xa4, kStopPending = 0xa8, kJob = 0xac, kFadeOut = 0xbc;
             if (READ32(screen + kJob)) {
                 // The native stop waits for pending frame reads and releases the soundtrack before closing.

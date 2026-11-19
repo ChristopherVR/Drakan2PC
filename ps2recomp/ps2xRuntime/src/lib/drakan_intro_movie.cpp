@@ -394,10 +394,6 @@ void attach(gsr::Renderer* renderer) {
             if (e.fromSave || !e.ok || std::getenv("DRAKAN_INTRO_RENDER"))
                 return;
             st().introLoaded = true;
-            if (drakan_cfg::getBool("general", "skip_intro_videos", "DRAKAN_SKIP_INTRO_VIDEOS", false)) {
-                startMovie(true);
-                return;
-            }
             if (!movieEnabled())
                 return;
             std::error_code ec;

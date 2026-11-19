@@ -921,7 +921,7 @@ libx264 and aac, the Order of the Flame pack in `mods/` and the ISO in `drakan.i
   cover stays through the end of the movie; when the next level is loading and the movie is over it goes and the game sound
   returns. When the movie ends first or you press Esc, Start, Cross, Circle, or Triangle, the picture fades to black and
   the live level takes its exit. Without the file, or with `DRAKAN_OOTF_INTRO_MOVIE=0`, the live level plays and Esc takes
-  the exit directly. With Skip intro videos on, New Game takes that exit without playing the opening.
+  the exit directly.
   `DRAKAN_INTRO_MOVIE_LOG=1` logs every repeated or skipped picture under `[intro-movie]`.
 * Not covered: a widescreen picture (the movie is the 4:3 frame), the host subtitle band (the Intro has no speech), a save made
   during the Intro.

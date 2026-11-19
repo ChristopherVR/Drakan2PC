@@ -10,8 +10,7 @@
 //     hand-over to Ruined Village, keeps running unseen with its sound silenced. Esc / Start / Cross skip: the movie
 //     fades to black and the live level's exit is fired (its own hand-over is a 44 s timer; scene skips do not end
 //     it). The cover stays until the movie is over and the next level is loading, then the game sound returns.
-//     Without the file the live level plays. Escape can take the live level's exit too. With Skip intro videos on,
-//     New Game takes that exit without playing the movie.
+//     Without the file the live level plays. Escape can take the live level's exit too.
 //   * render mode (env DRAKAN_INTRO_RENDER=<folder>): fixed 1/60 s engine time step, every completed frame of the Intro
 //     level piped to ffmpeg, the audio position of each frame logged, the game quits at the level change. See
 //     docs/reference/modding.md ("Intro movie").

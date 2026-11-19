@@ -30,7 +30,8 @@ const Entry kEntries[] = {
     {"general", "skip_memcard_warning", "1",
      "auto-dismiss the memory card warning (Press X to continue) at boot; card emulation is untouched"},
     {"general", "skip_intro_videos", "0",
-     "skip the boot logo and the New Game intro movie (Esc also skips them while they play); needs a restart"},
+     "skip the startup logo movie (Esc skips the logo or a New Game intro during playback). Takes effect after a "
+     "restart"},
     {"general", "iso", "",
      "path of the game disc image (.iso). Empty = look for 'Drakan*.iso' next to the exe, then in the parent folders "
      "(env DRAKAN_ISO)"},

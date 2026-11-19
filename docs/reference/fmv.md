@@ -245,12 +245,12 @@ held alongside the incoming level. If an HD frame allocation fails, playback can
 ## 10. Skipping the logo and intro movie
 
 On PAL, `[general] skip_intro_videos = 1` (Gameplay > Skip intro videos, `DRAKAN_SKIP_INTRO_VIDEOS` override) is read at
-start-up. The boot logo screen (0x1e) and the New Game movie screen (0x1d) take their normal close path before creating a
-movie job. A single Esc press skips the active movie with the setting off. The game stops the soundtrack and finishes
-pending reads before closing the screen. The USA profile uses the original movie controls.
+startup. The boot logo screen (0x1e) closes before creating a movie job. New Game still plays its movie (screen 0x1d).
+A single Esc press skips either movie during playback regardless of the setting. The game stops the soundtrack and
+finishes pending reads before closing the screen. The USA profile uses the original movie controls.
 
 ## 11. Order of the Flame intro movie
 
-`drakan_intro_movie.cpp` plays the optional `movies/ootf_intro.mkv` over the Order of the Flame opening level. Skip intro
-videos bypasses the opening and Esc skips either the movie or the live opening level. Both take the opening level's
-exit to Ruined Village. See [Intro movie](modding.md#intro-movie-pre-rendered-opening).
+`drakan_intro_movie.cpp` plays the optional `movies/ootf_intro.mkv` over the Order of the Flame opening level. Esc skips
+the movie or the live opening level by taking the level's exit to Ruined Village.
+See [Intro movie](modding.md#intro-movie-pre-rendered-opening).

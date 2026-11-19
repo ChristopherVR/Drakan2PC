@@ -17,3 +17,10 @@ Verified in the rebuilt Windows play folder with a PAL disc and fresh test cards
 | Skip intro videos on, Order of the Flame | Ruined Village loaded without opening the movie or presenting any movie frames. |
 | Skip intro videos off, Order of the Flame | A single Esc press during the movie took the exit to Ruined Village. |
 | Skip intro videos off, Order of the Flame with the pre-rendered movie disabled | A single Esc press during the live opening took the exit to Ruined Village. |
+
+## Startup-only setting
+
+Skip intro videos now applies only to the startup logo. With the setting on, the rebuilt PAL game reached the title
+without starting the logo. The New Game movie in The Ancients' Gates, the pre-rendered Order of the Flame opening, and
+its live fallback each played for at least 2.5 seconds before a scripted Esc tap ended the intro. Both Order of the Flame
+runs reached Ruined Village.

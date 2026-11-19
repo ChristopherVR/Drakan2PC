@@ -766,8 +766,8 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.toggle("general.skip_memcard_warning", "Skip memory card warning",
              "Dismiss the start-up memory card message automatically. Saves are written to a folder next to the game.");
     b.toggle("general.skip_intro_videos", "Skip intro videos",
-             "Skip the logo movie at start-up and the intro movie that plays when a new game begins. Esc skips them "
-             "while they play, whatever this setting is. Takes effect after a restart.",
+             "Skip the startup logo movie. New Game intros play as usual. Press Esc to skip the logo or a New Game "
+             "intro during playback. Takes effect after a restart.",
              true);
     b.choice("general.ui_prompts", "Button prompts",
              "Which buttons the game shows in its text, help pictures and menus. Keyboard and mouse follows your key "
