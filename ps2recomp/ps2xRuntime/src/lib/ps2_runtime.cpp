@@ -2222,6 +2222,22 @@ uint32_t PS2Runtime::reserveAsyncCallbackStack(uint32_t size, uint32_t alignment
 Ps2AliasWatchFn g_ps2AliasWatch = nullptr;
 
 namespace {
+const bool g_directScratchpadAccess = [] {
+    const char* value = std::getenv("PS2X_TERRAIN_BUS_FAST");
+    if (value && std::strcmp(value, "0") == 0)
+        return false;
+    std::fputs("[terrain-scratch] direct access active\n", stderr);
+    return true;
+}();
+
+template <typename T>
+uint8_t* alignedScratchpad(PS2Memory& memory, uint32_t address) {
+    static_assert(PS2_SCRATCHPAD_BASE % sizeof(T) == 0 && PS2_SCRATCHPAD_SIZE % sizeof(T) == 0);
+    if (g_directScratchpadAccess && (address & (sizeof(T) - 1)) == 0 && ps2IsScratchpadAddress(address))
+        return memory.getScratchpad() + ps2ScratchpadOffset(address);
+    return nullptr;
+}
+
 inline void aliasAccess(R5900Context* ctx, uint32_t& vaddr, uint32_t bytes, bool write) {
     if (g_ps2AliasWatch && ps2IsAlias(vaddr)) {
         g_ps2AliasWatch(ctx, vaddr, bytes, write);
@@ -2309,6 +2325,11 @@ uint32_t PS2Runtime::Load32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
             idleValues[io] = value;
             return value;
         }
+        if (const uint8_t* scratch = alignedScratchpad<uint32_t>(m_memory, vaddr)) {
+            uint32_t value;
+            std::memcpy(&value, scratch, sizeof(value));
+            return value;
+        }
         return m_memory.read32(vaddr);
     } catch (const std::exception&) {
         SignalException(ctx, EXCEPTION_ADDRESS_ERROR_LOAD);
@@ -2333,6 +2354,8 @@ uint64_t PS2Runtime::Load64(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
 __m128i PS2Runtime::Load128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr) {
     aliasAccess(ctx, vaddr, 16, false);
     PS2X_SLOW_MEM(vaddr, false);
+    if (const uint8_t* scratch = alignedScratchpad<__m128i>(m_memory, vaddr))
+        return _mm_loadu_si128(reinterpret_cast<const __m128i*>(scratch));
     try {
         return m_memory.read128(vaddr);
     } catch (const std::exception&) {
@@ -2368,7 +2391,10 @@ void PS2Runtime::Store32(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, uint
     PS2X_SLOW_MEM(vaddr, true);
     ps2TraceGuestWrite(rdram, vaddr, 4u, value, 0u, "WRITE32", ctx);
     try {
-        m_memory.write32(vaddr, value);
+        if (uint8_t* scratch = alignedScratchpad<uint32_t>(m_memory, vaddr))
+            std::memcpy(scratch, &value, sizeof(value));
+        else
+            m_memory.write32(vaddr, value);
         drainCompletedDmacHandlers(rdram);
     } catch (const std::exception&) {
         SignalException(ctx, EXCEPTION_ADDRESS_ERROR_STORE);
@@ -2392,6 +2418,10 @@ void PS2Runtime::Store128(uint8_t* rdram, R5900Context* ctx, uint32_t vaddr, __m
     alignas(16) uint64_t _parts[2];
     _mm_storeu_si128(reinterpret_cast<__m128i*>(_parts), value);
     ps2TraceGuestWrite(rdram, vaddr, 16u, _parts[0], _parts[1], "WRITE128", ctx);
+    if (uint8_t* scratch = alignedScratchpad<__m128i>(m_memory, vaddr)) {
+        _mm_storeu_si128(reinterpret_cast<__m128i*>(scratch), value);
+        return;
+    }
     try {
         m_memory.write128(vaddr, value);
     } catch (const std::exception&) {

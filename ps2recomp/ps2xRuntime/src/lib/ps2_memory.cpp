@@ -30,6 +30,15 @@
 #endif
 
 namespace {
+// Keep the general dispatch available for comparison with the scratchpad and peripheral shortcuts.
+const bool g_terrainBusFast = [] {
+    const char* value = std::getenv("PS2X_TERRAIN_BUS_FAST");
+    if (value && std::strcmp(value, "0") == 0)
+        return false;
+    std::fputs("[terrain-bus] direct dispatch active\n", stderr);
+    return true;
+}();
+
 // The throw (a string built per call) is kept out of line so the check itself inlines into every access: the EE's
 // scratchpad and I/O accesses go through here, and the out-of-line check was about 3 % of the EE thread's samples in
 // Wartok Canyons.
@@ -768,7 +777,7 @@ int32_t PS2Memory::tlbProbe(uint32_t vpn) const {
 
 uint8_t PS2Memory::read8(uint32_t address) {
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         return m_scratchpad[physAddr];
@@ -797,7 +806,7 @@ uint16_t PS2Memory::read16(uint32_t address) {
     }
 
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         return loadScalar<uint16_t>(m_scratchpad, physAddr, PS2_SCRATCHPAD_SIZE, "read16 scratchpad", address);
@@ -838,8 +847,11 @@ uint32_t PS2Memory::read32(uint32_t address) {
         return (uint32_t)(val >> (off * 8));
     }
 
+    if (g_terrainBusFast && isIoRegister(address))
+        return readIORegister(address);
+
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         return loadScalar<uint32_t>(m_scratchpad, physAddr, PS2_SCRATCHPAD_SIZE, "read32 scratchpad", address);
@@ -892,7 +904,7 @@ uint64_t PS2Memory::read64(uint32_t address) {
     }
 
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         return loadScalar<uint64_t>(m_scratchpad, physAddr, PS2_SCRATCHPAD_SIZE, "read64 scratchpad", address);
@@ -922,7 +934,7 @@ __m128i PS2Memory::read128(uint32_t address) {
     }
 
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         inRange(physAddr, sizeof(__m128i), PS2_SCRATCHPAD_SIZE, "read128 scratchpad", address);
@@ -946,7 +958,7 @@ __m128i PS2Memory::read128(uint32_t address) {
 
 void PS2Memory::write8(uint32_t address, uint8_t value) {
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         m_scratchpad[physAddr] = value;
@@ -983,7 +995,7 @@ void PS2Memory::write16(uint32_t address, uint16_t value) {
     }
 
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         storeScalar<uint16_t>(m_scratchpad, physAddr, PS2_SCRATCHPAD_SIZE, value, "write16 scratchpad", address);
@@ -1036,8 +1048,13 @@ void PS2Memory::write32(uint32_t address, uint32_t value) {
         return;
     }
 
+    if (g_terrainBusFast && isIoRegister(address)) {
+        writeIORegister(address, value);
+        return;
+    }
+
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         storeScalar<uint32_t>(m_scratchpad, physAddr, PS2_SCRATCHPAD_SIZE, value, "write32 scratchpad", address);
@@ -1087,7 +1104,7 @@ void PS2Memory::write64(uint32_t address, uint64_t value) {
     }
 
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (scratch) {
         storeScalar<uint64_t>(m_scratchpad, physAddr, PS2_SCRATCHPAD_SIZE, value, "write64 scratchpad", address);
@@ -1120,7 +1137,7 @@ void PS2Memory::write128(uint32_t address, __m128i value) {
     }
 
     const bool scratch = isScratchpad(address);
-    uint32_t physAddr = translateAddress(address);
+    const uint32_t physAddr = g_terrainBusFast && scratch ? ps2ScratchpadOffset(address) : translateAddress(address);
 
     if (!scratch && physAddr == 0x10004000u) // VIF0_FIFO
     {

@@ -653,6 +653,8 @@ The EE profile is diffuse guest code (more objects in view), our capture hooks a
 * Direct3D 11 also specializes single-projection terrain with mountain snow. It runs the existing snow math without
   the side-projection sampling loop. The [Ruined Village and Grotto retest](../journal/2026-11-19/ootf-ruined-village-retest.md)
   records the new limit in Ruined Village and the Grotto comparison.
+* Direct scratchpad and peripheral dispatch reduces CPU work during terrain preparation and submission. See the
+  [4K comparison in Ruined Village, Wartok Canyons, and Rift World](../journal/2026-11-19/ootf-terrain-submission.md).
 * `PS2X_HOSTPROF_STACKS=1` with `PS2X_HOSTPROF` records EE call chains; `scripts/perf/hostprof_stacks.py` gives
   inclusive cost. At spot C about 23 percent of the EE thread is the guest polling GS FINISH (`f_0x1dbfa8`, loop at
   0x1dc688) before a per-frame readback, i.e. waiting for the VU1 and GS workers; JALR dispatch is negligible; scene
