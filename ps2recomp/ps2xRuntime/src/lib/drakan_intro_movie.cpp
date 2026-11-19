@@ -62,7 +62,7 @@ struct State {
     std::atomic<bool> padWasDown{false};
     std::atomic<bool> exitFired{false}; // the Intro's exit was requested
     double exitAt = 0.0;
-    bool introLoaded = false; // EE thread: an Intro started from New Game, including the live fallback
+    bool introLoaded = false;               // EE thread: an Intro started from New Game, including the live fallback
     std::atomic<bool> levelChanging{false}; // the live level ended and the next one is loading
     SteadyClock::time_point started{}, ending{};
     std::mutex mu; // pictures, ring

@@ -20,9 +20,9 @@ struct Profile {
 
 inline constexpr Range wartok[] = {
     {{-20000, 50000, 0, 68000}, {140000, 195000, 170000, 220000}, 33200, 1, false}, // First rope bridge
-    {{-6000, -6000, 8000, 8000}, {145000, 68000, 155000, 76500}, 33200, 1},        // North rim
-    {{30000, 185000, 42000, 194000}, {186000, 403000, 195000, 417000}, 48000, 1},  // West range
-    {{46000, 416000, 55000, 430000}, {190000, 498000, 200000, 512000}, 54000, 1},  // Far west
+    {{-6000, -6000, 8000, 8000}, {145000, 68000, 155000, 76500}, 33200, 1},         // North rim
+    {{30000, 185000, 42000, 194000}, {186000, 403000, 195000, 417000}, 48000, 1},   // West range
+    {{46000, 416000, 55000, 430000}, {190000, 498000, 200000, 512000}, 54000, 1},   // Far west
     {{200000, 132000, 212000, 145000}, {363000, 302000, 375000, 316000}, 47000, 1}, // East range
     {{413000, 464000, 425000, 477000}, {469000, 543000, 482000, 558000}, 33200, 1}, // Southeast ridge
 };
@@ -52,22 +52,23 @@ inline constexpr Profile profiles[] = {
     {"OotF - Grotto of Death (air)", grottoOfDeath},
 };
 
-static_assert([] {
-    for (const Profile& profile : profiles) {
-        if (profile.ranges.empty() || profile.ranges.size() > kMaxRanges)
-            return false;
-        for (const Range& range : profile.ranges) {
-            if (!(range.verticalScale > 0))
+static_assert(
+    [] {
+        for (const Profile& profile : profiles) {
+            if (profile.ranges.empty() || profile.ranges.size() > kMaxRanges)
                 return false;
-            for (size_t axis = 0; axis < 2; ++axis)
-                if (!(range.enter[axis] < range.enter[axis + 2] &&
-                      range.enter[axis + 2] < range.leave[axis] &&
-                      range.leave[axis] < range.leave[axis + 2]))
+            for (const Range& range : profile.ranges) {
+                if (!(range.verticalScale > 0))
                     return false;
+                for (size_t axis = 0; axis < 2; ++axis)
+                    if (!(range.enter[axis] < range.enter[axis + 2] && range.enter[axis + 2] < range.leave[axis] &&
+                          range.leave[axis] < range.leave[axis + 2]))
+                        return false;
+            }
         }
-    }
-    return true;
-}(), "Snow ranges need positive scales and room for the fades on each side");
+        return true;
+    }(),
+    "Snow ranges need positive scales and room for the fades on each side");
 
 inline uint32_t profileForLevel(std::string_view level) {
     auto lower = [](char c) { return c >= 'A' && c <= 'Z' ? char(c + ('a' - 'A')) : c; };

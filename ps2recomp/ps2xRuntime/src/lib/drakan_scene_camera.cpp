@@ -569,9 +569,8 @@ bool install(PS2Runtime& rt, const std::atomic<uint64_t>* tick, Sink cb, void* o
     using drakan_lifecycle::Event;
     using drakan_lifecycle::Kind;
     drakan_lifecycle::subscribe(Kind::BeforeLevelLoad, [](const Event&) { snowProfile = 0; });
-    drakan_lifecycle::subscribe(Kind::AfterLevelLoad, [](const Event& e) {
-        snowProfile = e.ok ? gsr::snow::profileForLevel(e.level) : 0;
-    });
+    drakan_lifecycle::subscribe(Kind::AfterLevelLoad,
+                                [](const Event& e) { snowProfile = e.ok ? gsr::snow::profileForLevel(e.level) : 0; });
     installed = &rt;
     return true;
 }

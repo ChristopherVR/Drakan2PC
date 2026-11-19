@@ -78,8 +78,8 @@ enum : uint32_t {
     PF_FBA = 1u << 18,
     PF_FB16 = 1u << 19,
     PF_TEXRT = 1u << 22,
-    PF_TERRAIN = 1u << 26,      // terrain layer: world-space detail (gs_terrain.inc)
-    PF_TERRAIN_SIDE = 1u << 27, // terrain layer whose steep faces may sample the texture from the side
+    PF_TERRAIN = 1u << 26,        // terrain layer: world-space detail (gs_terrain.inc)
+    PF_TERRAIN_SIDE = 1u << 27,   // terrain layer whose steep faces may sample the texture from the side
     PF_TERRAIN_RELIEF = 1u << 28, // terrain layer with world-space shading on distant cliffs
     PF_TERRAIN_SNOW = 1u << 29,   // terrain layer in a world with mountain snow
 };

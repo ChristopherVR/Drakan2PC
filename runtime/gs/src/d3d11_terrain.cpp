@@ -135,7 +135,8 @@ uint32_t D3D11Backend::Impl::prepareTerrain(const GsDrawState& s, const DrawVert
         auditTerrain(s, v, count, classified, depthMasked, g.unproject, dsx, dsy, k);
     }
     const bool relief = (camera.flags & SceneGuideCamera::TerrainCliffRelief) != 0;
-    const auto snowRanges = snow::rangesForProfile((camera.flags & SceneGuideCamera::TerrainSnow) ? camera.reserved : 0);
+    const auto snowRanges =
+        snow::rangesForProfile((camera.flags & SceneGuideCamera::TerrainSnow) ? camera.reserved : 0);
     const bool snow = !snowRanges.empty();
     if (!classified || (!terrainCfg.any() && !relief && !snow))
         return 0;

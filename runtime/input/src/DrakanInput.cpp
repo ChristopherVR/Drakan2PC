@@ -1137,8 +1137,8 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
 // [mouse] dragon_camera_carry: the view behind Arokh eases round him about half a second after he turns (the native
 // flight camera). Turn its axes immediately with the mouse. In flight, also carry its position around him; on the
 // ground, leave the eye to native collision so a turn cannot swing it through a nearby cave wall or roof.
-void InputModule::carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw,
-                                    float pitch, bool grounded) {
+void InputModule::carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch,
+                                    bool grounded) {
     const auto& l = camera_.layout;
     const auto valid = [](uint32_t address, uint64_t bytes) {
         const uint32_t p = address & 0x1fffffffu;
