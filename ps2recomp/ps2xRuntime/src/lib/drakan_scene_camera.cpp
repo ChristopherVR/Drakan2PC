@@ -27,7 +27,6 @@ PS2Runtime::RecompiledFunction origInventoryDraw = nullptr, origLoadingDraw = nu
 PS2Runtime::RecompiledFunction origTitleDraw = nullptr;
 PS2Runtime::RecompiledFunction origSubtitleDraw = nullptr;
 PS2Runtime::RecompiledFunction origWaterDraw = nullptr;
-std::atomic<bool> waterCaptureEnabled{false};
 struct SubtitleScope {
     uint32_t returnPc = 0;
     bool active = false;
@@ -461,8 +460,7 @@ void waterDraw(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     };
     if (c->pc == 0x161a78u) {
         scope.returnPc = GPR_U32(c, 31);
-        scope.active = waterCaptureEnabled.load(std::memory_order_relaxed) && enabled() && sink &&
-                       drakan_ws::renderingWorld(thread);
+        scope.active = enabled() && sink && drakan_ws::renderingWorld(thread);
         if (scope.active)
             marker(true);
     }
@@ -496,9 +494,6 @@ void endWorld(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 void setEnabled(bool on) {
     if (captureEnabled.exchange(on) != on)
         captureReset.store(true);
-}
-void setWaterCaptureEnabled(bool on) {
-    waterCaptureEnabled.store(on, std::memory_order_release);
 }
 void beginWorldPhase(PS2Runtime& rt) {
     if (installed != &rt || !enabled() || !sink)

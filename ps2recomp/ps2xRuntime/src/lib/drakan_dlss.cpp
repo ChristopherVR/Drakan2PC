@@ -135,7 +135,6 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
         static unsigned checks = 0;
         static bool wasOn = false;
         const bool on = lease->gs && lease->gs->sceneModelsRequested();
-        drakan_scene_camera::setWaterCaptureEnabled(lease->gs && lease->gs->waterRenderingRequested());
         const uint64_t currentLayout =
             on ? drakan_scene_geometry::layoutIdentity(runtime.memory().getRDRAM(), runtime.memory().guestRamInUse())
                : 0;

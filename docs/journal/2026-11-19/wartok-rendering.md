@@ -102,3 +102,25 @@ The mounted forward captures did not isolate an independent river flicker. Moder
 depth checks across the visible river. Turning on the separately controlled ray-traced reflections also reflected
 the bright cave opening. The texture cache kept its HD textures through the scripted turns, with zero evictions
 and rebuilds. Captures and the roof-clearance analysis are in `build/cave-flicker-20261119/`.
+
+## One-frame water and bank overlap
+
+Walking from the same mounted save and turning under the lower roof produced diagonal flashes along the riverbank
+in both water modes. They also occurred with Arokh stationary against the bank. Three consecutive captures in
+`build/cave-walk-turn-20261119/pixel-pick-live-captures/` (1298–1300) show the same water draw at a shoreline pixel.
+The water depth went from 8 GS units in front of the floor to 2 behind it and then 2 in front again. The pixel
+went blue, dark, blue. The depth-tested water draw kept the same opacity throughout.
+
+The renderer now tags the native water draw scope in both modes. During a blended water draw that tests depth
+without writing it, the renderer scales the depth toward the far plane by roughly two parts per million.
+Clipped ripple packets can arrive after the scope closes. Those packets use the same tie break based on the native
+ripple texture and draw state. The depth buffer, water geometry and ray inputs use their original depths.
+
+The lower-cave replay with consecutive presented frames found 21 coherent flashes in 70 baseline triplets with
+steady camera and actor positions. The corrected runs found none in 31 such triplets with original water and
+30 with Modern Water. Open water remains visible. Run logs and the screenshot comparison are in
+`build/cave-walk-turn-20261119/`.
+
+The installed executable was checked on a separate replay that turns while Arokh is moving under the lower roof.
+The 264 presented frames showed continuous camera movement through the turns and no full-view blackouts. The
+test used the byte-identical quick-slot copy and left the player's save intact.

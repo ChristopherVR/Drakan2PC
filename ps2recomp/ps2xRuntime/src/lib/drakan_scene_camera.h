@@ -11,7 +11,6 @@ using Sink = void (*)(PS2Runtime&, const gsr::SceneGuideCamera&, void*);
 // Does not replace the widescreen hook at 0x1480e0.
 bool install(PS2Runtime&, const std::atomic<uint64_t>* vsyncTick, Sink, void* opaque);
 void setEnabled(bool enabled);
-void setWaterCaptureEnabled(bool enabled);
 // Private renderer protocol using the existing packet layout, not a camera:
 // sourcePc=0x139010, flags=0 opens engineWorldOpen before ANY world draw.
 // Handle this marker before ordinary camera/GUI updates; it must NOT begin a
