@@ -209,6 +209,7 @@ leader (LMB) runs under the CTL cap. Item list: 1 enlarged arrow glyph caps, 2 n
 * `memcardText()` in `runtime/ui/src/TextRules.cpp` replaces the INTERFCE.XDB strings 6, 67, 70, 71, 72, 74, 107-111, 129, 167, 170, 171 in all five languages (before / after list: `build/ui_polish/memcard_text_report.txt`; Load Game screen "Reading save data...": `build/ui_polish/memcard_text_load_game.png`). The Cross glyph escape of id 74 keeps going through the normal confirm-key rewrite.
 * The disc UI texts (INTERFCE.XDB) that name L1 / R1 (inventory help: "Press L1 and R1 to access other sections") now use the **menu layer** bindings (shipped default: Page Up / Page Down first) instead of the gameplay layer, where L1 / R1 are E / Q, which in the inventory are Square / Triangle. The inventory page tile (tex 94) does the same. The Controller screen diagram stays on the gameplay layer.
 * The built-in default bindings of `runtime/ui` now match the shipped `drakan_input.ini` (Space = Triangle ...).
+* [RabeOhneNamen's German localization update](https://github.com/ChristopherVR/Drakan2PC/issues/13) revised the modern menu catalog and the German wording for INTERFCE.XDB strings 67, 70, 110, 167, 170 and 171. The German controller configuration label (141) uses the original game text.
 
 
 ## 11. Linux/browser bindings and prompt activation (2026-10-26)

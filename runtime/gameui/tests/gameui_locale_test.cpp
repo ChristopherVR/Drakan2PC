@@ -93,7 +93,7 @@ int main() {
                     assert(hasText(noticeOut.draw, "Mod-Menü öffnen"));
                     assert(
                         menuFormat("{0} is enabled: restart the game to choose it on the title screen.", {"Pack A"}) ==
-                        "Pack A ist aktiviert: Starte das Spiel neu, um es im Hauptmenü zu wählen.");
+                        "Pack A wurde aktiviert. Starte das Spiel neu, um es im Hauptmenü auswählen zu können.");
                 }
                 for (const char* key :
                      {"In the mods folder: {0}.", "{0} new packs in the mods folder: {1}.", "Open Mods menu", "Later",
@@ -239,7 +239,7 @@ int main() {
         };
         const CardExpected cardLocales[] = {
             {"english", "Choose your game", "The first Drakan", "The sequel on your disc."},
-            {"german", "Spiel auswählen", "Das erste Drakan", "Die Fortsetzung auf deiner"},
+            {"german", "Spiel auswählen", "Der erste Teil von Drakan", "Die Fortsetzung von Drakan."},
             {"french", "Choisissez votre jeu", "Le premier Drakan", "La suite présente sur"},
             {"italian", "Scegli il gioco", "Il primo Drakan", "Il seguito sul tuo"},
             {"spanish", "Elige tu juego", "El primer Drakan", "La secuela de tu"},

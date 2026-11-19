@@ -146,6 +146,10 @@ int main(int argc, char** argv) {
         CHECK(rw("INTERFCE.XDB", 74, 0, "x") ==
               "Please make sure the save folder is available or press Enter to proceed anyway.");
         CHECK(rw("INTERFCE.XDB", 130, 1, "Controller") == "Steuerung");
+        CHECK(rw("INTERFCE.XDB", 141, 1, "Controller-Konfiguration") == "Controller-Konfiguration");
+        CHECK(rw("INTERFCE.XDB", 67, 1, "x") ==
+              "Drakan: The Ancients' Gates ben\xf6tigt mindestens %dKB freien Speicherplatz f\xfcr Spielst\xe4nde, um "
+              "das erste Spielgebiet verlassen und weitere Gebiete betreten zu k\xf6nnen.");
         CHECK(rw("LEVEL1ON.XDB", 24, 1,
                  "Dr\xfc"
                  "cke Sie die R1-Taste.") == "Dr\xfc"

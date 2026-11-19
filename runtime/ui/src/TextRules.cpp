@@ -349,8 +349,8 @@ bool memcardText(unsigned id, int lang, std::string& text) {
         {67,
          {"Drakan: The Ancients' Gates requires at least %dKB of free disk space for save data in order to progress "
           "beyond the first area of gameplay and to progress to each subsequent area of gameplay.",
-          "Drakan II ben\xc3\xb6tigt mindestens %dKB freien Speicherplatz f\xc3\xbcr Spielst\xc3\xa4nde, um \xc3\xbc"
-          "ber den 1. und alle folgenden Spiel-Level hinaus voranzuschreiten.",
+          "Drakan: The Ancients' Gates benötigt mindestens %dKB freien Speicherplatz für Spielstände, um "
+          "das erste Spielgebiet verlassen und weitere Gebiete betreten zu können.",
           "Drakan II n\xc3\xa9"
           "cessite au moins %dKo d'espace libre pour les sauvegardes afin de progresser au-del\xc3\xa0 de la "
           "premi\xc3\xa8re zone de jeu puis jusqu'aux zones de jeu suivantes.",
@@ -359,7 +359,7 @@ bool memcardText(unsigned id, int lang, std::string& text) {
           "Drakan II necesita al menos %dKB de espacio libre para partidas guardadas para poder superar la primera "
           "zona de juego y avanzar a las siguientes."}},
         {70,
-         {"The save location has enough free space.", "Auf dem Speicherort ist gen\xc3\xbcgend Platz vorhanden.",
+         {"The save location has enough free space.", "Am Speicherort ist genügend freier Speicherplatz vorhanden.",
           "L'emplacement de sauvegarde dispose de l'espace n\xc3\xa9"
           "cessaire.",
           "La posizione di salvataggio ha lo spazio necessario.",
@@ -395,7 +395,8 @@ bool memcardText(unsigned id, int lang, std::string& text) {
           "Per salvare, la cartella di salvataggio del gioco deve essere disponibile",
           "Para guardar, la carpeta de guardado del juego debe estar disponible"}},
         {110,
-         {"Save slot %d is not set up. Set it up now?", "Speicherplatz %d ist nicht eingerichtet. Jetzt einrichten?",
+         {"Save slot %d is not set up. Set it up now?",
+          "Speicherplatz %d ist noch nicht eingerichtet. Jetzt einrichten?",
           "L'emplacement de sauvegarde %d n'est pas initialis\xc3\xa9. L'initialiser maintenant ?",
           "La posizione di salvataggio %d non \xc3\xa8 inizializzata. Inizializzarla ora?",
           "La ubicaci\xc3\xb3n de guardado %d no est\xc3\xa1 inicializada. \xc2\xbf"
@@ -410,20 +411,20 @@ bool memcardText(unsigned id, int lang, std::string& text) {
           "Lettura dei salvataggi...", "Leyendo partidas guardadas..."}},
         {167,
          {"Some settings were changed.  Save the new settings?",
-          "Einige Einstellungen wurden ver\xc3\xa4ndert. Die neuen Einstellungen speichern?",
+          "Einige Einstellungen wurden geändert. Änderungen speichern?",
           "Des r\xc3\xa9glages ont \xc3\xa9t\xc3\xa9 modifi\xc3\xa9s. Sauvegarder les nouveaux r\xc3\xa9glages ?",
           "Alcune impostazioni sono state modificate. Vuoi salvare le nuove impostazioni?",
           "Algunas configuraciones han cambiado. \xc2\xbf"
           "Deseas guardar la nueva configuraci\xc3\xb3n?"}},
         {170,
          {"In order to progress beyond this point the game must be saved.",
-          "Es muss gespeichert werden, um von hier aus weiterzuspielen.",
+          "Um an dieser Stelle weiterspielen zu können, muss das Spiel gespeichert werden.",
           "La partie doit \xc3\xaatre sauvegard\xc3\xa9"
           "e pour pouvoir continuer.",
           "Per poter proseguire oltre questo punto \xc3\xa8 necessario salvare la partita.",
           "Para seguir m\xc3\xa1s all\xc3\xa1 de este punto tienes que guardar la partida."}},
         {171,
-         {"Loading options data. Please wait", "Ladevorgang Optionen-Daten. Bitte warten",
+         {"Loading options data. Please wait", "Einstellungen werden geladen. Bitte warten...",
           "Chargement donn\xc3\xa9"
           "es Options. Veuillez patienter",
           "Caricamento dati opzioni. Attendere", "Cargando datos de opciones. Por favor, espera"}},
@@ -484,7 +485,6 @@ bool rewriteText(const Bindings& b, const std::string& file, unsigned id, int la
             {138, EN, "Controller", "Controls"},
             {130, DE, "Controller", "Steuerung"},
             {138, DE, "Controller", "Steuerung"},
-            {141, DE, "Controller-Konfiguration", "Steuerungsschema"},
             {130, FR, "Manette", "Commandes"},
             {138, FR, "Montrer manette", "Montrer les commandes"},
             {141, FR, "de la manette", "des commandes"},
