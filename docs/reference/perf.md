@@ -918,3 +918,11 @@ from 26.46 to 28.19 with ray shadows, reflections, and global illumination.
 With DLSS Quality, composition fell from 3.80 to 3.26 ms and world FPS
 stayed near 58. The atlas also wraps samples with a bit mask. Both changes
 matched the hardware image fixtures exactly. [Test details](../journal/2026-11-19/rt-dlss-performance.md).
+
+## Render-worker surface preparation with DLSS Quality (2026-11-20)
+
+Exact native-grid reciprocals, indexed material projections, and fewer UV
+conversions reduced the CPU cost of reconstructing ray-traced terrain
+surfaces. Surdana with 4K DLSS Quality and ray shadows, reflections, and GI
+went from 69.1 to 74.0 world FPS across ten paired intervals in two launches.
+The OotF gains were smaller at the GPU limit. [Profile and level retests](../journal/2026-11-20/dlss-render-worker.md).

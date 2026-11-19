@@ -434,6 +434,48 @@ int main(int argc, char** argv) {
         }
         assert(matched > 1000);
         std::cout << "Cell matcher equals the reference scan for 40000 queries (" << matched << " matches)\n";
+        grid.triangles.clear();
+        const auto add = [&](float y, bool water) {
+            gsr::SceneTriangle t;
+            const float corners[3][2] = {{-2048, -2048}, {0, -2048}, {-2048, 0}};
+            for (unsigned i = 0; i < 3; ++i) {
+                const auto& point = corners[water ? 2 - i : i];
+                t.position[i][0] = point[0];
+                t.position[i][1] = y;
+                t.position[i][2] = point[1];
+            }
+            t.water = water;
+            grid.triangles.push_back(t);
+        };
+        add(100, false);
+        add(32, false);
+        add(0, false);
+        add(0, true);
+        resident.replace(grid);
+        const auto drawAt = [](float x, float y, float z) {
+            gsr::surface::Triangle draw;
+            for (auto& point : draw.p)
+                point = {x, y, z};
+            return draw;
+        };
+        assert(resident.match(drawAt(-1800, 0, -1800), false) == 1);
+        assert(resident.match(drawAt(-1800, -1, -1800), false) == 2);
+        assert(resident.match(drawAt(-1800, 0, -1800), true) == 3);
+        assert(resident.match(drawAt(-500, 0, -500), false) == -1);
+
+        const int previous = std::fegetround();
+        for (int mode : {FE_TONEAREST, FE_DOWNWARD, FE_UPWARD, FE_TOWARDZERO}) {
+            std::fesetround(mode);
+            for (int i = -200; i <= 200; ++i) {
+                // Around the tolerant diagonal edge, with stacked planes at the acceptance limit.
+                const auto draw = drawAt(-1024.f + i / 50.f, 0, -1003.52f);
+                for (bool water : {false, true})
+                    assert(resident.match(draw, water) == reference(draw, water));
+            }
+            const auto draw = drawAt(-1800, NAN, -1800);
+            assert(resident.match(draw, false) == reference(draw, false));
+        }
+        std::fesetround(previous);
     }
     resident.replace({});
     assert(resident.triangles.empty() && resident.waterCount == 0);

@@ -128,6 +128,9 @@ inline void reconstructDraw(const DrawSurfaceParams& d, const DrawVertex* v, uin
         if (!emit && !observe)
             continue;
         tri.texture = d.texture;
+        // An opaque triangle that keeps its resident projection needs no vertex UVs.
+        if (observe && !emit && !probe && !scene.observeWouldChange(tri, resident))
+            continue;
         for (unsigned j = 0; j < 3; ++j) {
             const float q = d.fst ? 1.f : v[i + j].q;
             if (std::abs(q) > 1e-12) {

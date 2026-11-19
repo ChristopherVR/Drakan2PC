@@ -29,7 +29,10 @@ class ResidentScene {
     // reference per cell (grass, path, rock, ... in one layer), so the layer projection above is only the fallback
     // for cells not drawn yet. Using it everywhere gave whole cells the wrong texture in ray hits and as the
     // receiver albedo of global illumination: strange colours along terrain creases (GitHub issue 1).
-    std::unordered_map<uint32_t, Projection> cellMaterials;
+    static constexpr uint32_t kNoCellMaterial = ~0u;
+    // One slot per resident triangle. Store projections only for triangles observed so far.
+    std::vector<uint32_t> cellMaterialSlots;
+    std::vector<Projection> cellMaterials;
     std::unordered_map<uint32_t, uint64_t> triangleChanged;
     // Triangle indices per material layer, and the projection version that first includes each layer's latest
     // material. A new projection repacks only the layers changed since the buffer it reuses was built.
@@ -42,13 +45,14 @@ class ResidentScene {
     // Match candidates stored contiguously per cell and water flag, in the cell's insertion order, with the terms
     // match() needs. Degenerate triangles (|det| < 1 or normal length < 1) never match and are left out. Rebuilt by
     // prepareMatch() after replace() or when the floating-point mode changes.
-    // rdet = 1/det feeds a conservative multiply-only prefilter; the exact test (with the division) decides.
+    // The reciprocal is exact for native grid determinants. Other determinants use it only as a prefilter.
     struct MatchEntry {
         float x0, y0, z0, ax, az, bx, bz, det, rdet, nx, ny, nz, length;
         uint32_t index;
     };
     struct CellRange {
         uint32_t first[2]{}, count[2]{};
+        bool nativeGrid[2]{};
     };
     mutable std::vector<MatchEntry> matchEntries;
     mutable std::unordered_map<int64_t, CellRange> matchCells;
@@ -68,15 +72,27 @@ class ResidentScene {
     };
     static constexpr size_t kSpares = 4;
     mutable std::vector<Spare> spares;
+    const Projection* cellMaterial(uint32_t index) const {
+        const auto slot = cellMaterialSlots[index];
+        return slot == kNoCellMaterial ? nullptr : &cellMaterials[slot];
+    }
+    void updateCellMaterial(uint32_t index, const Projection& material) {
+        auto& slot = cellMaterialSlots[index];
+        if (slot != kNoCellMaterial) {
+            cellMaterials[slot] = material;
+            return;
+        }
+        cellMaterials.push_back(material);
+        slot = uint32_t(cellMaterials.size() - 1);
+    }
     // Byte copy of the resident triangle (padding included, so unchanged triangles compare equal byte for byte across
     // projections) with its layer's material applied.
     void project(size_t i, Triangle& t) const {
         std::memcpy(&t, &triangles[i], sizeof(Triangle));
-        const Projection* material = nullptr;
-        if (const auto cell = cellMaterials.find(uint32_t(i)); cell != cellMaterials.end())
-            material = &cell->second;
-        else if (const auto layer = materials.find(layers[i]); layer != materials.end())
-            material = &layer->second;
+        const Projection* material = cellMaterial(uint32_t(i));
+        if (!material)
+            if (const auto layer = materials.find(layers[i]); layer != materials.end())
+                material = &layer->second;
         if (material) {
             const auto& m = *material;
             t.texture = m.texture;
@@ -106,6 +122,7 @@ class ResidentScene {
             CellRange range;
             for (unsigned water = 0; water < 2; ++water) {
                 range.first[water] = uint32_t(matchEntries.size());
+                bool nativeGrid = true;
                 for (auto index : indices) {
                     const auto& tri = triangles[index];
                     if (tri.water != (water != 0))
@@ -117,19 +134,53 @@ class ResidentScene {
                     const float len = length(normal);
                     if (std::abs(det) < 1 || len < 1)
                         continue;
+                    nativeGrid &= std::abs(det) == kCellSize * kCellSize;
                     matchEntries.push_back({tri.p[0].x, tri.p[0].y, tri.p[0].z, ax, az, bx, bz, det, 1.f / det,
                                             normal.x, normal.y, normal.z, len, index});
                 }
                 range.count[water] = uint32_t(matchEntries.size()) - range.first[water];
+                range.nativeGrid[water] = nativeGrid;
             }
             if (range.count[0] || range.count[1])
                 matchCells.emplace(key, range);
         }
         matchMode = mode;
     }
+    static constexpr float kCellSize = 2048.f;
     static int64_t cell(float x, float z) {
-        return int64_t(uint64_t(uint32_t(int32_t(std::floor(x / 2048.f)))) << 32 |
-                       uint32_t(int32_t(std::floor(z / 2048.f))));
+        return int64_t(uint64_t(uint32_t(int32_t(std::floor(x / kCellSize)))) << 32 |
+                       uint32_t(int32_t(std::floor(z / kCellSize))));
+    }
+
+    template <bool NativeGrid>
+    static int matchRange(const Triangle& draw, float x, float z, const MatchEntry* entry, const MatchEntry* end) {
+        for (; entry != end; ++entry) {
+            const auto& g = *entry;
+            const float dx = x - g.x0, dz = z - g.z0;
+            const float nu = dx * g.bz - dz * g.bx;
+            const float nv = g.ax * dz - g.az * dx;
+            if constexpr (!NativeGrid) {
+                // The rounded reciprocal differs from division by a few ulps. Leave a margin for the exact test.
+                const float pu = nu * g.rdet, pv = nv * g.rdet;
+                if (pu < -.0101f || pv < -.0101f || pu + pv - 1e-5f * (std::abs(pu) + std::abs(pv)) > 1.0101f)
+                    continue;
+            }
+            // A native tile has determinant ±2^22. Its exact reciprocal gives the same rounded result as division.
+            const float u = NativeGrid ? nu * g.rdet : nu / g.det;
+            const float v = NativeGrid ? nv * g.rdet : nv / g.det;
+            if (u < -.01f || v < -.01f || u + v > 1.01f)
+                continue;
+            const float limit = g.length * 32.f;
+            bool samePlane = true;
+            for (const auto& q : draw.p)
+                if (std::abs(g.nx * (q.x - g.x0) + g.ny * (q.y - g.y0) + g.nz * (q.z - g.z0)) > limit) {
+                    samePlane = false;
+                    break;
+                }
+            if (samePlane)
+                return int(g.index);
+        }
+        return -1;
     }
 
 public:
@@ -146,6 +197,7 @@ public:
         layers.clear();
         cells.clear();
         materials.clear();
+        cellMaterialSlots.clear();
         cellMaterials.clear();
         triangleChanged.clear();
         layerTriangles.clear();
@@ -183,50 +235,29 @@ public:
                 Point{(tri.p[0].x + tri.p[1].x + tri.p[2].x) / 3, 0, (tri.p[0].z + tri.p[1].z + tri.p[2].z) / 3};
             cells[cell(center.x, center.z)].push_back(index);
         }
+        cellMaterialSlots.assign(triangles.size(), kNoCellMaterial);
     }
     // Index of the first resident triangle (insertion order) in the draw centroid's cell with this water flag whose
     // xz projection contains the centroid (1% barycentric tolerance) and whose plane holds all three draw vertices
     // within 32 units; -1 when there is none.
     int match(const Triangle& draw, bool water) const {
         prepareMatch();
-        const auto p =
-            Point{(draw.p[0].x + draw.p[1].x + draw.p[2].x) / 3, (draw.p[0].y + draw.p[1].y + draw.p[2].y) / 3,
-                  (draw.p[0].z + draw.p[1].z + draw.p[2].z) / 3};
-        const auto key = cell(p.x, p.z);
+        const float x = (draw.p[0].x + draw.p[1].x + draw.p[2].x) / 3;
+        const float z = (draw.p[0].z + draw.p[1].z + draw.p[2].z) / 3;
+        const auto key = cell(x, z);
         if (!lastValid || lastCell != key) {
             const auto it = matchCells.find(key);
             lastRange = it == matchCells.end() ? nullptr : &it->second;
             lastCell = key;
             lastValid = true;
         }
-        if (!lastRange)
+        if (!lastRange || !lastRange->count[water])
             return -1;
-        const MatchEntry* entry = matchEntries.data() + lastRange->first[water];
+        const MatchEntry* const entry = matchEntries.data() + lastRange->first[water];
         const MatchEntry* const end = entry + lastRange->count[water];
-        for (; entry != end; ++entry) {
-            const auto& g = *entry;
-            const float nu = (p.x - g.x0) * g.bz - (p.z - g.z0) * g.bx;
-            const float nv = g.ax * (p.z - g.z0) - g.az * (p.x - g.x0);
-            // n * (1/det) differs from n / det by a few ulps (< 1e-6 relative), so these margins only reject
-            // entries the exact test below rejects too. NaN never compares true and falls through to the exact test.
-            const float pu = nu * g.rdet, pv = nv * g.rdet;
-            if (pu < -.0101f || pv < -.0101f || pu + pv - 1e-5f * (std::abs(pu) + std::abs(pv)) > 1.0101f)
-                continue;
-            const float u = nu / g.det;
-            const float v = nv / g.det;
-            if (u < -.01f || v < -.01f || u + v > 1.01f)
-                continue;
-            const float limit = g.length * 32.f;
-            bool samePlane = true;
-            for (const auto& q : draw.p)
-                if (std::abs(g.nx * (q.x - g.x0) + g.ny * (q.y - g.y0) + g.nz * (q.z - g.z0)) > limit) {
-                    samePlane = false;
-                    break;
-                }
-            if (samePlane)
-                return int(g.index);
-        }
-        return -1;
+        if (lastRange->nativeGrid[water])
+            return matchRange<true>(draw, x, z, entry, end);
+        return matchRange<false>(draw, x, z, entry, end);
     }
     // Whether observe(draw, index) would replace a stored projection (a larger area than the cell's or the layer's).
     bool observeWouldChange(const Triangle& draw, int index) const {
@@ -234,13 +265,12 @@ public:
             return false;
         const float ax = draw.p[1].x - draw.p[0].x, az = draw.p[1].z - draw.p[0].z, bx = draw.p[2].x - draw.p[0].x,
                     bz = draw.p[2].z - draw.p[0].z;
-        const float det = ax * bz - az * bx;
-        if (std::abs(det) < 10000)
+        const float area = std::abs(ax * bz - az * bx);
+        if (area < 10000)
             return false;
-        const auto cell = cellMaterials.find(uint32_t(index));
+        const auto* cell = cellMaterial(uint32_t(index));
         const auto previous = materials.find(layers[index]);
-        return cell == cellMaterials.end() || cell->second.area < std::abs(det) || previous == materials.end() ||
-               previous->second.area < std::abs(det);
+        return !cell || cell->area < area || previous == materials.end() || previous->second.area < area;
     }
     void observe(const Triangle& draw, int index) {
         if (index < 0 || draw.texture == ~0u)
@@ -248,17 +278,18 @@ public:
         const float ax = draw.p[1].x - draw.p[0].x, az = draw.p[1].z - draw.p[0].z, bx = draw.p[2].x - draw.p[0].x,
                     bz = draw.p[2].z - draw.p[0].z;
         const float det = ax * bz - az * bx;
-        if (std::abs(det) < 10000)
+        const float area = std::abs(det);
+        if (area < 10000)
             return;
-        const auto cell = cellMaterials.find(uint32_t(index));
-        const bool cellNewer = cell == cellMaterials.end() || cell->second.area < std::abs(det);
+        const auto* cell = cellMaterial(uint32_t(index));
+        const bool cellNewer = !cell || cell->area < area;
         const auto previous = materials.find(layers[index]);
-        const bool layerNewer = previous == materials.end() || previous->second.area < std::abs(det);
+        const bool layerNewer = previous == materials.end() || previous->second.area < area;
         if (!cellNewer && !layerNewer)
             return;
         Projection m;
         m.texture = draw.texture;
-        m.area = std::abs(det);
+        m.area = area;
         for (unsigned component = 0; component < 2; ++component) {
             float* coefficients = component ? m.v : m.u;
             const float a = draw.uv[1][component] - draw.uv[0][component],
@@ -268,10 +299,9 @@ public:
             coefficients[2] = draw.uv[0][component] - coefficients[0] * draw.p[0].x - coefficients[1] * draw.p[0].z;
         }
         if (cellNewer) {
-            const bool same = cell != cellMaterials.end() && cell->second.texture == m.texture &&
-                              std::memcmp(cell->second.u, m.u, sizeof(m.u)) == 0 &&
-                              std::memcmp(cell->second.v, m.v, sizeof(m.v)) == 0;
-            cellMaterials[uint32_t(index)] = m;
+            const bool same = cell && cell->texture == m.texture && std::memcmp(cell->u, m.u, sizeof(m.u)) == 0 &&
+                              std::memcmp(cell->v, m.v, sizeof(m.v)) == 0;
+            updateCellMaterial(uint32_t(index), m);
             if (!same) {
                 triangleChanged[uint32_t(index)] = projectedVersion + 1;
                 logChange(uint32_t(index));
