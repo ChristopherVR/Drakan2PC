@@ -134,6 +134,7 @@ struct PathState {
 };
 
 constexpr uint32_t kMaxBatchVerts = 3 * 60000;
+constexpr uint64_t kPackedVertexRegisters = R_ST | (R_RGBAQ << 4) | (R_FOG << 8) | (R_XYZ2 << 12);
 
 // Draw batch with fixed capacity: beginDraw() flushes when fewer than 12 slots (the largest primitive) are left, so
 // the emitters append without a capacity check.
@@ -223,6 +224,8 @@ struct Renderer::Impl {
 
     // GIF
     PathState paths[3];
+    bool packedVertexGroups = false;
+    bool packedVertexGroupsLogged = false;
 
     // batch
     VertexBatch batch;
@@ -1951,7 +1954,10 @@ struct Renderer::Impl {
 
     // ------------------------------------------------------------------------------------------------
     // GIF
-    void handlePacked(uint32_t desc, const uint8_t* qw) {
+    template <uint32_t KnownRegister = 16>
+    void handlePacked(const uint8_t* qw, uint32_t desc = KnownRegister) {
+        if constexpr (KnownRegister < 16)
+            desc = KnownRegister;
         uint64_t lo, hi;
         std::memcpy(&lo, qw, 8);
         std::memcpy(&hi, qw + 8, 8);
@@ -2009,6 +2015,7 @@ struct Renderer::Impl {
         }
     }
 
+    template <bool GroupVertices>
     void gifSubmit(uint32_t pathIdx, const uint8_t* data, uint32_t size) {
         PathState& ps = paths[pathIdx];
         stats.gifPackets++;
@@ -2054,7 +2061,27 @@ struct Renderer::Impl {
                 continue;
             }
             if (ps.flg == 0) {
-                handlePacked((uint32_t)((ps.regs >> (4 * ps.regIdx)) & 0xF), data);
+                if constexpr (GroupVertices) {
+                    if (ps.nreg == 4 && ps.regIdx == 0 && (ps.regs & 0xffffu) == kPackedVertexRegisters) {
+                        const uint32_t groups = std::min(size / 64u, ps.qwLeft / 4u);
+                        if (groups) {
+                            if (!packedVertexGroupsLogged) {
+                                packedVertexGroupsLogged = true;
+                                std::fprintf(stderr, "[gsr] packed vertex groups active\n");
+                            }
+                            for (uint32_t i = 0; i < groups; ++i, data += 64) {
+                                handlePacked<R_ST>(data);
+                                handlePacked<R_RGBAQ>(data + 16);
+                                handlePacked<R_FOG>(data + 32);
+                                handlePacked<R_XYZ2>(data + 48);
+                            }
+                            ps.qwLeft -= groups * 4u;
+                            size -= groups * 64u;
+                            continue;
+                        }
+                    }
+                }
+                handlePacked(data, (uint32_t)((ps.regs >> (4 * ps.regIdx)) & 0xF));
                 if (++ps.regIdx >= ps.nreg)
                     ps.regIdx = 0;
                 ps.qwLeft--;
@@ -2169,6 +2196,8 @@ std::unique_ptr<Renderer> Renderer::create(const Config& cfg) {
     std::unique_ptr<Renderer> r(new Renderer());
     r->m_impl = std::make_unique<Impl>();
     r->m_impl->cfg = cfg;
+    const char* packedGroups = std::getenv("GSR_PACKED_VERTEX_GROUPS");
+    r->m_impl->packedVertexGroups = !packedGroups || packedGroups[0] != '0';
     r->m_impl->joinOn = runtimeFlags().terrainBatching.value_or(cfg.terrainBatching);
     if (const char* t = std::getenv("GSR_TERRAIN_BATCHING_TOGGLE"); t && std::atof(t) > 0)
         r->m_impl->joinToggle = true;
@@ -2226,7 +2255,10 @@ void Renderer::submitGifPacket(GifPath path, const uint8_t* data, uint32_t sizeB
     std::lock_guard<std::recursive_mutex> lk(m_impl->mtx);
     if (!data)
         return;
-    m_impl->gifSubmit((uint32_t)path % 3, data, sizeBytes);
+    if (m_impl->packedVertexGroups)
+        m_impl->gifSubmit<true>((uint32_t)path % 3, data, sizeBytes);
+    else
+        m_impl->gifSubmit<false>((uint32_t)path % 3, data, sizeBytes);
 }
 
 void Renderer::writeRegister(uint8_t regAddr, uint64_t value) {
