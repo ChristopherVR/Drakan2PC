@@ -215,6 +215,26 @@ class SourceTests(unittest.TestCase):
         with self.assertRaises(extras.ExtrasError):
             extras.classify_source(self.dir / "audio.bin")
 
+    def test_a_folder_holding_one_disc_image_is_that_image(self):
+        raw = bytearray(18 * 2352)
+        raw[16 * 2352 + 17 : 16 * 2352 + 22] = b"CD001"
+        rip = self.dir / "rip"
+        rip.mkdir()
+        (rip / "Drakan (Track 1).bin").write_bytes(bytes(raw))
+        (rip / "Drakan (Track 2).bin").write_bytes(bytes(40000))
+        self.assertEqual(extras.classify_source(rip), ("image", rip / "Drakan (Track 1).bin"))
+        cue = rip / "Drakan.cue"
+        cue.write_text('FILE "Drakan (Track 1).bin" BINARY\n  TRACK 01 MODE1/2352\n', encoding="utf-8")
+        self.assertEqual(extras.classify_source(rip), ("image", cue))
+        iso_folder = self.dir / "iso"
+        iso_folder.mkdir()
+        iso = make_iso(iso_folder / "DRAKAN.ISO")
+        self.assertEqual(extras.classify_source(iso_folder), ("image", iso))
+        make_iso(iso_folder / "other.iso")
+        with self.assertRaises(extras.ExtrasError) as caught:
+            extras.classify_source(iso_folder)
+        self.assertIn("more than one disc image", str(caught.exception))
+
     def test_deep_check_reads_the_cabinet_and_names_the_problem(self):
         disc = self.dir / "disc.iso"
         make_iso(disc)

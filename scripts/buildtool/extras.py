@@ -405,9 +405,38 @@ def sniff_iso(path: Path) -> bool:
 
 SOURCE_HELP = (
     "Choose the folder Drakan: Order of the Flame is installed in (it holds Dragon.rrc and the 'Mountain World' folder), "
-    "a copy of its disc (SETUP/DATA1.CAB), its disc image (.mdx, .iso, or a .cue with its .bin tracks), or a .zip that "
-    "holds one of those."
+    "a copy of its disc (SETUP/DATA1.CAB), its disc image (.mdx, .iso, or a .cue with its .bin tracks) or the folder "
+    "holding it, or a .zip that holds one of those."
 )
+
+
+def image_in_folder(folder: Path) -> Path | None:
+    """The one disc image directly in a folder (the folder a .bin / .cue rip or an .iso was saved to), else None.
+
+    A .cue sheet is preferred over its .bin tracks; a folder of only .bin files is used when exactly one holds data.
+    """
+    try:
+        files = sorted(entry for entry in folder.iterdir() if entry.is_file())
+    except OSError:
+        return None
+    images = [f for f in files if f.suffix.lower() in (".mdx", ".iso")]
+    cues = [f for f in files if f.suffix.lower() == ".cue"]
+    if len(images) + len(cues) > 1:
+        names = ", ".join(f.name for f in images + cues)
+        raise ExtrasError(f"{folder} holds more than one disc image ({names}). Choose the one to use.")
+    if images or cues:
+        return (images + cues)[0]
+    data_bins = []
+    for f in files:
+        if f.suffix.lower() == ".bin":
+            try:
+                with open(f, "rb") as stream:
+                    head = stream.read(18 * 2352)
+            except OSError:
+                continue
+            if ootf_cab().sniff_skip(head) is not None:
+                data_bins.append(f)
+    return data_bins[0] if len(data_bins) == 1 else None
 
 
 def classify_source(path: str | Path) -> tuple[str, Path]:
@@ -420,6 +449,9 @@ def classify_source(path: str | Path) -> tuple[str, Path]:
         cab = ootf_cab().find_cab_file(source)
         if cab:
             return "disc-folder", cab
+        image = image_in_folder(source)
+        if image:
+            return classify_source(image)
         raise ExtrasError(f"{source} is not a Drakan: Order of the Flame install or disc. {SOURCE_HELP}")
     if not source.is_file():
         raise ExtrasError(f"Drakan 1 source not found: {source}")

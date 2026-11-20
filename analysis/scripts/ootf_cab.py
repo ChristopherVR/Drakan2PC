@@ -137,12 +137,25 @@ def inflate_blocks(data: bytes, off: int, comp: int, expanded: int) -> bytes:
     return bytes(out)
 
 
+# Windows device names, reserved in every folder and with any extension ("nul.txt" is NUL too). Checked by hand because
+# PureWindowsPath.is_reserved() is gone in Python 3.15 and os.path.isreserved() exists only on Windows.
+WINDOWS_DEVICES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"{dev}{n}" for dev in ("COM", "LPT") for n in (*"123456789", "¹", "²", "³")}
+)
+
+
+def is_reserved_windows_name(part: str) -> bool:
+    """True for a path part Windows maps to a device: CON, NUL.txt, com1, LPT¹ and so on, any case."""
+    return part.split(".", 1)[0].rstrip(" ").upper() in WINDOWS_DEVICES
+
+
 def output_path(root: Path, dirname: str, name: str) -> Path:
     """Validate Windows cabinet names on every host, including existing symlink escapes."""
     path = PureWindowsPath(dirname) / PureWindowsPath(name)
     if not name or path.drive or path.root or any(p in (".", "..") or ":" in p for p in path.parts):
         raise ValueError("unsafe cabinet output path")
-    if any(p.endswith((".", " ")) or PureWindowsPath(p).is_reserved() for p in path.parts):
+    if any(p.endswith((".", " ")) or is_reserved_windows_name(p) for p in path.parts):
         raise ValueError("unsafe Windows output name")
     dest = root.joinpath(*path.parts)
     if not dest.resolve().is_relative_to(root.resolve()):

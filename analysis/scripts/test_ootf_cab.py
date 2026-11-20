@@ -54,11 +54,25 @@ class CabinetTests(unittest.TestCase):
 
     def test_rejects_traversal_drives_and_windows_special_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
-            for name in ("../bad", "..\\bad", "C:\\bad", "/bad", "file:stream", "CON", "bad."):
+            for name in (
+                "../bad",
+                "..\\bad",
+                "C:\\bad",
+                "/bad",
+                "file:stream",
+                "CON",
+                "nul.txt",
+                "com1",
+                "LPT9.cab",
+                "bad.",
+            ):
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     output_path(Path(tmp), "Data", name)
             with self.assertRaises(ValueError):
                 extract_cab(cabinet(directory="../outside"), Path(tmp))
+            for name in ("CONSOLE.dat", "COM10", "lpt", "nul_file.txt"):
+                with self.subTest(name=name):
+                    self.assertEqual(output_path(Path(tmp), "Data", name).name, name)
 
     def test_rejects_bad_descriptors_and_truncations(self):
         data = cabinet()
