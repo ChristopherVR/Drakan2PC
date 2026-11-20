@@ -495,8 +495,10 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
   the job on any threat. After publishing, `release-scan.yml` sends every `.exe` and `.zip` of the release to VirusTotal
   (`scripts/buildtool/virustotal_scan.py`; a file VirusTotal already knows by SHA-256 is not re-uploaded) and replaces
   the "VirusTotal scan" section at the end of the release notes with each file's verdict and report link. It needs the
-  `VT_API_KEY` repository secret (a free virustotal.com key) and skips with a warning without it. A detection fails that
-  job but leaves the release up; check the report and send a false-positive report to the vendor. Run "Release scan"
+  `VT_API_KEY` repository secret (a free virustotal.com key) and skips with a warning without it. A detection is a
+  warning annotation on the run, never a failure: machine-learning engines flag the unsigned NSIS installers at 1-2 of
+  ~70 (the same apps zipped are clean), which only code signing would stop. Check the report and send the vendor a
+  false-positive report. An editor-only refresh warns only about the editor files (`gate` input). Run "Release scan"
   manually to rescan a release.
 - **Antivirus heuristics**: the builder kit leaves out every `.ps1` outside `scripts/buildtool/` (developer harnesses,
   profilers, test runners; `package_builder_kit.excluded`), and `scripts/tests/test_kit_antivirus_patterns.py` fails

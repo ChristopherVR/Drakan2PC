@@ -6,7 +6,7 @@ Usage (release-scan.yml):
 Needs VT_API_KEY (a free virustotal.com key). Each file is looked up by SHA-256 first; only a file VirusTotal has never
 seen is uploaded. Every result links to the file's permanent report page, so a player can compare the hash of their own
 download with the one VirusTotal scanned. A file whose analysis did not finish, or that could not be sent, is listed as
-such: it is never reported as clean. Writes vt_detected.txt ("true"/"false") for the workflow's final gate.
+such: it is never reported as clean. A flagged file is raised as a GitHub warning annotation; the exit code stays 0.
 """
 
 from __future__ import annotations
@@ -181,7 +181,7 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--gate",
         action="append",
-        help="only a flagged file matching this glob counts as a detection (repeatable; default: every file). "
+        help="only a flagged file matching this glob is raised as a warning (repeatable; default: every file). "
         "Every file is still listed in the notes.",
     )
     args = parser.parse_args(argv)
@@ -192,8 +192,7 @@ def main(argv=None) -> int:
     args.output.write_text(replace_section(args.body.read_text(encoding="utf-8"), text), encoding="utf-8")
     flagged = gated_detections(rows, args.gate or ["*"])
     for name in flagged:
-        print(f"::error::VirusTotal engines flagged {name}.")
-    Path("vt_detected.txt").write_text("true" if flagged else "false", encoding="utf-8")
+        print(f"::warning::VirusTotal engines flagged {name}; see its report link in the release notes.")
     return 0
 
 

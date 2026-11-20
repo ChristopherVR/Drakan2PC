@@ -9,8 +9,9 @@ name: Release scan
 #  - A manual run rescans a given release.
 #
 # Needs the VT_API_KEY secret (a free virustotal.com API key). Without it the job warns and skips, so a release still
-# ships. The release is already public when this runs: a detection fails this job as a signal to look (and to report a
-# false positive to the vendor) but never removes the release. Windows Defender gates the publish itself (release.yml).
+# ships. The release is already public when this runs, so a detection is a warning on the run (and a verdict in the
+# notes), never a failure: machine-learning engines routinely flag unsigned installers (1-2 of ~70) with no fix short of
+# code signing. Report those to the vendor as false positives. Windows Defender gates the publish itself (release.yml).
 on:
   workflow_call:
     inputs:
@@ -21,8 +22,8 @@ on:
         default: ''
       gate:
         description: >-
-          Space-separated globs of the files this run is answerable for; only a detection in one of them fails the
-          job (every file is still listed in the notes). Empty = every file.
+          Space-separated globs of the files this run is answerable for; only a detection in one of them is raised as
+          a warning on the run (every file is still listed in the notes). Empty = every file.
         type: string
         required: false
         default: ''
@@ -90,10 +91,3 @@ jobs:
           python3 scripts/buildtool/virustotal_scan.py --body body.md --output body.new.md "${gate_args[@]}" dist/*
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file body.new.md
           cat body.new.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Fail on a detection
-        if: steps.gate.outputs.enabled == 'true'
-        run: |
-          if [ "$(cat vt_detected.txt 2>/dev/null)" = true ]; then
-            echo '::error::VirusTotal engines flagged a file this run published. See the VirusTotal section of the release notes.'
-            exit 1
-          fi
