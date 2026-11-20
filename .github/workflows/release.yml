@@ -77,6 +77,11 @@ jobs:
           Copy-Item (Get-ChildItem build/release -Filter 'DrakanPC-Builder-*.zip' | Select-Object -First 1).FullName (Join-Path $out 'DrakanPC-Builder.zip')
           Get-ChildItem $out -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
             Set-Content -Encoding ascii (Join-Path $out 'SHA256SUMS.txt')
+      # Gate: nothing Windows Defender flags is published. The multi-engine VirusTotal scan runs after publishing
+      # (release-scan.yml) and reports into the release notes.
+      - name: Gate - Windows Defender finds nothing in the release files
+        shell: pwsh
+        run: ./scripts/buildtool/Scan-ReleaseDefender.ps1 -Targets build/publish
       - name: Write the release notes
         shell: pwsh
         run: |
@@ -118,5 +123,17 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/editor-release.yml
+    with:
+      tag: ${{ github.event.inputs.tag || github.ref_name }}
+
+  # VirusTotal verdicts for every download, appended to the release notes. Runs even when the editor job failed, so
+  # the game files are still scanned.
+  scan:
+    needs: [installer, editor]
+    if: ${{ !cancelled() && needs.installer.result == 'success' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-scan.yml
+    secrets: inherit
     with:
       tag: ${{ github.event.inputs.tag || github.ref_name }}

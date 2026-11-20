@@ -39,6 +39,8 @@ jobs:
     name: Build the editor apps and attach them to the Drakan PC release
     runs-on: windows-2022
     timeout-minutes: 75
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
     if: github.repository == 'ChristopherVR/Drakan2PC'
     # One refresh per release at a time; the newest request for a release replaces a queued older one.
     concurrency:
@@ -58,6 +60,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Pick the Drakan PC release
+        id: pick
         run: |
           $tag = $env:REQUESTED_TAG
           if (-not $tag) {
@@ -68,6 +71,7 @@ jobs:
           }
           if (-not $tag) { Write-Warning 'No v* release exists yet; the editor is built and tested but not published.' }
           "TAG=$tag" >> $env:GITHUB_ENV
+          "tag=$tag" >> $env:GITHUB_OUTPUT
           # The version is the commit count, so it only ever grows and the installer upgrades older ones.
           $count = (git rev-list --count HEAD).Trim()
           "VERSION=0.1.$count" >> $env:GITHUB_ENV
@@ -120,6 +124,8 @@ jobs:
           Get-ChildItem $bundle -Filter '*.exe' | Move-Item -Destination "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-Setup.exe"
           Compress-Archive -Path 'src-tauri/target/release/drakan-save-editor.exe' `
             -DestinationPath "$env:GITHUB_WORKSPACE/out/DrakanSaveEditor-Portable.zip"
+      - name: Gate - Windows Defender finds nothing in the editor builds
+        run: ./scripts/buildtool/Scan-ReleaseDefender.ps1 -Targets "$env:GITHUB_WORKSPACE/out"
       - name: Attach the editor to the release
         if: env.TAG != ''
         run: |
@@ -140,3 +146,15 @@ jobs:
           gh release upload $env:TAG @($keep | ForEach-Object { "$out/$_" }) --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Upload failed' }
           Write-Host "Attached the editor $env:VERSION to $env:TAG"
+
+  # A standalone refresh replaced assets on the release, so rescan it. When release.yml calls this workflow
+  # (github.workflow is then the caller's name), release.yml runs the scan itself after both jobs.
+  scan:
+    needs: build
+    if: github.workflow == 'Editor assets' && needs.build.outputs.tag != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-scan.yml
+    secrets: inherit
+    with:
+      tag: ${{ needs.build.outputs.tag }}

@@ -480,6 +480,14 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
   A tree that does not compile therefore never becomes a Setup. `pre-push` (`repository_guard.py`) also refuses a push
   while tracked files under `ps2recomp/`, `runtime/`, `cmake/` or the CMake roots differ from `HEAD`
   (`DRAKAN_ALLOW_DIRTY_PUSH=1` overrides), because local builds would then pass on code the commit lacks.
+- **Malware scans**: `scripts/buildtool/Scan-ReleaseDefender.ps1` scans the game files (in `release.yml`) and the editor
+  builds (in `editor-release.yml`) with freshly updated Windows Defender signatures before they are uploaded, and fails
+  the job on any threat. After publishing, `release-scan.yml` sends every `.exe` and `.zip` of the release to VirusTotal
+  (`scripts/buildtool/virustotal_scan.py`; a file VirusTotal already knows by SHA-256 is not re-uploaded) and replaces
+  the "VirusTotal scan" section at the end of the release notes with each file's verdict and report link. It needs the
+  `VT_API_KEY` repository secret (a free virustotal.com key) and skips with a warning without it. A detection fails that
+  job but leaves the release up; check the report and send a false-positive report to the vendor. Run "Release scan"
+  manually to rescan a release.
 - **Editor changes between game releases**: a push to `main` touching `editor/**` rebuilds the apps and replaces the
   four editor assets on the newest `v*` release (`gh release upload --clobber`, fixed file names, so nothing stale
   remains). "Newest" means the most recently created published `v*` release; `site-media-*` and legacy `editor-b*` are

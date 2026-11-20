@@ -1,0 +1,87 @@
+name: Release scan
+
+# Scans every download of a Drakan PC release (the Setup and builder zip, the editor and save editor builds) with
+# VirusTotal and appends the per-file verdicts and report links to the release notes as a "VirusTotal scan" section.
+# A rerun replaces that section instead of stacking copies.
+#
+#  - release.yml calls this after the game and editor assets are attached.
+#  - editor-release.yml calls this after a standalone editor refresh replaced assets on the newest release.
+#  - A manual run rescans a given release.
+#
+# Needs the VT_API_KEY secret (a free virustotal.com API key). Without it the job warns and skips, so a release still
+# ships. The release is already public when this runs: a detection fails this job as a signal to look (and to report a
+# false positive to the vendor) but never removes the release. Windows Defender gates the publish itself (release.yml).
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release to scan (empty = the newest v* release)
+        type: string
+        required: false
+        default: ''
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to scan (empty = the newest v* release)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  virustotal:
+    runs-on: ubuntu-24.04
+    # Large uploads plus the free API's four requests a minute; a full release takes about 10 to 40 minutes.
+    timeout-minutes: 90
+    concurrency:
+      group: release-scan
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test the verdict reporting
+        run: python3 -m unittest scripts/tests/test_virustotal_scan.py -v
+      - name: Check for the VirusTotal API key
+        id: gate
+        run: |
+          if [ -n "$VT_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::VT_API_KEY secret not set; skipping the VirusTotal scan."
+          fi
+      - name: Download the release files
+        if: steps.gate.outputs.enabled == 'true'
+        id: files
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="$TAG"
+          if [ -z "$tag" ]; then
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 50 \
+              --json tagName --jq '[.[].tagName | select(test("^v[0-9]"))][0]')
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir dist --pattern '*.exe' --pattern '*.zip'
+          ls -l dist
+      - name: Scan with VirusTotal and update the release notes
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          TAG: ${{ steps.files.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' > body.md
+          python3 scripts/buildtool/virustotal_scan.py --body body.md --output body.new.md dist/*
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file body.new.md
+          cat body.new.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail on a detection
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          if [ "$(cat vt_detected.txt 2>/dev/null)" = true ]; then
+            echo '::error::VirusTotal engines flagged a release file. See the VirusTotal section of the release notes.'
+            exit 1
+          fi
