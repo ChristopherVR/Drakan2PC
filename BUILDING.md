@@ -148,9 +148,11 @@ when "Start the game when the build has finished" is ticked).
 
 `Build-Drakan.cmd` runs `scripts/buildtool/Build-Drakan.ps1` with the bundled PowerShell (else `pwsh` on PATH). It
 checks Python (bundled, else 3.11+ on PATH), Git (only when the kit lacks the bundled sources) and disk space, and when
-no VS 2022 instance has the C++ x64 tools and CMake it downloads `vs_BuildTools.exe` from Microsoft, checks its
-Authenticode signature and installs the VCTools workload with `--passive` (one UAC prompt); that instance is then
-forced through `CMAKE_GENERATOR_INSTANCE`. It sizes `-CompilerProcesses` (2 GB budget each; measured 1.3 GB on the
+no VS 2022 instance has the C++ x64 tools and CMake it installs the VCTools workload with `--passive` (one UAC
+prompt): through the Visual Studio Installer already on the PC when VS 2022 Build Tools exist, else with
+`winget install Microsoft.VisualStudio.2022.BuildTools --override ...`; without winget it stops and links the Build
+Tools page. It never downloads and starts an installer itself, because that pattern makes antivirus heuristics flag
+the kit (issue #14). That instance is then forced through `CMAKE_GENERATOR_INSTANCE`. It sizes `-CompilerProcesses` (2 GB budget each; measured 1.3 GB on the
 largest generated files and 1.9 GB on a VU1 AOT slice, whose blocks compile in chunks of 8 pairs) and `-Jobs` (2 only
 with room for both sets plus 6 GB) from the installed memory. `-VuBlocks Whole` (installer option "Compile the VU1
 microcode as whole blocks", `/VUBLOCKS=whole`; remembered in `build/build-options.json`) passes `Build-LocalGame.ps1
@@ -488,6 +490,10 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
   `VT_API_KEY` repository secret (a free virustotal.com key) and skips with a warning without it. A detection fails that
   job but leaves the release up; check the report and send a false-positive report to the vendor. Run "Release scan"
   manually to rescan a release.
+- **Antivirus heuristics**: the builder kit leaves out every `.ps1` outside `scripts/buildtool/` (developer harnesses,
+  profilers, test runners; `package_builder_kit.excluded`), and `scripts/tests/test_kit_antivirus_patterns.py` fails
+  when a shipped script contains a downloader pattern (`Invoke-WebRequest`, `.DownloadFile(`, `-EncodedCommand`, a
+  hidden-window launch and similar). The standing antivirus note for players is in `kit/RELEASE-NOTES.md`.
 - **Editor changes between game releases**: a push to `main` touching `editor/**` rebuilds the apps and replaces the
   four editor assets on the newest `v*` release (`gh release upload --clobber`, fixed file names, so nothing stale
   remains). "Newest" means the most recently created published `v*` release; `site-media-*` and legacy `editor-b*` are

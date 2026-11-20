@@ -29,16 +29,20 @@ This was not verified per file (no VirusTotal key locally), so which file each e
 
 ## What changed
 
-- `release.yml` and `editor-release.yml` scan the files with Windows Defender before upload
-  (`scripts/buildtool/Scan-ReleaseDefender.ps1`) and fail on a threat.
-- `release-scan.yml` posts VirusTotal verdicts and report links into the release notes (`VT_API_KEY` secret).
-- README "Antivirus warnings" explains the false positive and how to verify a download.
+- Defender gate before upload (`Scan-ReleaseDefender.ps1`) and VirusTotal verdicts in the release notes
+  (`release-scan.yml`, `VT_API_KEY` secret).
+- `Build-Drakan.ps1` installs the Build Tools with winget (or the existing Visual Studio Installer for a modify) instead
+  of `Invoke-WebRequest` + `Start-Process` of `vs_BuildTools.exe`.
+- `extras.py` no longer builds a PowerShell `Invoke-WebRequest` command line as a download fallback; `curl.exe` only.
+- The kit leaves out every `.ps1` outside `scripts/buildtool/`; `test_build_job.py` no longer launches with a hidden
+  window. `test_kit_antivirus_patterns.py` keeps these patterns out of shipped scripts.
+- The player-facing antivirus note is in the release notes (`kit/RELEASE-NOTES.md`), not the README.
+
+What remains: `Build-Drakan.cmd` still runs PowerShell with `-ExecutionPolicy Bypass` (scripts unpacked from a
+downloaded zip carry the web mark and would not run otherwise), and nothing is code-signed. Whether the detections clear
+can only be confirmed by the VirusTotal section of the next release.
 
 ## Options not taken yet
 
-- Leave `scripts/harness/`, `scripts/perf/`, `scripts/tests/` and `analysis/` out of the player kit (needs a check that
-  the `runtime-check` gate and the build do not read them).
-- Install the Build Tools with `winget install Microsoft.VisualStudio.2022.BuildTools --override ...` instead of
-  downloading and starting the bootstrapper ourselves.
 - Authenticode-sign the Setup and scripts (removes most of the reputation problem; needs a certificate).
 - Submit the release files as false positives to Microsoft (wdsi/filesubmission), Avast/AVG and WithSecure.

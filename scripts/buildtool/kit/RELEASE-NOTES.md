@@ -12,4 +12,11 @@ the first time). No game files are included or downloaded.
 - Browser version: tick it in the installer (needs WSL with Ubuntu), then play it with `Play-Browser.cmd` or on the
   [browser player page](https://christophervr.github.io/Drakan2PC/).
 
+**Antivirus warnings.** The downloads are not code-signed and the builder installs Microsoft's C++ Build Tools, so an
+antivirus engine (or Windows Defender's cloud check of a brand-new file) can occasionally flag them as a generic
+trojan. Windows Defender scans every file before it is published, and the VirusTotal section below links the full
+multi-engine report of each file. To check your copy, compare `Get-FileHash .\DrakanPC-Builder.zip` with
+`SHA256SUMS.txt`. If your scanner still blocks a file whose checksum matches, report it to that vendor as a false
+positive and [open an issue](https://github.com/ChristopherVR/Drakan2PC/issues) with the detection name.
+
 See the [README](https://github.com/ChristopherVR/Drakan2PC#readme) for requirements, controls and the legal notice.

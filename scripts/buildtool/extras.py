@@ -269,23 +269,17 @@ def sha256_of(path: Path) -> str:
 
 
 def fetch_with_system_tools(url: str, destination: Path) -> bool:
-    """curl.exe (Windows 10 and later) or PowerShell, which use Windows' own certificate handling. Python's TLS stack
+    """curl.exe (part of Windows 10 1803 and later), which uses Windows' own certificate handling. Python's TLS stack
     can fail on a server chain that Windows completes itself ("unable to get issuer certificate"). The caller still
-    checks the SHA-256, so the transport is not trusted for content."""
-    attempts = []
+    checks the SHA-256, so the transport is not trusted for content. No PowerShell download command line is built here:
+    antivirus heuristics treat one in a downloaded kit as a trojan downloader."""
     curl = shutil.which("curl.exe") or shutil.which("curl")
-    if curl:
-        attempts.append([curl, "-L", "--fail", "--silent", "--show-error", "--output", str(destination), url])
-    shell = shutil.which("pwsh") or shutil.which("powershell")
-    if shell:
-        command = (
-            f"$ProgressPreference='Continue'; Invoke-WebRequest -UseBasicParsing -Uri '{url}' -OutFile '{destination}'"
-        )
-        attempts.append([shell, "-NoProfile", "-Command", command])
-    for command in attempts:
-        if subprocess.run(command, check=False).returncode == 0 and destination.is_file():
-            return True
-        destination.unlink(missing_ok=True)
+    if not curl:
+        return False
+    command = [curl, "-L", "--fail", "--silent", "--show-error", "--output", str(destination), url]
+    if subprocess.run(command, check=False).returncode == 0 and destination.is_file():
+        return True
+    destination.unlink(missing_ok=True)
     return False
 
 

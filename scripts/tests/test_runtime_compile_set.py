@@ -80,7 +80,7 @@ class RuntimeCompileSetTests(unittest.TestCase):
             "CMakePresets.json",
             f"{RUNTIME}/CMakeLists.txt",
         ]
-        dropped = [p for p in needed if p.startswith(kit.EXCLUDED_PREFIXES) or p in kit.EXCLUDED_FILES]
+        dropped = [p for p in needed if kit.excluded(p)]
         self.assertEqual(dropped, [], "the builder kit would leave out files the game build needs")
 
     def test_ci_runs_the_check_and_the_release_waits_for_it(self):

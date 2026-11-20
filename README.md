@@ -118,15 +118,6 @@ Details in [Install on Windows](docs/guides/install.md#before-you-start). The ga
 leave it where it is. "Rebuild Drakan" in the Start menu continues an
 interrupted build and keeps your saves and settings.
 
-**Antivirus warnings.** The Setup and `DrakanPC-Builder.zip` are not code-signed, and the builder runs PowerShell
-scripts that download Microsoft's C++ Build Tools installer, the same pattern some malware uses. A few antivirus
-engines (and occasionally Windows Defender's cloud check of a fresh download) therefore flag them as a generic
-trojan. Every release is scanned by Windows Defender before it is published, and each release's notes end with a
-VirusTotal section linking the full multi-engine report for every file. To check your copy, compare its SHA-256
-(`Get-FileHash .\DrakanPC-Builder.zip`) with `SHA256SUMS.txt` and the VirusTotal link. If your scanner still blocks a
-file with matching checksums, please report it as a false positive to that vendor and
-[open an issue](https://github.com/ChristopherVR/Drakan2PC/issues) with the detection name.
-
 ### Linux
 
 On x86-64 Ubuntu 22.04+ or Debian, clone this repository and run the ISO bootstrap from its root:

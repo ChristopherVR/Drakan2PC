@@ -28,7 +28,8 @@ class BuildJobTests(unittest.TestCase):
         command = (
             f". '{JOB}'; $in = Enter-BuildJob; "
             "if (-not $in) { 'NOJOB'; exit 0 }; "
-            "$child = Start-Process -FilePath ping.exe -ArgumentList '-n','120','127.0.0.1' -PassThru -WindowStyle Hidden; "
+            "$child = Start-Process -FilePath ping.exe -ArgumentList '-n','120','127.0.0.1' -PassThru -NoNewWindow "
+            "-RedirectStandardOutput ([IO.Path]::GetTempFileName()); "
             f"'PID=' + $child.Id; {script}; Start-Sleep -Seconds 120"
         )
         builder = subprocess.Popen([PWSH, "-NoProfile", "-Command", command], stdout=subprocess.PIPE, text=True)

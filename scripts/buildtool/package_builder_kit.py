@@ -30,6 +30,18 @@ KIT = HERE / "kit"
 # Developer-only material the build never reads.
 EXCLUDED_PREFIXES = ("docs/journal/", "scripts/archive/", ".github/", ".githooks/")
 EXCLUDED_FILES = {"AGENTS.md", "CLAUDE.md"}
+# The player build only runs the PowerShell under scripts/buildtool/. The other .ps1 files are developer harnesses
+# (hidden game runs, profilers, test runners); left out because antivirus heuristics score them in a downloaded kit.
+BUILDER_POWERSHELL = "scripts/buildtool/"
+
+
+def excluded(name):
+    """True for repository files the builder kit leaves out."""
+    if name.startswith(EXCLUDED_PREFIXES) or name in EXCLUDED_FILES:
+        return True
+    return name.endswith(".ps1") and not name.startswith(BUILDER_POWERSHELL)
+
+
 # Files placed at the kit root, next to BUILDING.md.
 KIT_ROOT_FILES = {"Build-Drakan.cmd": KIT / "Build-Drakan.cmd", "README.txt": KIT / "README.txt"}
 INSTALLER_ROOT_FILES = {"SETUP-INFO.txt": KIT / "SETUP-INFO.txt"}
@@ -83,7 +95,7 @@ def snapshot(revision):
 def select(entries, guard):
     kept, blocked = {}, []
     for name, data in entries:
-        if name.startswith(EXCLUDED_PREFIXES) or name in EXCLUDED_FILES:
+        if excluded(name):
             continue
         why = guard.reason(name, data)
         if why:

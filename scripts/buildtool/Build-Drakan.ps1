@@ -72,7 +72,7 @@ $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
 $problems = [Collections.Generic.List[string]]::new()
-$buildToolsUrl = 'https://aka.ms/vs/17/release/vs_BuildTools.exe'
+$buildToolsPage = 'https://visualstudio.microsoft.com/visual-cpp-build-tools/'
 $webPlayerUrl = 'https://christophervr.github.io/Drakan2PC/'
 $vsComponents = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Component.VC.CMake.Project'
 
@@ -101,32 +101,36 @@ function Find-VisualStudio {
 }
 
 function Install-BuildTools {
-    $vswhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
-    $existing = if (Test-Path -LiteralPath $vswhere) {
-        & $vswhere -products 'Microsoft.VisualStudio.Product.BuildTools' -version '[17.0,18.0)' -property installationPath
+    # Installed through winget, or the Visual Studio Installer already on the PC for a modify: the builder never
+    # downloads and starts an installer itself (that pattern makes antivirus heuristics flag the kit as a downloader).
+    $vsArguments = @('--passive', '--wait', '--norestart', '--add', 'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended')
+    foreach ($component in $vsComponents) { $vsArguments += @('--add', $component) }
+    $installerDir = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer"
+    $existing = if (Test-Path -LiteralPath "$installerDir/vswhere.exe") {
+        & "$installerDir/vswhere.exe" -products 'Microsoft.VisualStudio.Product.BuildTools' -version '[17.0,18.0)' -property installationPath
     }
-    $bootstrapper = Join-Path ([IO.Path]::GetTempPath()) 'drakan_vs_BuildTools.exe'
-    Write-Host "Downloading the Visual Studio 2022 Build Tools installer from Microsoft ..."
-    Invoke-WebRequest -Uri $buildToolsUrl -OutFile $bootstrapper -UseBasicParsing
-    $signature = Get-AuthenticodeSignature -LiteralPath $bootstrapper
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-        throw "The downloaded Build Tools installer is not signed by Microsoft ($($signature.Status)); not running it."
-    }
-    $arguments = @()
-    if ($existing) { $arguments += @('modify', '--installPath', "`"$(@($existing)[0])`"") }
-    $arguments += @('--passive', '--wait', '--norestart', '--nocache', '--add', 'Microsoft.VisualStudio.Workload.VCTools', '--includeRecommended')
-    foreach ($component in $vsComponents) { $arguments += @('--add', $component) }
     Write-Host 'Installing the C++ Build Tools (about 3 GB). Windows asks for permission; the installer shows its progress.'
-    $process = Start-Process -FilePath $bootstrapper -ArgumentList $arguments -Wait -PassThru
-    Remove-Item -LiteralPath $bootstrapper -ErrorAction SilentlyContinue
-    switch ($process.ExitCode) {
+    if ($existing -and (Test-Path -LiteralPath "$installerDir/setup.exe")) {
+        $arguments = @('modify', '--installPath', "`"$(@($existing)[0])`"") + $vsArguments
+        $code = (Start-Process -FilePath "$installerDir/setup.exe" -ArgumentList $arguments -Wait -PassThru).ExitCode
+    } elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+        & winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --source winget `
+            --accept-package-agreements --accept-source-agreements --override ($vsArguments -join ' ')
+        $code = $LASTEXITCODE
+    } else {
+        throw ("winget is not available to install Microsoft's C++ Build Tools. Install 'App Installer' from the " +
+            "Microsoft Store, or install Visual Studio 2022 Build Tools with 'Desktop development with C++' from " +
+            "$buildToolsPage, then run the build again.")
+    }
+    switch ($code) {
         0 { }
         3010 { Write-Warning 'The Build Tools ask for a restart. The build continues; restart Windows afterwards if it fails.' }
+        # winget: APPINSTALLER_CLI_ERROR_INSTALL_REBOOT_REQUIRED_TO_FINISH / _FOR_INSTALL
+        { $_ -in -1978334967, -1978334966 } { Write-Warning 'The Build Tools ask for a restart. The build continues; restart Windows afterwards if it fails.' }
         1602 { throw 'The Build Tools installation was cancelled.' }
-        default { throw "The Build Tools installer failed (exit code $($process.ExitCode))." }
+        default { throw ('The Build Tools installation failed (exit code 0x{0:X8}).' -f $code) }
     }
 }
-
 Start-Transcript -LiteralPath (Join-Path $RepoRoot 'build-log.txt') -Force | Out-Null
 try {
     Write-Step 'Checking what the build needs'

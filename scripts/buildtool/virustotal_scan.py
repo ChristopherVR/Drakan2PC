@@ -146,11 +146,7 @@ def scan(files: list[Path], client: Client, timeout: float = 3000) -> tuple[list
 def section(rows: list[tuple[str, str, str]]) -> str:
     lines = [SECTION, "", "Automated multi-engine scan of the downloads above:", ""]
     lines += [f"- [`{name}`]({url}): {verdict}" for name, url, verdict in rows]
-    lines += [
-        "",
-        "The builder is unsigned and starts PowerShell scripts that download Microsoft's C++ Build Tools, so a few",
-        "engines can flag it with a generic heuristic. See the README's antivirus section if your scanner blocks it.",
-    ]
+
     return "\n".join(lines) + "\n"
 
 
