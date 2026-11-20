@@ -31,7 +31,10 @@ export class VendorPrices {
         Promise<{ reader: SrscReader; classes: Awaited<ReturnType<typeof parseOdbClasses>> } | null>
     >();
 
-    constructor(private host: VendorHost | null = null) {}
+    private host: VendorHost | null;
+    constructor(host: VendorHost | null = null) {
+        this.host = host;
+    }
 
     setHost(h: VendorHost | null): void {
         this.host = h;

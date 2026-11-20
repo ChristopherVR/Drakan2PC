@@ -149,10 +149,11 @@ export class TourRunner {
     private readonly pollMs: number;
     private readonly hintMs: number;
 
-    constructor(
-        readonly tour: Tour,
-        private readonly opts: RunnerOptions = {},
-    ) {
+    readonly tour: Tour;
+    private readonly opts: RunnerOptions;
+    constructor(tour: Tour, opts: RunnerOptions = {}) {
+        this.tour = tour;
+        this.opts = opts;
         this.clock = opts.clock ?? realClock;
         this.pollMs = opts.pollMs ?? 250;
         this.hintMs = opts.hintMs ?? 12000;
@@ -312,10 +313,11 @@ export function parseProgress(raw: string | null): TourProgressData {
 export class TourProgress {
     private data: TourProgressData;
 
-    constructor(
-        private readonly kv: KeyValue | null,
-        private readonly now: () => number = Date.now,
-    ) {
+    private readonly kv: KeyValue | null;
+    private readonly now: () => number;
+    constructor(kv: KeyValue | null, now: () => number = Date.now) {
+        this.kv = kv;
+        this.now = now;
         let raw: string | null = null;
         try {
             raw = kv?.getItem(PROGRESS_KEY) ?? null;

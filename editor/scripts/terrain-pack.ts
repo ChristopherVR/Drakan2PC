@@ -1,7 +1,7 @@
 // Build a mod pack that edits the terrain of a disc level with the editor's terrain writer (rebuildPs2Terrain): a hill, a
 // repainted patch or an extended layer edge. Dev tool for the in-game proof (docs/journal/2026-11-02/terrain-editing-write.md).
 //
-//   node --experimental-transform-types --no-warnings editor/scripts/terrain-pack.ts --iso <game.iso> --out <mods dir> \
+//   node --no-warnings editor/scripts/terrain-pack.ts --iso <game.iso> --out <mods dir> \
 //        [--level LEVEL1NA] [--id terrain.proof] [--at "x z"] [--hill <height>[:<radius cells>]] [--paint <cells>[:<ref hex>]]
 //        [--extend <rows>[:left|right|top|bottom]] [--new-layer <w>[:<h>[:<dy>]]] [--slots group|overlap|own] [--layer <index>] [--paint-new <ref hex>] [--info]
 //

@@ -110,7 +110,10 @@ export class ContentSession {
     private listeners = new Set<() => void>();
     private convertedIds: Record<string, { sequences: number[]; classes: number[]; texts?: number[] }> = {};
 
-    constructor(readonly host: ContentHost) {}
+    readonly host: ContentHost;
+    constructor(host: ContentHost) {
+        this.host = host;
+    }
 
     /** What the converted pack added to the open level folder (null when it added nothing here). */
     converted(): { sequences: Set<number>; classes: Set<number> } | null {

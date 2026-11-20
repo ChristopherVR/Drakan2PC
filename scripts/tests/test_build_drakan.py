@@ -139,8 +139,8 @@ class CheckOnlyTests(unittest.TestCase):
     def test_build_drakan_check_only(self):
         node = shutil.which("node")
         version = subprocess.run([node, "-p", "process.versions.node"], capture_output=True, text=True).stdout
-        if not node or tuple(int(part) for part in version.strip().split(".")[:2]) < (22, 7):
-            self.skipTest("Build-Drakan.ps1 -CheckOnly needs Node.js 22.7+ on PATH")
+        if not node or tuple(int(part) for part in version.strip().split(".")[:2]) < (22, 18):
+            self.skipTest("Build-Drakan.ps1 -CheckOnly needs Node.js 22.18+ on PATH")
         if not shutil.which("git"):
             self.skipTest("Build-Drakan.ps1 -CheckOnly needs Git on PATH outside the kit")
         with tempfile.TemporaryDirectory() as temp:

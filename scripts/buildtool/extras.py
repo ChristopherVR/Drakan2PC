@@ -695,7 +695,7 @@ def converter_command(
     subtitles: Path | None = None,
 ) -> list[str]:
     cmd = [
-        node, "--experimental-transform-types", "--no-warnings", CONVERTER,
+        node, "--no-warnings", CONVERTER,
         "--ootf", str(install), "--ps2", str(data), "--template", TEMPLATE,
         "--campaign", "1", "--id", PACK_ID, "--iso", str(iso), "--out", str(out),
     ]  # fmt: skip

@@ -1,6 +1,6 @@
 // Prove the skeleton / animation decode against a PS2 disc image. Dev tool; reads the player's ISO, prints counts only.
 //
-//   node --experimental-transform-types --no-warnings editor/scripts/anim-probe.ts <iso> [--verbose]
+//   node --no-warnings editor/scripts/anim-probe.ts <iso> [--verbose]
 //
 // For every .MOD on the disc (one language tree: the others carry the same data): every model with a 0x0208 record is
 // decoded to a rig (hierarchy, bind pose, weights) and the rest pose is skinned back onto the mesh (must reproduce the

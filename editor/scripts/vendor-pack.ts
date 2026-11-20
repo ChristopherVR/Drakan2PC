@@ -1,7 +1,7 @@
 // Build a mod pack that edits one vendor of a disc level with the editor's own vendor code (stock, quantities, modifiers,
 // item prices). Dev tool and the first step of scripts/harness/vendor_shop.py.
 //
-//   node --experimental-transform-types --no-warnings editor/scripts/vendor-pack.ts --iso <game.iso> --out <mods dir> \
+//   node --no-warnings editor/scripts/vendor-pack.ts --iso <game.iso> --out <mods dir> \
 //        [--level LEVEL1NA] [--vendor 1648] [--id vendor.proof] \
 //        [--add RESOURES:8569[:unlimited|:<count>]]... [--remove RESOURES:7869]... [--price RESOURES:7869=7]... \
 //        [--sale-mod 1.5] [--buy-mod 0.5] [--list] [--new-shop [x,y,z]]

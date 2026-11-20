@@ -66,10 +66,9 @@ class Outline {
     private readonly tint: THREE.Color;
     private animatedBoxes: LayerObject[] = [];
 
-    constructor(
-        color: number,
-        private readonly layer: ModelLayer,
-    ) {
+    private readonly layer: ModelLayer;
+    constructor(color: number, layer: ModelLayer) {
+        this.layer = layer;
         this.tint = new THREE.Color(color).multiplyScalar(0.28);
         this.boxMat = new THREE.LineBasicMaterial({ color, depthTest: false, transparent: true });
         this.boxes.renderOrder = 20;

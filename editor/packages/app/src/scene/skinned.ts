@@ -33,13 +33,17 @@ export class SkinnedModel {
     private readonly world: Float32Array;
     private readonly skin: Float32Array;
 
+    readonly model: Model;
+    readonly rig: Rig;
     constructor(
-        readonly model: Model,
-        readonly rig: Rig,
+        model: Model,
+        rig: Rig,
         lookup: TextureLookup,
         /** Materials shared by several instances of one class (default: built here). */
         shared?: THREE.Material[],
     ) {
+        this.model = model;
+        this.rig = rig;
         const { firstTri, triCount } = model.lod0;
         const order: number[] = [];
         for (let t = firstTri; t < firstTri + triCount; t++) order.push(t);
@@ -154,7 +158,10 @@ export class ClipClock {
     playing = true;
     speed = 1;
 
-    constructor(public duration = 0) {}
+    duration: number;
+    constructor(duration = 0) {
+        this.duration = duration;
+    }
 
     tick(dtSeconds: number, loops: boolean): void {
         if (!this.playing || this.duration <= 0) return;

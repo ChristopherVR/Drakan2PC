@@ -38,7 +38,7 @@ def main():
                 return
     node = shutil.which("node")
     if not node:
-        raise RuntimeError("Node.js 22.7+ is required to generate compatible character animations")
+        raise RuntimeError("Node.js 22.18+ is required to generate compatible character animations")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="character-motion-", dir=args.out.parent) as temporary:
         scratch = Path(temporary)
@@ -76,7 +76,7 @@ def main():
             json.dumps({"models": model_records, "clips": [{"id": clip} for clip in clips], "taken": taken})
         )
         subprocess.run(
-            [node, "--experimental-transform-types", str(source_files[1]), str(scratch), str(output)],
+            [node, str(source_files[1]), str(scratch), str(output)],
             cwd=root,
             check=True,
         )

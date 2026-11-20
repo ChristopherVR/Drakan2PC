@@ -33,7 +33,9 @@ export class TextureViewport {
     onHover: (info: QuadInfo | null) => void = () => {};
     onPick: (info: QuadInfo) => void = () => {};
 
-    constructor(private readonly host: HTMLElement) {
+    private readonly host: HTMLElement;
+    constructor(host: HTMLElement) {
+        this.host = host;
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         host.appendChild(this.renderer.domElement);
         this.scene.add(this.group);

@@ -933,7 +933,7 @@ libx264 and aac, the Order of the Flame pack in `mods/` and the ISO in `drakan.i
 One command after converting (campaign pack, multiplayer arenas, any pack):
 
 ```sh
-node --experimental-transform-types --no-warnings editor/scripts/ootf-convert.ts ... --out <pack.zip> --hd [--hd-out <dir>]
+node --no-warnings editor/scripts/ootf-convert.ts ... --out <pack.zip> --hd [--hd-out <dir>]
 # or on existing packs, any number at once:
 python -I analysis/scripts/ootf_hd_pack.py <pack.zip> [<more.zip> ...] [--out dist/DrakanPC/textures]
 ```

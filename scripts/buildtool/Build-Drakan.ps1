@@ -151,14 +151,17 @@ try {
     }
     if ($python) { Write-Host "Python:  $python" } else { $problems.Add('Python 3.11 or newer on PATH (https://www.python.org/downloads/)') }
 
-    # Node.js 22.7+ (TypeScript support) makes the multiplayer character motions in the last step: the bundled copy
-    # first, then one on PATH. character_motion.py finds it on PATH.
+    # Node.js 22.18+ or 23.6+ (TypeScript type stripping on by default) makes the multiplayer character motions in the
+    # last step: the bundled copy first, then one on PATH. character_motion.py finds it on PATH. No TypeScript flag is
+    # passed (Node 26 removed --experimental-transform-types), so the editor code keeps to erasable syntax.
     $bundledNode = Join-Path $RepoRoot 'tools/node'
     if (Test-Path -LiteralPath (Join-Path $bundledNode 'node.exe') -PathType Leaf) { $env:PATH = "$bundledNode;$env:PATH" }
     $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     $nodeVersion = if ($node) { (& $node.Source -p 'process.versions.node' 2>$null | Out-String).Trim() }
-    if ($nodeVersion -and [version]$nodeVersion -ge [version]'22.7') { Write-Host "Node.js: $($node.Source) ($nodeVersion)" }
-    else { $problems.Add('Node.js 22.7 or newer on PATH (winget install OpenJS.NodeJS.LTS)') }
+    $nodeOk = $nodeVersion -and [version]$nodeVersion -ge [version]'22.18' -and
+        -not ([version]$nodeVersion -ge [version]'23.0' -and [version]$nodeVersion -lt [version]'23.6')
+    if ($nodeOk) { Write-Host "Node.js: $($node.Source) ($nodeVersion)" }
+    else { $problems.Add('Node.js 22.18 or newer on PATH (winget install OpenJS.NodeJS.LTS)') }
 
     # Git is only needed to fetch sources the kit does not already carry.
     $offline = (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'ps2_recomp.exe') -PathType Leaf) -and

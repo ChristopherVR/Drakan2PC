@@ -323,7 +323,6 @@ def run_scenario(s: Scenario, a: argparse.Namespace) -> bool:
     subprocess.run(
         [
             "node",
-            "--experimental-transform-types",
             str(ROOT / "scripts/harness/story_puzzles_author.mjs"),
             s.kind,
             str(mods),

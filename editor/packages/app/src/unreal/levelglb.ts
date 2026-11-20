@@ -410,7 +410,10 @@ class Ctx {
     private readonly materials = new Map<string, number>();
     private sampler = -1;
 
-    constructor(readonly opt: ExportOptions) {}
+    readonly opt: ExportOptions;
+    constructor(opt: ExportOptions) {
+        this.opt = opt;
+    }
 
     private samplerIndex(): number {
         if (this.sampler < 0) {

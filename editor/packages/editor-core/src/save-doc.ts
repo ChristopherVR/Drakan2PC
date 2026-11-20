@@ -136,11 +136,12 @@ export class SaveDocument extends LevelDocument {
     private issuesCache: Issue[] | null = null;
     private readonly probes = new Map<string, FieldProbe>();
 
-    private constructor(
-        readonly bytes: Uint8Array,
-        readonly save: SaveFile,
-    ) {
+    readonly bytes: Uint8Array;
+    readonly save: SaveFile;
+    private constructor(bytes: Uint8Array, save: SaveFile) {
         super();
+        this.bytes = bytes;
+        this.save = save;
         this.level = levelNameOf(save);
         this.records = describeRecords(save);
         let player: number | null = null;
@@ -451,11 +452,13 @@ export interface ItemAdd {
 export class SetAddedItemCountCommand implements Command {
     readonly label: string;
     private old: number | undefined;
-    constructor(
-        private readonly index: number,
-        private readonly key: keyof ItemCounts,
-        private readonly value: number,
-    ) {
+    private readonly index: number;
+    private readonly key: keyof ItemCounts;
+    private readonly value: number;
+    constructor(index: number, key: keyof ItemCounts, value: number) {
+        this.index = index;
+        this.key = key;
+        this.value = value;
         this.label = `Set new item ${index + 1} ${key}`;
     }
     private put(doc: LevelDocument, value: number | undefined): void {
@@ -484,10 +487,11 @@ export class SetAddedItemCountCommand implements Command {
  */
 export class AddItemCommand implements Command {
     readonly label: string;
-    constructor(
-        private readonly template: number,
-        private readonly rows = 1,
-    ) {
+    private readonly template: number;
+    private readonly rows: number;
+    constructor(template: number, rows = 1) {
+        this.template = template;
+        this.rows = rows;
         this.label = `Add item (record ${template})`;
     }
     apply(doc: LevelDocument): void {
@@ -515,7 +519,9 @@ export class AddItemCommand implements Command {
 export class RemoveAddedItemCommand implements Command {
     readonly label: string;
     private old: ItemAdd | undefined;
-    constructor(private readonly index: number) {
+    private readonly index: number;
+    constructor(index: number) {
+        this.index = index;
         this.label = `Remove added item ${index + 1}`;
     }
     apply(doc: LevelDocument): void {
@@ -531,10 +537,11 @@ export class RemoveAddedItemCommand implements Command {
 export class SetFieldCommand implements Command {
     readonly label: string;
     private old: FieldValue | undefined;
-    constructor(
-        private readonly name: string,
-        private readonly value: FieldValue | undefined,
-    ) {
+    private readonly name: string;
+    private readonly value: FieldValue | undefined;
+    constructor(name: string, value: FieldValue | undefined) {
+        this.name = name;
+        this.value = value;
         this.label = `Set ${name}`;
     }
     private put(doc: LevelDocument, v: FieldValue | undefined): void {
@@ -561,11 +568,13 @@ export class ReplaceItemCommand implements Command {
     private old: number | undefined;
     private oldRows: number | undefined;
     private oldCounts: Partial<ItemCounts> | undefined;
-    constructor(
-        private readonly cell: number,
-        private readonly template: number | undefined,
-        private readonly rows?: number,
-    ) {
+    private readonly cell: number;
+    private readonly template: number | undefined;
+    private readonly rows?: number;
+    constructor(cell: number, template: number | undefined, rows?: number) {
+        this.cell = cell;
+        this.template = template;
+        this.rows = rows;
         this.label = `Replace item in cell ${cell}`;
     }
     private put(doc: LevelDocument, v: number | undefined, rows: number | undefined): void {
@@ -604,11 +613,13 @@ export class ReplaceItemCommand implements Command {
 export class SetReplacementItemCountCommand implements Command {
     readonly label: string;
     private old: number | undefined;
-    constructor(
-        private readonly cell: number,
-        private readonly key: keyof ItemCounts,
-        private readonly value: number,
-    ) {
+    private readonly cell: number;
+    private readonly key: keyof ItemCounts;
+    private readonly value: number;
+    constructor(cell: number, key: keyof ItemCounts, value: number) {
+        this.cell = cell;
+        this.key = key;
+        this.value = value;
         this.label = `Set replacement cell ${cell} ${key}`;
     }
     private put(doc: LevelDocument, value: number | undefined): void {

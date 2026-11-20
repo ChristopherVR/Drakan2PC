@@ -35,10 +35,11 @@ export class PbrPack {
     readonly missing = new Set<string>();
 
     /** `files`: pack-relative path (`Materials/M_x.json`) to bytes. */
-    constructor(
-        private readonly files: ReadonlyMap<string, Uint8Array>,
-        private readonly opt: PbrPackOptions = {},
-    ) {
+    private readonly files: ReadonlyMap<string, Uint8Array>;
+    private readonly opt: PbrPackOptions;
+    constructor(files: ReadonlyMap<string, Uint8Array>, opt: PbrPackOptions = {}) {
+        this.files = files;
+        this.opt = opt;
         let n = 0;
         for (const [path, bytes] of files) {
             if (!/^Materials\/M_.*\.json$/i.test(path)) continue;

@@ -139,7 +139,7 @@ def build_save() -> Path:
         f.write(SAVE_SCRIPT)
     try:
         run(
-            ["node", "--experimental-transform-types", "--no-warnings", f.name, str(out)],
+            ["node", "--no-warnings", f.name, str(out)],
             EDITOR / "packages" / "formats",
         )
     finally:

@@ -1,5 +1,5 @@
 // Authors a puzzle mod pack in Stratos with the editor's own templates (scripts/harness/story_puzzles.py runs it).
-// node --experimental-transform-types story_puzzles_author.mjs <kind> <outdir> [json]; env DRAKAN_ISO.
+// node story_puzzles_author.mjs <kind> <outdir> [json]; env DRAKAN_ISO.
 import { mkdirSync, writeFileSync } from 'node:fs';
 // Loads a disc level the way the editor worker does (node, no browser). Scratch tool, not part of the repo.
 import { openAsBlob } from 'node:fs';

@@ -251,13 +251,17 @@ const union = (a: Rect | undefined, b: Rect | undefined): Rect | undefined =>
 
 /** One brush stroke (heights and/or cell textures on any number of layers) as one undo step. */
 export class TerrainEditCommand implements Command {
-    constructor(
-        readonly label: string,
-        private readonly heights: HeightEdit[],
-        private readonly cells: CellEdit[],
-        /** Objects that stood on the edited ground and moved with it (same undo step). */
-        readonly lifts: readonly ObjectLift[] = [],
-    ) {}
+    readonly label: string;
+    private readonly heights: HeightEdit[];
+    private readonly cells: CellEdit[];
+    /** Objects that stood on the edited ground and moved with it (same undo step). */
+    readonly lifts: readonly ObjectLift[];
+    constructor(label: string, heights: HeightEdit[], cells: CellEdit[], lifts: readonly ObjectLift[] = []) {
+        this.label = label;
+        this.heights = heights;
+        this.cells = cells;
+        this.lifts = lifts;
+    }
     /** Layers the command changes. */
     get layers(): number[] {
         return [...new Set([...this.heights.map((e) => e.layer), ...this.cells.map((e) => e.layer)])];
@@ -300,12 +304,13 @@ export class TerrainEditCommand implements Command {
 /** Replace a whole layer (expand) or append / remove one (add layer). `before` null = the layer is new. */
 export class TerrainLayerCommand implements Command {
     private readonly before: TerrainLayer | null;
-    constructor(
-        readonly label: string,
-        readonly index: number,
-        before: TerrainLayer | null,
-        private readonly after: TerrainLayer | null,
-    ) {
+    readonly label: string;
+    readonly index: number;
+    private readonly after: TerrainLayer | null;
+    constructor(label: string, index: number, before: TerrainLayer | null, after: TerrainLayer | null) {
+        this.label = label;
+        this.index = index;
+        this.after = after;
         // A copy: the layer in the document may still be the disc read, which must never become editable.
         this.before = before && cloneTerrainLayer(before);
     }
@@ -423,13 +428,15 @@ export class TerrainStroke {
     /** y before the stroke of every object it moved. */
     private readonly lifted = new Map<number, number>();
 
-    constructor(
-        private readonly doc: LevelDocument,
-        layers: readonly number[],
-        readonly label: string,
-        private readonly seed = 1,
-        private readonly opts: StrokeOptions = {},
-    ) {
+    private readonly doc: LevelDocument;
+    readonly label: string;
+    private readonly seed: number;
+    private readonly opts: StrokeOptions;
+    constructor(doc: LevelDocument, layers: readonly number[], label: string, seed = 1, opts: StrokeOptions = {}) {
+        this.doc = doc;
+        this.label = label;
+        this.seed = seed;
+        this.opts = opts;
         this.layers = [...new Set(layers)].filter((i) => !!doc.terrain?.[i]);
     }
 

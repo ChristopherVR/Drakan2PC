@@ -396,7 +396,7 @@ def main() -> int:
     work = a.work or a.out.parent / "speech"
     if a.ootf:
         work.mkdir(parents=True, exist_ok=True)
-        cmd = [a.node, "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-speech.ts"]
+        cmd = [a.node, "--no-warnings", "editor/scripts/ootf-speech.ts"]
         subprocess.run(
             [*cmd, "--ootf", str(Path(a.ootf).resolve()), "--out", str(work.resolve()), "--rate", "16000"],
             cwd=ROOT,

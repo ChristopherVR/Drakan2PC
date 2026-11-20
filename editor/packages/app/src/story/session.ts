@@ -70,7 +70,10 @@ export class StorySession {
     private listeners = new Set<() => void>();
     private loading: Promise<StoryEditData> | null = null;
 
-    constructor(readonly host: StoryHost) {}
+    readonly host: StoryHost;
+    constructor(host: StoryHost) {
+        this.host = host;
+    }
 
     subscribe(fn: () => void): () => void {
         this.listeners.add(fn);

@@ -11,8 +11,8 @@ OUT="$ROOT/build/authored/$4"
 H="${5:-1.72}"
 mkdir -p "$OUT/new" "$OUT/pc"
 cd "$ROOT/editor/packages/formats"
-node --experimental-transform-types --no-warnings scripts/dump-pc-model.ts --ootf ../../../build/ootf/cab_disc --container "$2" --out "$OUT/new" "$3" --authored "$J" | grep authored
-node --experimental-transform-types --no-warnings scripts/dump-pc-model.ts --ootf ../../../build/ootf/cab_disc --container "$2" --out "$OUT/pc" "$3" > /dev/null
+node --no-warnings scripts/dump-pc-model.ts --ootf ../../../build/ootf/cab_disc --container "$2" --out "$OUT/new" "$3" --authored "$J" | grep authored
+node --no-warnings scripts/dump-pc-model.ts --ootf ../../../build/ootf/cab_disc --container "$2" --out "$OUT/pc" "$3" > /dev/null
 cd "$ROOT"
 for d in new pc; do
   obj=$(ls "$OUT/$d"/*.obj | head -1)

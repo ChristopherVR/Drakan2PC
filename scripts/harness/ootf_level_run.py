@@ -95,7 +95,7 @@ def main() -> int:
     if not a.no_convert:
         mods.mkdir(parents=True, exist_ok=True)
         cmd = [
-            "node", "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-convert.ts",
+            "node", "--no-warnings", "editor/scripts/ootf-convert.ts",
             "--ootf", str(a.ootf), "--ps2", str(data), "--template", a.template, "--out", str(zip_path), *a.convert_arg, a.level,
         ]  # fmt: skip
         if a.campaign:

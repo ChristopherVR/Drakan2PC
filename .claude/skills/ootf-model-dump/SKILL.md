@@ -29,9 +29,9 @@ tuiri (h) 3750, farmer 3615, ...), `Common/Resources/Resources`, `Common/FX/FX`,
 Run from `editor/packages/formats` (Node 22+):
 
 ```sh
-node --experimental-transform-types --no-warnings scripts/dump-pc-model.ts \
+node --no-warnings scripts/dump-pc-model.ts \
   --ootf ../../../build/ootf/cab_disc --container Common/NPC/NPCs --list            # id, name, verts, polys, skinned
-node --experimental-transform-types --no-warnings scripts/dump-pc-model.ts \
+node --no-warnings scripts/dump-pc-model.ts \
   --ootf ../../../build/ootf/cab_disc --container Common/NPC/NPCs \
   --out ../../../build/pcmodels "Delon(h)" 3728                                      # by exact name or id
 ```
@@ -57,9 +57,9 @@ Format facts the script relies on (all in `src/ootfmodel.ts`, `src/ootfanim.ts`,
 `scripts/dump-ps2-model.ts` writes the same files, straight from the ISO:
 
 ```sh
-node --experimental-transform-types --no-warnings scripts/dump-ps2-model.ts \
+node --no-warnings scripts/dump-ps2-model.ts \
   --iso "C:/Games/Drakan - The Ancients Gates/Drakan - The Ancients' Gates.iso" --container ENGLISH/COMMON/NPC/NPCS --list
-node --experimental-transform-types --no-warnings scripts/dump-ps2-model.ts --iso <iso> \
+node --no-warnings scripts/dump-ps2-model.ts --iso <iso> \
   --container ENGLISH/COMMON/NPC/NPCS --out ../../../build/d2-style/dump MediumGuy 5056   # name, id or ODB class
 ```
 

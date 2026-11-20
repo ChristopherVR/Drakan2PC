@@ -1,6 +1,6 @@
 // Authors a mod pack with a NEW level exit placed by the editor's "Level exit to..." template (exit object plus the
 // Trigger Detector that fires it), in Surdana. scripts/harness/level_change_walk.py then walks into the new zone.
-//   node --experimental-transform-types level_exit_author.mjs <outdir> '{"exitClass":"Inquisitor","at":[735232,152900,768800]}'
+//   node level_exit_author.mjs <outdir> '{"exitClass":"Inquisitor","at":[735232,152900,768800]}'
 // env DRAKAN_ISO. Prints the class used, the new object ids and the exit object's position (the game logs it as
 // "exit taken ... at x y z", which tells the new exit from the shipped ones).
 import { mkdirSync, writeFileSync, openAsBlob } from 'node:fs';

@@ -223,10 +223,11 @@ export class ArenaOverlay {
     private readonly canvas: HTMLElement;
     private gizmoMode: 'translate' | 'rotate' = 'translate';
 
-    constructor(
-        private readonly view: LevelView,
-        private readonly st: ArenaStore,
-    ) {
+    private readonly view: LevelView;
+    private readonly st: ArenaStore;
+    constructor(view: LevelView, st: ArenaStore) {
+        this.view = view;
+        this.st = st;
         this.canvas = view.renderer.domElement;
         this.root.visible = false;
         this.root.add(this.items, this.pivot);

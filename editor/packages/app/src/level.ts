@@ -95,7 +95,8 @@ export interface GroundSource {
 
 /** three.js level view: instanced markers per entity kind, picking, gizmo, filters and the undoable document. */
 /** The player object Rynn (the level's player start). */
-export const isRynnStart = (o: LevelObject | undefined): boolean => !!o && o.kind === 'player' && /^rynn$/i.test(o.class);
+export const isRynnStart = (o: LevelObject | undefined): boolean =>
+    !!o && o.kind === 'player' && /^rynn$/i.test(o.class);
 
 export class LevelView {
     readonly renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -209,10 +210,11 @@ export class LevelView {
     private resizeBurst = false;
     private lastResizeAt = -Infinity;
 
-    constructor(
-        private readonly host: HTMLElement,
-        private readonly ev: LevelViewEvents,
-    ) {
+    private readonly host: HTMLElement;
+    private readonly ev: LevelViewEvents;
+    constructor(host: HTMLElement, ev: LevelViewEvents) {
+        this.host = host;
+        this.ev = ev;
         host.appendChild(this.renderer.domElement);
         this.scene.background = new THREE.Color(0x14161a);
         this.scene.add(this.hemi, this.sun, this.models.root, this.icons.group, this.iconVolumes.group);
@@ -445,7 +447,8 @@ export class LevelView {
         // Rynn's player object exists once in a level (the game starts the player there): copying her would leave the
         // level with two starts.
         const ids = all.filter((i) => !isRynnStart(this.doc.get(i)));
-        if (ids.length < all.length) this.ev.onNotice?.('Rynn exists once in a level. Move her instead of copying her.');
+        if (ids.length < all.length)
+            this.ev.onNotice?.('Rynn exists once in a level. Move her instead of copying her.');
         if (!ids.length) return;
         const cmd = this.stack.duplicate(ids);
         this.select(cmd.ids);

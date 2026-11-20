@@ -95,7 +95,7 @@ def ensure_pack(pack: Path, reconvert: bool) -> Path:
         if not (data / "LEVEL1NA.LVL").is_file():  # extracted from the player's ISO by the single-level harness
             raise SystemExit("build/odbx/data missing: run scripts/harness/ootf_level_run.py once to extract it")
         cmd = [
-            "node", "--experimental-transform-types", "--no-warnings", "editor/scripts/ootf-convert.ts",
+            "node", "--no-warnings", "editor/scripts/ootf-convert.ts",
             "--ootf", str(ROOT / "build" / "ootf" / "cab_disc"), "--ps2", str(data), "--template", "LEVEL1NA",
             "--out", str(zip_path), "--campaign", "1", *[p for _, p in LEVELS],
         ]  # fmt: skip

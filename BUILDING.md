@@ -42,8 +42,10 @@ failing the build; `upload_artifacts=false` skips uploading.
 ## Prerequisites
 
 - Git, Python 3.11+ and CMake 3.21+ (found through PATH or vswhere).
-- Node.js 22.7+ on PATH for a PAL game build: the play-folder step runs
-  `analysis/scripts/character_motion_retarget.ts` with it (the installer bundles Node.js).
+- Node.js 22.18+ (or 23.6+) on PATH for a PAL game build: the play-folder step runs
+  `analysis/scripts/character_motion_retarget.ts` with it, through Node's built-in type stripping and no
+  flags (the installer bundles Node.js). The editor code therefore keeps to erasable TypeScript syntax
+  (`erasableSyntaxOnly` in the tsconfigs): no parameter properties, enums or namespaces.
 - Windows: VS 2022 Desktop development with C++, x64 tools and a Windows SDK.
 - Linux compiler only: GCC with C++20, CMake and Ninja.
 - Linux runtime tests additionally need ALSA development headers (`libasound2-dev` on Ubuntu).

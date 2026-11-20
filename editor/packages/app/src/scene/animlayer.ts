@@ -90,12 +90,13 @@ export class AnimationLayer {
     private dirtySelect = true;
     private tick = 0;
 
-    constructor(
-        /** Hide or show the instanced bind-pose copy of an object. */
-        private readonly hide: (id: number, hidden: boolean) => void,
-        /** Called when the animated set changed (outlines refresh). */
-        private readonly onActiveChange: () => void = () => undefined,
-    ) {
+    /** Hide or show the instanced bind-pose copy of an object. */
+    private readonly hide: (id: number, hidden: boolean) => void;
+    /** Called when the animated set changed (outlines refresh). */
+    private readonly onActiveChange: () => void;
+    constructor(hide: (id: number, hidden: boolean) => void, onActiveChange: () => void = () => undefined) {
+        this.hide = hide;
+        this.onActiveChange = onActiveChange;
         this.group.name = 'animated';
     }
 

@@ -113,7 +113,9 @@ class Builder {
     readonly notes: string[] = [];
     readonly warnings: string[] = [];
     private next: number;
-    constructor(readonly ctx: TemplateContext) {
+    readonly ctx: TemplateContext;
+    constructor(ctx: TemplateContext) {
+        this.ctx = ctx;
         this.next = ctx.doc.nextId;
     }
     /** A new instance of `cls` with only `fields` overridden (by class field name). */
@@ -343,13 +345,16 @@ export const TEMPLATES: LogicTemplate[] = [
         build: (ctx, v) =>
             guard(() => {
                 const b = new Builder(ctx);
-                const picked = objId(v, 'enemy') ?? ctx.selection.find((id) => {
-                    const o = ctx.doc.get(id);
-                    return o && logicOf(o, ctx.env)?.role === 'creature';
-                });
+                const picked =
+                    objId(v, 'enemy') ??
+                    ctx.selection.find((id) => {
+                        const o = ctx.doc.get(id);
+                        return o && logicOf(o, ctx.env)?.role === 'creature';
+                    });
                 if (picked === undefined) throw new TemplateError('Pick the enemy to copy (or select one).');
                 const src = need2(ctx, picked, 'Enemy');
-                if (logicOf(src, ctx.env)?.role !== 'creature') throw new TemplateError('The picked object is not a creature.');
+                if (logicOf(src, ctx.env)?.role !== 'creature')
+                    throw new TemplateError('The picked object is not a creature.');
                 const det = need(
                     pickClass(ctx.catalog, 0x3d, /^trigger detector$/i) ?? pickClass(ctx.catalog, 0x3d),
                     'trigger detector class',
@@ -419,7 +424,9 @@ export const TEMPLATES: LogicTemplate[] = [
                 const gate = objId(v, 'gate');
                 if (gate === undefined) throw new TemplateError('Pick the gate the counter opens.');
                 const thenMsg =
-                    typeof v.then === 'string' && v.then !== 'auto' ? v.then : openMessage(ctx, need2(ctx, gate, 'Gate'));
+                    typeof v.then === 'string' && v.then !== 'auto'
+                        ? v.then
+                        : openMessage(ctx, need2(ctx, gate, 'Gate'));
                 const cls = need(
                     pickClass(ctx.catalog, 0x07, /count/i) ?? pickClass(ctx.catalog, 0x07),
                     'counter class',
@@ -485,7 +492,10 @@ export const TEMPLATES: LogicTemplate[] = [
                 kind: 'choice',
                 default: 'auto',
                 options: [
-                    { value: 'auto', label: 'By target (Play Sequence for a cut scene, On for a timer or an unlocked door, Unlock for a locked door)' },
+                    {
+                        value: 'auto',
+                        label: 'By target (Play Sequence for a cut scene, On for a timer or an unlocked door, Unlock for a locked door)',
+                    },
                     { value: 'Unlock', label: 'Unlock' },
                     { value: 'On', label: 'On (open)' },
                     { value: 'Play Sequence', label: 'Play Sequence' },
@@ -805,10 +815,9 @@ export class ApplyTemplateCommand implements Command {
     private before = new Map<number, number[]>();
     readonly label: string;
     /** `what` names the setup ("Place quest object"); the history entry adds the objects it creates ("... (Quest #12)"). */
-    constructor(
-        private readonly build: TemplateBuild,
-        what: string,
-    ) {
+    private readonly build: TemplateBuild;
+    constructor(build: TemplateBuild, what: string) {
+        this.build = build;
         const made = build.objects.slice(0, 3).map((o) => `${o.class} #${o.id}`);
         const more = build.objects.length > 3 ? ` and ${build.objects.length - 3} more` : '';
         this.label = made.length ? `${what}: ${made.join(', ')}${more}` : what;

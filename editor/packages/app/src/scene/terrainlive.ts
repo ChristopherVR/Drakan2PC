@@ -192,10 +192,11 @@ export class EditableTerrain implements TerrainScene {
     /** Shared origin-chunk key of every layer at the last full build. */
     private sharedKey: string[] = [];
 
-    constructor(
-        private readonly source: () => readonly TerrainLayer[],
-        private readonly textures: TextureLookup,
-    ) {
+    private readonly source: () => readonly TerrainLayer[];
+    private readonly textures: TextureLookup;
+    constructor(source: () => readonly TerrainLayer[], textures: TextureLookup) {
+        this.source = source;
+        this.textures = textures;
         this.group.name = 'terrain';
         this.rebuildAll();
     }

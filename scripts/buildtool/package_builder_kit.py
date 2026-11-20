@@ -241,7 +241,7 @@ def smoke_test(stage, tools=None, node=True):
     if node:
         # With no arguments the script stops after its imports resolved; a missing module fails before that.
         result = subprocess.run(
-            [tools / "node/node.exe", "--experimental-transform-types", stage / RETARGET],
+            [tools / "node/node.exe", stage / RETARGET],
             capture_output=True,
             text=True,
             cwd=stage,

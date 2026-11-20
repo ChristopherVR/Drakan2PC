@@ -189,7 +189,6 @@ def main() -> int:
             shutil.rmtree(mods)
         cmd = [
             "node",
-            "--experimental-transform-types",
             "--no-warnings",
             "editor/scripts/vendor-pack.ts",
             "--iso",

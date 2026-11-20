@@ -239,11 +239,17 @@ export class SchemaProvider {
     private readonly arrCache = new Map<string, { value: number; count: number; examples: string[] }[]>();
     private readonly refCache = new Map<string, { stem: string; id: number; count: number; examples: string[] }[]>();
 
+    private readonly header: LvlHeader;
+    private readonly odbs: OdbIndex;
+    private readonly odbDeps: Readonly<Record<string, Readonly<Record<number, string>>>>;
     constructor(
-        private readonly header: LvlHeader,
-        private readonly odbs: OdbIndex,
-        private readonly odbDeps: Readonly<Record<string, Readonly<Record<number, string>>>> = {},
+        header: LvlHeader,
+        odbs: OdbIndex,
+        odbDeps: Readonly<Record<string, Readonly<Record<number, string>>>> = {},
     ) {
+        this.header = header;
+        this.odbs = odbs;
+        this.odbDeps = odbDeps;
         for (const d of header.dependencies) {
             const stem = odbStemForDependency(d.path.text);
             if (!this.stemToDb.has(stem)) this.stemToDb.set(stem, d.dbIndex);

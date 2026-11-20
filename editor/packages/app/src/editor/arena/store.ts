@@ -41,12 +41,16 @@ export type ArenaSel = { kind: 'spawn' | 'pickup' | 'marker'; uid: number } | { 
 
 /** One undo step: swaps the whole draft (it is small), so a gizmo drag or a list edit is one history row. */
 class ArenaCommand implements Command {
-    constructor(
-        private readonly owner: ArenaStore,
-        readonly label: string,
-        private readonly before: ArenaDraft,
-        private readonly after: ArenaDraft,
-    ) {}
+    private readonly owner: ArenaStore;
+    readonly label: string;
+    private readonly before: ArenaDraft;
+    private readonly after: ArenaDraft;
+    constructor(owner: ArenaStore, label: string, before: ArenaDraft, after: ArenaDraft) {
+        this.owner = owner;
+        this.label = label;
+        this.before = before;
+        this.after = after;
+    }
     apply(_doc: LevelDocument): void {
         this.owner.replace(cloneDraft(this.after));
     }
@@ -76,7 +80,9 @@ export class ArenaStore {
     private readonly listeners = new Set<(e: ArenaEvent) => void>();
     private saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-    constructor(private readonly view: () => LevelView) {
+    private readonly view: () => LevelView;
+    constructor(view: () => LevelView) {
+        this.view = view;
         const saved = local.json<unknown>(MODES_KEY, []);
         if (Array.isArray(saved)) {
             // Modes saved by an older editor lack the newer keys (lives, team names, ...): their defaults fill in.

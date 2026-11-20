@@ -115,10 +115,11 @@ export class TourOverlay {
     private readonly reduced = reducedMotion();
     private finished = false;
 
-    constructor(
-        readonly tour: Tour,
-        private readonly cb: TourCallbacks,
-    ) {
+    readonly tour: Tour;
+    private readonly cb: TourCallbacks;
+    constructor(tour: Tour, cb: TourCallbacks) {
+        this.tour = tour;
+        this.cb = cb;
         this.root = h('div', { class: 'tour-root', 'data-tour-root': '' });
         if (this.reduced) this.root.classList.add('reduced');
         this.shade = h('div', { class: 'tour-shade' });

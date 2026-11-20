@@ -525,12 +525,12 @@ class NodeModuleTests(unittest.TestCase):
             major, minor = (int(part) for part in version.strip().split(".")[:2])
         except ValueError:
             return None
-        return node if (major, minor) >= (22, 7) else None
+        return node if (major, minor) >= (22, 18) and not (23, 0) <= (major, minor) < (23, 6) else None
 
     def test_node_resolves_the_stubs_like_the_converter_does(self):
         node = self.node_ok()
         if not node:
-            self.skipTest("Node.js 22.7 or newer not on PATH")
+            self.skipTest("Node.js 22.18 or newer not on PATH")
         extras.ensure_node_modules(self.root, self.lock, self.root / "cache", self.fetch)
         probe = self.root / "editor/scripts/probe.ts"
         probe.write_text(
@@ -538,7 +538,7 @@ class NodeModuleTests(unittest.TestCase):
             encoding="utf-8",
         )
         result = subprocess.run(
-            [node, "--experimental-transform-types", "--no-warnings", str(probe)],
+            [node, "--no-warnings", str(probe)],
             capture_output=True,
             text=True,
             cwd=self.root,
@@ -546,6 +546,34 @@ class NodeModuleTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.split(), ["1", "2"])
+
+    def test_build_typescript_runs_with_plain_type_stripping(self):
+        """Node 26 removed --experimental-transform-types (issue #16): the scripts the build runs must load without it."""
+        node = self.node_ok()
+        if not node:
+            self.skipTest("Node.js 22.18 or newer not on PATH")
+        for script in (
+            "analysis/scripts/character_motion_retarget.ts",
+            "editor/scripts/ootf-convert.ts",
+            "editor/scripts/ootf-speech.ts",
+        ):
+            with self.subTest(script=script):
+                result = subprocess.run(
+                    [node, "--no-warnings", str(ROOT / script)], capture_output=True, text=True, cwd=ROOT, check=False
+                )
+                self.assertNotIn("ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX", result.stderr)
+                self.assertNotIn("ERR_MODULE_NOT_FOUND", result.stderr)
+                self.assertNotIn("bad option", result.stderr)
+
+    def test_no_builder_script_passes_the_removed_node_flag(self):
+        for script in (
+            "analysis/scripts/character_motion.py",
+            "analysis/scripts/ootf_subtitles.py",
+            "scripts/buildtool/extras.py",
+            "scripts/buildtool/package_builder_kit.py",
+        ):
+            with self.subTest(script=script):
+                self.assertNotIn("experimental-transform-types", (ROOT / script).read_text(encoding="utf-8"))
 
 
 class ConverterTests(unittest.TestCase):

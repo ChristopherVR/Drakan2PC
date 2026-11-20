@@ -154,7 +154,9 @@ class Exporter {
     readonly meshKeyOf = new Map<string, string>();
     readonly queue: string[] = [];
 
-    constructor(readonly input: ContentInput) {
+    readonly input: ContentInput;
+    constructor(input: ContentInput) {
+        this.input = input;
         this.env = input.env;
         for (const c of input.catalog) {
             this.byResource.set(c.resource, c);

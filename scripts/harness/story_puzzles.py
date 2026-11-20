@@ -71,7 +71,6 @@ def main() -> int:
         subprocess.run(
             [
                 "node",
-                "--experimental-transform-types",
                 str(ROOT / "scripts/harness/story_puzzles_author.mjs"),
                 kind,
                 str(mods),

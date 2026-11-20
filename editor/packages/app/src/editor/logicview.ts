@@ -39,11 +39,13 @@ class Overlay {
     private hover: Handle | null = null;
     mode: VolumeMode = 'selected';
 
-    constructor(
-        private readonly view: LevelView,
-        private readonly ctx: Ctx,
-        private readonly env: () => LogicEnv | null,
-    ) {
+    private readonly view: LevelView;
+    private readonly ctx: Ctx;
+    private readonly env: () => LogicEnv | null;
+    constructor(view: LevelView, ctx: Ctx, env: () => LogicEnv | null) {
+        this.view = view;
+        this.ctx = ctx;
+        this.env = env;
         this.root.renderOrder = 20;
         view.scene.add(this.root);
         const host = view.renderer.domElement.parentElement ?? view.renderer.domElement;

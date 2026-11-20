@@ -17,7 +17,7 @@ Phases (each game run is a play_run.py run in a private play folder, output buil
 
 Camera key orientation (settled 2026-11-01): the key quaternion is a row-vector rotation, the camera looks along its -Z;
 `yawPitchQuat` in editor-core encodes that (docs/reference/level-format.md section 14). Packs are built by
-scripts/harness/story_cinematic/pack.mjs (node --experimental-transform-types, needs the player's ISO through drakan.ini or
+scripts/harness/story_cinematic/pack.mjs (node 22.18+, needs the player's ISO through drakan.ini or
 DRAKAN_ISO). Screenshots and logs stay under build/.
 """
 
@@ -64,7 +64,7 @@ def build_pack(name: str, spec: dict) -> Path:
     spec_path = out.parent / f"{name}.json"
     spec_path.write_text(json.dumps(spec), encoding="utf-8")
     r = subprocess.run(
-        ["node", "--experimental-transform-types", str(PACK_JS), str(spec_path), str(out)],
+        ["node", str(PACK_JS), str(spec_path), str(out)],
         capture_output=True,
         text=True,
         cwd=ROOT,

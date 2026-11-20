@@ -15,11 +15,14 @@ export function describeObjects(objs: readonly Pick<LevelObject, 'class' | 'id'>
 const cloneT = (t: Transform): Transform => ({ pos: [...t.pos], rot: [...t.rot] });
 
 export class TransformCommand implements Command {
-    constructor(
-        private readonly before: Map<number, Transform>,
-        private readonly after: Map<number, Transform>,
-        readonly label = 'Transform',
-    ) {}
+    private readonly before: Map<number, Transform>;
+    private readonly after: Map<number, Transform>;
+    readonly label: string;
+    constructor(before: Map<number, Transform>, after: Map<number, Transform>, label = 'Transform') {
+        this.before = before;
+        this.after = after;
+        this.label = label;
+    }
     private set(doc: LevelDocument, m: Map<number, Transform>): void {
         for (const [id, t] of m) {
             const o = doc.get(id);
@@ -37,10 +40,12 @@ export class TransformCommand implements Command {
 export class SetScaleCommand implements Command {
     readonly label = 'Scale';
     private old: [number, number, number] | undefined;
-    constructor(
-        private readonly id: number,
-        private readonly value: [number, number, number],
-    ) {}
+    private readonly id: number;
+    private readonly value: [number, number, number];
+    constructor(id: number, value: [number, number, number]) {
+        this.id = id;
+        this.value = value;
+    }
     apply(doc: LevelDocument): void {
         const o = doc.get(this.id);
         if (!o?.scale) return;
@@ -55,10 +60,12 @@ export class SetScaleCommand implements Command {
 
 export class DeleteCommand implements Command {
     private removed: LevelObject[] = [];
-    constructor(
-        private readonly ids: number[],
-        readonly label = 'Delete',
-    ) {}
+    private readonly ids: number[];
+    readonly label: string;
+    constructor(ids: number[], label = 'Delete') {
+        this.ids = ids;
+        this.label = label;
+    }
     apply(doc: LevelDocument): void {
         this.removed = [];
         for (const id of this.ids) {
@@ -74,10 +81,12 @@ export class DeleteCommand implements Command {
 export class AddCommand implements Command {
     /** Ids of the objects added (allocated on first apply, stable across redo). */
     readonly ids: number[] = [];
-    constructor(
-        private readonly objects: LevelObject[],
-        readonly label = 'Add',
-    ) {}
+    private readonly objects: LevelObject[];
+    readonly label: string;
+    constructor(objects: LevelObject[], label = 'Add') {
+        this.objects = objects;
+        this.label = label;
+    }
     apply(doc: LevelDocument): void {
         if (this.ids.length === 0) {
             const placed = this.objects.map((o) => doc.insert({ ...cloneObject(o), id: 0 }));
@@ -95,11 +104,14 @@ export class AddCommand implements Command {
 export class SetPropCommand implements Command {
     readonly label = 'Set property';
     private old: LevelObject['props'][string] | undefined;
-    constructor(
-        private readonly id: number,
-        private readonly key: string,
-        private readonly value: LevelObject['props'][string] | undefined,
-    ) {}
+    private readonly id: number;
+    private readonly key: string;
+    private readonly value: LevelObject['props'][string] | undefined;
+    constructor(id: number, key: string, value: LevelObject['props'][string] | undefined) {
+        this.id = id;
+        this.key = key;
+        this.value = value;
+    }
     private put(doc: LevelDocument, v: LevelObject['props'][string] | undefined): void {
         const o = doc.get(this.id);
         if (!o) return;
@@ -121,11 +133,14 @@ export class SetPropCommand implements Command {
  * across a selection is one undo step.
  */
 export class EditObjectsCommand implements Command {
-    constructor(
-        private readonly before: Map<number, LevelObject>,
-        private readonly after: Map<number, LevelObject>,
-        readonly label = 'Edit',
-    ) {}
+    private readonly before: Map<number, LevelObject>;
+    private readonly after: Map<number, LevelObject>;
+    readonly label: string;
+    constructor(before: Map<number, LevelObject>, after: Map<number, LevelObject>, label = 'Edit') {
+        this.before = before;
+        this.after = after;
+        this.label = label;
+    }
     get ids(): number[] {
         return [...this.after.keys()];
     }
@@ -167,11 +182,14 @@ export function editObjects(
  * replaced. Used by `revertObjects`, which can remove an added object and restore a deleted one in the same step.
  */
 export class SnapshotCommand implements Command {
-    constructor(
-        private readonly before: Map<number, LevelObject | null>,
-        private readonly after: Map<number, LevelObject | null>,
-        readonly label: string,
-    ) {}
+    private readonly before: Map<number, LevelObject | null>;
+    private readonly after: Map<number, LevelObject | null>;
+    readonly label: string;
+    constructor(before: Map<number, LevelObject | null>, after: Map<number, LevelObject | null>, label: string) {
+        this.before = before;
+        this.after = after;
+        this.label = label;
+    }
     get ids(): number[] {
         return [...this.after.keys()];
     }
@@ -256,10 +274,12 @@ export function revertObjects(
 
 /** Several commands run as one undo step. */
 export class CompositeCommand implements Command {
-    constructor(
-        private readonly cmds: Command[],
-        readonly label: string,
-    ) {}
+    private readonly cmds: Command[];
+    readonly label: string;
+    constructor(cmds: Command[], label: string) {
+        this.cmds = cmds;
+        this.label = label;
+    }
     apply(doc: LevelDocument): void {
         for (const c of this.cmds) c.apply(doc);
     }
@@ -273,7 +293,10 @@ export class CommandStack {
     private undoList: Command[] = [];
     private redoList: Command[] = [];
     onChange: (cmd: Command) => void = () => {};
-    constructor(readonly doc: LevelDocument) {}
+    readonly doc: LevelDocument;
+    constructor(doc: LevelDocument) {
+        this.doc = doc;
+    }
 
     get canUndo(): boolean {
         return this.undoList.length > 0;

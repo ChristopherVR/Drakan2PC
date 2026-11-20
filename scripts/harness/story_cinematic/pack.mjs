@@ -1,5 +1,5 @@
 // Builds a mod pack for the cinematic harness with the editor's own code (ContentSession, templates, buildStoryPackFiles).
-//   node --experimental-transform-types pack.mjs <spec.json> <out-dir>
+//   node pack.mjs <spec.json> <out-dir>
 // Spec (JSON):
 //   { "id": "cine.edit", "level": "LEVEL1NA", "story": "LEVEL1ON", "label": "Surdana",
 //     "edits": [ { "sequence": 497, "ops": [ {"op":"set","actor":"Camera","type":0,"nth":0,"field":"x","value":1},

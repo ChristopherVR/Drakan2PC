@@ -1,6 +1,6 @@
 // Export the voice clips that Order of the Flame sequences play, for the subtitle tool (analysis/scripts/ootf_subtitles.py).
 //
-//   node --experimental-transform-types --no-warnings editor/scripts/ootf-speech.ts --ootf <OotF install dir> --out <work dir>
+//   node --no-warnings editor/scripts/ootf-speech.ts --ootf <OotF install dir> --out <work dir>
 //
 // Writes <out>/clips/<n>.wav (mono 16 bit) and <out>/manifest.json: one row per clip with its sound bank, id, name, length and
 // the scenes that play it, and `played_by`: the classes and objects that play the same clip by themselves (a bark, which the
