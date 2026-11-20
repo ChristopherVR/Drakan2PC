@@ -26,8 +26,11 @@ free "Visual Studio 2022 Build Tools" (the C++ compiler, about 3 GB). Windows
 asks for permission once.
 
 (If you have the zip kit instead of DrakanPC-Setup.exe, it also needs
-PowerShell 7, Python 3.11+, Node.js 22.7+ and Git; the builder tells you
-what is missing.)
+PowerShell 7, Python 3.11+ and Node.js 22.18+; the builder tells you what
+is missing. Git is not needed. Unpack it somewhere with about 10 GB free:
+the build files go into its build folder. On the first run it asks where
+the game itself should go; Build-Drakan.cmd -DistDirectory <folder>
+changes that later.)
 
 
 BUILD

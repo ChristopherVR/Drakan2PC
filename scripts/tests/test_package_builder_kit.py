@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("package_builder_kit", ROOT / "scripts/buildtool/package_builder_kit.py")
@@ -41,6 +42,55 @@ class BuilderKitTests(unittest.TestCase):
             kit.write_zip(path, "DrakanPC-Builder", {"Build-Drakan.cmd": b"@echo off\r\n", "a/b.txt": b"b"})
             with zipfile.ZipFile(path) as archive:
                 self.assertEqual(archive.namelist(), ["DrakanPC-Builder/Build-Drakan.cmd", "DrakanPC-Builder/a/b.txt"])
+
+    def test_zip_streams_files_from_disk(self):
+        with tempfile.TemporaryDirectory() as temp:
+            big = Path(temp) / "ps2_recomp.exe"
+            big.write_bytes(b"MZ" + bytes(3 << 20))
+            path = Path(temp) / "kit.zip"
+            kit.write_zip(path, "K", {"scripts/buildtool/ps2_recomp.exe": big, "a.txt": b"a"})
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(archive.read("K/scripts/buildtool/ps2_recomp.exe"), big.read_bytes())
+                self.assertEqual(archive.read("K/a.txt"), b"a")
+
+    def test_zip_carries_the_prebuilt_compiler_and_sources_so_it_needs_no_git(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            compiler = temp / "ps2_recomp.exe"
+            compiler.write_bytes(b"MZ")
+            raylib = temp / "raylib"
+            for name in ("src/raylib.h", "examples/core.c", ".git/HEAD", "CMakeLists.txt"):
+                (raylib / name).parent.mkdir(parents=True, exist_ok=True)
+                (raylib / name).write_bytes(b"x")
+            ffmpeg = temp / "ffmpeg-win64.zip"
+            ffmpeg.write_bytes(b"PK")
+            lock = {"raylib": {"url": "u", "commit": "c"}, "ffmpeg": {"url": "https://x/ffmpeg-win64.zip"}}
+            (temp / "installer.lock.json").write_text(json.dumps(lock), encoding="utf-8")
+            out = temp / "out"
+            out.mkdir()
+            with (
+                mock.patch.object(kit, "build_compiler", return_value=compiler),
+                mock.patch.object(kit, "fetch_raylib", return_value=raylib),
+                mock.patch.object(kit, "download", return_value=ffmpeg),
+                mock.patch.object(kit, "KIT", temp),
+            ):
+                path = kit.build_zip({"Build-Drakan.cmd": b"@echo off"}, "0123456789abcdef", out, "K")
+            with zipfile.ZipFile(path) as archive:
+                names = set(archive.namelist())
+            self.assertEqual(
+                names,
+                {
+                    "K/Build-Drakan.cmd",
+                    "K/scripts/buildtool/ps2_recomp.exe",
+                    "K/deps/raylib/src/raylib.h",
+                    "K/deps/raylib/CMakeLists.txt",
+                    "K/deps/ffmpeg-win64.zip",
+                },
+            )
+            # Build-Drakan.ps1 skips its Git check when exactly these two are present.
+            text = (ROOT / "scripts/buildtool/Build-Drakan.ps1").read_text(encoding="utf-8")
+            self.assertIn("Join-Path $PSScriptRoot 'ps2_recomp.exe'", text)
+            self.assertIn("Join-Path $RepoRoot 'deps/raylib'", text)
 
     def test_root_files_exist(self):
         for source in [

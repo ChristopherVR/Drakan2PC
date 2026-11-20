@@ -130,7 +130,14 @@ python scripts/buildtool/package_builder_kit.py              # -> build/builder-
 Both package the committed tree at `HEAD` (`--revision` for another; uncommitted changes are left out) minus
 developer-only material (`docs/journal`, `scripts/archive`, CI, agent notes). Every file passes
 `repository_guard.reason`, so neither holds an ISO, ELF, generated C++ or VU image. The root gets `Build-Drakan.cmd`
-and `README.txt` from `scripts/buildtool/kit/`, plus `KIT-VERSION.txt` with the commit.
+and `README.txt` from `scripts/buildtool/kit/`, plus `KIT-VERSION.txt` with the commit. Both also carry
+`ps2_recomp.exe` built from the same snapshot (`scripts/buildtool/`, so `Build-LocalGame.ps1` skips the Git-based
+compiler build) and raylib plus the FFmpeg prebuilt zip (`deps/`, picked up by `Build-LocalGame.ps1
+-DependencyDirectory`, default `<repo>/deps`), so neither build needs Git (`Build-Drakan.ps1` skips its Git check when
+both are present). The zip uses the player's own PowerShell 7, Python 3.11+ and Node.js 22.18+. On its first
+interactive run `Build-Drakan.ps1` asks where the game goes (`-DistDirectory`, default `dist\DrakanPC` next to the
+builder, remembered in `build/build-options.json`); the build files stay in `build/` next to the builder unless
+`-WorkDir` is given.
 
 **Releases.** Pushing a `v*` tag (or running the *Release* workflow with a tag) builds both packages on a Windows
 runner (`.github/workflows/release.yml`) and publishes `DrakanPC-Setup.exe`, `DrakanPC-Builder.zip` and
@@ -138,9 +145,8 @@ runner (`.github/workflows/release.yml`) and publishes `DrakanPC-Setup.exe`, `Dr
 
 The setup (for non-technical players) additionally bundles everything that would otherwise be a prerequisite, pinned
 by SHA-256/commit in `scripts/buildtool/kit/installer.lock.json`: portable PowerShell 7 (`tools/pwsh`), the Python
-embeddable package (`tools/python`), `ps2_recomp.exe` built from the same snapshot (`scripts/buildtool/`, so
-`Build-LocalGame.ps1` skips the Git-based compiler build), and raylib plus the FFmpeg prebuilt zip (`deps/`, picked up
-by `Build-LocalGame.ps1 -DependencyDirectory`, default `<repo>/deps`). Packaging needs Git, network access and Inno
+embeddable package (`tools/python`) and Node.js (`tools/node`), next to the prebuilt compiler and `deps/` both kits
+carry. Packaging needs Git, network access and Inno
 Setup 6 (`winget install JRSoftware.InnoSetup`; script `scripts/buildtool/kit/DrakanPC-Setup.iss`); downloads are
 cached in `build/builder-kit/work/cache`. The setup installs per user (default `%LOCALAPPDATA%\DrakanPC`, no admin),
 asks for the ISO and a play folder (default `dist\DrakanPC` in the install folder; `/PLAYDIR=` on the command line,

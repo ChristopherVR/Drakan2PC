@@ -3,10 +3,10 @@
 
 Both are a snapshot of a Git revision (HEAD by default; uncommitted changes are not included). Every source file passes
 the repository guard, so neither holds game data, generated game C++ or the private VU image; the recipient builds the
-game from their own disc with Build-Drakan.cmd. The installer also bundles what a non-technical user would otherwise
-have to install (pinned in kit/installer.lock.json): portable PowerShell 7, Python and Node.js, the prebuilt
-ps2_recomp.exe (built from the same snapshot) and the raylib / FFmpeg sources, so the build needs no Git, no Python and
-no downloads other than Microsoft's C++ Build Tools, which Build-Drakan.ps1 installs on first run.
+game from their own disc with Build-Drakan.cmd. Both also carry the prebuilt ps2_recomp.exe (built from the same
+snapshot) and the raylib / FFmpeg sources (pinned in kit/installer.lock.json), so neither build needs Git. The installer
+also bundles portable PowerShell 7, Python and Node.js, so it needs no downloads other than Microsoft's C++ Build Tools,
+which Build-Drakan.ps1 installs on first run; the zip uses the player's own PowerShell, Python and Node.js.
 """
 
 import argparse
@@ -121,12 +121,17 @@ def kit_entries(commit):
 
 
 def write_zip(path, prefix, entries):
+    """Entries map a kit path to its bytes, or to a file on disk (the prebuilt files, streamed)."""
     with zipfile.ZipFile(path, "x", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for name, data in sorted(entries.items()):
             info = zipfile.ZipInfo(f"{prefix}/{name}", date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
-            archive.writestr(info, data)
+            if isinstance(data, bytes):
+                archive.writestr(info, data)
+            else:
+                with open(data, "rb") as source, archive.open(info, "w") as target:
+                    shutil.copyfileobj(source, target, 1 << 20)
 
 
 def sha256(path):
@@ -263,27 +268,59 @@ def find_iscc(explicit):
     raise RuntimeError("Inno Setup 6 is required for --installer (winget install JRSoftware.InnoSetup) or pass --iscc")
 
 
-def build_installer(entries, commit, output_directory, iscc):
-    lock = json.loads((KIT / "installer.lock.json").read_text(encoding="utf-8"))
-    work_root = output_directory / "work"
-    cache = work_root / "cache"
-    cache.mkdir(parents=True, exist_ok=True)
-    stage = work_root / "stage"
+def write_stage(entries, stage):
+    """The snapshot as files under a fresh stage folder (what the compiler build and the installer read)."""
     if stage.exists():
         shutil.rmtree(stage)
     for name, data in entries.items():
         target = stage / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+
+
+def prebuilt_files(stage, commit, work_root, lock):
+    """What lets either kit build without Git, as kit path -> file: ps2_recomp.exe built from the staged snapshot
+    (Build-LocalGame.ps1 uses the compiler next to it instead of building one) and the raylib source and FFmpeg prebuilt
+    (Build-LocalGame.ps1 picks up <root>/deps by itself)."""
+    cache = work_root / "cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    files = {"scripts/buildtool/ps2_recomp.exe": build_compiler(stage, commit, work_root / "compiler")}
+    raylib = fetch_raylib(lock["raylib"], cache)
+    for path in sorted(raylib.rglob("*")):
+        relative = path.relative_to(raylib)
+        if path.is_file() and not {".git", "examples"} & set(relative.parts):
+            files[f"deps/raylib/{relative.as_posix()}"] = path
+    files["deps/" + lock["ffmpeg"]["url"].rsplit("/", 1)[1]] = download(lock["ffmpeg"], cache)
+    return files
+
+
+def build_zip(entries, commit, output_directory, name):
+    lock = json.loads((KIT / "installer.lock.json").read_text(encoding="utf-8"))
+    work_root = output_directory / "work"
+    stage = work_root / "zip-stage"
+    write_stage(entries, stage)
+    files = dict(entries)
+    for path, source in prebuilt_files(stage, commit, work_root, lock).items():
+        if path in files:
+            raise RuntimeError(f"{path} is both in the snapshot and a prebuilt file")
+        files[path] = source
+    output = output_directory / f"{name}-{commit[:12]}.zip"
+    write_zip(output, name, files)
+    return output
+
+
+def build_installer(entries, commit, output_directory, iscc):
+    lock = json.loads((KIT / "installer.lock.json").read_text(encoding="utf-8"))
+    work_root = output_directory / "work"
+    cache = work_root / "cache"
+    stage = work_root / "stage"
+    write_stage(entries, stage)
     for name, source in INSTALLER_ROOT_FILES.items():
         shutil.copyfile(source, stage / name)
     shutil.copyfile(stage / ICON, stage / "drakan.ico")
-    # Build-LocalGame.ps1 uses the compiler next to it instead of building one (which would need Git).
-    shutil.copyfile(build_compiler(stage, commit, work_root / "compiler"), stage / "scripts/buildtool/ps2_recomp.exe")
-    # Third-party sources for the runtime build: Build-LocalGame.ps1 picks up <root>/deps by itself.
-    raylib = fetch_raylib(lock["raylib"], cache)
-    shutil.copytree(raylib, stage / "deps/raylib", ignore=shutil.ignore_patterns(".git", "examples"))
-    shutil.copyfile(download(lock["ffmpeg"], cache), stage / "deps" / lock["ffmpeg"]["url"].rsplit("/", 1)[1])
+    for path, source in prebuilt_files(stage, commit, work_root, lock).items():
+        (stage / path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, stage / path)
     for tool in ("python", "pwsh", "node"):
         extract_tool(download(lock[tool], cache), stage / "tools" / tool)
     smoke_test(stage)
@@ -329,8 +366,7 @@ def main():
     if args.installer:
         output = build_installer(entries, commit, output_directory, find_iscc(args.iscc))
     else:
-        output = output_directory / f"{args.name}-{commit[:12]}.zip"
-        write_zip(output, args.name, entries)
+        output = build_zip(entries, commit, output_directory, args.name)
     digest = sha256(output)
     manifest = {"file": output.name, "commit": commit, "source_files": len(entries), "sha256": digest}
     output.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

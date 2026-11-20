@@ -174,7 +174,7 @@ try {
     $freeGb = [Math]::Round($drive.AvailableFreeSpace / 1GB, 1)
     $vs = Find-VisualStudio
     $neededGb = if ($vs) { 4 } else { 8 }
-    Write-Host "Disk:    $freeGb GB free on $($drive.Name)"
+    Write-Host "Build:   $WorkDir ($freeGb GB free on $($drive.Name))"
     if (-not (Test-Path -LiteralPath $WorkDir) -and $freeGb -lt $neededGb) {
         $problems.Add("At least $neededGb GB free on $($drive.Name) (the build uses about 2 GB$(if (-not $vs) { ', the C++ Build Tools about 3 GB' }))")
     }
@@ -199,6 +199,22 @@ try {
     if ($CpuAffinity -eq 'default') { $CpuAffinity = '' }
     if (-not $DistDirectory -and $saved -and $saved.playFolder) { $DistDirectory = [string]$saved.playFolder }
     if ($DistDirectory -eq 'default') { $DistDirectory = '' }
+    # The play folder (drakan.exe, saves, settings) is asked for once on the first interactive run; the setup passes
+    # -DistDirectory from its own folder page. Only an answered question is remembered, so -CheckOnly does not skip it.
+    $playKnown = $PSBoundParameters.ContainsKey('DistDirectory') -or [bool]($saved -and $saved.PSObject.Properties['playFolder'])
+    if (-not $playKnown -and [Environment]::UserInteractive -and -not $CheckOnly) {
+        $defaultPlay = Join-Path $RepoRoot 'dist\DrakanPC'
+        Write-Host "`nWhere should the game go? That folder gets drakan.exe, your saves and settings. The build files stay in"
+        Write-Host "$WorkDir (next to this builder; move the builder folder or pass -WorkDir to put them elsewhere)."
+        $answer = (Read-Host "Game folder (drag a folder into this window), or Enter for $defaultPlay").Trim().Trim('"')
+        if ($answer) {
+            # A bare drive (D:\) gets its own folder rather than filling the drive root.
+            $DistDirectory = if ([IO.Path]::GetFullPath($answer) -eq [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($answer))) {
+                Join-Path $answer 'DrakanPC'
+            } else { $answer }
+        }
+        $playKnown = $true
+    }
     # Optional extras. A remembered key (even an empty one) means the question was answered before.
     $extrasKnown = [bool]($saved -and $saved.PSObject.Properties['ootfSource'])
     $hdKnown = [bool]($saved -and $saved.PSObject.Properties['hdTextures'])
@@ -214,16 +230,21 @@ try {
             (& $inside $DistDirectory $WorkDir) -or (& $inside $DistDirectory (Join-Path $RepoRoot 'build'))) {
             throw "The play folder cannot be a drive root, the builder folder or inside its build folder: $DistDirectory"
         }
-        Write-Host "Play:    $DistDirectory"
     }
+    $playShown = if ($DistDirectory) { $DistDirectory } else { Join-Path $RepoRoot 'dist\DrakanPC' }
+    $playDrive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($playShown))
+    if (-not $playDrive.IsReady) {
+        throw "The drive of the play folder $playShown is not available. Run the build again with -DistDirectory <folder>."
+    }
+    Write-Host "Play:    $playShown ($([Math]::Round($playDrive.AvailableFreeSpace / 1GB, 1)) GB free on $($playDrive.Name))"
     if ($CpuAffinity) {
         Resolve-BuildAffinity $CpuAffinity | Out-Null
         Write-Host "Affinity: $CpuAffinity (Windows build processes only)"
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
     $saveOptions = {
-        $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; playFolder = $DistDirectory
-                      vuBlocks = $VuBlocks; hdGpu = $HdGpu }
+        $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; vuBlocks = $VuBlocks; hdGpu = $HdGpu }
+        if ($playKnown) { $options.playFolder = $DistDirectory }
         # Only answered questions are remembered, so a run that never got to ask still asks the next time.
         if ($extrasKnown) { $options.ootfSource = $OotfSource; $options.ootfSubtitles = $OotfSubtitles }
         if ($hdKnown) { $options.hdTextures = ($HdTextures -eq 'on') }
