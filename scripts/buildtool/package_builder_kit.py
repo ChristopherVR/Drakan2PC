@@ -28,7 +28,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 KIT = HERE / "kit"
 # Developer-only material the build never reads.
-EXCLUDED_PREFIXES = ("docs/journal/", "scripts/archive/", ".github/", ".githooks/")
+EXCLUDED_PREFIXES = ("docs/journal/", "scripts/archive/", ".github/", ".githooks/", ".claude/")
 EXCLUDED_FILES = {"AGENTS.md", "CLAUDE.md"}
 # The player build only runs the PowerShell under scripts/buildtool/. The other .ps1 files are developer harnesses
 # (hidden game runs, profilers, test runners); left out because antivirus heuristics score them in a downloaded kit.
