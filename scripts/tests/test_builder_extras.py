@@ -552,12 +552,20 @@ class NodeModuleTests(unittest.TestCase):
         node = self.node_ok()
         if not node:
             self.skipTest("Node.js 22.18 or newer not on PATH")
+        # The editor scripts import the editor's packages, which exist only after `npm ci` in editor/ (the build makes
+        # stubs for them, extras.ensure_node_modules). CI jobs that never install the editor skip those two.
+        modules = ROOT / "editor/node_modules"
+        editor_installed = all(
+            (modules / name).is_dir() for name in ("@drakan/formats", "@drakan/editor-core", "fflate")
+        )
         for script in (
             "analysis/scripts/character_motion_retarget.ts",
             "editor/scripts/ootf-convert.ts",
             "editor/scripts/ootf-speech.ts",
         ):
             with self.subTest(script=script):
+                if script.startswith("editor/") and not editor_installed:
+                    self.skipTest("the editor's npm packages are not installed (npm ci in editor/)")
                 result = subprocess.run(
                     [node, "--no-warnings", str(ROOT / script)], capture_output=True, text=True, cwd=ROOT, check=False
                 )
