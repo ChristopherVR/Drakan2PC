@@ -166,6 +166,80 @@ class CheckOnlyTests(unittest.TestCase):
             self.assertEqual(options["vuBlocks"], "Whole")
             self.assertIn("VU1:     whole blocks", output)
 
+    def kit_copy(self, temp, bundled=False):
+        """A copy of the builder scripts, so the remembered ISO, build options and build-log.txt stay in temp."""
+        node = shutil.which("node")
+        version = (
+            subprocess.run([node, "-p", "process.versions.node"], capture_output=True, text=True).stdout if node else ""
+        )
+        if not node or tuple(int(part) for part in version.strip().split(".")[:2]) < (22, 18):
+            self.skipTest("Build-Drakan.ps1 needs Node.js 22.18+ on PATH")
+        copy = Path(temp) / "kit"
+        shutil.copytree(BUILDTOOL, copy / "scripts/buildtool", ignore=shutil.ignore_patterns("__pycache__"))
+        if bundled:
+            # What the zip kit and the installer carry instead of fetching with Git.
+            (copy / "scripts/buildtool/ps2_recomp.exe").write_bytes(b"MZ")
+            (copy / "deps/raylib").mkdir(parents=True)
+        return copy
+
+    def test_zip_kit_with_bundled_sources_needs_no_git(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = self.kit_copy(temp, bundled=True)
+            iso = synthetic_iso(temp)
+            no_git = [d for d in os.environ["PATH"].split(os.pathsep) if d and not (Path(d) / "git.exe").is_file()]
+            env = dict(os.environ, PATH=os.pathsep.join([str(Path(sys.executable).parent), *no_git]))
+            result = pwsh(
+                f"& {quote(copy / 'scripts/buildtool/Build-Drakan.ps1')} -IsoPath {quote(iso)} -CheckOnly",
+                env=env,
+                timeout=300,
+            )
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn("Sources: bundled", output)
+            self.assertNotIn("Git on PATH", output)
+            self.assertIn("Ready to build.", output)
+
+    def test_first_run_asks_where_the_game_goes_and_remembers_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = self.kit_copy(temp)
+            script = copy / "scripts/buildtool/Build-Drakan.ps1"
+            options_file = copy / "build/build-options.json"
+            env = dict(os.environ, PATH=str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"])
+            # -CheckOnly never asks, and leaves the question open for the real run.
+            result = pwsh(f"& {quote(script)} -IsoPath {quote(synthetic_iso(temp))} -CheckOnly", env=env, timeout=300)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn("playFolder", json.loads(options_file.read_text()))
+            long_temp = Path(temp).resolve()  # the script expands 8.3 short names such as CHRIST~1
+            drive = long_temp.anchor
+            for answer, expected in ((str(long_temp / "Games/Drakan"), str(long_temp / "Games/Drakan")),
+                                     (drive, str(Path(drive) / "DrakanPC"))):  # fmt: skip
+                with self.subTest(answer=answer):
+                    options_file.unlink()
+                    # A missing ISO stops the run right after the options are saved, before anything is built.
+                    result = subprocess.run(
+                        [PWSH, "-NoProfile", "-File", str(script), "-IsoPath", str(Path(temp) / "missing.iso")],
+                        input=answer + "\n",
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        env=env,
+                    )
+                    output = result.stdout + result.stderr
+                    self.assertIn("Where should the game go?", output)
+                    self.assertIn(f"Play:    {expected}", output)
+                    self.assertIn("ISO not found", output)
+                    self.assertEqual(json.loads(options_file.read_text())["playFolder"], expected)
+            # Remembered: a later run does not ask again.
+            result = subprocess.run(
+                [PWSH, "-NoProfile", "-File", str(script), "-IsoPath", str(Path(temp) / "missing.iso")],
+                input="",
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=env,
+            )
+            self.assertNotIn("Where should the game go?", result.stdout + result.stderr)
+
     def test_build_local_game_prepare_only_rejects_a_synthetic_iso(self):
         with tempfile.TemporaryDirectory() as temp:
             iso = synthetic_iso(temp)
