@@ -12,6 +12,7 @@ such: it is never reported as clean. Writes vt_detected.txt ("true"/"false") for
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -154,8 +155,16 @@ def scan(
 def section(rows: list[tuple[str, str, str]]) -> str:
     lines = [SECTION, "", "Automated multi-engine scan of the downloads above:", ""]
     lines += [f"- [`{name}`]({url}): {verdict}" for name, url, verdict in rows]
-
     return "\n".join(lines) + "\n"
+
+
+def gated_detections(rows: list[tuple[str, str, str]], patterns: list[str]) -> list[str]:
+    """The flagged files this run is responsible for: names matching any of the glob patterns."""
+    return [
+        name
+        for name, _, verdict in rows
+        if verdict.startswith("flagged") and any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
+    ]
 
 
 def replace_section(body: str, new_section: str) -> str:
@@ -169,13 +178,22 @@ def main(argv=None) -> int:
     parser.add_argument("files", nargs="+", type=Path)
     parser.add_argument("--body", type=Path, required=True, help="current release notes")
     parser.add_argument("--output", type=Path, required=True, help="where to write the updated release notes")
+    parser.add_argument(
+        "--gate",
+        action="append",
+        help="only a flagged file matching this glob counts as a detection (repeatable; default: every file). "
+        "Every file is still listed in the notes.",
+    )
     args = parser.parse_args(argv)
     client = Client(os.environ["VT_API_KEY"])
-    rows, detected = scan(args.files, client)
+    rows, _ = scan(args.files, client)
     text = section(rows)
     print(text)
     args.output.write_text(replace_section(args.body.read_text(encoding="utf-8"), text), encoding="utf-8")
-    Path("vt_detected.txt").write_text("true" if detected else "false", encoding="utf-8")
+    flagged = gated_detections(rows, args.gate or ["*"])
+    for name in flagged:
+        print(f"::error::VirusTotal engines flagged {name}.")
+    Path("vt_detected.txt").write_text("true" if flagged else "false", encoding="utf-8")
     return 0
 
 

@@ -106,6 +106,18 @@ class VirusTotalScanTests(unittest.TestCase):
             rows, _ = vt.scan([self.file], client)
         self.assertIn("none of the 60 engines", rows[0][2])
 
+    def test_gate_counts_only_the_files_this_run_owns(self):
+        rows = [
+            ("DrakanPC-Builder.zip", "u", "flagged by 3 of 58 engines (3 malicious, 0 suspicious)"),
+            ("DrakanEditor-Setup.exe", "u", "clean, none of the 60 engines that checked it flagged it"),
+            ("DrakanSaveEditor-Portable.zip", "u", "flagged by 1 of 60 engines (1 malicious, 0 suspicious)"),
+        ]
+        self.assertEqual(vt.gated_detections(rows, ["*"]), ["DrakanPC-Builder.zip", "DrakanSaveEditor-Portable.zip"])
+        self.assertEqual(
+            vt.gated_detections(rows, ["DrakanEditor-*", "DrakanSaveEditor-*"]), ["DrakanSaveEditor-Portable.zip"]
+        )
+        self.assertEqual(vt.gated_detections(rows, ["DrakanEditor-*"]), [])
+
     def test_section_replaces_previous_copy(self):
         body = "Changes\n\nDownload notes\n\n## VirusTotal scan\n\nold results\n"
         new = vt.section([("a.zip", "https://example/a", "clean")])

@@ -19,6 +19,13 @@ on:
         type: string
         required: false
         default: ''
+      gate:
+        description: >-
+          Space-separated globs of the files this run is answerable for; only a detection in one of them fails the
+          job (every file is still listed in the notes). Empty = every file.
+        type: string
+        required: false
+        default: ''
   workflow_dispatch:
     inputs:
       tag:
@@ -72,16 +79,21 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         env:
           TAG: ${{ steps.files.outputs.tag }}
+          GATE: ${{ inputs.gate }}
         run: |
           set -euo pipefail
+          gate_args=()
+          set -f  # the patterns are for the scanner, not for the shell to expand
+          for pattern in $GATE; do gate_args+=(--gate "$pattern"); done
+          set +f
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq '.body' > body.md
-          python3 scripts/buildtool/virustotal_scan.py --body body.md --output body.new.md dist/*
+          python3 scripts/buildtool/virustotal_scan.py --body body.md --output body.new.md "${gate_args[@]}" dist/*
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file body.new.md
           cat body.new.md >> "$GITHUB_STEP_SUMMARY"
       - name: Fail on a detection
         if: steps.gate.outputs.enabled == 'true'
         run: |
           if [ "$(cat vt_detected.txt 2>/dev/null)" = true ]; then
-            echo '::error::VirusTotal engines flagged a release file. See the VirusTotal section of the release notes.'
+            echo '::error::VirusTotal engines flagged a file this run published. See the VirusTotal section of the release notes.'
             exit 1
           fi
