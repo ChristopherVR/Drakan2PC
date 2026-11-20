@@ -95,8 +95,16 @@ class VirusTotalScanTests(unittest.TestCase):
 
     def test_refused_upload_is_named_not_dropped(self):
         client = FakeClient({"/files/": None}, upload_error=OSError("refused"))
-        rows, _ = vt.scan([self.file], client)
+        with patch.object(vt.time, "sleep"):
+            rows, _ = vt.scan([self.file], client)
+        self.assertEqual(len(client.uploads), 4)
         self.assertIn("could not be sent", rows[0][2])
+
+    def test_timed_out_lookup_is_retried(self):
+        client = FakeClient({"/files/": [TimeoutError("read timed out"), report({"undetected": 60})]})
+        with patch.object(vt.time, "sleep"):
+            rows, _ = vt.scan([self.file], client)
+        self.assertIn("none of the 60 engines", rows[0][2])
 
     def test_section_replaces_previous_copy(self):
         body = "Changes\n\nDownload notes\n\n## VirusTotal scan\n\nold results\n"

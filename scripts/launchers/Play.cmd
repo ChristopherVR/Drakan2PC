@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-rem Use drakan.ini, including the saved World frame rate selection.
-start "" "%~dp0drakan.exe"
+rem Normal launch: drakan.ini decides the world frame rate (see Play-Original30.cmd for the original 30 FPS).
+pushd "%~dp0"
+start "Drakan" drakan.exe %*
+popd
 endlocal

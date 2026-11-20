@@ -102,7 +102,9 @@ def known_report(client: Client, digest: str):
     return stats
 
 
-def scan(files: list[Path], client: Client, timeout: float = 3000) -> tuple[list[tuple[str, str, str]], bool]:
+def scan(
+    files: list[Path], client: Client, timeout: float = 3000, attempts: int = 4, retry_wait: float = 70
+) -> tuple[list[tuple[str, str, str]], bool]:
     """Return (name, report url, verdict) per file, in input order, and whether anything was flagged."""
     verdicts: dict[str, str] = {}
     digests: dict[str, str] = {}
@@ -111,16 +113,22 @@ def scan(files: list[Path], client: Client, timeout: float = 3000) -> tuple[list
     for path in files:
         digest = sha256(path)
         digests[path.name] = digest
-        try:
-            stats = known_report(client, digest)
-            if stats is not None:
-                verdicts[path.name], hit = describe(stats)
-                detected |= hit
-                continue
-            pending[path.name] = client.upload(path)
-            print(f"Uploaded {path.name}")
-        except (urllib.error.URLError, subprocess.CalledProcessError, OSError, KeyError, ValueError) as error:
-            print(f"::warning::VirusTotal could not take {path.name}: {error}")
+        # A lookup or upload that times out or is refused (rate limit) is retried after a pause.
+        for attempt in range(1, attempts + 1):
+            try:
+                stats = known_report(client, digest)
+                if stats is not None:
+                    verdicts[path.name], hit = describe(stats)
+                    detected |= hit
+                else:
+                    pending[path.name] = client.upload(path)
+                    print(f"Uploaded {path.name}")
+                break
+            except (urllib.error.URLError, subprocess.CalledProcessError, OSError, KeyError, ValueError) as error:
+                print(f"::warning::VirusTotal could not take {path.name} (attempt {attempt} of {attempts}): {error}")
+                if attempt < attempts:
+                    time.sleep(retry_wait)
+        else:
             verdicts[path.name] = "could not be sent to VirusTotal this time; check its SHA-256 on virustotal.com"
 
     deadline = time.monotonic() + timeout
