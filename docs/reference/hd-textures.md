@@ -11,6 +11,11 @@ existing play folder's `textures` directory. Use `-TextureDirectory <folder>` to
 no local pack, the game uses the original textures. `Build-Drakan.ps1 -HdTextures on` generates a pack from your disc.
 The repo and release packages exclude disc-derived packs. See [Building Drakan PC](../../BUILDING.md#optional-extras-order-of-the-flame-and-hd-textures).
 
+On Windows, the builder uses the selected Python's NumPy and Pillow packages if they import successfully. Otherwise,
+it downloads SHA-256-pinned wheels for standard x64 CPython 3.11 through 3.14. Each interpreter ABI has a separate
+private cache under `tools`, with Python 3.12 retaining `tools/hd-site`. The optional generation step runs after the
+game files are ready. Its output goes into `build-log.txt` alongside the game build summary.
+
 * A texture is hashed **after decoding** (CLUT + TEXA applied, RGBA8, alpha 0..0x80 in GS units) with a 64 bit hash of the level-0 pixels + width/height. Dump = `<texdir>/dump/<hash>.png`
   (alpha 0x80 -> 255); replacement = `<texdir>/<hash>.png|.dds` (any 2/4/8x multiple, else resampled to the nearest power-of-two factor); mips are regenerated from the replacement; render targets
   (framebuffer-as-texture) are never hashed; `exclude.txt` lists hashes to skip.

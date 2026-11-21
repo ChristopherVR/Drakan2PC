@@ -990,13 +990,12 @@ class HdToolsTests(unittest.TestCase):
         has = lambda python, site=None: site is not None and (site / "numpy/__init__.py").is_file()
         with (
             mock.patch.object(extras, "python_has_modules", has),
-            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="True\n")),
+            mock.patch.object(extras, "hd_python_tag", return_value="cp312-win_amd64"),
         ):
             tools = extras.provision_hd_tools(self.root, self.lock, self.dir / "cache", "py", self.fetch)
-        self.assertEqual(tools.exe, self.root / "tools/hdpack/realesrgan/realesrgan-ncnn-vulkan.exe")
-        self.assertEqual(tools.site, self.root / "tools/hd-site")
-        self.assertEqual(len(self.fetched), 3)
-        with mock.patch.object(extras, "python_has_modules", has):
+            self.assertEqual(tools.exe, self.root / "tools/hdpack/realesrgan/realesrgan-ncnn-vulkan.exe")
+            self.assertEqual(tools.site, self.root / "tools/hd-site")
+            self.assertEqual(len(self.fetched), 3)
             again = extras.provision_hd_tools(self.root, self.lock, self.dir / "cache", "py", self.fetch)
         self.assertEqual(again, tools)
         self.assertEqual(len(self.fetched), 3, "tools that are in place are not downloaded again")
@@ -1010,11 +1009,36 @@ class HdToolsTests(unittest.TestCase):
     def test_the_pinned_wheels_are_refused_for_another_python_version(self):
         with (
             mock.patch.object(extras, "python_has_modules", lambda python, site=None: False),
-            mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="False\n")),
+            mock.patch.object(extras, "hd_python_tag", return_value="cp315-win_amd64"),
             self.assertRaises(extras.ExtrasError) as caught,
         ):
             extras.provision_hd_tools(self.root, self.lock, self.dir / "cache", "py", self.fetch)
-        self.assertIn("3.12", str(caught.exception))
+        self.assertIn("DrakanPC-Setup.exe", str(caught.exception))
+        self.assertIn("py -m pip install --target", str(caught.exception))
+
+    def test_python_314_uses_its_own_wheels_and_preserves_the_312_cache(self):
+        old_site = self.root / "tools/hd-site"
+        old_site.mkdir(parents=True)
+        old_cache = old_site / "python312.txt"
+        old_cache.touch()
+
+        def has_modules(python, site=None):
+            return site is not None and (site / "numpy/__init__.py").is_file() and (site / "PIL/__init__.py").is_file()
+
+        probe = subprocess.CompletedProcess([], 0, stdout=".cp314-win_amd64.pyd\n")
+        cache = self.dir / "cache"
+        with (
+            mock.patch.object(extras, "python_has_modules", has_modules),
+            mock.patch.object(subprocess, "run", return_value=probe),
+        ):
+            self.assertFalse(extras.hd_tools_ready(self.root, "py"))
+            tools = extras.provision_hd_tools(self.root, self.lock, cache, "py", self.fetch)
+            self.assertTrue(extras.hd_tools_ready(self.root, "py"))
+            self.assertEqual(extras.provision_hd_tools(self.root, self.lock, cache, "py", self.fetch), tools)
+        self.assertEqual(tools.site, self.root / "tools/hd-site-cp314-win_amd64")
+        self.assertTrue(old_cache.exists())
+        self.assertEqual(len(self.fetched), 3)
+        self.assertTrue(all("-cp314-cp314-win_amd64.whl" in url for url in self.fetched[1:]))
 
     def test_run_hd_indexes_then_upscales_in_two_passes_with_the_site_on_the_path(self):
         folder = self.root / "tools/hdpack/realesrgan"
@@ -1030,7 +1054,10 @@ class HdToolsTests(unittest.TestCase):
         pack = self.dir / "ootf-levels.zip"
         pack.write_bytes(b"zip")
         has = lambda python, site=None: site is not None
-        with mock.patch.object(extras, "python_has_modules", has):
+        with (
+            mock.patch.object(extras, "python_has_modules", has),
+            mock.patch.object(extras, "hd_python_tag", return_value="cp312-win_amd64"),
+        ):
             (self.root / "tools/hd-site").mkdir(parents=True)
             textures = extras.run_hd(
                 self.dir / "game.iso",
@@ -1096,15 +1123,21 @@ class HdToolsTests(unittest.TestCase):
 class PolicyTests(unittest.TestCase):
     def test_the_lock_pins_every_extra_download(self):
         lock = json.loads(LOCK.read_text(encoding="utf-8"))
-        for name in ("numpy", "pillow", "realesrgan", "fflate"):
+        for name in ("realesrgan", "fflate"):
             with self.subTest(name=name):
                 self.assertTrue(lock["hd"][name]["url"].startswith("https://"))
                 self.assertRegex(lock["hd"][name]["sha256"], r"^[0-9a-f]{64}$")
         python = re.search(r"python-(\d+)\.(\d+)", lock["python"]["url"])
-        tag = f"cp{python.group(1)}{python.group(2)}"
-        for wheel in ("numpy", "pillow"):
-            self.assertIn(tag, lock["hd"][wheel]["url"], "wheels must match the pinned embeddable Python")
-            self.assertIn("win_amd64", lock["hd"][wheel]["url"])
+        wheel_sets = lock["hd"]["python_wheels"]
+        self.assertIn(f"cp{python.group(1)}{python.group(2)}-win_amd64", wheel_sets)
+        for tag, wheels in wheel_sets.items():
+            interpreter, platform = tag.split("-")
+            with self.subTest(tag=tag):
+                self.assertEqual(set(wheels), {"numpy", "pillow"})
+                for spec in wheels.values():
+                    self.assertTrue(spec["url"].startswith("https://"))
+                    self.assertTrue(spec["url"].endswith(f"-{interpreter}-{interpreter}-{platform}.whl"))
+                    self.assertRegex(spec["sha256"], r"^[0-9a-f]{64}$")
 
     def test_wizard_text_matches_the_estimates(self):
         text = ENGLISH_SETUP.read_text(encoding="utf-8")

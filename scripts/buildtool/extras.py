@@ -905,9 +905,27 @@ class HdTools:
 
 
 def python_has_modules(python: str, site: Path | None = None) -> bool:
-    code = "import sys\nif len(sys.argv) > 1: sys.path.insert(0, sys.argv[1])\nimport numpy, PIL"
+    code = "import sys\nif len(sys.argv) > 1: sys.path.insert(0, sys.argv[1])\nimport numpy\nfrom PIL import Image"
     cmd = [python, "-I", "-c", code] + ([str(site)] if site else [])
     return subprocess.run(cmd, capture_output=True, check=False).returncode == 0
+
+
+def hd_python_tag(python: str) -> str:
+    result = subprocess.run(
+        [python, "-I", "-c", "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    match = re.fullmatch(r"\.(cp3\d+t?-(?:win_amd64|win_arm64|win32))\.pyd", result.stdout.strip())
+    return match[1] if match else ""
+
+
+def hd_python_sites(root: Path, tag: str) -> tuple[Path, ...]:
+    legacy = root / "tools/hd-site"
+    if not tag or tag == "cp312-win_amd64":
+        return (legacy,)
+    return (legacy.with_name(f"hd-site-{tag}"), legacy)
 
 
 def realesrgan_ready(folder: Path) -> bool:
@@ -917,7 +935,8 @@ def realesrgan_ready(folder: Path) -> bool:
 def hd_tools_ready(root: Path = ROOT, python: str | None = None) -> bool:
     python = python or sys.executable
     return realesrgan_ready(root / "tools/hdpack/realesrgan") and (
-        python_has_modules(python) or python_has_modules(python, root / "tools/hd-site")
+        python_has_modules(python)
+        or any(python_has_modules(python, site) for site in hd_python_sites(root, hd_python_tag(python)))
     )
 
 
@@ -934,23 +953,25 @@ def provision_hd_tools(root: Path, lock: dict, cache: Path, python: str | None =
     exe = folder / "realesrgan-ncnn-vulkan.exe"
     if python_has_modules(python):
         return HdTools(exe, None)
-    site = root / "tools/hd-site"
-    if python_has_modules(python, site):
-        return HdTools(exe, site)
-    version = subprocess.run(
-        [python, "-I", "-c", "import sys;print(sys.version_info[:2] == (3, 12))"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if version.stdout.strip() != "True":
-        raise ExtrasError(
-            "The HD step needs numpy and Pillow. This Python is not 3.12, which the pinned wheels are built for: "
-            "run 'python -m pip install numpy pillow' for it, or use the builder's own Python."
+    tag = hd_python_tag(python)
+    sites = hd_python_sites(root, tag)
+    for site in sites:
+        if python_has_modules(python, site):
+            return HdTools(exe, site)
+    wheels = lock["hd"]["python_wheels"].get(tag)
+    if wheels is None:
+        install = subprocess.list2cmdline(
+            [python, "-m", "pip", "install", "--target", str(sites[0]), "--upgrade", "numpy", "pillow"]
         )
+        raise ExtrasError(
+            "HD generation needs NumPy and Pillow. The builder has no pinned wheels for this Python. "
+            "Use DrakanPC-Setup.exe for its bundled Python, or run this in Command Prompt before retrying:\n"
+            f"  {install}"
+        )
+    site = sites[0]
     shutil.rmtree(site, ignore_errors=True)
-    for name in ("numpy", "pillow"):
-        safe_extract_zip(fetch(lock["hd"][name], cache), site)
+    for spec in wheels.values():
+        safe_extract_zip(fetch(spec, cache), site)
     if not python_has_modules(python, site):
         raise ExtrasError("numpy and Pillow were unpacked but this Python cannot import them.")
     return HdTools(exe, site)

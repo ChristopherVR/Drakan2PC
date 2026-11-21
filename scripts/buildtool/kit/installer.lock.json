@@ -39,14 +39,48 @@
     }
   },
   "hd": {
-    "comment": "Optional extras (scripts/buildtool/extras.py): fetched on demand, never bundled. numpy and Pillow are the cp312 wheels for the pinned embeddable Python; realesrgan is the v0.2.5.0 ncnn Vulkan release; fflate is the converter's only third-party package.",
-    "numpy": {
-      "url": "https://files.pythonhosted.org/packages/ad/9c/4a93b8e395b755c53628573d75d7b21985d9a0f416e978d637084ccc8ec3/numpy-2.0.0-cp312-cp312-win_amd64.whl",
-      "sha256": "a356364941fb0593bb899a1076b92dfa2029f6f5b8ba88a14fd0984aaf76d0df"
-    },
-    "pillow": {
-      "url": "https://files.pythonhosted.org/packages/57/97/73f756c338c1d86bb802ee88c3cab015ad7ce4b838f8a24f16b676b1ac7c/pillow-11.0.0-cp312-cp312-win_amd64.whl",
-      "sha256": "8ec4a89295cd6cd4d1058a5e6aec6bf51e0eaaf9714774e1bfac7cfc9051db47"
+    "comment": "Optional extras (scripts/buildtool/extras.py): fetched on demand, never bundled. The NumPy and Pillow wheels are selected by the Windows CPython ABI. Real-ESRGAN is the v0.2.5.0 ncnn Vulkan release. fflate is the converter's only third-party package.",
+    "python_wheels": {
+      "cp311-win_amd64": {
+        "numpy": {
+          "url": "https://files.pythonhosted.org/packages/f0/66/d215f3fb93541617adb5d58b3b9508e8a6413e499711e0adc0b80bcb445d/numpy-2.4.5-cp311-cp311-win_amd64.whl",
+          "sha256": "079b0fad6f2899b23c5da89792b5409d2d83fc83e8bd5c2299cc9c397a264864"
+        },
+        "pillow": {
+          "url": "https://files.pythonhosted.org/packages/63/c6/4bad1b18d132a50b27e1365e1ab163616f7a5bb56d330f66f9d1d9d4f9d4/pillow-12.3.0-cp311-cp311-win_amd64.whl",
+          "sha256": "8e95e1385e4998ae9694eeaa4730ba5457ff61185b3a55e2e7bea0880aef452a"
+        }
+      },
+      "cp312-win_amd64": {
+        "numpy": {
+          "url": "https://files.pythonhosted.org/packages/ad/9c/4a93b8e395b755c53628573d75d7b21985d9a0f416e978d637084ccc8ec3/numpy-2.0.0-cp312-cp312-win_amd64.whl",
+          "sha256": "a356364941fb0593bb899a1076b92dfa2029f6f5b8ba88a14fd0984aaf76d0df"
+        },
+        "pillow": {
+          "url": "https://files.pythonhosted.org/packages/57/97/73f756c338c1d86bb802ee88c3cab015ad7ce4b838f8a24f16b676b1ac7c/pillow-11.0.0-cp312-cp312-win_amd64.whl",
+          "sha256": "8ec4a89295cd6cd4d1058a5e6aec6bf51e0eaaf9714774e1bfac7cfc9051db47"
+        }
+      },
+      "cp313-win_amd64": {
+        "numpy": {
+          "url": "https://files.pythonhosted.org/packages/28/f9/a90d2220ffcdc0798f5d55bb5d5463cd6254ec9ef43f384dae80217d7a2f/numpy-2.4.5-cp313-cp313-win_amd64.whl",
+          "sha256": "fb4a6c9c537d6ccec9cc4aeae4261bd3cc79b070c67ddc0646f5b1c07fddde42"
+        },
+        "pillow": {
+          "url": "https://files.pythonhosted.org/packages/a6/9b/7a58e61d62be561da3a356fe2384d4059a6345fc130e23ef1c36a5b81d24/pillow-12.3.0-cp313-cp313-win_amd64.whl",
+          "sha256": "1cca606cd25738df4ed873d5ad46bbdb3d83b5cbca291f6b4ff13a4df6b0bbe8"
+        }
+      },
+      "cp314-win_amd64": {
+        "numpy": {
+          "url": "https://files.pythonhosted.org/packages/aa/92/d063df4d63d988b20d881856c74df76c0c1786229bb870f3a52af0981d4d/numpy-2.4.5-cp314-cp314-win_amd64.whl",
+          "sha256": "4bd2cd4ef9c0afa87de73723c0a33c0edff62143e1432917458e26d3d195d87f"
+        },
+        "pillow": {
+          "url": "https://files.pythonhosted.org/packages/f1/e0/492879f69d94f91f60fc8cd05ba03650e9520afebb2fb7aa12777d7c7f38/pillow-12.3.0-cp314-cp314-win_amd64.whl",
+          "sha256": "fdafc9cce40277e0f7a0feabce0ee50dd2fa1800f3b38015e51296b5e814048d"
+        }
+      }
     },
     "realesrgan": {
       "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",

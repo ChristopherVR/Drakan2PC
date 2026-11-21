@@ -2,6 +2,8 @@
 
 The installer builds Drakan locally from your own disc image. It supplies the tools and source code; the playable game is created on your computer.
 
+If you already have the game, see [Update an existing installation](#update-an-existing-installation).
+
 ## Before you start
 
 You need your own **PAL SCES-500.06** disc as a plain `.iso`. The **USA SCUS-971.28** release is also accepted, with fewer features: see [USA disc support](#usa-disc-support-experimental). Other regions and BIN/CUE images are not supported. The builder validates the disc and stops if it does not match. Keep the ISO in a stable location: the game continues to read it during play.
@@ -44,6 +46,10 @@ Measured on an RTX 5080 PC (29–30 October 2026); slower hardware will run the 
 
 The playable Windows folder is the play folder you chose (by default `dist\DrakanPC` inside the installation). Launch its `drakan.exe` or the installed shortcut.
 
+Setup uses its own PowerShell, Python, and Node.js from the builder folder. It leaves your system Python and PATH alone.
+For `DrakanPC-Builder.zip`, install PowerShell 7, Python 3.11 or newer, and Node.js 22.18 or newer. If you use Node.js 23, use 23.6 or newer.
+Extract the ZIP and run `Build-Drakan.cmd` from the extracted folder. The builder asks for the play folder on the first run.
+
 ## Your first game
 
 Press **F1** for PC Settings. Start with the current defaults, then choose your resolution, frame rate, mouse sensitivity and preferred interface. Use **F11** or **Alt+Enter** for borderless fullscreen, **Esc** to pause and **F10** to release the mouse.
@@ -52,7 +58,28 @@ Read [PC enhancements](enhancements.md) for the PS2 comparison, then [Controls &
 
 ![PC Settings categories in the native Linux player](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/pc-settings.jpg)
 
-## Interrupted build or update
+## Update an existing installation
+
+Close Drakan and find your two folders before you start. The **builder folder** contains `Build-Drakan.cmd` and `build\game`. The **play folder** contains `drakan.exe`, `drakan.ini`, and your saves. By default the play folder is `dist\DrakanPC` inside the builder folder. It can also be elsewhere, such as `D:\Games\Drakan`. Back up your saves and settings from the play folder. See [Saves & updates](saves.md).
+
+### Update with Setup or switch from the ZIP to Setup
+
+1. Download `DrakanPC-Setup.exe` and run it from wherever you saved it. [Latest release](https://github.com/ChristopherVR/Drakan2PC/releases/latest)
+2. In Setup, select the existing **builder folder** as the installation folder. Keep `build\game` so the builder can reuse its previous work.
+3. Select the same PS2 ISO. On the **Play folder** page, select the existing **play folder** so the game keeps using your saves, settings, mods, and textures there.
+4. If you use **Order of the Flame**, select its source again. Review the other Setup options, including HD texture generation, because the choices you make here apply to the rebuild.
+5. Leave **Build the game now** selected. If the builder offers to continue, press **Enter**. When it says **Drakan is ready to play**, launch the game from the play folder.
+
+### Update with the builder ZIP
+
+1. Download `DrakanPC-Builder.zip`. [Latest release](https://github.com/ChristopherVR/Drakan2PC/releases/latest)
+2. Merge the extracted `DrakanPC-Builder` contents into your existing builder folder and replace matching files. `Build-Drakan.cmd` should be in the same place as before. Keep `build\game` so the builder can reuse it.
+3. Run `Build-Drakan.cmd`. Confirm the **Play folder** line shows your usual play folder. Use the same ISO and press **Enter** if the builder offers to continue.
+4. When you see **Drakan is ready to play**, start the game from that play folder. If HD texture generation stopped, see [Generate HD textures with the Windows builder](extras.md#generate-hd-textures-with-the-windows-builder).
+
+Both methods reuse compatible build files and rebuild what the release changed. An update can still recompile much of the game. If you choose a new builder folder, expect a first build. You can still point it at the same play folder.
+
+### Update from the title screen
 
 Automatic update checks are off by default. To enable them, select **Check for Drakan PC updates automatically** in
 Setup's **Game options**, or set `check_for_updates = 1` under `[general]` in the play folder's `drakan.ini`. With checks
@@ -66,25 +93,19 @@ disc image. Keep the drive with your `.iso`
 connected. The rebuild needs temporary free space on the play folder's drive for a second copy of the game and
 its assets. Your saves, settings, mods, and textures carry over. If the rebuild fails, open the game from its usual
 shortcut and retry the update from the title screen. If an interruption leaves the shortcut unavailable, run **Rebuild
-Drakan** from Start to recover the play folder. To update a builder ZIP installation, get a newer ZIP from the release
-page and rebuild from your disc image.
+Drakan** from Start to recover the play folder.
 
-When you start **Rebuild Drakan** from a release package, the builder checks its own version against GitHub. It
-shows the release page when a newer builder is available and continues the local build.
+## Resume a build
 
-Use **Rebuild Drakan** in the Start menu. It first shows where the last build stopped and checks each finished step's files on disk, for example:
+Use **Rebuild Drakan** in the Start menu for a Setup installation or run `Build-Drakan.cmd` for a ZIP installation. Both commands build the version already in the builder folder. If the builder finds a newer release, it can show you the release link. Follow the update steps above to install that version.
+
+The builder checks each step's files on disk and can show a prompt like this:
 
 ```text
-== The last build
-Stopped at step 5 of 6, Compiling the game, on 2026-11-06 19:14:
-  cl.exe failed (2)
-  [ok] 1. Reading the game from the ISO: game executable SCES_500.06 read from the ISO
-  [ok] 2. Translating the PS2 game code to C++: 83 generated C++ files
-  [ok] 3. Preparing the runtime files from the game: VU1 microcode image present
-  [ok] 4. Setting up the C++ build: build files generated
-  [  ] 5. Compiling the game: 212 of 368 files compiled
-Continuing from step 5, Compiling the game (212 compiled files are kept). Steps before it are only checked again.
-Press Enter to continue, or type S to start over
+Previous build
+  Resume at           [5/6] Compiling the game
+  On disk             212 of 368 files compiled
+Press Enter to continue, or type S to start over:
 ```
 
 Press Enter to continue from there, or type **S** to start over (`Build-Drakan.cmd -Fresh` does the same without asking). Starting over keeps the play folder with your saves and settings. When the files read from the ISO are incomplete, the build starts over by itself. Rebuild Drakan preserves saves, INI settings and existing texture packs, and builds into the same play folder. It uses the CPU cores and priority chosen in the installer; to change them, run `Build-Drakan.cmd -Cores 8 -Priority Low` from the installation folder (`-Cores 0` returns to the automatic choice, `-Priority Normal` to normal priority). `Build-Drakan.cmd -DistDirectory "D:\Games\DrakanPC"` moves the play folder for this and later rebuilds (`-DistDirectory default` goes back to `dist\DrakanPC`); the installer's shortcuts keep pointing at the old folder until you run the installer again. Avoid starting a second build against the same work folder while the first is running.

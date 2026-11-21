@@ -115,8 +115,8 @@ latest editor build.
 | Disk | About 10 GB | About 0.5 GB, plus 1.2 GB for HD textures |
 
 Details in [Install on Windows](docs/guides/install.md#before-you-start). The game reads the `.iso` while it runs, so
-leave it where it is. "Rebuild Drakan" in the Start menu continues an
-interrupted build and keeps your saves and settings.
+leave it where it is. See [Update an existing installation](docs/guides/install.md#update-an-existing-installation)
+to install a newer release or switch from the builder ZIP to Setup while keeping your saves and settings.
 
 ### Linux
 

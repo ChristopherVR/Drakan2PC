@@ -4,6 +4,23 @@ Build textures and movies from your own disc. Supply matching local subtitle fil
 
 ## HD textures
 
+### Generate HD textures with the Windows builder
+
+In Setup, select **Generate HD textures after the build**. From the builder folder, you can also run
+`Build-Drakan.cmd -HdTextures on`. Generation runs after the game build and writes to `textures` in the play folder.
+Run the same command to resume generation and keep the textures already made.
+
+Setup uses its bundled Python. The ZIP builder downloads NumPy and Pillow when needed for standard 64-bit Windows
+CPython 3.11 through 3.14. The v0.1.36 ZIP builder downloads only the Python 3.12 packages. If a ZIP build
+reports a NumPy or Pillow error, use Setup with your existing builder and play folders. See
+[Switch from the ZIP to Setup](install.md#update-with-setup-or-switch-from-the-zip-to-setup).
+
+If the builder says **Drakan is ready to play**, launch the game even if HD generation stopped. The game uses
+the existing replacement files where available and original textures for the rest. Check `build-log.txt` in the
+builder folder for the error before retrying. To skip generation on future runs, run `Build-Drakan.cmd -HdTextures auto`.
+
+### Generate HD textures from source
+
 The Windows renderer supports replacement textures as well as live texture upscaling. To generate the AI pack from a source checkout, follow the [HD texture reference](../reference/hd-textures.md). The workflow needs NumPy, Pillow and a configured `realesrgan-ncnn-vulkan` upscaler with its models.
 
 ```powershell

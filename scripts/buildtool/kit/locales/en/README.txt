@@ -21,9 +21,10 @@ WHAT YOU NEED
   recommended: a few files need about 17 GB while compiling), and a DirectX 11
   graphics card to play.
 
-Nothing else: on the first run the builder downloads and installs Microsoft's
-free "Visual Studio 2022 Build Tools" (the C++ compiler, about 3 GB). Windows
-asks for permission once.
+Setup bundles its own PowerShell, Python and Node.js in the builder folder.
+It leaves your system Python and PATH alone. On the first run the builder
+downloads and installs Microsoft's free "Visual Studio 2022 Build Tools"
+(the C++ compiler, about 3 GB). Windows asks for permission once.
 
 (If you have the zip kit instead of DrakanPC-Setup.exe, it also needs
 PowerShell 7, Python 3.11+ and Node.js 22.18+; the builder tells you what
@@ -46,7 +47,8 @@ The activity indicator shows when a tool is still running. The file counter
 advances as files finish, and some take several minutes. Use -Plain for
 motion-free output. When the window says the game is ready, start
 the game with the "Drakan - The Ancients' Gates" shortcut (Start menu or
-desktop). The game files are in the install folder under dist\DrakanPC.
+desktop) or open Play.cmd in your chosen play folder. The default play folder
+is dist\DrakanPC inside the builder folder.
 
 The multiplayer map pictures ship with the builder. Only for a map without a
 picture does the build start the finished game, in a small window that closes by
@@ -60,6 +62,26 @@ Closing the build window (or pressing Ctrl+C) also ends the compilers it started
 so nothing keeps compiling in the background. "Rebuild Drakan" in the Start menu (Build-Drakan.cmd in the install folder)
 runs the build again. It continues where a stopped build left off and keeps
 your saves, settings (*.ini) and textures.
+
+
+UPDATE
+------
+Close the game. The builder folder contains Build-Drakan.cmd and build\game.
+The play folder contains drakan.exe, your settings and your saves. Keep both
+folders in place to reuse the previous build and keep your progress.
+
+* Setup, including a switch from the ZIP: run the new DrakanPC-Setup.exe
+  from Downloads or wherever you saved it. In Setup, choose your existing
+  builder folder, your PS2 ISO and your existing play folder. Select the
+  Order of the Flame source again if you use it. Leave "Build the game now"
+  selected.
+* ZIP: merge the new ZIP contents into the existing builder folder and
+  replace matching files. Keep build\game and run Build-Drakan.cmd again.
+
+Press Enter to continue if the builder offers to resume. The update can
+recompile files that changed. Launch from the play folder once the builder
+says "Drakan is ready to play", even if optional HD generation stopped.
+Full guide: https://christophervr.github.io/Drakan2PC/guides/install.html#update-an-existing-installation
 
 
 PLAYING

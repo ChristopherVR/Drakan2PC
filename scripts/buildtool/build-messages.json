@@ -469,11 +469,11 @@
     "it": "Nessuna texture sostitutiva in {0}. Scegli la cartella con i file PNG o DDS."
   },
   "hd_failed": {
-    "de": "Die HD-Texturen sind unvollständig. Starte das Installationsprogramm erneut, um fortzufahren.",
-    "en": "HD textures are incomplete. Run the builder again to continue.",
-    "es": "Las texturas HD están incompletas. Ejecuta de nuevo el instalador para continuar.",
-    "fr": "Les textures HD sont incomplètes. Relancez la compilation pour reprendre.",
-    "it": "Le texture HD sono incomplete. Riavvia il programma per continuare."
+    "de": "Die Erstellung wurde nicht abgeschlossen. Du kannst spielen. Die Ursache steht oben und in build-log.txt.",
+    "en": "Generation did not finish. You can play now. See the error above or in build-log.txt.",
+    "es": "La generación no terminó. Ya puedes jugar. Consulta el error anterior o el de build-log.txt.",
+    "fr": "La création a échoué. Vous pouvez jouer. Consultez l’erreur ci-dessus ou dans build-log.txt.",
+    "it": "La generazione non è terminata. Puoi già giocare. Leggi l’errore qui sopra o in build-log.txt."
   },
   "hd_generate": {
     "de": "Nach dem Build lokal erstellen",

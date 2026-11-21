@@ -629,17 +629,16 @@ try {
         }
     }
     $play = $DistDirectory
+    $hdGenerationFailed = $false
     if ($generateHd) {
         Write-BuildHeading (Get-BuildText 'hd_start')
         Write-Host ('  ' + (Get-BuildText 'hd_resume'))
         $hdArgs = @($extras, 'hd', '--iso', $IsoPath, '--play', $play, '--work', (Join-Path $RepoRoot 'build/hdpack'))
         if ($ootfPack) { $hdArgs += @('--ootf-pack', $ootfPack) }
         if ($HdGpu -ge 0) { $hdArgs += @('--gpu-index', $HdGpu) }
-        & $python @hdArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning (Get-BuildText 'hd_failed')
-            $extraNotes.Add((Get-BuildText 'hd_failed'))
-        }
+        # Write native output through the host so the transcript includes the reason generation stopped.
+        & $python -u @hdArgs 2>&1 | ForEach-Object { Write-Host $_ }
+        $hdGenerationFailed = $LASTEXITCODE -ne 0
     }
     if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting -or $CheckForUpdates) {
         Write-BuildHeading (Get-BuildText 'applying_settings')
@@ -654,12 +653,15 @@ try {
     }
     $elapsed = (Get-Date) - $started
     $installedTextures = Test-BuildTextureDirectory (Join-Path $play 'textures')
+    $hdStatus = if ($hdGenerationFailed) { Get-BuildText 'hd_failed' }
+        elseif ($installedTextures) { Get-BuildText 'hd_ready' }
+        else { Get-BuildText 'hd_original' }
     Write-BuildHeading (Get-BuildText 'play_ready') Green
     Write-BuildValue (Get-BuildText 'elapsed') (Format-Duration $elapsed)
     Write-BuildValue (Get-BuildText 'play_folder') $play
     Write-BuildValue (Get-BuildText 'start_game') (Get-BuildText 'launch_tip')
     Write-BuildValue (Get-BuildText 'disc') (Get-BuildText 'keep_disc')
-    Write-BuildValue (Get-BuildText 'hd_label') $(if ($installedTextures) { (Get-BuildText 'hd_ready') } else { (Get-BuildText 'hd_original') })
+    Write-BuildValue (Get-BuildText 'hd_label') $hdStatus
     if ($ootfPack) { Write-BuildValue 'Order of the Flame' (Get-BuildText 'ootf_ready') }
     if ($extraNotes.Count) {
         Write-BuildHeading (Get-BuildText 'extra_notes') Yellow
