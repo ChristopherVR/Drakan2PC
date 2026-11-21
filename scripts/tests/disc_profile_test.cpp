@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <vector>
 
 // Exercise actual input code using each profile, including a deliberately relocated object layout.
@@ -35,7 +36,9 @@ public:
         assert(a <= ram.size() - 4);
         std::memcpy(ram.data() + a, &v, 4);
     }
-    uint32_t call(const drakan_input::GuestCall& c) override {
+
+protected:
+    std::optional<uint32_t> callImmediate(const drakan_input::GuestCall& c) override {
         if (c.addr == profile.rynnPitch || c.addr == profile.dragonPitch)
             return 0;
         if (c.addr == profile.timerMs)
@@ -45,8 +48,8 @@ public:
             return 0;
         }
         assert(c.addr == profile.turn);
-        assert(c.nf == 1 && c.ni == 2 && c.i[1] == profile.turnUp);
-        turnAngle = c.f[0];
+        assert(c.floats().size() == 1 && c.integers().size() == 2 && c.integers()[1] == profile.turnUp);
+        turnAngle = c.floats()[0];
         ++turns;
         return 0;
     }
@@ -145,35 +148,36 @@ void testMovement(drakan_input::CameraProfile profile) {
     input.afterMovementInput(g);
     assert(g.commands.size() == 1);
     const auto& press = g.commands.back();
-    assert(press.addr == profile.invokeCallback && press.ni == 5);
-    assert(press.i[0] == profile.padManager && press.i[1] == 0x4010 && press.i[3] == 1 && press.i[4] == 123);
+    const auto args = press.integers();
+    assert(press.addr == profile.invokeCallback && args.size() == 5);
+    assert(args[0] == profile.padManager && args[1] == 0x4010 && args[3] == 1 && args[4] == 123);
     input.afterMovementInput(g);
     assert(g.commands.size() == 1);
     // Overlay ownership releases walking once; fresh held input can resume it.
     input.setSuspended(true);
     input.afterMovementInput(g);
-    assert(g.commands.size() == 2 && g.commands.back().i[3] == 0);
+    assert(g.commands.size() == 2 && g.commands.back().integers()[3] == 0);
     input.setSuspended(false);
     input.beginFrame(frame);
     input.afterMovementInput(g);
-    assert(g.commands.size() == 3 && g.commands.back().i[3] == 1);
+    assert(g.commands.size() == 3 && g.commands.back().integers()[3] == 1);
     // A physical left stick keeps its native gait and axis mapping.
     frame.gamepad.connected = true;
     frame.gamepad.lx = .5f;
     input.beginFrame(frame);
     input.beforePadMgrUpdate(g, false);
     input.afterMovementInput(g);
-    assert(g.commands.size() == 4 && g.commands.back().i[3] == 0);
+    assert(g.commands.size() == 4 && g.commands.back().integers()[3] == 0);
     assert(g.read32(profile.stickMap) == 0 && g.readF(profile.stickMap + 8) == .5f);
     frame.gamepad = {};
     input.beginFrame(frame);
     input.beforePadMgrUpdate(g, false);
     input.afterMovementInput(g);
-    assert(g.commands.size() == 5 && g.commands.back().i[3] == 1);
+    assert(g.commands.size() == 5 && g.commands.back().integers()[3] == 1);
     // Flight (with dragon_strafe = 0) restores the disc's native axis map and scale and releases walk.
     input.beforePadMgrUpdate(g, true);
     input.afterMovementInput(g);
-    assert(g.commands.size() == 6 && g.commands.back().i[3] == 0);
+    assert(g.commands.size() == 6 && g.commands.back().integers()[3] == 0);
     assert(g.read32(profile.stickMap) == 0 && g.readF(profile.stickMap + 8) == .5f);
     profile.movementInput = false;
     input.setCameraProfile(profile);
