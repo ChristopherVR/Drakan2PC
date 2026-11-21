@@ -34,3 +34,30 @@ The reporter's renderer and level details are still needed to isolate the fault.
 (`drakan.log` and `drakan.1.log`), `drakan.ini`, the release or build used, Original versus Modern inventory, and
 the affected level or save. An uncropped frame while submerged would capture the air gauge area. The local runs
 did not reproduce the transparent health orb or missing air fill.
+
+## Log review and renderer fix, 22 November 2026
+
+The attached logs show two sessions. `drakan.log` has English PAL resources on Direct3D 11 on an RTX 5070 Ti.
+It records Ruined Village gameplay and Original inventory draws after a change to 21:9 with DLSS Quality. The
+rotated `drakan.1.log` ran on WebGPU over Vulkan and stayed in the title and Options screens. The inventory
+screenshots also identify Vulkan in the overlay. Both logs register the native font atlases. The interface
+resource misses also appear in a local run with working HUD and text.
+[Reporter logs and screenshots](https://github.com/ChristopherVR/Drakan2PC/issues/17#issuecomment-7062183569)
+
+Local Vulkan runs at 21:9 showed the health fill and Original inventory text with a fixed or automatic internal
+scale, with the frame queue enabled, with GPU vertex processing, and with texture replacement and scaling off.
+Direct3D 11 with DLSS Quality showed the health and air fills. Those runs used the local game and campaign pack.
+
+A synthetic GS scene reproduced a transparent fill with an exact texture pack match. The CPU copy still held the
+uploaded atlas, while the render target held newer fill pixels. The resolver copied the live pixels into the
+texture and then selected the static replacement using the old CPU hash. The resolver now keeps the GPU result
+whenever it needs live target blocks. Blocks proven identical after a host upload can use the ordinary replacement
+path. The regression checks that static art is replaced, the live fill renders, and a later upload restores the
+replacement. It passes on Direct3D 11 WARP at scale 1 and Vulkan at scale 5. All seven selected CTest suites passed.
+The rebuilt game shows the health fill, inventory item details and help text in Ruined Village on Vulkan and in
+Surdana on Direct3D 11 with DLSS Quality. The Ruined Village run also shows the air gauge drain underwater. Captures
+are in `build/harness/issue17-fixed-d1` and `build/harness/issue17-fixed-d2`.
+
+The synthetic failure establishes one way to lose a fill. The screenshots and logs do not identify the texture pack
+match or draw state in the affected frames. Confirmation on the reporter's installation and the cause of its missing
+inventory text remain open.

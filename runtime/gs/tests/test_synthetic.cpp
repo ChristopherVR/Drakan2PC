@@ -1228,6 +1228,73 @@ static void guiPagePackFirstFrameTest(Config cfg, const std::string& outDir) {
                 "GUI page pack image on its first draw despite queued world upscales");
 }
 
+static void aliasedPackTest(Config cfg, const std::string& outDir) {
+    cfg.textureUpscale = 1;
+    cfg.textureUpscaleSync = true;
+    cfg.textureReplace = true;
+    cfg.textureFilter = 1;
+    cfg.textureDir = outDir + "/aliased-pack";
+    std::filesystem::create_directories(cfg.textureDir);
+    std::vector<uint32_t> native(128 * 128);
+    for (unsigned y = 8; y < 12; ++y)
+        for (unsigned x = 8; x < 12; ++x)
+            native[y * 128 + x] = 0x80c80000u;
+    std::vector<uint8_t> raw(native.size() * 4);
+    std::memcpy(raw.data(), native.data(), raw.size());
+    const auto hash = textureContentHash(native.data(), 128, 128);
+    char name[32];
+    std::snprintf(name, sizeof(name), "/%016llx.png", (unsigned long long)hash);
+    Image replacement;
+    replacement.width = replacement.height = 256;
+    replacement.rgba.resize(256 * 256 * 4);
+    // The static pack art leaves the fill area transparent.
+    for (unsigned y = 16; y < 24; ++y)
+        for (unsigned x = 16; x < 24; ++x) {
+            const size_t pixel = (y * 256 + x) * 4;
+            replacement.rgba[pixel + 1] = 255;
+            replacement.rgba[pixel + 3] = 255;
+        }
+    expectTrue(writePng((cfg.textureDir + name).c_str(), replacement), "write aliased atlas pack fixture");
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+
+    constexpr uint32_t parent = 0x100;
+    constexpr uint32_t atlas = (parent + 9) * 32;
+    const int plain = (int)mkPrim(6, 0, 0, 0, 0, 0);
+    const int textured = (int)mkPrim(6, 0, 1, 0, 0, 1);
+    Gif g;
+    g.ad({{FRAME_1, 1ull << 16},
+          {ZBUF_1, 140ull | (1ull << 32)},
+          {XYOFFSET_1, kOfs},
+          {SCISSOR_1, 63ull << 16 | 63ull << 48},
+          {PRMODECONT, 1},
+          {COLCLAMP, 1},
+          {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)}});
+    uploadImage(g, atlas, 2, 0, 0, 0, 128, 128, raw);
+    g.ad({{TEX0_1, mkTex0(atlas, 2, 0, 7, 7, 1, 1, 0, 0, 0, 0, 0)}, {TEX1_1, 0}, {CLAMP_1, 5}});
+    sprite(g, 0, 0, 16, 16, 128, 128, 128, 128, 0, textured, 8, 8, 24, 24);
+    g.ad({{FRAME_1, parent | (2ull << 16)}, {SCISSOR_1, 127ull << 16 | 511ull << 48}});
+    sprite(g, 0, 128, 128, 192, 200, 0, 0, 128, 0, plain); // producer covers the atlas's first page
+    g.ad({{FRAME_1, 1ull << 16}, {SCISSOR_1, 63ull << 16 | 63ull << 48}, {TEXFLUSH, 0}});
+    sprite(g, 16, 0, 32, 16, 128, 128, 128, 128, 0, textured, 8, 8, 24, 24);
+    uploadImage(g, atlas, 2, 0, 0, 0, 128, 128, raw);
+    g.ad({{TEXFLUSH, 0}});
+    sprite(g, 32, 0, 48, 16, 128, 128, 128, 128, 0, textured, 8, 8, 24, 24);
+    gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    Image image;
+    if (!gs->captureFramebuffer(0, 1, 0, 64, 64, image)) {
+        ++g_fail;
+        return;
+    }
+    expectPixel(image, 2 * cfg.scale, 2 * cfg.scale, 0, 255, 0, 1, "static atlas can use its pack image");
+    expectPixel(image, 8 * cfg.scale, 8 * cfg.scale, 0, 0, 0, 1, "static atlas fill is transparent");
+    expectPixel(image, 24 * cfg.scale, 8 * cfg.scale, 200, 0, 0, 1, "GPU-written fill survives the static pack match");
+    expectPixel(image, 34 * cfg.scale, 2 * cfg.scale, 0, 255, 0, 1, "host reupload restores the pack image");
+}
+
 // Regression: a rejected shifted-row alias is decoded and cached, then
 // overlapping GPU writes occur without any RAM write-clock change. TEXFLUSH
 // must make the next sample observe those writes. No capture/readVram/vsync
@@ -2711,6 +2778,7 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--inventory-textures-only")) {
             streamedReplacementTest(cfg, outDir);
             guiPagePackFirstFrameTest(cfg, outDir);
+            aliasedPackTest(cfg, outDir);
             inventoryFontShadowTest(cfg);
             runtimeAtlasTest(cfg);
             std::printf("%d checks, %d failed\n", g_checks, g_fail);
@@ -2930,6 +2998,7 @@ int main(int argc, char** argv) {
     runtimeAtlasTest(cfg);
     streamedReplacementTest(cfg, outDir);
     guiPagePackFirstFrameTest(cfg, outDir);
+    aliasedPackTest(cfg, outDir);
     savePreviewTest(cfg, outDir);
     inventoryFontShadowTest(cfg);
     rtAlphaTest(cfg);

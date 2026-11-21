@@ -137,9 +137,10 @@ Options: `--iso`, `--work` (default build\hdpack), `--out`, `--exe`, `--scale` (
   whose other pictures are disc art. Where coverage is 0, the job takes the pack image of `original` (exact hash,
   then RGB alias) when replacement is on, else the xBRZ upscale; elsewhere it blends `rgba`. Used for the inventory
   icon atlas `INTERFCE.TXD` 94 (`ui-prompts.md` 1.3).
-* Aliased textures: the game streams some UI atlases every frame through memory a scratch render target occupies
-  (tbp 0x3e7f), so gsr assembles them from the target and skipped `setupUpscale`. When the decoded memory has an
-  exact authored hash (a runtime texture or an exact pack file), it now runs, and the HD image is used.
+* Aliased textures: the game streams some UI atlases through memory that overlaps scratch render targets. When the
+  renderer can prove that the texture's overlapping blocks match local memory, the atlas can use authored HD art.
+  When the target holds newer pixels, the texture uses those pixels. This preserves effects such as the HUD liquid
+  even when the older upload matches a pack image.
 * `texup::looksUninitialized`: textures whose rows are mostly random memory stay native in the live upscale path.
   The intro's 64x64 CT24 sky ramp is point sampled in two written bands, and the 8x smooth filter blended the
   garbage rows into them as rainbow stripes (`docs/journal/2026-10-24/inventory-sky-textures.md`). Rows count as random
