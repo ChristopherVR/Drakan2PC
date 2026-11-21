@@ -10,6 +10,9 @@
 #include "drakan_portable_camera.h"
 #include "drakan_dual_wield.h"
 #include "drakan_widescreen.h"
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+#include "drakan_update_linux.h"
+#endif
 #include "ps2_runtime.h"
 #include "gs/gs_host_scanout.h"
 #include "input/DrakanInput.h"
@@ -517,10 +520,35 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             ui.title.reactivate();
         }
         auto state = ms.titleState();
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+        if (!state.classicGameChoice && ui.title.page() == gameui::TitlePage::Main && ui.physical.focused) {
+            using drakan_update_linux::Install;
+            const auto notice = drakan_update_linux::poll();
+            state.updateVersion = notice.version;
+            if (notice.install == Install::Ready) {
+                runtime.requestStop();
+                in = {};
+            } else if (notice.install != Install::Unavailable) {
+                state.updateInstall = gameui::TitleUpdateInstall::Available;
+                if (notice.install == Install::Downloading)
+                    state.updateInstall = gameui::TitleUpdateInstall::Downloading;
+                else if (notice.install == Install::Failed)
+                    state.updateInstall = gameui::TitleUpdateInstall::Failed;
+            }
+        }
+#endif
         state.now = now;
         state.pcSettings = &ui.settings.schema();
         state.capturedKey = captured;
         auto out = ui.title.frame(state, in, viewport);
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+        if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
+            drakan_update_linux::viewChanges();
+        else if (out.updateAction == gameui::TitleUpdateAction::Dismiss)
+            drakan_update_linux::dismiss();
+        else if (out.updateAction == gameui::TitleUpdateAction::DownloadAndRebuild)
+            drakan_update_linux::start();
+#endif
         for (const auto& action : out.actions) {
             if (action.kind == gameui::TitleActionKind::ReportIssue) {
                 drakan_issue::report();
