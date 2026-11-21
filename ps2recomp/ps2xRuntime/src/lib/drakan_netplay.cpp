@@ -221,10 +221,16 @@ constexpr int kFollowMaxAttempts = 3;
 struct ClaimOut {
     uint8_t victim = 0, weapon = 0;
     uint16_t damage = 0;
+    bool dragon = false;
 };
 std::mutex g_combatM; // g_claims, g_owner, g_board
 std::deque<ClaimOut> g_claims;
-std::map<int, int> g_ghostToPlayer, g_playerToGhost; // EE thread writes, anyone reads
+struct GhostTarget {
+    int player;
+    bool dragon;
+};
+std::map<int, GhostTarget> g_ghostToPlayer;
+std::map<int, int> g_playerToGhost; // EE thread writes, anyone reads
 Scoreboard g_board;
 double g_deadSince = -1;   // net thread: when the server declared the local player dead
 double g_respawnDelay = 0; // seconds
@@ -485,8 +491,13 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         // fit).
         for (const drakan_arena::MapEntry& me : drakan_arena::maps())
             if (me.installed)
-                if (const drakan::net::ArenaDef* a = drakan_arena::findMap(me.id))
+                if (const drakan::net::ArenaDef* a = drakan_arena::findMap(me.id);
+                    a && (!c.host.useOotfGroup || !so.hasArena || so.arena.ootfRules == a->ootfRules))
                     so.rotation.push_back(*a);
+        if (so.arena.ootfRules != drakan::net::OotfArenaRules::None)
+            std::stable_sort(so.rotation.begin(), so.rotation.end(),
+                             [](const auto& a, const auto& b) { return a.ootfOrder < b.ootfOrder; });
+        so.autoRotateArena = c.host.useOotfGroup;
         // Test aids for the menu host (the menu offers 5 .. 200 kills and 5 .. 60 minutes): a short match for the
         // harness.
         if (const char* fl = std::getenv("DRAKAN_MP_FRAG_LIMIT"); fl && *fl)
@@ -667,7 +678,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 if (g_coopInEvents.size() < kCoopQueueMax)
                     g_coopInEvents.push_back(*ce);
             } else if (const auto* pu = std::get_if<PickupState>(&ev)) {
-                drakan_arena::onPickupState(pu->index, pu->taken, pu->player);
+                drakan_arena::onPickupState(*pu);
             } else if (const auto* lc = std::get_if<LevelChange>(&ev)) {
                 // The leader went through a level exit: fire the same exit in our copy of the level (the world position
                 // of the trigger is the same on every machine, drakan_levelchange).
@@ -688,7 +699,8 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
             } else if (const auto* hit = std::get_if<Hit>(&ev)) {
                 netLog("hit: player %u hit player %u for %u (weapon %u), health now %u", hit->attacker, hit->victim,
                        hit->damage, hit->weapon, hit->healthAfter);
-                drakan_pvp::onServerHit(hit->attacker, hit->victim, hit->weapon, hit->damage, hit->healthAfter);
+                drakan_pvp::onServerHit(hit->attacker, hit->victim, hit->weapon, hit->damage, hit->healthAfter,
+                                        hit->dragon);
             } else if (const auto* dth = std::get_if<Death>(&ev)) {
                 const auto nameOf = [&](PlayerId id) {
                     const auto r = client.roster().find(id);
@@ -831,6 +843,8 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 }
             drakan_arena::setSession(dm && (!legacy || def), def);
             drakan_arena::setLocalPlayer(connected ? client.playerId() : 0);
+            drakan_arena::setNeutralDragon(connected && client.phase() == MatchPhase::Playing ? client.neutralDragon()
+                                                                                              : std::nullopt);
         }
 
         // Outgoing hit claims from the EE thread (the server validates them).
@@ -841,16 +855,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 claims.swap(g_claims);
             }
             for (const ClaimOut& cl : claims) {
-                const bool sent = client.sendHit(cl.victim, cl.weapon, cl.damage);
+                const bool sent = client.sendHit(cl.victim, cl.weapon, cl.damage, cl.dragon);
                 netLog("claim: hit on player %u, weapon %u, damage %u%s", cl.victim, cl.weapon, cl.damage,
                        sent ? "" : " (not sent)");
             }
             drakan_pvp::setLocalPlayer(client.playerId());
-            uint16_t pickup = 0;
-            while (drakan_arena::takePickupClaim(pickup)) {
-                const bool sent = client.sendPickupClaim(pickup);
-                netLog("claim: pickup %u%s", pickup, sent ? "" : " (not sent)");
-            }
         } else {
             drakan_pvp::setLocalPlayer(0);
         }
@@ -939,6 +948,12 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 s.levelHash = 0;
             if (client.sendState(s))
                 ++statSent;
+            // A pickup claim is validated against the collector's latest position.
+            uint16_t pickup = 0;
+            while (drakan_arena::takePickupClaim(pickup)) {
+                const bool sent = client.sendPickupClaim(pickup);
+                netLog("claim: pickup %u%s", pickup, sent ? "" : " (not sent)");
+            }
         }
 
         // Co-op health: own to the server about 5 times a second (and at once on a change), the partners' into the
@@ -1615,16 +1630,22 @@ bool coopPoll(drakan::net::CoopEvent& out) {
     return true;
 }
 
-void sendHitClaim(uint8_t victimPlayer, uint8_t weapon, uint16_t damage) {
+void sendHitClaim(uint8_t victimPlayer, uint8_t weapon, uint16_t damage, bool dragon) {
     std::lock_guard<std::mutex> l(g_combatM);
     if (g_claims.size() < 64)
-        g_claims.push_back({victimPlayer, weapon, damage});
+        g_claims.push_back({victimPlayer, weapon, damage, dragon});
 }
 
 int playerOfGhost(int ghostId) {
     std::lock_guard<std::mutex> l(g_combatM);
     const auto it = g_ghostToPlayer.find(ghostId);
-    return it == g_ghostToPlayer.end() ? 0 : it->second;
+    return it == g_ghostToPlayer.end() ? 0 : it->second.player;
+}
+
+bool isDragonGhost(int ghostId) {
+    std::lock_guard<std::mutex> l(g_combatM);
+    const auto it = g_ghostToPlayer.find(ghostId);
+    return it != g_ghostToPlayer.end() && it->second.dragon;
 }
 
 int ghostOfPlayer(int player) {
@@ -2346,13 +2367,22 @@ void beforePadMgr(const uint8_t* rdram) {
                              kv.first, p.position.x, p.position.y, p.position.z, p.yaw, p.lower.clip, p.lower.time,
                              p.upper.clip, p.upper.time);
         }
+        if (v.ghostId)
+            drakan_ghost::setInvisible(v.ghostId, (r.state.arenaPower & 2u) != 0);
         // The partner's own Arokh: a visual dragon body replaying the received dragon pose and clips.
+        const auto owner = drakan_arena::dragonOwner();
+        const bool hasDragon = !owner || *owner == kv.first;
+        if (v.dragonId && !hasDragon) {
+            drakan_ghost::destroy(v.dragonId);
+            v.dragonId = 0;
+            v.dragonParked = false;
+        }
         if (v.dragonId && !ghostExists(v.dragonId)) {
             netLog("dragon of player %u vanished; retry in 2 s", kv.first);
             v.dragonId = 0;
             v.dragonRetryAt = t + 2.0;
         }
-        if (p.mounted && v.ghostId) {
+        if (p.mounted && v.ghostId && hasDragon) {
             if (!v.dragonId && t >= g_spawnNotBefore && t >= v.dragonRetryAt && drakan_ghost::ready()) {
                 drakan_ghost::Transform tr;
                 std::memcpy(tr.pos, &p.position, sizeof tr.pos);
@@ -2390,11 +2420,14 @@ void beforePadMgr(const uint8_t* rdram) {
         std::lock_guard<std::mutex> l(g_combatM);
         g_ghostToPlayer.clear();
         g_playerToGhost.clear();
-        for (const auto& kv : g_views)
+        for (const auto& kv : g_views) {
             if (kv.second.ghostId) {
-                g_ghostToPlayer[kv.second.ghostId] = kv.first;
+                g_ghostToPlayer[kv.second.ghostId] = {kv.first, false};
                 g_playerToGhost[kv.first] = kv.second.ghostId;
             }
+            if (kv.second.dragonId)
+                g_ghostToPlayer[kv.second.dragonId] = {kv.first, true};
+        }
     }
 }
 

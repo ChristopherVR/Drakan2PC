@@ -78,6 +78,7 @@ struct Ghost {
     bool ownsDetailRequest = false;
     world::ChannelPose rawLower, rawUpper;
     bool localVisual = false; // render-only local body: cell membership is scoped to world rendering
+    bool invisible = false;
 };
 
 std::atomic<bool> g_enabled{false};
@@ -135,6 +136,8 @@ void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == guestAddress(0x189b38u)) {
         const uint32_t object = getRegU32(c, 4);
         uint32_t draw = drakan_local_character::g_view.nativeObject(object);
+        if (drakan_arena::hidesWorldActor(object))
+            draw = 0;
         const auto& view = drakan_local_character::g_view;
         if (object == view.body && object && g_localDrawn != object) {
             g_localDrawn = object;
@@ -143,7 +146,8 @@ void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         {
             std::lock_guard<std::mutex> lock(g_m);
             for (const Ghost& g : g_ghosts)
-                if (g.localVisual && g.info.handle == object && object != drakan_local_character::g_view.body)
+                if ((g.localVisual && g.info.handle == object && object != drakan_local_character::g_view.body) ||
+                    (g.invisible && (g.info.handle == object || g.weapon[0] == object || g.weapon[1] == object)))
                     draw = 0; // includes bodies queued for removal / not ready to substitute yet
         }
         if (!draw) {
@@ -1429,6 +1433,15 @@ void refileActor(drakan_input::IGuest& guest, uint32_t actor) {
     const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
     if (ramPtr(ctx) && ramPtr(actor))
         refileHandle(guest, ctx, actor);
+}
+
+void setInvisible(int id, bool invisible) {
+    std::lock_guard<std::mutex> l(g_m);
+    for (auto& g : g_ghosts)
+        if (g.info.id == id && g.invisible != invisible) {
+            g.invisible = invisible;
+            std::fprintf(stderr, "[ghost] body %d invisibility %s\n", id, invisible ? "on" : "off");
+        }
 }
 
 bool isGhostItem(uint32_t handle) {

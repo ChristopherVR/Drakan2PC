@@ -208,7 +208,7 @@ void PlayerState::write(ByteWriter& w) const {
     w.u32(lowerMask);
     w.u32(weaponRight);
     w.u32(weaponLeft);
-    w.u8(static_cast<uint8_t>((mounted ? 1u : 0u) | (placing ? 2u : 0u)));
+    w.u8(static_cast<uint8_t>((mounted ? 1u : 0u) | (placing ? 2u : 0u) | (arenaPower << 2u)));
     w.u32(levelHash);
     w.u16(character);
     w.u16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(pitch * 10000.0f))));
@@ -232,10 +232,11 @@ bool PlayerState::read(ByteReader& r) {
     weaponRight = r.u32();
     weaponLeft = r.u32();
     const uint8_t flags = r.u8();
-    if (flags > 3)
+    if (flags > 31)
         r.fail();
     mounted = (flags & 1u) != 0;
     placing = (flags & 2u) != 0;
+    arenaPower = flags >> 2u;
     levelHash = r.u32();
     character = r.u16();
     pitch = static_cast<float>(static_cast<int16_t>(r.u16())) / 10000.0f;
@@ -250,6 +251,14 @@ void Snapshot::write(ByteWriter& w) const {
     w.u8(static_cast<uint8_t>(n));
     for (size_t i = 0; i < n; ++i)
         players[i].write(w);
+    w.u8(neutralDragon ? 1 : 0);
+    if (neutralDragon) {
+        for (float v : neutralDragon->pos)
+            w.f32(v);
+        w.f32(neutralDragon->yaw);
+        w.u8(neutralDragon->flying ? 1 : 0);
+        w.u16(neutralDragon->breath);
+    }
 }
 bool Snapshot::read(ByteReader& r) {
     serverTimeMs = r.u32();
@@ -261,6 +270,21 @@ bool Snapshot::read(ByteReader& r) {
     players.assign(n, PlayerState{});
     for (auto& p : players)
         p.read(r);
+    const uint8_t hasDragon = r.u8();
+    neutralDragon.reset();
+    if (hasDragon > 1)
+        r.fail();
+    if (hasDragon == 1) {
+        auto& d = neutralDragon.emplace();
+        for (float& v : d.pos)
+            v = r.f32();
+        d.yaw = r.f32();
+        const uint8_t flying = r.u8();
+        if (flying > 1)
+            r.fail();
+        d.flying = flying == 1;
+        d.breath = r.u16();
+    }
     return r.ok();
 }
 
@@ -270,6 +294,7 @@ void Hit::write(ByteWriter& w) const {
     w.u8(weapon);
     w.u16(damage);
     w.u16(healthAfter);
+    w.u8(dragon ? 1 : 0);
 }
 bool Hit::read(ByteReader& r) {
     attacker = r.u8();
@@ -277,6 +302,10 @@ bool Hit::read(ByteReader& r) {
     weapon = r.u8();
     damage = r.u16();
     healthAfter = r.u16();
+    const uint8_t target = r.u8();
+    if (target > 1)
+        r.fail();
+    dragon = target == 1;
     return r.ok();
 }
 
@@ -578,13 +607,27 @@ void PickupState::write(ByteWriter& w) const {
     w.u16(index);
     w.u8(taken ? 1 : 0);
     w.u8(player);
+    w.u8(reward);
+    w.u8(effectPosition ? 1 : 0);
+    if (effectPosition)
+        for (float axis : *effectPosition)
+            w.f32(axis);
 }
 bool PickupState::read(ByteReader& r) {
     index = r.u16();
     const uint8_t t = r.u8();
     taken = t != 0;
     player = r.u8();
-    if (t > 1 || player > kMaxPlayers || (index == kAllPickups && taken))
+    reward = r.u8();
+    const uint8_t moved = r.u8();
+    effectPosition.reset();
+    if (moved == 1) {
+        effectPosition.emplace();
+        for (float& axis : *effectPosition)
+            axis = r.f32();
+    }
+    if (t > 1 || moved > 1 || (moved && (!taken || player == kNoPlayer)) || player > kMaxPlayers || reward >= 32 ||
+        (index == kAllPickups && taken))
         r.fail();
     return r.ok();
 }

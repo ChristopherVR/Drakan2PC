@@ -111,6 +111,8 @@ bool MatchClient::connect(const std::string& host, uint16_t port, uint64_t nowMs
     roster_.clear();
     host_ = kNoPlayer;
     buffers_.clear();
+    neutralDragon_.reset();
+    neutralDragonTime_ = 0;
     haveClock_ = false;
     sendSequence_ = 0;
     return true;
@@ -151,11 +153,12 @@ bool MatchClient::sendState(PlayerState s) {
     return transport_.send(peer_, Channel::Unreliable, encode(s));
 }
 
-bool MatchClient::sendHit(PlayerId victim, uint8_t weapon, uint16_t damage) {
+bool MatchClient::sendHit(PlayerId victim, uint8_t weapon, uint16_t damage, bool dragon) {
     Hit h;
     h.victim = victim;
     h.weapon = weapon;
     h.damage = damage;
+    h.dragon = dragon;
     return sendReliable(encode(h));
 }
 
@@ -510,6 +513,10 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
                 clockOffset_ = offset < clockOffset_ ? offset : clockOffset_ + (offset - clockOffset_) / 32;
             }
             ++snapshotCount_;
+            if (s.serverTimeMs >= neutralDragonTime_) {
+                neutralDragonTime_ = s.serverTimeMs;
+                neutralDragon_ = s.neutralDragon;
+            }
             for (const PlayerState& ps : s.players) {
                 if (ps.player == self_) {
                     const SentMark& m = sent_[ps.sequence & 63];

@@ -246,14 +246,31 @@ static const std::vector<LevelEntry>& levelsOf(const MpState& st) {
     return st.levels.empty() ? vanilla : st.levels;
 }
 
-// The Host page's Level Group: All Levels, the disc's levels, or the custom (mod pack) levels.
+static constexpr const char* kOotfGroups[] = {"Air Only", "Ground Only", "Master of the Dragon"};
+static constexpr int kFirstOotfGroup = 3;
+
+static std::vector<std::string> hostGroups(const MpState& st, bool arenas) {
+    std::vector<std::string> groups = {arenas ? "All Maps" : "All Levels", arenas ? "Arenas" : "Disc levels",
+                                       arenas ? "Custom maps" : "Custom levels"};
+    if (arenas)
+        for (const char* group : kOotfGroups)
+            if (std::any_of(st.arenas.begin(), st.arenas.end(),
+                            [group](const LevelEntry& e) { return e.ootfGroup == group; }))
+                groups.emplace_back(group);
+    return groups;
+}
+
+// The Host page's Level Group: map source or a rules group carried by the level pack.
 // Deathmatch maps are multiplayer arenas (`st.arenas`) with the campaign levels as the fallback until the arena
 // definitions exist; Co-op always plays campaign levels.
 std::vector<LevelEntry> MultiplayerScreen::groupLevels(const MpState& st) const {
     std::vector<LevelEntry> out;
     const bool arenas = !host_.coop && !st.arenas.empty();
+    const auto groups = hostGroups(st, arenas);
+    const int group = wrapIdx(host_.levelGroup, static_cast<int>(groups.size()));
     for (const LevelEntry& e : arenas ? st.arenas : levelsOf(st))
-        if (host_.levelGroup == 0 || (host_.levelGroup == 1 && !e.custom) || (host_.levelGroup == 2 && e.custom))
+        if (group == 0 || (group == 1 && !e.custom) || (group == 2 && e.custom) ||
+            (group >= kFirstOotfGroup && e.ootfGroup == groups[static_cast<size_t>(group)]))
             out.push_back(e);
     return out;
 }
@@ -424,24 +441,27 @@ void MultiplayerScreen::buildRows(const MpState& st) {
             }
             const bool team = host_.teams >= 2;
             const bool arenas = !host_.coop && !st.arenas.empty();
-            const char* const kGroups[] = {arenas ? "All Maps" : "All Levels", arenas ? "Arenas" : "Disc levels",
-                                           arenas ? "Custom maps" : "Custom levels"};
+            const auto groups = hostGroups(st, arenas);
+            const std::string group =
+                groups[static_cast<size_t>(wrapIdx(host_.levelGroup, static_cast<int>(groups.size())))];
+            const std::string levelRules = levels.empty() ? "" : levels[static_cast<size_t>(host_.level)].ootfGroup;
             const std::string lvl =
                 levels.empty() ? std::string("none") : levels[static_cast<size_t>(host_.level)].title;
             add(RowId::HostName, RowKind::Text, "Server Name", host_.serverName);
             add(RowId::HostPassword, RowKind::Text, "Password",
                 host_.password.empty() ? std::string("open") : std::string(host_.password.size(), '*'));
-            add(RowId::HostGroup, RowKind::Choice, "Level Group", kGroups[wrapIdx(host_.levelGroup, 3)]);
+            add(RowId::HostGroup, RowKind::Choice, "Level Group", group);
             add(RowId::HostLevel, RowKind::Choice, arenas ? "Map" : "Starting Level",
                 lvl + (!levels.empty() && levels[static_cast<size_t>(host_.level)].custom ? "  (custom)" : ""));
             add(RowId::HostType, RowKind::Choice, "Game Type",
                 host_.coop ? std::string("Co-op") : std::string(team ? "Team Deathmatch" : "Deathmatch"),
                 scope_ == MpScope::Any);
             add(RowId::HostMode, RowKind::Choice, "Game Mode",
-                host_.coop     ? std::string("-")
-                : mode         ? mode->name
-                : fits.empty() ? std::string("Standard  (no modes for this map)")
-                               : std::string("Standard"),
+                host_.coop            ? std::string("-")
+                : mode                ? mode->name
+                : !levelRules.empty() ? levelRules
+                : fits.empty()        ? std::string("Standard  (no modes for this map)")
+                                      : std::string("Standard"),
                 !host_.coop && !fits.empty());
             add(RowId::HostMax, RowKind::Number, "Maximum Number of Players", std::to_string(host_.maxPlayers));
             // Co-op has no kills, time or teams: the rows stay (the form keeps its shape) but are greyed. A custom mode
@@ -775,7 +795,8 @@ void MultiplayerScreen::adjust(int i, int dir, const MpState& st, MpFrameOutput&
     bool changed = true;
     switch (r.id) {
         case RowId::HostGroup:
-            host_.levelGroup = wrapIdx(host_.levelGroup + dir, 3);
+            host_.levelGroup = wrapIdx(host_.levelGroup + dir,
+                                       static_cast<int>(hostGroups(st, !host_.coop && !st.arenas.empty()).size()));
             host_.level = 0;
             levelScroll_ = 0;
             break;

@@ -104,7 +104,8 @@ int main(int argc, char** argv) {
                                                                   {0x102, 12, cls(0x10011, true)},
                                                                   {0x102, 14, cls(0x1003d)},
                                                                   {0x102, 15, cls(0x10033)},
-                                                                  {0x102, 16, cls(0x1003e)}}));
+                                                                  {0x102, 16, cls(0x1003e)},
+                                                                  {0x102, 18, cls(0x1001c)}}));
     fs.addMemoryFile("ENGLISH\\COMMON\\NPC\\NPCS.ODB",
                      srsc({{0x102, 13, cls(0x1009d, true)}, {0x102, 17, cls(0x10011, true)}}));
     Bytes header;
@@ -119,14 +120,14 @@ int main(int argc, char** argv) {
     word(header, 0);
     text(header, "..\\..\\Common\\NPC\\NPCs");
     Bytes objects;
-    word(objects, 8);
-    for (u16 i = 0; i < 8; ++i) {
+    word(objects, 9);
+    for (u16 i = 0; i < 9; ++i) {
         dword(objects, i + 1);
         word(objects, u16(i + 10));
         word(objects, (i == 3 || i == 7) ? 5 : 2);
     }
     body(objects, {2, 4});
-    for (unsigned i = 1; i < 8; ++i)
+    for (unsigned i = 1; i < 9; ++i)
         body(objects);
     const Bytes terrain = {1, 2, 3, 4, 5};
     const Bytes original = srsc({{0, 0, header}, {0x20, 0, objects}, {0x30, 0, terrain}});
@@ -145,6 +146,10 @@ int main(int argc, char** argv) {
     assert(get32(kept, 26 + 28) == 2);
     IsoFs::Node untouched;
     assert(fs.lookup(path, untouched) && fs.readAll(untouched) == original);
+    auto dragonArena = untouched;
+    assert(filterArenaLevel(fs, dragonArena, error, true));
+    const Bytes withDragon = entry(fs.readAll(dragonArena), 0x20);
+    assert(get16(withDragon, 0) == 4 && get32(withDragon, 26) == 9);
     Memory memory;
     FileService files(fs, memory);
     bool arena = true;

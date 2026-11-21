@@ -129,9 +129,13 @@ int main() {
         snap.serverTimeMs = 4242;
         snap.players = {s, s};
         snap.players[1].player = 5;
+        snap.players[1].arenaPower = 3;
+        snap.neutralDragon = NeutralDragonState{{1, 2, 3}, 0.5f, true, 7};
         Snapshot sno;
         CHECK(decode(encode(snap), sno) && sno.players.size() == 2 && sno.players[1].player == 5 &&
-              sno.serverTimeMs == 4242);
+              sno.players[1].arenaPower == 3 && sno.serverTimeMs == 4242);
+        CHECK(sno.neutralDragon && sno.neutralDragon->pos == snap.neutralDragon->pos && sno.neutralDragon->flying &&
+              sno.neutralDragon->breath == 7);
         // Worst case snapshot fits one packet.
         snap.players.assign(kMaxPlayers, s);
         CHECK(encode(snap).size() <= kMaxPacketPayload);
@@ -243,7 +247,7 @@ int main() {
         // Bad mounted flag.
         bytes = encode(sampleState());
         bytes[bytes.size() - 1 - sizeof(uint32_t) - 4 * sizeof(uint16_t)] =
-            4; // the flag precedes levelHash, character, pitch, roll, clipHi; bits 0 / 1 only
+            32; // the flag precedes levelHash, character, pitch, roll, clipHi; bits 0..4 are defined
         CHECK(!decode(bytes, o));
         bytes[bytes.size() - 1 - sizeof(uint32_t) - 4 * sizeof(uint16_t)] = 2; // v10: placing, not mounted
         CHECK(decode(bytes, o) && o.placing && !o.mounted);
@@ -344,7 +348,7 @@ int main() {
 
     // v6: co-op messages round trip, strict lengths and ranges.
     {
-        static_assert(kProtocolVersion == 10);
+        static_assert(kProtocolVersion == 13);
         CoopAuthority a;
         a.player = 2;
         CoopAuthority ao;

@@ -4,6 +4,7 @@ import {
     encodePs2Texture,
     isOotfArenaLevel,
     isSkip,
+    ootfLevelKey,
     latin1,
     mangleComponent,
     ps2BlobBuilder,
@@ -19,14 +20,22 @@ import {
     parseSubtitleFile,
     readPcTexture,
     SrscReader,
-    terrainHeightAt,
     type BlobBuilder,
     type PcLevel,
     type PcFileSource,
     type SubtitleFile,
+    type OotfLevelOut,
     type Ps2LevelParts,
 } from '@drakan/formats';
-import { newDraft, previewFileName, serializeMapFile, slugify, type ArenaDraft, type MarkerKind, type Vec3 } from './arena.ts';
+import {
+    newDraft,
+    previewFileName,
+    serializeMapFile,
+    slugify,
+    type ArenaDraft,
+    type MarkerKind,
+    type Vec3,
+} from './arena.ts';
 import { buildManifestToml, ModError, MOD_MAX_ENTRY, zipModFiles, type ModMeta } from './mod.ts';
 
 /** Read the original credits text and artwork from the player's Dragon.rrc. */
@@ -99,10 +108,14 @@ export async function ootfSubtitleTable(src: PcFileSource, explicit?: SubtitleFi
         } else {
             const { language } = await detectOotfInstallLanguage(src);
             if (language.language !== 'english') {
-                log?.(`No bundled subtitles for this ${language.language} install. Supply a transcript or generate one in setup.`);
+                log?.(
+                    `No bundled subtitles for this ${language.language} install. Supply a transcript or generate one in setup.`,
+                );
                 return undefined;
             }
-            const bundled = await import('../../../../scripts/buildtool/kit/subtitles/english.json', { with: { type: 'json' } });
+            const bundled = await import('../../../../scripts/buildtool/kit/subtitles/english.json', {
+                with: { type: 'json' },
+            });
             explicit = [parseSubtitleFile(bundled.default)];
         }
     }
@@ -193,12 +206,14 @@ export async function buildOotfPack(
             if (!arena.id) arena.id = slugify(arena.name || title) || mangled.toLowerCase();
             files[`maps/${mangled}.ini`] = strToU8(serializeMapFile(arena, []));
             if (input.preview?.length) files[`previews/${previewFileName(arena.name || title)}`] = input.preview;
-        } else if (input.preview?.length) warnings.push(`${title}: a picture was given but the level has no arena; ignored`);
+        } else if (input.preview?.length)
+            warnings.push(`${title}: a picture was given but the level has no arena; ignored`);
         const stem = mangled.slice(0, 6) + 'TS';
         for (const [ext, data] of Object.entries({ ...options.splats, ...input.splats })) {
             files[`files/ENGLISH/LEVELS/${mangled}/${stem}.${ext.toUpperCase()}`] = data;
         }
-        if (!options.splats) warnings.push(`${title}: no splat files given; the game crashes after loading without them`);
+        if (!options.splats)
+            warnings.push(`${title}: no splat files given; the game crashes after loading without them`);
         for (const e of packLevelNotes(input.parts.report.warnings)) warnings.push(`${title}: ${e}`);
     }
     for (const [path, data] of Object.entries(options.extraFiles ?? {})) {
@@ -214,62 +229,51 @@ export async function buildOotfPack(
     return { meta: full, files, levels, warnings };
 }
 
-/** PC engine class of a Rynn launch pad (formats ootfclass.ts ENGINE_LIST). */
-const OOTF_RFL_RYNN_LAUNCH_PAD = 18;
 const OOTF_LOADOUT_CLUB = 0x3372b;
-const OOTF_LOADOUT_AXE = 0x33734;
-/** Weapon resources that stay spawnable as pickups in the converted levels (the axe 0x33734 only works in the loadout). */
-const OOTF_PICKUP_WEAPONS: readonly (readonly [number, string])[] = [
-    [0x31f30, 'Great Sword'],
-    [0x3372a, 'Iron Club'],
-    [0x3372b, 'Steel Club'],
-];
 
 /**
- * The multiplayer map of a PC `Multiplayer/*` level: the Rynn launch pads (OotF's player starts) become the spawn points,
- * snapped over the terrain like the converted Rynn start (the engine lets her fall otherwise). Dragon launch pads are
- * the fallback for air maps. Null when the level is not a multiplayer one or has fewer than two starts. The menu lists
- * it next to the Drakan 2 maps with the `Drakan 1` tag (netcode.md "Multiplayer maps").
+ * Read the active launch pads and their transforms from the supplied PC level. Air matches use the dragon pads;
+ * ground and mixed matches use the Rynn pads. A custom map outside the retail groups can use either kind of pad.
  */
-export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
+export function ootfArenaFromPc(
+    pc: PcLevel,
+    title: string,
+    converted?: Pick<OotfLevelOut, 'arenaPickups' | 'arenaOrder' | 'arenaLoadout' | 'arenaDragon'>,
+): ArenaDraft | null {
     if (!isOotfArenaLevel(pc)) return null;
-    const pads = (match: RegExp | number): Vec3[] =>
-        pc.list.objects
-            .filter((o) => {
-                const cls = pc.classes.get(o.dbIndex)?.get(o.classId);
-                return typeof match === 'number' ? cls?.rflClass === match : match.test(cls?.name ?? '');
-            })
-            .map((o): Vec3 => {
-                const g = terrainHeightAt(pc.terrain, o.pos[0], o.pos[2]);
-                return [o.pos[0], Number.isFinite(g) ? g + 400 : o.pos[1], o.pos[2]];
-            })
-            // The PC levels list some pads more than once at the same spot (Relic: 18 records, 9 places).
-            .filter((p, i, all) => all.findIndex((q) => q[0] === p[0] && q[2] === p[2]) === i);
-    let starts = pads(/rynn launch pad/i);
-    if (starts.length < 2) starts = pads(/launch pad/i);
-    // A localized install may name its pads differently: the engine class of a Rynn launch pad is the same everywhere.
-    if (starts.length < 2) starts = pads(OOTF_RFL_RYNN_LAUNCH_PAD);
+    const group = ootfLevelKey(pc).split('/')[1];
+    const rules = group === 'air' || group === 'ground' || group === 'qod' ? group : undefined;
+    const pads = (rfl: number, name: RegExp) =>
+        pc.list.objects.filter((o) => {
+            const cls = pc.classes.get(o.dbIndex)?.get(o.classId);
+            return cls?.rflClass === rfl || (cls?.rflClass === undefined && name.test(cls?.name ?? ''));
+        });
+    const dragonPads = () => pads(127, /^dragon\s*launch pad/i);
+    let starts = rules === 'air' ? dragonPads() : pads(18, /^rynn\s+launch pad/i);
+    if (!rules && starts.length < 2) starts = dragonPads();
     if (starts.length < 2) return null;
     const name = pcLevelName(pc.header) || title;
     const d = newDraft(title);
     d.id = slugify(name);
     d.name = name;
     d.game = 'Drakan 1';
+    d.ootfRules = rules;
+    d.ootfOrder = converted?.arenaOrder;
+    d.ootfDragon = converted?.arenaDragon;
     d.description = 'A multiplayer map of Drakan: Order of the Flame.';
-    d.players = Math.min(12, starts.length);
-    for (const pos of starts) d.spawns.push({ uid: d.nextUid++, pos, yaw: 0, team: 0 });
-    // A Drakan 1 New Game starts with an empty inventory (the arena only equips). Every player is granted a club and an
-    // axe through the factory (resources measured to spawn in the converted levels: netcode.md "Starting loadout"), and
-    // the PC "Weapon Pad" spots hold weapon pickups that respawn.
-    d.loadout = [OOTF_LOADOUT_CLUB, OOTF_LOADOUT_AXE];
-    const rawPads = pc.list.objects.filter((o) => /^weapon pad/i.test((pc.classes.get(o.dbIndex)?.get(o.classId)?.name ?? '').trim()));
-    for (const o of rawPads.slice(0, 64)) {
-        const g = terrainHeightAt(pc.terrain, o.pos[0], o.pos[2]);
-        const pos: Vec3 = [o.pos[0], Number.isFinite(g) ? g + 120 : o.pos[1], o.pos[2]];
-        if (d.pickups.some((k) => k.pos[0] === pos[0] && k.pos[2] === pos[2])) continue;
-        const res = OOTF_PICKUP_WEAPONS[d.pickups.length % OOTF_PICKUP_WEAPONS.length]!;
-        d.pickups.push({ uid: d.nextUid++, pos, respawn: 30, res: res[0], label: res[1] });
-    }
+    d.players = rules ? 12 : Math.min(12, starts.length);
+    for (const pad of starts) d.spawns.push({ uid: d.nextUid++, pos: [...pad.pos], yaw: pad.rot[1], team: 0 });
+    if (rules !== 'air') d.loadout = converted?.arenaLoadout ? [...converted.arenaLoadout] : [OOTF_LOADOUT_CLUB];
+    for (const pickup of converted?.arenaPickups ?? [])
+        d.pickups.push({
+            uid: d.nextUid++,
+            pos: [...pickup.pos],
+            respawn: pickup.respawn,
+            res: 0,
+            label: pickup.name,
+            rewards: pickup.rewards,
+            visual: pickup.visual,
+        });
     // PC-only multiplayer objects without a PS2 engine class (dragon launch pads, the Soul Crystal, dragon invulnerability)
     // are kept as authored markers for custom modes; the game does not read them yet.
     const marks: [RegExp, MarkerKind, string][] = [
@@ -281,7 +285,15 @@ export function ootfArenaFromPc(pc: PcLevel, title: string): ArenaDraft | null {
     for (const o of pc.list.objects) {
         const n = (pc.classes.get(o.dbIndex)?.get(o.classId)?.name ?? '').trim();
         const m = marks.find(([re]) => re.test(n));
-        if (m) d.markers.push({ uid: d.nextUid++, kind: m[1], pos: [...o.pos] as Vec3, radius: 400, team: 0, label: m[2] });
+        if (m)
+            d.markers.push({
+                uid: d.nextUid++,
+                kind: m[1],
+                pos: [...o.pos] as Vec3,
+                radius: 400,
+                team: 0,
+                label: m[2],
+            });
     }
     return d;
 }

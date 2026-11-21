@@ -187,6 +187,34 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
                                                                                          : val.substr(0, 16);
         } else if (key == "description") {
             cur.description = val;
+        } else if (key == "ootf_rules") {
+            const std::string rule = lower(val);
+            if (rule == "air")
+                cur.ootfRules = OotfArenaRules::Air;
+            else if (rule == "ground")
+                cur.ootfRules = OotfArenaRules::Ground;
+            else if (rule == "qod")
+                cur.ootfRules = OotfArenaRules::MasterOfTheDragon;
+            else {
+                err(lineNo, "ootf_rules needs air, ground or qod");
+                bad = true;
+            }
+        } else if (key == "ootf_order") {
+            if (!parseUint(val, cur.ootfOrder)) {
+                err(lineNo, "ootf_order needs a non-negative integer");
+                bad = true;
+            }
+        } else if (key == "ootf_dragon") {
+            auto& d = cur.ootfDragon;
+            if (w.size() != 10 || !parseFloat(w[0], d.yaw) || !parseUint(w[1], d.health) || !d.health ||
+                d.health > UINT16_MAX || !parseFloat(w[2], d.flySpeed) || d.flySpeed <= 0 ||
+                !parseFloat(w[3], d.climbSpeed) || d.climbSpeed <= 0 || !parseUint(w[4], d.damage) || !d.damage ||
+                d.damage > UINT16_MAX || !parseUint(w[5], d.reloadMs) || !d.reloadMs || !parseFloat(w[6], d.energy) ||
+                d.energy <= 0 || !parseFloat(w[7], d.energyCost) || d.energyCost <= 0 || d.energyCost > d.energy ||
+                !parseFloat(w[8], d.energyRecharge) || d.energyRecharge < 0 || !parseUint(w[9], d.projectile)) {
+                err(lineNo, "invalid unclaimed dragon tuning");
+                bad = true;
+            }
         } else if (key == "modes") {
             cur.deathmatch = cur.teamDeathmatch = false;
             std::string v = val;
@@ -326,6 +354,55 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             for (size_t i = 4; ok && i < w.size(); ++i) {
                 if (w[i].rfind("res=", 0) == 0) {
                     ok = parseUint(w[i].substr(4), p.resId) && p.resId != 0;
+                } else if (w[i].rfind("visual=", 0) == 0) {
+                    ok = parseUint(w[i].substr(7), p.visual) && p.visual != 0;
+                } else if (w[i].rfind("rewards=", 0) == 0) {
+                    std::string list = w[i].substr(8);
+                    std::replace(list.begin(), list.end(), ',', ' ');
+                    for (const std::string& entry : words(list)) {
+                        ArenaReward reward;
+                        const auto colon = entry.find(':');
+                        const std::string kind = entry.substr(0, colon);
+                        using Kind = ArenaReward::Kind;
+                        if (kind == "fire_ring" || kind == "speed" || kind == "invisibility" ||
+                            kind == "invulnerability") {
+                            std::string params = entry;
+                            std::replace(params.begin(), params.end(), ':', ' ');
+                            const auto args = words(params);
+                            const bool fire = kind == "fire_ring";
+                            ok = args.size() == (fire ? 5u : 3u) && parseUint(args[1], reward.value) && reward.value &&
+                                 parseUint(args[2], reward.durationMs) && reward.durationMs > 0 &&
+                                 reward.durationMs <= 360000;
+                            if (fire)
+                                ok = ok && parseFloat(args[3], reward.speed) && reward.speed > 0 &&
+                                     reward.speed <= 100000 && parseUint(args[4], reward.damage) && reward.damage > 0;
+                            if (!ok)
+                                break;
+                            reward.kind = fire                     ? Kind::FireRing
+                                          : kind == "speed"        ? Kind::Speed
+                                          : kind == "invisibility" ? Kind::Invisibility
+                                                                   : Kind::Invulnerability;
+                        } else if (kind == "soul_crystal" && colon == std::string::npos) {
+                            reward.kind = Kind::SoulCrystal;
+                        } else if (colon == std::string::npos || !parseUint(entry.substr(colon + 1), reward.value) ||
+                                   reward.value == 0) {
+                            ok = false;
+                            break;
+                        } else if (kind == "item") {
+                            reward.kind = Kind::Item;
+                        } else if (kind == "health" && reward.value <= 1000) {
+                            reward.kind = Kind::Health;
+                        } else if (kind == "dragon_health" && reward.value <= 1000) {
+                            reward.kind = Kind::DragonHealth;
+                        } else if (kind == "dragon_protection" && reward.value <= 3600) {
+                            reward.kind = Kind::DragonProtection;
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                        p.rewards.push_back(reward);
+                    }
+                    ok &= !p.rewards.empty() && p.rewards.size() <= 32;
                 } else if (w[i].rfind("name=", 0) == 0) {
                     // the label may hold spaces: take everything after "name="
                     p.label = trim(val.substr(val.find("name=") + 5));
@@ -334,8 +411,8 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
                     ok = false;
                 }
             }
-            if (!ok) {
-                err(lineNo, "pickup = x y z respawnSec [res=0x...] [name=Label]");
+            if (!ok || (p.resId && !p.rewards.empty())) {
+                err(lineNo, "pickup = x y z respawnSec [res=0x... or rewards=...] [name=Label]");
                 bad = true;
             } else if (cur.pickups.size() >= 64) {
                 err(lineNo, "at most 64 pickups");

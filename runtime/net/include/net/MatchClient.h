@@ -89,7 +89,7 @@ public:
 
     // Outgoing. All are no-ops (false) until connected.
     bool sendState(PlayerState state);                              // fills player + sequence
-    bool sendHit(PlayerId victim, uint8_t weapon, uint16_t damage); // a claim; the server decides
+    bool sendHit(PlayerId victim, uint8_t weapon, uint16_t damage, bool dragon = false);
     bool sendChat(const std::string& text);
     bool sendLoadDone();
     bool sendReady(bool ready);             // lobby only (the server ignores it elsewhere)
@@ -120,6 +120,7 @@ public:
     // The newest buffered raw snapshot sample of a remote player and the server time it carries (for a game-side pose
     // buffer that interpolates on its own clock). False when nothing is buffered.
     bool newestSample(PlayerId id, PlayerState& out, uint32_t& serverTimeMs) const;
+    const std::optional<NeutralDragonState>& neutralDragon() const { return neutralDragon_; }
 
     // Diagnostics. rttMs() is the smoothed round trip of our own PlayerState: send time to the arrival of the snapshot
     // that echoes its sequence (so it includes up to one server snapshot interval); < 0 until measured.
@@ -177,6 +178,8 @@ private:
     int64_t clockOffset_ = 0; // serverTime - localTime
     std::map<PlayerId, RemotePlayer> roster_;
     std::map<PlayerId, std::deque<Sample>> buffers_;
+    std::optional<NeutralDragonState> neutralDragon_;
+    uint32_t neutralDragonTime_ = 0;
     std::deque<ClientEvent> events_;
 };
 

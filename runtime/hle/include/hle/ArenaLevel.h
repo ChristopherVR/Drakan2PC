@@ -2,9 +2,11 @@
 // events can run; normal campaign / co-op reads keep their original bytes. No game content is stored in this code.
 #pragma once
 #include "hle/IsoFs.h"
+#include <span>
 #include <string>
 
 namespace hle {
-bool filterArenaLevel(const IsoFs& fs, IsoFs::Node& level, std::string& error);
+bool filterArenaLevel(const IsoFs& fs, IsoFs::Node& level, std::string& error, bool keepPlayerDragon = false,
+                      std::span<const uint32_t> preloadItems = {});
 bool arenaEnvironmentClass(uint32_t runtimeClass);
 } // namespace hle

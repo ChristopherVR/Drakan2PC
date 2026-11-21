@@ -38,7 +38,7 @@ bool configValid(const MatchConfigData& c) {
 } // namespace
 
 MatchServer::MatchServer(Transport& transport, ServerOptions options)
-    : transport_(transport), options_(std::move(options)) {
+    : transport_(transport), options_(std::move(options)), pickupRandom_(options_.serverId) {
     if (!configValid(options_.config))
         options_.config = MatchConfigData{};
 }
@@ -128,11 +128,14 @@ void MatchServer::tick(uint64_t nowMs) {
                 if (pickupBackAtMs_[i] != 0 && now_ >= pickupBackAtMs_[i]) {
                     pickupBackAtMs_[i] = 0;
                     pickupTakenBy_[i] = kNoPlayer;
-                    PickupState ps;
-                    ps.index = static_cast<uint16_t>(i);
-                    broadcast(encode(ps), Channel::Reliable);
+                    const auto count = options_.arena.pickups[i].rewards.size();
+                    if (count > 1)
+                        pickupRewards_[i] =
+                            static_cast<uint8_t>(std::uniform_int_distribution<size_t>(0, count - 1)(pickupRandom_));
+                    broadcast(encode(pickupState(i)), Channel::Reliable);
                 }
             }
+            tickArenaHazards();
             tickObjectives();
             const uint32_t limit = options_.config.mode == MatchMode::Coop ? 0 : options_.config.timeLimitSec;
             if (limit > 0 && now_ - phaseStartMs_ >= uint64_t(limit) * 1000) {
@@ -146,8 +149,11 @@ void MatchServer::tick(uint64_t nowMs) {
             break;
         }
         case MatchPhase::Results:
-            if (now_ - phaseStartMs_ >= options_.resultsDurationMs)
-                leaveResults(false);
+            if (now_ - phaseStartMs_ >= options_.resultsDurationMs) {
+                const bool applied = leaveResults(false);
+                if (options_.autoRotateArena && (applied || advanceMap()))
+                    startMatch(now_);
+            }
             break;
     }
     if (!players_.empty() && now_ - lastStatusMs_ >= kStatusIntervalMs) {
@@ -425,13 +431,8 @@ void MatchServer::onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& 
 
     if (phase_ == MatchPhase::Playing) {
         for (size_t i = 0; i < pickupBackAtMs_.size(); ++i) { // the newcomer learns which arena pickups are gone
-            if (pickupBackAtMs_[i] == 0)
-                continue;
-            PickupState ps;
-            ps.index = static_cast<uint16_t>(i);
-            ps.taken = true;
-            ps.player = pickupTakenBy_[i];
-            sendTo(peer, encode(ps), Channel::Reliable);
+            if (pickupBackAtMs_[i] != 0 || !options_.arena.pickups[i].rewards.empty())
+                sendTo(peer, encode(pickupState(i)), Channel::Reliable);
         }
         ServerPlayer& np = players_[id];
         const ModeDef* mode = activeMode();
@@ -462,6 +463,8 @@ void MatchServer::removePlayer(PeerId peer) {
     if (it == players_.end())
         return;
     log("player " + std::to_string(id) + " '" + it->second.name + "' left");
+    if (id == dragonOwner_)
+        setDragonOwner(kNoPlayer);
     for (PlayerId& c : flagCarrier_)
         if (c == id)
             c = kNoPlayer; // its flag is back home
@@ -764,6 +767,7 @@ void MatchServer::spawnPlayer(ServerPlayer& p) {
     p.respawnAtMs = 0;
     p.acceptAnyState = true;
     p.hasState = false; // the corpse's last pose must not be replicated as the new life's first one
+    p.powerUntilMs = {};
     const ModeDef* mode = activeMode();
     p.protectedUntilMs =
         now_ + (mode && mode->spawnProtectionSec >= 0 ? static_cast<uint64_t>(mode->spawnProtectionSec) * 1000u
@@ -799,6 +803,11 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
         return;
     PlayerState s;
     if (!decode(data, s))
+        return;
+    if (options_.arena.ootfRules == OotfArenaRules::Air && !s.mounted)
+        return;
+    if (s.mounted && (options_.arena.ootfRules == OotfArenaRules::Ground ||
+                      (options_.arena.ootfRules == OotfArenaRules::MasterOfTheDragon && p.id != dragonOwner_)))
         return;
     if (p.hasState && !sequenceNewer(s.sequence, p.state.sequence))
         return;                         // stale or duplicate
@@ -849,6 +858,8 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
     p.stateAtMs = now_;
     p.hasState = true;
     p.acceptAnyState = false;
+    if (p.id == dragonOwner_ && s.mounted)
+        dragonPosition_ = {s.pos[0], s.pos[1], s.pos[2]};
 }
 
 void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data) {
@@ -857,6 +868,7 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         return;
     }
     auto vit = players_.find(h.victim);
+    const bool separateDragon = dragonOwner_ && h.victim == dragonOwner_;
     const char* why = nullptr; // first failed check, for the log
     if (options_.config.mode == MatchMode::Coop)
         why = "co-op: players cannot hurt each other";
@@ -868,6 +880,8 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         why = "no such victim";
     else if (!vit->second.alive)
         why = "victim dead";
+    else if (h.dragon && !separateDragon && (!vit->second.hasState || !vit->second.state.mounted))
+        why = "victim has no dragon";
     else if (h.damage < 1 || h.weapon > kHitProjectile)
         why = "bad damage or weapon";
     else if (h.damage > hitLimit(attacker, h.weapon))
@@ -882,7 +896,7 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         ServerPlayer& v = vit->second;
         const float range = h.weapon == kHitProjectile ? options_.maxHitRangeRanged : options_.maxHitRange;
         float dist = 0.0f;
-        if (now_ < v.protectedUntilMs)
+        if (now_ < v.protectedUntilMs || now_ < v.powerUntilMs[2])
             why = "victim protected after its respawn";
         else if (options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team &&
                  !(activeMode() && activeMode()->friendlyFire))
@@ -893,9 +907,11 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
             if (!attacker.hasState || !v.hasState) {
                 why = "no position yet";
             } else {
-                const float dx = attacker.state.pos[0] - v.state.pos[0];
-                const float dy = attacker.state.pos[1] - v.state.pos[1];
-                const float dz = attacker.state.pos[2] - v.state.pos[2];
+                const float* target =
+                    separateDragon && h.dragon && dragonPosition_ ? dragonPosition_->data() : v.state.pos;
+                const float dx = attacker.state.pos[0] - target[0];
+                const float dy = attacker.state.pos[1] - target[1];
+                const float dz = attacker.state.pos[2] - target[2];
                 dist = std::sqrt(dx * dx + dy * dy + dz * dz);
                 if (dist > range)
                     why = "out of range";
@@ -912,41 +928,52 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
         return;
     }
 
-    ServerPlayer& v = vit->second;
     ++stats_.hitsAccepted;
     attacker.lastHitAtMs = now_;
     attacker.hasHit = true;
     const uint16_t applied = static_cast<uint16_t>(
         std::clamp<long>(std::lround(static_cast<double>(h.damage) * options_.damageScale), 1L, 65535L));
-    v.health = std::max<int32_t>(0, v.health - applied);
+    applyArenaDamage(vit->second, &attacker, h.weapon, applied, h.dragon);
+}
+
+void MatchServer::applyArenaDamage(ServerPlayer& v, ServerPlayer* attacker, uint8_t weapon, uint16_t applied,
+                                   bool dragon) {
+    if (!v.alive || now_ < v.protectedUntilMs || now_ < v.powerUntilMs[2])
+        return;
+    const bool separateDragon = dragonOwner_ && v.id == dragonOwner_;
+    int32_t& health = separateDragon && dragon ? dragonHealth_ : v.health;
+    health = std::max<int32_t>(0, health - applied);
 
     Hit out;
-    out.attacker = attacker.id;
+    out.attacker = attacker ? attacker->id : kNoPlayer;
     out.victim = v.id;
-    out.weapon = h.weapon;
+    out.weapon = weapon;
     out.damage = applied;
-    out.healthAfter = static_cast<uint16_t>(v.health);
+    const uint32_t dragonMax = options_.arena.ootfDragon.health;
+    out.healthAfter = static_cast<uint16_t>(
+        separateDragon && dragon && dragonMax ? (health * 100u + dragonMax - 1) / dragonMax : health);
+    out.dragon = separateDragon ? dragon : v.hasState && v.state.mounted;
     broadcast(encode(out), Channel::Reliable);
 
-    if (v.health > 0)
+    if (health > 0)
         return;
+    v.health = 0;
     v.alive = false;
     ++v.deaths;
-    ++attacker.kills;
-    if (attacker.team < 2)
-        ++teamKills_[attacker.team];
-    {
+    const ModeDef* mode = activeMode();
+    if (attacker) {
+        ++attacker->kills;
+        if (attacker->team < 2)
+            ++teamKills_[attacker->team];
         // Points: a kill is worth the mode's score_kill, a death its score_death; a team kill (friendly fire on) earns
         // nothing. Without a custom mode that is one point per kill.
-        const ModeDef* mode = activeMode();
-        const int32_t perKill = mode ? mode->scoreKill : 1, perDeath = mode ? mode->scoreDeath : 0;
-        const bool teamKill = options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team;
+        const bool teamKill = options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker->team;
         if (!teamKill)
-            award(attacker, perKill);
+            award(*attacker, mode ? mode->scoreKill : 1);
         else if (mode && mode->scoreTeamKill)
-            award(attacker, mode->scoreTeamKill);
-        award(v, perDeath);
+            award(*attacker, mode->scoreTeamKill);
     }
+    award(v, mode ? mode->scoreDeath : 0);
     if (v.carriedFlag >= 0 && static_cast<size_t>(v.carriedFlag) < flagCarrier_.size()) {
         flagCarrier_[static_cast<size_t>(v.carriedFlag)] = kNoPlayer; // dropped: the flag is back home
         announce(v.name + " lost the flag");
@@ -969,12 +996,15 @@ void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data
     }
     Death d;
     d.victim = v.id;
-    d.killer = attacker.id;
-    d.weapon = h.weapon;
+    d.killer = out.attacker;
+    d.weapon = weapon;
     broadcast(encode(d), Channel::Reliable);
-    scoreFor(attacker);
+    if (v.id == dragonOwner_)
+        setDragonOwner(out.attacker);
+    if (attacker)
+        scoreFor(*attacker);
     scoreFor(v);
-    log("player " + std::to_string(v.id) + " killed by " + std::to_string(attacker.id));
+    log("player " + std::to_string(v.id) + " killed by " + std::to_string(out.attacker));
     checkMatchEnd();
 }
 
@@ -1474,10 +1504,19 @@ std::vector<uint8_t> MatchServer::answerQuery(const std::vector<uint8_t>& reques
 void MatchServer::sendSnapshot() {
     Snapshot s;
     s.serverTimeMs = serverTimeMs();
+    if (!dragonOwner_)
+        s.neutralDragon = neutralDragon_;
     for (const auto& kv : players_)
-        if (kv.second.hasState)
-            s.players.push_back(kv.second.state);
-    if (s.players.empty())
+        if (kv.second.hasState) {
+            auto pose = kv.second.state;
+            pose.arenaPower = 0;
+            if (kv.second.alive)
+                for (size_t i = 0; i < kv.second.powerUntilMs.size(); ++i)
+                    if (now_ < kv.second.powerUntilMs[i])
+                        pose.arenaPower |= 1u << i;
+            s.players.push_back(pose);
+        }
+    if (s.players.empty() && !s.neutralDragon)
         return;
     broadcast(encode(s), Channel::Unreliable);
 }
@@ -1510,16 +1549,154 @@ void MatchServer::resetPickups() {
     const size_t n = options_.hasArena ? options_.arena.pickups.size() : 0;
     pickupBackAtMs_.assign(n, 0);
     pickupTakenBy_.assign(n, kNoPlayer);
+    pickupRewards_.assign(n, 0);
+    soulCrystal_ = kAllPickups;
+    dragonOwner_ = kNoPlayer;
+    dragonPosition_.reset();
+    neutralDragon_.reset();
+    neutralEnergy_ = options_.arena.ootfDragon.energy;
+    nextHazardTick_ = nextNeutralBreath_ = now_;
+    fireRings_.clear();
+    if (options_.arena.ootfRules == OotfArenaRules::MasterOfTheDragon)
+        for (const auto& marker : options_.arena.markers)
+            if (marker.label == "Red dragon launch pad") {
+                neutralDragon_.emplace();
+                std::copy_n(marker.pos, 3, neutralDragon_->pos.begin());
+                neutralDragon_->yaw = options_.arena.ootfDragon.yaw * (3.14159265f / 180.0f);
+                break;
+            }
     if (n == 0)
         return;
     PickupState all;
     all.index = kAllPickups;
     broadcast(encode(all), Channel::Reliable);
+    for (size_t i = 0; i < n; ++i) {
+        const auto& rewards = options_.arena.pickups[i].rewards;
+        if (rewards.empty())
+            continue;
+        if (rewards.front().kind == ArenaReward::Kind::SoulCrystal &&
+            options_.arena.ootfRules == OotfArenaRules::MasterOfTheDragon)
+            soulCrystal_ = i;
+        pickupRewards_[i] =
+            static_cast<uint8_t>(std::uniform_int_distribution<size_t>(0, rewards.size() - 1)(pickupRandom_));
+        broadcast(encode(pickupState(i)), Channel::Reliable);
+    }
+}
+
+PickupState MatchServer::pickupState(size_t index) const {
+    PickupState state{static_cast<uint16_t>(index), pickupBackAtMs_[index] != 0, pickupTakenBy_[index],
+                      pickupRewards_[index]};
+    if (index == soulCrystal_ && dragonOwner_)
+        state.effectPosition = dragonPosition_;
+    return state;
+}
+
+void MatchServer::setDragonOwner(PlayerId player) {
+    if (soulCrystal_ == kAllPickups)
+        return;
+    if (!dragonOwner_ && player && neutralDragon_)
+        dragonPosition_ = neutralDragon_->pos;
+    else if (!player) {
+        dragonPosition_.reset();
+        if (neutralDragon_) {
+            for (const auto& marker : options_.arena.markers)
+                if (marker.label == "Red dragon launch pad") {
+                    std::copy_n(marker.pos, 3, neutralDragon_->pos.begin());
+                    break;
+                }
+            neutralDragon_->flying = false;
+            neutralDragon_->yaw = options_.arena.ootfDragon.yaw * (3.14159265f / 180.0f);
+            nextNeutralBreath_ = now_;
+        }
+    }
+    dragonOwner_ = player;
+    dragonHealth_ = options_.arena.ootfDragon.health ? options_.arena.ootfDragon.health : options_.config.startHealth;
+    neutralEnergy_ = options_.arena.ootfDragon.energy;
+    if (auto it = players_.find(player); it != players_.end())
+        it->second.acceptAnyState = true; // the new rider moves to the dragon
+    pickupBackAtMs_[soulCrystal_] = player ? UINT64_MAX : 0;
+    pickupTakenBy_[soulCrystal_] = player;
+    broadcast(encode(pickupState(soulCrystal_)), Channel::Reliable);
+    log(player ? "dragon claimed by player " + std::to_string(player) : "dragon released; Soul Crystal available");
+}
+
+void MatchServer::tickArenaHazards() {
+    if ((!neutralDragon_ && fireRings_.empty()) || now_ < nextHazardTick_)
+        return;
+    const float step = std::min<uint64_t>(250, now_ - nextHazardTick_ + 50) / 1000.0f;
+    nextHazardTick_ = now_ + 50;
+    for (auto& ring : fireRings_) {
+        const auto elapsed = std::min<uint64_t>(ring.reward.durationMs, now_ - ring.startMs);
+        const float radius = elapsed * ring.reward.speed / 1000.0f;
+        const auto owner = players_.find(ring.owner);
+        for (auto& [id, p] : players_) {
+            if (id == ring.owner || ring.hit[id] || !p.alive || !p.hasState || p.state.placing)
+                continue;
+            if (owner != players_.end() && options_.config.mode == MatchMode::TeamDeathmatch &&
+                p.team == owner->second.team)
+                continue;
+            const float distance = std::hypot(p.state.pos[0] - ring.center[0], p.state.pos[2] - ring.center[2]);
+            if (std::abs(p.state.pos[1] - ring.center[1]) > 1500 || distance > radius + 500 ||
+                distance < ring.lastRadius - 500)
+                continue;
+            ring.hit[id] = true;
+            applyArenaDamage(p, owner == players_.end() ? nullptr : &owner->second, kHitProjectile,
+                             static_cast<uint16_t>(std::min(ring.reward.damage, 65535u)));
+        }
+        ring.lastRadius = radius;
+    }
+    fireRings_.erase(std::remove_if(fireRings_.begin(), fireRings_.end(),
+                                    [&](const FireRing& r) { return now_ - r.startMs >= r.reward.durationMs; }),
+                     fireRings_.end());
+
+    if (!neutralDragon_ || dragonOwner_ || phase_ != MatchPhase::Playing)
+        return;
+    auto& dragon = *neutralDragon_;
+    const auto& tuning = options_.arena.ootfDragon;
+    neutralEnergy_ = std::min(tuning.energy, neutralEnergy_ + tuning.energyRecharge * step);
+    ServerPlayer* target = nullptr;
+    float distance = 48000.0f;
+    for (auto& [id, p] : players_) {
+        if (!p.alive || !p.hasState || !p.state.levelHash || p.state.placing || now_ < p.powerUntilMs[1])
+            continue;
+        const float d = std::hypot(p.state.pos[0] - dragon.pos[0], p.state.pos[2] - dragon.pos[2]);
+        if (d < distance) {
+            distance = d;
+            target = &p;
+        }
+    }
+    dragon.flying = target != nullptr;
+    if (!target)
+        return;
+    const float dx = target->state.pos[0] - dragon.pos[0], dz = target->state.pos[2] - dragon.pos[2];
+    dragon.yaw = std::atan2(dx, dz);
+    if (distance > 4200) {
+        const float travel = std::min(tuning.flySpeed * step, distance - 4200);
+        dragon.pos[0] += dx * travel / distance;
+        dragon.pos[2] += dz * travel / distance;
+    }
+    const float vertical = target->state.pos[1] + 2500 - dragon.pos[1];
+    dragon.pos[1] += std::clamp(vertical, -tuning.climbSpeed * step, tuning.climbSpeed * step);
+    if (distance <= 5500 && std::abs(vertical) < 3500 && now_ >= nextNeutralBreath_ &&
+        neutralEnergy_ >= tuning.energyCost) {
+        nextNeutralBreath_ = now_ + tuning.reloadMs;
+        neutralEnergy_ -= tuning.energyCost;
+        ++dragon.breath;
+        applyArenaDamage(*target, nullptr, kHitProjectile, static_cast<uint16_t>(tuning.damage));
+        log("unclaimed dragon breath hit player " + std::to_string(target->id));
+    }
 }
 
 void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& data) {
     PickupClaim c;
-    if (!decode(data, c) || phase_ != MatchPhase::Playing || c.index >= pickupBackAtMs_.size())
+    if (!decode(data, c) || phase_ != MatchPhase::Playing)
+        return;
+    if (c.index == kReleaseDragon) {
+        if (p.id == dragonOwner_)
+            setDragonOwner(kNoPlayer);
+        return;
+    }
+    if (c.index >= pickupBackAtMs_.size())
         return;
     if (!p.alive) {
         log("pickup " + std::to_string(c.index) + " claim refused: player " + std::to_string(p.id) + " is dead");
@@ -1529,6 +1706,21 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
     if (pickupBackAtMs_[c.index] != 0) {
         log("pickup " + std::to_string(c.index) + " claim refused: already taken");
         return; // the claimer took it in its own world already: nothing to undo, both copies are gone
+    }
+    const ArenaReward* reward = def.rewards.empty() ? nullptr : &def.rewards[pickupRewards_[c.index]];
+    if (reward && reward->kind != ArenaReward::Kind::Item) {
+        const bool mounted = p.hasState && p.state.mounted;
+        const bool dragon =
+            reward->kind == ArenaReward::Kind::DragonHealth || reward->kind == ArenaReward::Kind::DragonProtection;
+        if (reward->kind == ArenaReward::Kind::DragonHealth && p.id == dragonOwner_)
+            return;
+        if (!p.hasState || mounted != dragon)
+            return;
+        const float dx = p.state.pos[0] - def.pos[0], dy = p.state.pos[1] - def.pos[1],
+                    dz = p.state.pos[2] - def.pos[2];
+        constexpr float radius = 1600.0f;
+        if (dx * dx + dy * dy + dz * dz > radius * radius)
+            return;
     }
     // Right after a (re)spawn the last published position is the old life's (or the level start's) until the game has
     // moved the player to the spawn point: the spawn point stands in for it, so a claim from either is in reach.
@@ -1559,17 +1751,44 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
             return;
         }
     }
+    if (reward) {
+        using Kind = ArenaReward::Kind;
+        if (reward->kind == Kind::SoulCrystal) {
+            if (c.index == soulCrystal_)
+                setDragonOwner(p.id);
+            return;
+        }
+        if (reward->kind == Kind::Health || reward->kind == Kind::DragonHealth) {
+            const uint32_t amount = reward->kind == Kind::DragonHealth ? reward->value / 2 : reward->value;
+            p.health = std::min<int32_t>(options_.config.startHealth, p.health + static_cast<int32_t>(amount));
+            Hit restored;
+            restored.victim = p.id;
+            restored.healthAfter = static_cast<uint16_t>(p.health);
+            restored.dragon = reward->kind == Kind::DragonHealth;
+            broadcast(encode(restored), Channel::Reliable);
+            scoreFor(p);
+        } else if (reward->kind == Kind::DragonProtection) {
+            p.protectedUntilMs = std::max(p.protectedUntilMs, now_ + uint64_t(reward->value) * 1000u);
+        } else if (reward->potion()) {
+            const size_t power = reward->kind == Kind::Speed ? 0 : reward->kind == Kind::Invisibility ? 1 : 2;
+            p.powerUntilMs[power] = now_ + reward->durationMs;
+            log("arena potion " + std::to_string(power) + " active for player " + std::to_string(p.id) + " for " +
+                std::to_string(reward->durationMs) + " ms");
+        } else if (reward->kind == Kind::FireRing) {
+            fireRings_.push_back({{p.state.pos[0], p.state.pos[1], p.state.pos[2]}, p.id, *reward, now_});
+            log("Fire Summon cast by player " + std::to_string(p.id));
+        }
+    }
     // The mode may override every pickup's time: never back (a last-standing match), or its own number of seconds.
     const ModeDef* mode = activeMode();
     const int32_t modeSec = mode ? mode->pickupRespawnSec : -1;
     const uint32_t backSec = modeSec > 0 ? static_cast<uint32_t>(modeSec) : def.respawnSec;
     pickupBackAtMs_[c.index] = modeSec == 0 ? UINT64_MAX : now_ + uint64_t(backSec) * 1000u;
     pickupTakenBy_[c.index] = p.id;
-    PickupState ps;
-    ps.index = c.index;
-    ps.taken = true;
-    ps.player = p.id;
-    broadcast(encode(ps), Channel::Reliable);
+    PickupState taken = pickupState(c.index);
+    if (reward && reward->kind == ArenaReward::Kind::FireRing)
+        taken.effectPosition = fireRings_.back().center;
+    broadcast(encode(taken), Channel::Reliable);
     log("pickup " + std::to_string(c.index) + " (" + def.label + ") taken by player " + std::to_string(p.id) +
         (modeSec == 0 ? std::string(", does not come back (game mode)")
                       : ", back in " + std::to_string(backSec) + " s"));

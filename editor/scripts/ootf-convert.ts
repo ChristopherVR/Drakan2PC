@@ -439,7 +439,7 @@ if (res.classPlan) {
 const arenas = new Map<string, NonNullable<ReturnType<typeof ootfArenaFromPc>>>();
 for (const l of res.levels) {
     if (!l.arena) continue;
-    const a = ootfArenaFromPc(await loadPcLevel(src, l.pcPath), l.title);
+    const a = ootfArenaFromPc(await loadPcLevel(src, l.pcPath), l.title, l);
     if (a) arenas.set(l.pcPath, a);
     else console.warn(`warning: ${l.pcPath}: no arena (fewer than two launch pads)`);
 }
@@ -449,7 +449,8 @@ const previewPng = (name: string | undefined): Uint8Array | undefined => {
     return f && existsSync(f) ? new Uint8Array(readFileSync(f)) : undefined;
 };
 const credits = opt['campaign'] !== undefined ? await ootfCredits(src) : undefined;
-if (credits && !credits.files['credits/credits.txt']) console.warn('warning: Dragon.rrc has no Order of the Flame credits');
+if (credits && !credits.files['credits/credits.txt'])
+    console.warn('warning: Dragon.rrc has no Order of the Flame credits');
 const pack = await buildOotfPack(
     {
         id: opt['id'] ?? 'ootf-levels',

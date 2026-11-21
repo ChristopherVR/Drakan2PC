@@ -83,6 +83,7 @@ void setAnimFree(int id, uint32_t clipLow);
 // The items are destroyed with the ghost and before level loads / save writes. The local player's inventory, equipment
 // and HP are not touched. setPose applies PlayerPose.weaponRight / weaponLeft the same way (0 clears the hand).
 void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId);
+void setInvisible(int id, bool invisible);
 void forEach(const std::function<void(const Info&)>& fn);
 // True for an item actor a ghost holds in its hands (a loose-item sweep must leave it alone).
 bool isGhostItem(uint32_t handle);

@@ -60,6 +60,7 @@ struct Event {
         b = 0,
         w = 0; // Hit: attacker, victim, weapon; Death: victim (a), killer (b), weapon; Respawn: player (a), spawn (b)
     uint16_t damage = 0, health = 0;
+    bool dragon = false;
 };
 std::mutex g_m;
 std::deque<Event> g_events;
@@ -284,8 +285,8 @@ void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         std::fprintf(stderr, "[pvp] blade %x hit ghost %d (player %d) hand %u damage %d %s\n", blade, gid, player,
                      static_cast<unsigned>(hand), damage, isNew ? "NEW -> claim" : "(same swing)");
     if (isNew && player > 0 && damage > 0 && hand < 2 && g_life.load() == static_cast<int>(Life::Alive))
-        drakan_netplay::sendHitClaim(static_cast<uint8_t>(player), hand,
-                                     static_cast<uint16_t>(std::min(damage, 65535)));
+        drakan_netplay::sendHitClaim(static_cast<uint8_t>(player), hand, static_cast<uint16_t>(std::min(damage, 65535)),
+                                     drakan_netplay::isDragonGhost(gid));
 }
 
 // ---------------------------------------------------------------------------------------------- projectiles
@@ -400,7 +401,8 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
                              cls == kArrowClass ? "arrow" : "spell", h, target->ghost, target->player,
                              static_cast<unsigned>(pr.damage));
                 if (g_life.load() == static_cast<int>(Life::Alive))
-                    drakan_netplay::sendHitClaim(static_cast<uint8_t>(target->player), 2, pr.damage);
+                    drakan_netplay::sendHitClaim(static_cast<uint8_t>(target->player), 2, pr.damage,
+                                                 drakan_netplay::isDragonGhost(target->ghost));
             }
         }
         std::memcpy(pr.last, p, sizeof p);
@@ -444,12 +446,17 @@ struct BreathState {
     unsigned lastTick = 0;
 } g_breath;
 
-// The breath's targets: ghosts inside the cone. Returns the player ids hit (each once).
-std::vector<int> breathTargets(const uint8_t* rdram, uint32_t dragon) {
+struct BreathTarget {
+    int player;
+    bool dragon;
+};
+
+// The dragon shields its rider when both are inside the cone.
+std::vector<BreathTarget> breathTargets(const uint8_t* rdram, uint32_t dragon) {
     float m[12];
     std::memcpy(m, rdram + ((dragon + 0x14) & PS2_RAM_MASK), sizeof m);
     const float* fwd = m + 9; // row 2 of the 3x3 at +0x20: where the actor looks (testPlaceGhosts' "front")
-    std::vector<int> out;
+    std::vector<BreathTarget> out;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (!i.handle)
             return;
@@ -463,8 +470,15 @@ std::vector<int> breathTargets(const uint8_t* rdram, uint32_t dragon) {
         if (perp > kBreathWidth + kBreathSpread * along)
             return;
         const int player = drakan_netplay::playerOfGhost(i.id);
-        if (player > 0 && std::find(out.begin(), out.end(), player) == out.end())
-            out.push_back(player);
+        if (player <= 0)
+            return;
+        const bool dragonTarget = drakan_netplay::isDragonGhost(i.id);
+        auto existing =
+            std::find_if(out.begin(), out.end(), [player](const BreathTarget& t) { return t.player == player; });
+        if (existing == out.end())
+            out.push_back({player, dragonTarget});
+        else if (dragonTarget)
+            existing->dragon = true;
     });
     return out;
 }
@@ -538,16 +552,17 @@ void scanBreath(uint8_t* rdram, uint32_t dragon) {
     if (!attack || (!edge && g_projTick - g_breath.lastTick < kBreathTicks))
         return;
     g_breath.lastTick = g_projTick;
-    for (const int player : breathTargets(rdram, dragon)) {
-        std::fprintf(stderr, "[pvp] breath hit player %d damage %u -> claim\n", player,
+    for (const auto& target : breathTargets(rdram, dragon)) {
+        std::fprintf(stderr, "[pvp] breath hit player %d damage %u -> claim\n", target.player,
                      static_cast<unsigned>(kBreathDamage));
-        drakan_netplay::sendHitClaim(static_cast<uint8_t>(player), 2, kBreathDamage);
+        drakan_netplay::sendHitClaim(static_cast<uint8_t>(target.player), 2, kBreathDamage, target.dragon);
     }
 }
 
 // Arokh's health bar follows the server's: the float at data+0x6b4 (the engine regenerates it between hits).
 void setDragonHp(drakan_input::IGuest& guest, const uint8_t* rdram, int serverPoints) {
-    const uint32_t data = dataOf(rdram, controlledActor(rdram));
+    const uint32_t dragon = controlledIsDragon(rdram) ? controlledActor(rdram) : drakan_arena::ownedDragon();
+    const uint32_t data = dataOf(rdram, dragon);
     if (ramPtr(data))
         guest.writeF(data + kDragonHp, static_cast<float>(std::clamp(serverPoints, 1, 100)));
 }
@@ -782,12 +797,13 @@ void handleEvent(drakan_input::IGuest& guest, uint8_t* rdram, const Event& e) {
             if (e.b == me && e.health > 0 && life == Life::Alive) {
                 std::fprintf(stderr, "[pvp] hit by player %u: %u damage, server health %u (HP %d)\n", e.a, e.damage,
                              e.health, playerHp(rdram));
-                if (controlledIsDragon(rdram))
-                    setDragonHp(guest, rdram,
-                                e.health); // Rynn's damage method is not Arokh's: his bar follows the server
-                else
-                    hurtLocal(guest, rdram, engineUnits(rdram, e.damage));
-                g_pendingHp = std::max(1, engineUnits(rdram, e.health));
+                if (e.dragon)
+                    setDragonHp(guest, rdram, e.health);
+                else {
+                    if (e.damage > 0 && !controlledIsDragon(rdram))
+                        hurtLocal(guest, rdram, engineUnits(rdram, e.damage));
+                    g_pendingHp = std::max(1, engineUnits(rdram, e.health));
+                }
             }
             break;
         case Event::Death:
@@ -928,7 +944,7 @@ void testPlaceGhosts(uint8_t* rdram, uint32_t player, unsigned tick) {
     if (claimEvery && tick % claimEvery == 0 && g_life.load() == static_cast<int>(Life::Alive))
         drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
             if (const int pl = drakan_netplay::playerOfGhost(i.id); i.handle && pl > 0)
-                drakan_netplay::sendHitClaim(static_cast<uint8_t>(pl), 0, 4);
+                drakan_netplay::sendHitClaim(static_cast<uint8_t>(pl), 0, 4, drakan_netplay::isDragonGhost(i.id));
         });
 }
 
@@ -1034,6 +1050,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         g_life.store(static_cast<int>(Life::Dying));
         g_lifeTicks = 0;
         g_envDeath = true;
+        drakan_arena::releaseDragonOnWorldDeath();
         startDeath(rdram);
     }
 
@@ -1077,11 +1094,11 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
 }
 
-void onServerHit(uint8_t attacker, uint8_t victim, uint8_t weapon, uint16_t damage, uint16_t healthAfter) {
+void onServerHit(uint8_t attacker, uint8_t victim, uint8_t weapon, uint16_t damage, uint16_t healthAfter, bool dragon) {
     if (drakan_netplay::coopMatch())
         return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
-    g_events.push_back({Event::Hit, attacker, victim, weapon, damage, healthAfter});
+    g_events.push_back({Event::Hit, attacker, victim, weapon, damage, healthAfter, dragon});
 }
 void onServerDeath(uint8_t victim, uint8_t killer, uint8_t weapon) {
     if (drakan_netplay::coopMatch())

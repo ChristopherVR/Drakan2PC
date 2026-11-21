@@ -5,14 +5,16 @@
  */
 import type { LevelObject } from './document.ts';
 import type { EntityKind } from './world.ts';
+import type { OotfArenaReward, OotfNeutralDragon } from '@drakan/formats';
 import { MODE_ID_PATTERN, parseModes, serializeMode, type ModeDef } from './gamemodes.ts';
 
 export type Vec3 = [number, number, number];
+export type OotfArenaRules = 'air' | 'ground' | 'qod';
 
 export interface ArenaSpawn {
     uid: number;
     pos: Vec3;
-    /** Degrees about the up axis, 0 = +Z, clockwise seen from above (authored; the game keeps the player's own heading). */
+    /** Degrees about the up axis, 0 = +Z, clockwise seen from above. */
     yaw: number;
     /** 0 = any, 1..4 = team. */
     team: number;
@@ -24,6 +26,8 @@ export interface ArenaPickup {
     /** Resource id (`0x3372b`); 0 = adopt the level's own loose item nearest to `pos`. */
     res: number;
     label: string;
+    rewards?: OotfArenaReward[];
+    visual?: number;
 }
 export type MarkerKind = 'base' | 'flag' | 'zone';
 export interface ArenaMarker {
@@ -43,6 +47,10 @@ export interface ArenaDraft {
     description: string;
     /** Which game the map belongs to (`Drakan 1` / `Drakan 2`); the Multiplayer menu shows it as a tag. Empty = untagged. */
     game?: string;
+    /** Rules carried by a converted Order of the Flame map. */
+    ootfRules?: OotfArenaRules;
+    ootfOrder?: number;
+    ootfDragon?: OotfNeutralDragon;
     /** `dm`, `tdm` and custom mode ids. */
     modes: string[];
     players: number;
@@ -93,7 +101,7 @@ export const cloneDraft = (d: ArenaDraft): ArenaDraft => ({
     bounds: d.bounds ? [...d.bounds] : null,
     loadout: [...d.loadout],
     spawns: d.spawns.map((s) => ({ ...s, pos: [...s.pos] })),
-    pickups: d.pickups.map((p) => ({ ...p, pos: [...p.pos] })),
+    pickups: d.pickups.map((p) => ({ ...p, pos: [...p.pos], rewards: p.rewards?.map((r) => ({ ...r })) })),
     markers: d.markers.map((m) => ({ ...m, pos: [...m.pos] })),
     keepAt: d.keepAt.map((p) => [...p]),
     removeAt: d.removeAt.map((p) => [...p]),
@@ -116,19 +124,36 @@ const ri = (n: number): number => Math.round(n);
 const hexId = (n: number): string => `0x${(n >>> 0).toString(16)}`;
 const oneLine = (s: string): string => s.replace(/[\r\n]+/g, ' ').trim();
 const vec = (p: readonly number[]): string => `${ri(p[0]!)} ${ri(p[1]!)} ${ri(p[2]!)}`;
+const rewardToken = (r: OotfArenaReward): string => {
+    if (r.kind === 'item') return `item:${hexId(r.resource)}`;
+    if (r.kind === 'fire_ring') return `fire_ring:${hexId(r.resource)}:${r.durationMs}:${r.speed}:${r.damage}`;
+    if ('durationMs' in r) return `${r.kind}:${hexId(r.resource)}:${r.durationMs}`;
+    if (r.kind === 'soul_crystal') return r.kind;
+    return `${r.kind}:${r.amount}`;
+};
 
 /** The `[arena <id>]` section. */
 export function serializeArena(d: ArenaDraft): string {
     const l: string[] = [`[arena ${d.id}]`, `name = ${oneLine(d.name)}`, `level = ${oneLine(d.level)}`];
     if (d.description) l.push(`description = ${oneLine(d.description)}`);
     if (d.game) l.push(`game = ${oneLine(d.game)}`);
+    if (d.ootfRules) l.push(`ootf_rules = ${d.ootfRules}`);
+    if (d.ootfOrder !== undefined) l.push(`ootf_order = ${d.ootfOrder}`);
+    if (d.ootfDragon) {
+        const p = d.ootfDragon;
+        l.push(
+            `ootf_dragon = ${p.yaw} ${p.health} ${p.flySpeed} ${p.climbSpeed} ${p.damage} ${p.reloadMs} ${p.energy} ${p.energyCost} ${p.energyRecharge} ${hexId(p.projectile)}`,
+        );
+    }
     l.push(`modes = ${d.modes.join(', ')}`, `players = ${d.players}`, `health = ${d.health}`);
     if (d.bounds) l.push(`bounds = ${d.bounds.map(ri).join(' ')}`);
     if (d.loadout.length) l.push(`loadout = ${d.loadout.map(hexId).join(' ')}`);
-    for (const s of d.spawns) l.push(`spawn = ${vec(s.pos)} ${r1(s.yaw)}${s.team ? ` team=${s.team}` : ''}`);
+    for (const s of d.spawns)
+        l.push(`spawn = ${d.ootfRules ? s.pos.join(' ') : vec(s.pos)} ${r1(s.yaw)}${s.team ? ` team=${s.team}` : ''}`);
     for (const p of d.pickups) {
+        const rewards = p.rewards?.length ? ` rewards=${p.rewards.map(rewardToken).join(',')}` : '';
         l.push(
-            `pickup = ${vec(p.pos)} ${ri(p.respawn)}${p.res ? ` res=${hexId(p.res)}` : ''}${p.label ? ` name=${oneLine(p.label)}` : ''}`,
+            `pickup = ${d.ootfRules ? p.pos.join(' ') : vec(p.pos)} ${ri(p.respawn)}${p.res ? ` res=${hexId(p.res)}` : ''}${p.visual ? ` visual=${hexId(p.visual)}` : ''}${rewards}${p.label ? ` name=${oneLine(p.label)}` : ''}`,
         );
     }
     for (const m of d.markers) {
@@ -150,6 +175,29 @@ export function serializeMapFile(d: ArenaDraft, modes: readonly ModeDef[]): stri
 
 const numTok = (s: string | undefined): number => (s !== undefined && /^[-+]?\d+(\.\d+)?$/.test(s) ? Number(s) : NaN);
 const hexTok = (s: string): number => (/^(0x[0-9a-f]+|\d+)$/i.test(s) ? Number(s) >>> 0 : NaN);
+
+function parseReward(token: string): OotfArenaReward | undefined {
+    const [kind, value = '', duration, velocity, power] = token.split(':');
+    if (kind === 'soul_crystal' && token === kind) return { kind };
+    if (kind === 'item' && hexTok(value) > 0) return { kind, resource: hexTok(value) };
+    if (kind === 'fire_ring' && hexTok(value) > 0 && numTok(duration) > 0 && numTok(velocity) > 0 && numTok(power) > 0)
+        return {
+            kind,
+            resource: hexTok(value),
+            durationMs: numTok(duration),
+            speed: numTok(velocity),
+            damage: numTok(power),
+        };
+    if (
+        (kind === 'speed' || kind === 'invisibility' || kind === 'invulnerability') &&
+        hexTok(value) > 0 &&
+        numTok(duration) > 0
+    )
+        return { kind, resource: hexTok(value), durationMs: numTok(duration) };
+    if ((kind === 'health' || kind === 'dragon_health' || kind === 'dragon_protection') && numTok(value) > 0)
+        return { kind, amount: numTok(value) };
+    return undefined;
+}
 
 /** Read the arenas (and custom modes) of an INI text. Lenient: a bad line is reported and skipped. */
 export function parseArenaIni(
@@ -204,6 +252,59 @@ export function parseArenaIni(
             case 'game':
                 d.game = val;
                 break;
+            case 'ootf_rules':
+                if (val === 'air' || val === 'ground' || val === 'qod') d.ootfRules = val;
+                else errors.push(`${at}: ootf_rules needs air, ground or qod`);
+                break;
+            case 'ootf_order': {
+                const rank = numTok(val);
+                if (Number.isInteger(rank) && rank >= 0) d.ootfOrder = rank;
+                else errors.push(`${at}: ootf_order needs a non-negative integer`);
+                break;
+            }
+            case 'ootf_dragon': {
+                const [
+                    yaw,
+                    health,
+                    flySpeed,
+                    climbSpeed,
+                    damage,
+                    reloadMs,
+                    energy,
+                    energyCost,
+                    energyRecharge,
+                    projectile,
+                ] = val.split(/\s+/).map(Number);
+                if (
+                    yaw !== undefined &&
+                    Number.isFinite(yaw) &&
+                    health &&
+                    flySpeed &&
+                    climbSpeed &&
+                    damage &&
+                    reloadMs &&
+                    energy &&
+                    energyCost &&
+                    energyRecharge !== undefined &&
+                    energyRecharge >= 0 &&
+                    projectile !== undefined &&
+                    Number.isInteger(projectile)
+                )
+                    d.ootfDragon = {
+                        yaw,
+                        health,
+                        flySpeed,
+                        climbSpeed,
+                        damage,
+                        reloadMs,
+                        energy,
+                        energyCost,
+                        energyRecharge,
+                        projectile,
+                    };
+                else errors.push(`${at}: invalid unclaimed dragon tuning`);
+                break;
+            }
             case 'modes':
                 d.modes = val
                     .split(/[\s,]+/)
@@ -246,12 +347,16 @@ export function parseArenaIni(
                 const p = p3();
                 if (!p) errors.push(`${at}: pickup needs x y z seconds`);
                 else {
+                    const rewards = opts.get('rewards')?.split(',').map(parseReward);
+                    if (rewards?.some((r) => !r)) errors.push(`${at}: invalid pickup reward`);
                     d.pickups.push({
                         uid: d.nextUid++,
                         pos: p,
                         respawn: Number.isNaN(numTok(pos[3])) ? 30 : numTok(pos[3]),
                         res: opts.has('res') ? hexTok(opts.get('res')!) || 0 : 0,
                         label,
+                        visual: opts.has('visual') ? hexTok(opts.get('visual')!) || undefined : undefined,
+                        rewards: rewards?.filter((r) => r !== undefined),
                     });
                 }
                 break;

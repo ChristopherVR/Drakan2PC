@@ -49,6 +49,7 @@ struct HostConfig {
     std::string password;   // empty = open
     uint16_t port = 0; // UDP; 0 = net::basePort() (47800, or DRAKAN_MP_PORT); LAN discovery probes ten ports from it
     bool autoStart = false; // start as soon as one player is in (the DRAKAN_NET_HOST shortcut)
+    bool useOotfGroup = false;
     std::string
         modeId; // a custom game mode ([mode <id>], drakan_modes.h): scoring, teams, objectives; empty = standard
 };
@@ -163,9 +164,10 @@ std::vector<std::string> extraLevels();
 // The server owns health, deaths, respawns and scores; the game reports claims and applies the verdicts.
 // Thread safe. A melee / projectile hit of the local player on the ghost of `victimPlayer` (drakan::net::Hit.weapon:
 // 0 right hand, 1 left hand, 2 projectile; `damage` as the engine computed it); the server validates it.
-void sendHitClaim(uint8_t victimPlayer, uint8_t weapon, uint16_t damage);
+void sendHitClaim(uint8_t victimPlayer, uint8_t weapon, uint16_t damage, bool dragon = false);
 // Ghost id <-> player id of the remote players currently shown (0 = none).
 int playerOfGhost(int ghostId);
+bool isDragonGhost(int ghostId);
 int ghostOfPlayer(int player);
 
 struct ScoreRow {

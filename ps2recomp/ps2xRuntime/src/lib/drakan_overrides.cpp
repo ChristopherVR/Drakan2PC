@@ -2451,8 +2451,11 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 node.key.compare(node.key.size() - 4, 4, ".LVL"))
                 return true;
             for (const auto& map : drakan_arena::maps())
-                if (node.key.ends_with("\\" + hle::mangleComponent(map.level) + ".LVL"))
-                    return hle::filterArenaLevel(fs, node, error);
+                if (node.key.ends_with("\\" + hle::mangleComponent(map.level) + ".LVL")) {
+                    using Rules = drakan::net::OotfArenaRules;
+                    const bool dragon = map.ootfRules == Rules::Air || map.ootfRules == Rules::MasterOfTheDragon;
+                    return hle::filterArenaLevel(fs, node, error, dragon, map.preloadItems);
+                }
             return true; // unrelated UI / movie / campaign helper levels are not the arena's terrain source
         });
 #endif

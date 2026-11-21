@@ -26,7 +26,8 @@ bool enabled();
 void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram);
 
 // Thread safe. Server decisions as received by the network thread.
-void onServerHit(uint8_t attacker, uint8_t victim, uint8_t weapon, uint16_t damage, uint16_t healthAfter);
+void onServerHit(uint8_t attacker, uint8_t victim, uint8_t weapon, uint16_t damage, uint16_t healthAfter,
+                 bool dragon = false);
 void onServerDeath(uint8_t victim, uint8_t killer, uint8_t weapon);
 void onServerRespawn(uint8_t player, uint8_t spawnIndex, uint16_t health);
 void onServerPhase(uint8_t phase); // net::MatchPhase: 0 lobby, 1 loading, 2 playing, 3 results

@@ -554,7 +554,7 @@ game's own font and skin art (Paint / `GameUiRenderer`); no OotF art is used.
 | Page | Contents |
 | --- | --- |
 | Multiplayer (OotF's player setup screen) | Player Name, Player Color (swatch), Character (15-character initial roster), Dragon Skin (7 names, no effect yet), Host Game, Join Game, Back (saves the profile) |
-| Host Game | Server Name, Password (blank = open), Level Group (All Levels / Disc levels / Custom levels), Starting Level (14 disc levels, then the levels `ModManager::extraLevels()` reports, marked "(custom)"), Game Type (Versus scope: Deathmatch or Team Deathmatch from the team count, fixed; Co-op scope: Co-op, v6, greys the limits and teams and hosts a `MatchMode::Coop` match; the Multiplayer menu itself offers no Co-op), Maximum Number of Players 2..12, Kills Limit (No Limit, 5 .. 200), Time Limit (No Limit, 5 .. 45 minutes, 60), Number of Teams (No Teams, 2; 3 and 4 shown "(coming)" and not startable: the server has two teams), Friendly Fire? and Register With Master Servers? (greyed placeholders), Begin Game, Back. OotF takes the mode from the level type; here Game Type = Co-op means co-op, else teams >= 2 means team deathmatch, otherwise deathmatch (Dragon's Duel / Master of the Dragon are not implemented). |
+| Host Game | Server Name, Password (blank = open), Level Group (disc, custom or an installed Order of the Flame group), Starting Level, Game Type, Maximum Number of Players 2..12, Kills Limit (No Limit, 5 .. 200), Time Limit (No Limit, 5 .. 45 minutes, 60), Number of Teams (No Teams, 2; 3 and 4 shown "(coming)"), Friendly Fire? and Register With Master Servers? (greyed placeholders), Begin Game, Back. Versus chooses Deathmatch or Team Deathmatch from the team count. The imported Order of the Flame arenas also apply their own map rules. Co-op hosts a `MatchMode::Coop` match and disables the combat limits and team choices. |
 | Join Game | the server table Server Name / Current Level / Players / Ping sorted by ping (blue = LAN, white "+" = Add Server entry, green = selected, "[password]" marker), Refresh, Add Server (address entry; OK keeps it for this session), Server Info (IP, level, players, mode, password card), Password, Connect; a list row also joins. No Stop / Remove / master server / version-colour rows yet. |
 | Lobby | server / mode / map / limits, the roster (ready flags, team names Fire / Water, `[host]`, character names), Character (every mode, hosts and joiners), Ready, Start Match (host), Leave; a Loading card while the match starts. Team select (four teams) is not shown: the server assigns teams. |
 | In game | see "Match flow and HUD": **F4** held = scoreboard (Player / Kills / Deaths / Ping / Time), kill feed, death overlay with the respawn countdown, limits chip with the time left, **F6** = chat, results banner with the final standings, then the lobby page again after Quit to Title. OotF binds the scoreboard to Tab; here Tab is the inventory, hence F4. |
@@ -1085,9 +1085,9 @@ pack's `maps/<level>.ini`:
   resources `0x31f30` great sword, `0x3372a` iron club, `0x3372b` club in turn; the axe `0x33734` is **not** spawnable as a pickup:
   `never registered`, disabled). Verified with two instances on Relic: both `armed: right hand holds actor ... (class 1000e)`, the
   server accepted a claim, B removed its copy, both copies came back, the match ran to the frag limit.
-* **Air arenas start mounted.** The converter (formats `ensureSingletons`, paths `Multiplayer/Air/*`) adds a **Dragon object with
-  `Initial Mode` 0** (the value of Ravenshold's Dragon; the template's parked Arokh has 1) at Rynn's start: Rynn then starts on Arokh
-  and the dragon pads' spawns are flyable positions instead of a void (Arena of Death: screenshot `build/harness/mp4-aod/a/extra_8000.png`,
+* **Mounted starts on air arenas without a Dragon object.** The converter (formats `ensureSingletons`, paths `Multiplayer/Air/*`)
+  adds a **Dragon object with `Initial Mode` 0** (the value of Ravenshold's Dragon) at Rynn's start when the converted level has no
+  Dragon object. Rynn then starts on Arokh (Arena of Death: screenshot `build/harness/mp4-aod/a/extra_8000.png`,
   a mounted Rynn over the canyon floor). While mounted the controlled actor is Arokh, whose data object has no inventory: the
   arena skips the loadout and the auto-equip then (`controlledIsDragon`; before, the stow called through a null listener and
   both instances crashed with `missing-target`). **Dragon-vs-dragon play** (`drakan_pvp.cpp` `scanBreath`): the engine's
@@ -1104,6 +1104,57 @@ pack's `maps/<level>.ini`:
   The dragon pads and the Soul Crystal stay as `marker` lines (authored, not read by the game).
 
 Not done: team spawn sets, the USA disc (see `docs/reference/regions.md` "Multiplayer arenas on USA").
+
+### Order of the Flame multiplayer audit (2026-11-21, before the importer changes)
+
+All ten retail arenas ship in the converted pack. The port registers all ten for Deathmatch and Team Deathmatch. The original
+groups them as four Air Only, three Ground Only and three Master of the Dragon maps. The host menu groups the port's maps by
+origin (built-in or custom). The three Master of the Dragon maps ship the Soul Crystal and red dragon pad as markers, with no
+arena rules for claiming, transferring or releasing the dragon. Standard Team Deathmatch supports two teams and keeps friendly
+fire disabled. The retail host offers two to four teams and a friendly-fire option.
+
+The importer exports generic 30-second weapon pickups at the Weapon Pads. The converted level can still contain original item
+placements, including classes retargeted to PS2 potion objects. These placements do not enter the arena's authoritative pickup
+table. On the installed build, Relic spawned the club-and-axe loadout and the generic weapon rotation. The loose-item sweep removed
+one of the replacement swords before pickup binding, and the arena disabled that slot.
+
+The importer prefers Rynn pads over dragon pads, uses the highest floor at each pad's horizontal position, sets every heading to
+zero and collapses records that share a horizontal position. Grotto of Death and Nemesis therefore export Rynn's pads. A controlled
+arena run confirmed that Grotto of Death starts Rynn on foot. The [retail-to-port audit](../journal/2026-11-21/ootf-multiplayer-parity.md)
+lists all ten maps and the observed terrain, item and rule differences.
+
+### Imported Order of the Flame multiplayer rules
+
+Newly converted packs write `ootf_rules` (`air`, `ground` or `qod`), the order from the input installation's level lists,
+and original launch-pad coordinates and headings. Air matches use dragon pads and the early level filter retains the player
+dragon. Ground Only uses the Rynn pads. Master of the Dragon retains one dragon and uses the Soul Crystal as a server-owned
+pickup. The server assigns ownership to its collector, transfers ownership to the killer at the dragon's last reported
+mounted position, and makes the crystal available when the owner leaves or reports an environmental death. The host's
+Level Group selects the imported rotation.
+
+The `rewards=` field carries the original weighted list. The server chooses the reward and tracks respawn from the original
+instance or class defaults. For converted arenas, `visual=` identifies a separate scenery resource made from the installed
+retail model. Both clients hide it on a claim and show it again at respawn. This keeps the display available even for items
+whose native inventory instance cannot register in the world. Compatible maps that lack `visual=` still use native pickup
+actors or the proximity fallback.
+
+QuickSpeed increases the collecting player's ground movement. Invisibility and invulnerability activate through the native
+potion handler on the collector. The server holds the timers, prevents PvP damage during invulnerability, and sends
+invisibility with the player's pose. Hill of Fire's Fire Summon
+uses the converted expanding ring, with its original life, expansion speed, damage and respawn. Each client spawns the ring
+at the cast position while the server applies damage to other players the ring reaches.
+
+Before the Soul Crystal is collected, the server drives the dragon from the red launch pad and selects a nearby visible
+player to pursue and attack. The converter reads the authored launch heading, flight and climb speeds, health, poison
+breath damage, reload and energy values, including the arena recharge multiplier. Clients display the same dragon position
+and spawn its converted poison projectile. The server implements pursuit and targeting for the port.
+
+The bound dragon and rider take damage separately. Killing either transfers the dragon at its last position and restores
+its health. The bound dragon's health cannot be restored by pickups. Use the same converted pack and protocol version 13
+on both peers.
+
+The [parity verification](../journal/2026-11-22/ootf-parity-verification.md) records the map audit and the two-client
+checks for pickups, QuickSpeed, hostile breath and the dragon handoff.
 
 ## Inquisitor movement follow-up
 

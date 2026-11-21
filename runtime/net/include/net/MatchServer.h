@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -67,6 +68,7 @@ struct ServerOptions {
     // The maps "Next map" on the results screen walks through (the arena after the current one that the mode fits,
     // wrapping around); empty = the same map again. The game fills it from its multiplayer map list.
     std::vector<ArenaDef> rotation;
+    bool autoRotateArena = false;
 };
 
 struct ServerPlayer {
@@ -92,6 +94,7 @@ struct ServerPlayer {
     float lastRejectPos[3] = {0, 0, 0};
     uint64_t respawnAtMs = 0;
     uint64_t protectedUntilMs = 0;
+    std::array<uint64_t, 3> powerUntilMs{};
     uint64_t lastHitAtMs = 0;
     bool hasHit = false;
     int lastSpawn = -1; // arena: index of the spawn point of the previous life
@@ -184,6 +187,8 @@ private:
     void onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& data);
     void onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data);
+    void applyArenaDamage(ServerPlayer& victim, ServerPlayer* attacker, uint8_t weapon, uint16_t damage,
+                          bool dragon = false);
     void onChat(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onReady(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onCoopCreatures(ServerPlayer& p, const std::vector<uint8_t>& data);
@@ -213,6 +218,9 @@ private:
     void sendStatus();
     void beginLoading();
     void resetPickups();
+    void tickArenaHazards();
+    PickupState pickupState(size_t index) const;
+    void setDragonOwner(PlayerId player);
     int chooseSpawn(const ServerPlayer& p) const;
     void assignCoopAuthority();
     void sendExcept(PlayerId except, const std::vector<uint8_t>& bytes, Channel ch);
@@ -262,6 +270,24 @@ private:
     bool livesArmed_ = false;
     std::vector<uint64_t> pickupBackAtMs_; // arena pickups: 0 = available, else the time it returns
     std::vector<PlayerId> pickupTakenBy_;
+    std::vector<uint8_t> pickupRewards_;
+    std::mt19937 pickupRandom_;
+    size_t soulCrystal_ = kAllPickups;
+    PlayerId dragonOwner_ = kNoPlayer;
+    std::optional<std::array<float, 3>> dragonPosition_;
+    std::optional<NeutralDragonState> neutralDragon_;
+    uint64_t nextHazardTick_ = 0, nextNeutralBreath_ = 0;
+    float neutralEnergy_ = 0;
+    struct FireRing {
+        std::array<float, 3> center;
+        PlayerId owner;
+        ArenaReward reward;
+        uint64_t startMs;
+        float lastRadius = 0;
+        std::array<bool, kMaxPlayers + 1> hit{};
+    };
+    std::vector<FireRing> fireRings_;
+    int32_t dragonHealth_ = 100;
     PlayerId coopAuthority_ = kNoPlayer;
     uint32_t joinCounter_ = 0;
     std::unordered_map<PeerId, Peer> peers_;

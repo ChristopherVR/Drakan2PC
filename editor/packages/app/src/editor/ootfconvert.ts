@@ -174,7 +174,7 @@ export async function runConversion(
             unmappedClasses: R.unmappedClasses.size,
             keptOut: [...(R.omittedClasses?.values() ?? [])].reduce((n, o) => n + o.objects, 0),
         });
-        const arena = ootfArenaFromPc(pc, level.title) ?? undefined;
+        const arena = ootfArenaFromPc(pc, level.title, level) ?? undefined;
         inputs.push({
             title: level.title,
             parts: level.parts,
@@ -211,7 +211,8 @@ export async function runConversion(
         splats,
         extraFiles: { ...result.files, ...credits?.files },
     });
-    if (credits && !credits.files['credits/credits.txt']) pack.warnings.push('Dragon.rrc has no Order of the Flame credits');
+    if (credits && !credits.files['credits/credits.txt'])
+        pack.warnings.push('Dragon.rrc has no Order of the Flame credits');
     if (start && req.cover?.length) {
         pack.files['previews/campaign-ootf.png'] = req.cover;
         pack.files['previews/background-ootf.png'] = req.cover;

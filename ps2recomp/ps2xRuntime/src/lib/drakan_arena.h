@@ -15,6 +15,7 @@
 #include "net/ArenaMaps.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,10 @@ class PS2Runtime;
 namespace drakan_input {
 class IGuest;
 }
+namespace drakan::net {
+struct PickupState;
+struct NeutralDragonState;
+} // namespace drakan::net
 
 namespace drakan_arena {
 
@@ -33,6 +38,8 @@ struct MapEntry {
     std::string description;
     std::string source; // "built-in", a file, "mod <id>"
     std::string game;   // "Drakan 1" / "Drakan 2" (menu tag), empty = untagged
+    drakan::net::OotfArenaRules ootfRules = drakan::net::OotfArenaRules::None;
+    std::vector<uint32_t> preloadItems;
     bool deathmatch = true, teamDeathmatch = true;
     int maxPlayers = 8;
     int spawns = 0, pickups = 0;
@@ -80,8 +87,13 @@ bool floorHint(float& y);
 void setLocalPlayer(uint8_t id);
 
 // ---- pickups (drakan_netplay forwards; any thread) ----
-void onPickupState(uint16_t index, bool taken, uint8_t player); // net::PickupState
+void onPickupState(const drakan::net::PickupState& state);
+void setNeutralDragon(const std::optional<drakan::net::NeutralDragonState>& state);
+bool hidesWorldActor(uint32_t handle);
+uint32_t ownedDragon();                                         // EE thread
+std::optional<uint8_t> dragonOwner();                           // EE thread, set only during Master of the Dragon
 bool takePickupClaim(uint16_t& index);                          // net::PickupClaim to send; false when none
+void releaseDragonOnWorldDeath();                               // EE thread, before the local respawn
 
 // ---- the PvP glue (drakan_pvp) ----
 // EE thread. Move the controlled actor to spawn point `index` (the server's Respawn.spawnIndex); false when the map has

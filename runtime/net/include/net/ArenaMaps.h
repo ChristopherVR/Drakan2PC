@@ -25,6 +25,8 @@
 
 namespace drakan::net {
 
+enum class OotfArenaRules : uint8_t { None, Air, Ground, MasterOfTheDragon };
+
 struct ArenaSpawn {
     float pos[3] = {0, 0, 0};
     float yawDeg = 0;
@@ -42,11 +44,43 @@ struct ArenaMarker {
     std::string label;
 };
 
+struct ArenaReward {
+    enum class Kind : uint8_t {
+        Item,
+        Health,
+        DragonHealth,
+        DragonProtection,
+        SoulCrystal,
+        Speed,
+        Invisibility,
+        Invulnerability,
+        FireRing
+    };
+    Kind kind = Kind::Item;
+    uint32_t value = 0; // item resource id, health points, or duration in seconds, as determined by kind
+    uint32_t durationMs = 0;
+    float speed = 0;
+    uint32_t damage = 0;
+
+    bool potion() const { return kind == Kind::Speed || kind == Kind::Invisibility || kind == Kind::Invulnerability; }
+};
+
 struct ArenaPickup {
     float pos[3] = {0, 0, 0};
     uint32_t respawnSec = 30;
     uint32_t resId = 0; // 0 = adopt the level's loose item nearest to pos
     std::string label;
+    std::vector<ArenaReward> rewards; // the retail item's weighted list; empty for a native/mod-authored pickup
+    uint32_t visual = 0;              // separate non-interactive world model for imported retail pickups
+};
+
+struct OotfDragonTuning {
+    float yaw = 0;
+    uint32_t health = 0;
+    float flySpeed = 4500, climbSpeed = 4000;
+    uint32_t damage = 15, reloadMs = 1700;
+    float energy = 100, energyCost = 0, energyRecharge = 0;
+    uint32_t projectile = 0;
 };
 
 struct ArenaDef {
@@ -56,6 +90,9 @@ struct ArenaDef {
     std::string description;
     std::string source; // "built-in", a file path or "mod <id>"
     std::string game;   // "Drakan 1" (Order of the Flame) / "Drakan 2" (the disc): the menu tag; empty = untagged
+    OotfArenaRules ootfRules = OotfArenaRules::None;
+    uint32_t ootfOrder = UINT32_MAX;
+    OotfDragonTuning ootfDragon;
     bool deathmatch = true;
     bool teamDeathmatch = true;
     uint8_t maxPlayers = 8;

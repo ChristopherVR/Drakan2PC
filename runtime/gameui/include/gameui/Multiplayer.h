@@ -50,6 +50,7 @@ struct LevelEntry {
     bool arena = false;     // a multiplayer map (not a campaign level)
     std::string game;       // which game the map belongs to ("Drakan 1" / "Drakan 2"), empty = not shown
     std::vector<std::string> modeIds; // custom game modes (ModeEntry::id) the map can play (the glue checks them)
+    std::string ootfGroup;            // the retail arena's rules and level group, when supplied by the map pack
     bool supports(GameMode m) const { return modes == 0 || (modes & (1u << static_cast<unsigned>(m))) != 0; }
 };
 // The disc's levels (the playable ones; cut scene levels are not matches), in campaign order.

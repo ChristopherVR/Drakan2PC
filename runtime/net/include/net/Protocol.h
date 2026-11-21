@@ -1,15 +1,20 @@
 #pragma once
 // Protocol v3: versioned binary messages, explicit little-endian serialisation, bounds-checked reader.
 // See docs/reference/netcode.md. Std-only.
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace drakan::net {
 
-constexpr uint16_t kProtocolVersion = 10; // v10: PlayerState.placing (flags bit 1);
+constexpr uint16_t kProtocolVersion = 13; // v13: rider and dragon hit targets;
+                                          // v12: timed arena effects and neutral dragon snapshots;
+                                          // v11: PickupState item choice and handoff/cast position;
+                                          // v10: PlayerState.placing (flags bit 1);
                                           // v9: PlayerState.tick is the sender's pose time in ms (was a frame count);
                                           // v8: PlayerState.pitch / roll / clipHi (a mounted partner's dragon);
                                           // v7: PlayerState.character (co-op stand-in character, 0 = Rynn);
@@ -212,6 +217,7 @@ struct PlayerState {
     uint32_t weaponLeft = 0;          // same for the left hand (bow)
     bool mounted = false;             // riding the dragon
     bool placing = false;             // v10: not yet at the assigned arena spawn: receivers hide the body
+    uint8_t arenaPower = 0;           // server-owned arena effects: bit 0 speed, 1 invisibility, 2 invulnerability
     // FNV-1a of the sender's loaded level name; 0 while it is loading or unknown. A receiver shows a ghost only when
     // this equals its own level's hash (clients run their own world, the server never sees level data).
     uint32_t levelHash = 0;
@@ -232,10 +238,18 @@ struct PlayerState {
 constexpr size_t kPlayerStateWireSize = 1 + 4 + 4 + 12 + 4 + 12 + 2 + 4 + 2 + 4 + 4 + 4 + 4 + 1 + 4 + 2 + 2 + 2 + 2;
 
 // Server to clients, unreliable, every snapshot interval: all live players with a known state.
+struct NeutralDragonState {
+    std::array<float, 3> pos{};
+    float yaw = 0;
+    bool flying = false;
+    uint16_t breath = 0;
+};
+
 struct Snapshot {
     static constexpr MsgType kType = MsgType::Snapshot;
     uint32_t serverTimeMs = 0;
     std::vector<PlayerState> players; // at most kMaxPlayers
+    std::optional<NeutralDragonState> neutralDragon;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -248,6 +262,7 @@ struct Hit {
     uint8_t weapon = 0;
     uint16_t damage = 0;
     uint16_t healthAfter = 0;
+    bool dragon = false;
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };
@@ -446,6 +461,7 @@ struct LevelChange {
 // Server: validates the claim (Playing, player alive and near it when its position is known, not already taken),
 // marks the pickup taken for its respawn time and tells everybody; when the time is up it sends "available" again.
 constexpr uint16_t kAllPickups = 0xffff;
+constexpr uint16_t kReleaseDragon = 0xfffe; // the owner died to the environment and releases the Soul Crystal
 struct PickupClaim {
     static constexpr MsgType kType = MsgType::PickupClaim;
     uint16_t index = 0;
@@ -457,6 +473,8 @@ struct PickupState {
     uint16_t index = 0;          // kAllPickups with taken == 0: every pickup is available (a new round)
     bool taken = false;          // true: gone for its respawn time, false: available again
     PlayerId player = kNoPlayer; // who took it (taken only; 0 when the server cannot say)
+    uint8_t reward = 0;          // chosen entry in ArenaPickup::rewards
+    std::optional<std::array<float, 3>> effectPosition; // Soul Crystal handoff or Fire Summon origin
     void write(ByteWriter& w) const;
     bool read(ByteReader& r);
 };

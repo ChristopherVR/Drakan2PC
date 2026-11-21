@@ -165,8 +165,9 @@ int main() {
         s.index = 3;
         s.taken = true;
         s.player = 2;
+        s.reward = 9;
         PickupState s2;
-        CHECK(decode(encode(s), s2) && s2.index == 3 && s2.taken && s2.player == 2);
+        CHECK(decode(encode(s), s2) && s2.index == 3 && s2.taken && s2.player == 2 && s2.reward == 9);
         s.index = kAllPickups;
         CHECK(!decode(encode(s), s2)); // "everything is taken" is not a message
         s.taken = false;
@@ -180,6 +181,89 @@ int main() {
     }
 
     // ---- the server: spawn choice and pickups ----
+    {
+        ArenaCatalog cat;
+        CHECK(cat.add("[arena mixed]\nname = Mixed\nlevel = Test\nootf_rules = qod\nootf_order = 7\n"
+                      "ootf_dragon = 180 300 4500 4000 40 500 100 10 2.5 0x38000\n"
+                      "spawn = 1000 50.125 1000 0\nspawn = 1100 50 1000 270\n"
+                      "pickup = 1000 0 1000 1 rewards=soul_crystal\n"
+                      "pickup = 1100 0 1000 5 rewards=health:25\n",
+                      "test") == 1);
+        const ArenaDef* arena = cat.find("mixed");
+        CHECK(arena && arena->ootfRules == OotfArenaRules::MasterOfTheDragon && arena->ootfOrder == 7);
+        CHECK(arena->ootfDragon.health == 300 && arena->ootfDragon.energyRecharge == 2.5f);
+        auto opts = arenaOptions(*arena);
+        opts.damageScale = 50.0;
+        Rig rig(opts);
+        MatchClient& a = rig.addClient("A", 0xABCD);
+        MatchClient& b = rig.addClient("B", 0xABCD);
+        rig.run(100);
+        CHECK(rig.server->startMatch(rig.now));
+        rig.run(50);
+        a.sendLoadDone();
+        b.sendLoadDone();
+        rig.run(100);
+        a.sendState(at(1000, 1000));
+        b.sendState(at(1100, 1000));
+        rig.run(50);
+        collect(a);
+        collect(b);
+
+        const auto sawPickup = [](const std::vector<ClientEvent>& events, uint16_t index, PlayerId player, bool taken) {
+            for (const auto& e : events)
+                if (const auto* p = std::get_if<PickupState>(&e);
+                    p && p->index == index && p->player == player && p->taken == taken)
+                    return true;
+            return false;
+        };
+        a.sendPickupClaim(0);
+        rig.run(50);
+        CHECK(sawPickup(collect(b), 0, a.playerId(), true));
+        collect(a);
+        b.sendPickupClaim(0);
+        b.sendPickupClaim(kReleaseDragon);
+        rig.run(50);
+        CHECK(count<PickupState>(collect(a)) == 0);
+        a.sendHit(b.playerId(), kHitMeleeRight, 1);
+        rig.run(50);
+        CHECK(rig.server->player(b.playerId())->health == 50);
+        PlayerState mounted = at(1000, 1000);
+        mounted.mounted = true;
+        a.sendState(mounted);
+        rig.run(50);
+        b.sendHit(a.playerId(), kHitProjectile, 3, true);
+        rig.run(50);
+        const auto dragonHit = collect(a);
+        CHECK(rig.server->player(a.playerId())->health == 100);
+        CHECK(std::any_of(dragonHit.begin(), dragonHit.end(), [](const ClientEvent& e) {
+            const auto* hit = std::get_if<Hit>(&e);
+            return hit && hit->dragon && hit->healthAfter == 50;
+        }));
+        a.sendState(at(1800, 1800)); // the owned dragon can be killed after the rider dismounts
+        rig.run(50);
+        b.sendHit(a.playerId(), kHitProjectile, 4, true);
+        rig.run(50);
+        const auto handoff = collect(a);
+        CHECK(sawPickup(handoff, 0, b.playerId(), true));
+        bool positioned = false;
+        for (const auto& e : handoff)
+            if (const auto* p = std::get_if<PickupState>(&e); p && p->index == 0 && p->effectPosition)
+                positioned = *p->effectPosition == std::array<float, 3>{mounted.pos[0], mounted.pos[1], mounted.pos[2]};
+        CHECK(positioned);
+        collect(b);
+        b.sendPickupClaim(kReleaseDragon);
+        rig.run(50);
+        CHECK(sawPickup(collect(b), 0, kNoPlayer, false));
+
+        b.sendPickupClaim(1);
+        rig.run(50);
+        CHECK(sawPickup(collect(a), 1, b.playerId(), true));
+        CHECK(rig.server->player(b.playerId())->health == 75);
+        rig.run(4700);
+        CHECK(!sawPickup(collect(a), 1, kNoPlayer, false));
+        rig.run(500);
+        CHECK(sawPickup(collect(a), 1, kNoPlayer, false));
+    }
     {
         ArenaCatalog cat;
         cat.add(kMini, "t");

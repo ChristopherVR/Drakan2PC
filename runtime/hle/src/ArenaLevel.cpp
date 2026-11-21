@@ -110,7 +110,7 @@ struct Object {
     bool keep = false;
 };
 Bytes filterObjects(const Bytes& bytes, const std::map<u16, std::map<u16, u32>>& classes, const std::set<u16>& npcBanks,
-                    size_t& removed) {
+                    size_t& removed, bool keepPlayerDragon, std::span<const uint32_t> preloadItems) {
     Reader r{bytes};
     const u16 count = r.word();
     std::vector<Object> objects;
@@ -124,7 +124,11 @@ Bytes filterObjects(const Bytes& bytes, const std::map<u16, std::map<u16, u32>>&
         const u32 runtimeClass = db != classes.end() && cls != db->second.end() ? cls->second : 0;
         if (!runtimeClass)
             throw std::runtime_error("unresolved placed actor class");
-        object.keep = arenaEnvironmentClass(runtimeClass) && !npcBanks.contains(object.db);
+        const uint32_t resource = (uint32_t(object.db) << 16) | object.cls;
+        const bool preload = std::find(preloadItems.begin(), preloadItems.end(), resource) != preloadItems.end();
+        object.keep =
+            (arenaEnvironmentClass(runtimeClass) || (keepPlayerDragon && runtimeClass == 0x1001c) || preload) &&
+            !npcBanks.contains(object.db);
         player |= runtimeClass == 0x10009;
         camera |= runtimeClass == 0x1001b;
         if (object.keep)
@@ -208,7 +212,8 @@ bool arenaEnvironmentClass(uint32_t cls) {
     }
 }
 
-bool filterArenaLevel(const IsoFs& fs, IsoFs::Node& level, std::string& error) {
+bool filterArenaLevel(const IsoFs& fs, IsoFs::Node& level, std::string& error, bool keepPlayerDragon,
+                      std::span<const uint32_t> preloadItems) {
     try {
         const Bytes original = fs.readAll(level);
         auto records = entries(original);
@@ -245,7 +250,7 @@ bool filterArenaLevel(const IsoFs& fs, IsoFs::Node& level, std::string& error) {
         size_t removed = 0, streams = 0;
         for (Entry& e : records)
             if (e.type == 0x20) {
-                e.bytes = filterObjects(e.bytes, classes, npcBanks, removed);
+                e.bytes = filterObjects(e.bytes, classes, npcBanks, removed, keepPlayerDragon, preloadItems);
                 ++streams;
             }
         if (!streams)

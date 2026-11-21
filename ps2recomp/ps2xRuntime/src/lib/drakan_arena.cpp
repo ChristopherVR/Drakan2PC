@@ -9,6 +9,7 @@
 #include "drakan_arena_placement.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
+#include "drakan_netplay.h"
 #include "drakan_region.h"
 #include "input/GuestInterface.h"
 #include "net/Protocol.h"
@@ -34,6 +35,8 @@
 #include <future>
 #include <mutex>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -48,6 +51,7 @@ using drakan::net::ArenaPickup;
 using drakan_region::guestAddress;
 
 constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kKillActor = 0x1413c0u;
+constexpr uint32_t kMoveActor = 0x17ea70u, kRootMotionReturn = 0x11a32cu, kRootBlendReturn = 0x11a424u;
 // Inventory (docs/reference/world-model.md "Inventory", combat-controls.md): the controller is player+0x584 with 24
 // cells of 16 bytes at +0x30 {equipped, hot, handle, icon}; kStow(player, item) hides the item model and files it in a
 // free cell (what putting a weapon away does); kEquipPost(ctl, cell, slot, flags) posts the engine message 0x1045 the
@@ -189,12 +193,7 @@ bool g_hasDef = false;
 std::atomic<uint8_t> g_local{0};
 std::atomic<uint32_t> g_sessionSerial{0}; // changes with every setSession(true, ...)
 
-struct PickupEvent {
-    uint16_t index;
-    bool taken;
-    uint8_t player;
-};
-std::deque<PickupEvent> g_pickupEvents; // g_sessM
+std::deque<drakan::net::PickupState> g_pickupEvents; // g_sessM
 std::deque<uint16_t> g_claims;          // g_sessM
 
 // ---------------------------------------------------------------------------------------------------- EE thread
@@ -204,7 +203,7 @@ world::ReaderState g_rs;
 world::Snapshot g_snap;
 bool g_worldOk = false;
 
-enum class PState { Unbound, Present, Gone, Spawning };
+enum class PState { Unbound, Present, Gone, Spawning, Touch };
 struct Pick {
     ArenaPickup def;
     PState state = PState::Unbound;
@@ -217,22 +216,68 @@ struct Pick {
     unsigned boundTick = 0;    // boundary it became present
     uint32_t spawnHandle = 0;  // the handle the factory returned for the spawn in flight (0 = none / refused)
     world::SpatialRegistrationRetry spatialRegistration;
+    uint8_t rewardIndex = 0xff; // waits for the server before spawning a retail pickup
+    unsigned nextClaimTick = 0;
+    uint32_t display = 0;
+
+    const drakan::net::ArenaReward* reward() const {
+        return rewardIndex < def.rewards.size() ? &def.rewards[rewardIndex] : nullptr;
+    }
+    uint32_t resource() const {
+        const auto* r = reward();
+        return r && r->kind == drakan::net::ArenaReward::Kind::Item ? r->value : def.resId;
+    }
+
+    bool originalItemAtPad(const world::EntitySnapshot& e) const {
+        return std::abs(e.position.x - def.pos[0]) < 100.0f && std::abs(e.position.y - def.pos[1]) < 700.0f &&
+               std::abs(e.position.z - def.pos[2]) < 100.0f &&
+               std::any_of(
+                   def.rewards.begin(), def.rewards.end(),
+                   [&](const auto& reward) {
+                       return reward.kind == drakan::net::ArenaReward::Kind::Item && reward.value == e.resourceId;
+                   });
+    }
 };
 std::vector<Pick> g_picks;
+uint8_t g_soulOwner = 0;
+bool g_ootfLevel = false;
+struct ArenaDragon {
+    uint32_t handle = 0, ref = 0;
+    uint8_t appliedOwner = 0;
+    unsigned retryAt = 0;
+    float start[3] = {};
+    std::optional<std::array<float, 3>> handoff;
+} g_arenaDragon;
+std::unordered_set<uint32_t> g_hiddenArenaActors; // EE thread, consumed by the native draw hook
+struct DisplayTrace {
+    size_t pickup;
+    bool drawn = false;
+};
+std::unordered_map<uint32_t, DisplayTrace> g_displayTrace;
+std::optional<drakan::net::NeutralDragonState> g_neutralDragon; // protected by g_sessM
+uint16_t g_neutralBreath = 0;
+std::chrono::steady_clock::time_point g_quickSpeedUntil{};
+PS2Runtime::RecompiledFunction g_origMoveActor = nullptr;
+uint32_t g_moveActor = 0, g_rootMotionReturn = 0, g_rootBlendReturn = 0;
 
 struct SpawnReq {
     uint32_t resIndex = 0;
     float pos[3] = {0, 0, 0};
     int pickup = -1; // pickup index, -1 for a loadout item, kEffectSpawn for a short-lived effect (the dragon's breath)
     float rot[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    uint32_t owner = 0;
+    unsigned life = 40;
 };
 constexpr int kEffectSpawn = -2;
+constexpr int kPotionSpawn = -3;
+constexpr int kFireRingSpawn = -4;
 struct LiveEffect {
     uint32_t handle = 0;
     unsigned dieTick = 0;
+    uint32_t resIndex = 0;
 };
 std::deque<LiveEffect> g_effects; // effect actors the factory made, killed when their life is over
-unsigned g_effectLife = 40;       // ticks an effect actor lives
+unsigned g_effectLife = 40;       // ticks for the in-flight actor, 0 when it expires natively
 std::deque<SpawnReq> g_spawnQueue;
 bool g_spawnInFlight = false;
 unsigned g_spawnPostedTick = 0;
@@ -310,6 +355,48 @@ uint32_t dataOf(const uint8_t* rdram, uint32_t h) {
     return ramPtr(p) ? rd32(rdram, p + 0x10) : 0;
 }
 
+uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle);
+
+void moveActorWithQuickSpeed(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
+    const uint32_t caller = getRegU32(ctx, 31);
+    if (ctx->pc == g_moveActor && (caller == g_rootMotionReturn || caller == g_rootBlendReturn) &&
+        getRegU32(ctx, 6) == 0 && g_active.load() && std::chrono::steady_clock::now() < g_quickSpeedUntil) {
+        const uint32_t actor = controlledActor(rdram);
+        const uint32_t data = dataOf(rdram, actor);
+        const uint32_t delta = getRegU32(ctx, 5);
+        if (ramPtr(data) && itemClassOf(rdram, actor) == world::kClassRynn && ramPtr(delta) &&
+            getRegU32(ctx, 4) == rd32(rdram, data + 0x80)) {
+            constexpr float scale = 2.0f;
+            for (const uint32_t offset : {0u, 8u}) {
+                const float boosted = scale * rdf(rdram, delta + offset);
+                std::memcpy(rdram + ((delta + offset) & PS2_RAM_MASK), &boosted, sizeof boosted);
+            }
+        }
+    }
+    g_origMoveActor(rdram, ctx, runtime);
+}
+
+// Rynn keeps her inventory while the engine is controlling her dragon.
+uint32_t inventoryRider(const uint8_t* rdram) {
+    const uint32_t actor = controlledActor(rdram);
+    const uint32_t actorClass = itemClassOf(rdram, actor);
+    if (actorClass == world::kClassRynn)
+        return actor;
+    if (actorClass != kClassDragon)
+        return 0;
+    const uint32_t data = dataOf(rdram, actor);
+    const uint32_t ref = ramPtr(data) ? rd32(rdram, data + 0x4d8) & 0xffffu : 0;
+    const uint32_t ctx = engineCtx(rdram);
+    const uint32_t table = rd32(rdram, ctx + world::ctx::kRegistryTable);
+    if (!ref || ref > rd32(rdram, ctx + world::ctx::kRegistryCapacity) || !ramPtr(table))
+        return 0;
+    const uint32_t rider = rd32(rdram, table + (ref - 1) * 8u);
+    return world::isLiveHandle(RdramMemory(rdram), g_globals, rider, ref - 1) &&
+                   itemClassOf(rdram, rider) == world::kClassRynn
+               ? rider
+               : 0;
+}
+
 bool isStoryClass(uint32_t cls) {
     for (const StoryClass& s : kStoryClasses)
         if (s.id == cls)
@@ -349,7 +436,7 @@ uint32_t findResourceIndex(const uint8_t* rdram, uint32_t resId) {
 // returning to stage 2, which restores the stack and returns to where the post began.
 struct ItemFlight {
     float xform[12] = {};
-    uint32_t idx = 0, savedSp = 0, savedRa = 0;
+    uint32_t idx = 0, owner = 0, savedSp = 0, savedRa = 0;
 } g_item;
 uint32_t g_itemSlot1 = 0, g_itemSlot2 = 0;
 constexpr uint32_t kItemFrame = 0x60;
@@ -363,12 +450,12 @@ void itemStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     std::memcpy(rdram + (xf & PS2_RAM_MASK), g_item.xform, sizeof g_item.xform);
     SET_GPR_U32(c, 29, sp);
     SET_GPR_U32(c, 4, rd32(rdram, g_globals.contextPtr));
-    SET_GPR_U32(c, 5, 0u);
+    SET_GPR_U32(c, 31, g_itemSlot2);
+    SET_GPR_U32(c, 5, g_item.owner);
     SET_GPR_U32(c, 6, xf);
     SET_GPR_U32(c, 7, 0u);
     SET_GPR_U32(c, 8, 0u);
     SET_GPR_U32(c, 9, g_item.idx);
-    SET_GPR_U32(c, 31, g_itemSlot2);
     c->pc = guestAddress(kFactory);
 }
 
@@ -396,10 +483,22 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
         // inventory (stowed: hidden and filed in a free cell); a pickup remembers the handle for binding.
         const uint32_t handle = g_itemResult.load();
         g_spawnInFlight = false;
-        const uint32_t player = dataOf(rdram, controlledActor(rdram));
-        if (g_inflightPickup == kEffectSpawn) {
+        const uint32_t player = dataOf(rdram, inventoryRider(rdram));
+        if (g_inflightPickup == kEffectSpawn || g_inflightPickup == kFireRingSpawn) {
+            if (handle && g_effectLife)
+                g_effects.push_back({handle, g_ticks + g_effectLife, g_item.idx});
+            if (handle && g_inflightPickup == kFireRingSpawn)
+                arenaLog("Fire Summon: native ring actor %x", handle);
+        } else if (g_inflightPickup == kPotionSpawn) {
+            const uint32_t potion = dataOf(rdram, handle);
+            const uint32_t rider = inventoryRider(rdram);
+            // Native magic potion application reads the effect type and duration from the item.
+            if (ramPtr(potion) && rider && itemClassOf(rdram, handle) == 0x10059u) {
+                g_calls.push_back(drakan_input::GuestCall(guestAddress(0x3df550u)).arg(potion).arg(rider));
+                arenaLog("pickup: applying native potion resource index %u", g_item.idx);
+            }
             if (handle)
-                g_effects.push_back({handle, g_ticks + g_effectLife});
+                g_effects.push_back({handle, g_ticks + 40, g_item.idx});
         } else if (g_inflightPickup < 0) {
             arenaLog("loadout: the factory returned actor %x (vtable %x flags %x type %u ref %x)", handle,
                      ramPtr(handle) ? rd32(rdram, handle) : 0u, ramPtr(handle) ? rd32(rdram, handle + 4) : 0u,
@@ -423,7 +522,7 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
     if (!g_pendingStow.empty() && g_ticks >= g_pendingStow.front().since + 10) {
         const PendingStow ps = g_pendingStow.front();
-        const uint32_t player = dataOf(rdram, controlledActor(rdram));
+        const uint32_t player = dataOf(rdram, inventoryRider(rdram));
         bool live = false;
         if (snapshot(rdram))
             for (const auto& e : g_snap.entities)
@@ -485,6 +584,8 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
                              r.rot[3], r.rot[4], r.rot[5], r.rot[6], r.rot[7], r.rot[8]};
     std::memcpy(g_item.xform, xform, sizeof xform);
     g_item.idx = r.resIndex;
+    g_item.owner = r.owner;
+    g_effectLife = r.life;
     g_inflightPickup = r.pickup;
     g_inflightSerial = g_itemResultSerial.load();
     guest.post(drakan_input::GuestCall(g_itemSlot1));
@@ -534,6 +635,15 @@ void bindPickups(drakan_input::IGuest&, const uint8_t* rdram) {
         Pick& p = g_picks[i];
         p.state = PState::Unbound;
         p.handle = p.ref = 0;
+        if (!p.def.rewards.empty()) {
+            if (std::getenv("DRAKAN_ARENA_FORCE")) { // standalone map preview
+                p.rewardIndex = 0;
+                if (const uint32_t resource = p.resource())
+                    p.resIndex = findResourceIndex(rdram, resource);
+                p.state = PState::Gone;
+            }
+            continue;
+        }
         if (p.def.resId) {
             p.resIndex = findResourceIndex(rdram, p.def.resId);
             if (p.resIndex == 0xffffffffu) {
@@ -579,18 +689,21 @@ void bindPickups(drakan_input::IGuest&, const uint8_t* rdram) {
 
 // A loose item is the map's own when it is bound to a pickup, or lies at an adopted one; items next to a spawned pickup
 // (`res=`) are the level's own copies and go: the map spawns its own (and can respawn it).
-bool nearAnyPickup(const world::Vec3& pos, uint32_t handle) {
+bool nearAnyPickup(const world::EntitySnapshot& item) {
+    const auto handle = item.handle;
     if (drakan_ghost::isGhostItem(handle))
         return true;
     for (uint32_t h : g_adoptLoadout)
         if (h == handle)
             return true;
     for (const Pick& p : g_picks) {
-        if (p.state == PState::Unbound && !p.def.resId)
+        if (!p.reward() && p.originalItemAtPad(item))
+            return true; // the server has not selected the first reward yet
+        if (p.state == PState::Unbound && !p.resource())
             continue;
         if (p.handle == handle || p.spawnHandle == handle)
             return true;
-        if (!p.def.resId && dist2xz(pos, p.def.pos) < kHomeRadius)
+        if (p.def.rewards.empty() && !p.def.resId && dist2xz(item.position, p.def.pos) < kHomeRadius)
             return true;
     }
     return false;
@@ -612,17 +725,12 @@ bool g_noFilter = false; // test aid DRAKAN_ARENA_NOFILTER=1: place players and 
 // here, but our own player may already hold it (she stands next to it at the spawn): the inventory cell and the hand
 // slot would then point at a destroyed actor and the engine's equip / use code calls through its freed data (a null
 // JALR at 0x341548 that ended the guest thread). Clear every reference to the handle before the actor goes.
-uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle);
-
 void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle) {
-    const uint32_t actor = controlledActor(rdram);
-    if (!ramPtr(actor) || itemClassOf(rdram, actor) != world::kClassRynn)
-        return;
-    const uint32_t player = dataOf(rdram, actor);
+    const uint32_t player = dataOf(rdram, inventoryRider(rdram));
     if (!ramPtr(player) || !handle)
         return;
     const unsigned n = world::detachInventoryItem(
-        itemClassOf(rdram, actor), player, handle, [&](uint32_t address) { return rd32(rdram, address); },
+        world::kClassRynn, player, handle, [&](uint32_t address) { return rd32(rdram, address); },
         [&](uint32_t address, uint32_t value) { guest.write32(address, value); });
     if (n) {
         arenaLog("pickup copy %x was already in our inventory: %u reference(s) cleared before it is removed", handle,
@@ -641,9 +749,7 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
         if (body.handle)
             playerBodies.push_back(body.handle);
     });
-    const uint32_t owner = controlledActor(rdram);
-    const uint32_t ownerData = ramPtr(owner) ? dataOf(rdram, owner) : 0;
-    const uint32_t ownerClass = ramPtr(ownerData) ? itemClassOf(rdram, owner) : 0;
+    const uint32_t ownerData = dataOf(rdram, inventoryRider(rdram));
     for (const auto& e : g_snap.entities) {
         if (detail::protectedPlayerActor(e.handle, g_snap.playerHandle, g_snap.cameraHandle,
                                          e.type == world::type::kPlayer, playerBodies))
@@ -651,10 +757,13 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
         const bool creature = e.hpKind == world::HpKind::Creature && e.hpMax > 0;
         const bool storyObj = isStoryClass(e.classId);
         bool item = false;
-        if (sweepItems && isItemEntity(e) && !storyObj) {
+        const bool imported = g_ootfLevel && std::any_of(g_picks.begin(), g_picks.end(),
+                                                         [&](const Pick& p) { return p.originalItemAtPad(e); });
+        if (sweepItems && (isItemEntity(e) || imported) && !storyObj) {
             const float d = dist2xz(e.position, g_startPos);
-            item = !(g_haveStart && d < kKeepRadius) && !nearAnyPickup(e.position, e.handle) &&
-                   !world::inventoryReferencesItem(ownerClass, ownerData, e.handle,
+            const bool startingGear = !g_ootfLevel && g_haveStart && d < kKeepRadius;
+            item = !startingGear && !nearAnyPickup(e) &&
+                   !world::inventoryReferencesItem(world::kClassRynn, ramPtr(ownerData) ? ownerData : 0, e.handle,
                                                    [&](uint32_t address) { return rd32(rdram, address); });
         }
         if (!creature && !storyObj && !item)
@@ -683,6 +792,7 @@ constexpr float kSpawnLift = 250.0f;
 // three floats at +0x20: rows 0 and 2 hold the horizontal axes, row 2 is where she looks (drakan_pvp's test placement
 // puts a ghost in front along it).
 float g_placeYaw = std::nanf("");
+float g_placeLift = kSpawnLift;
 
 void writeYaw(drakan_input::IGuest& guest, uint32_t player, float yawDeg) {
     const float rad = yawDeg * 3.14159265f / 180.0f, fx = std::sin(rad), fz = std::cos(rad);
@@ -712,7 +822,7 @@ bool placementUsesPalRynnLayout(drakan_input::IGuest& guest, uint32_t actor) {
 }
 
 void teleportOnce(drakan_input::IGuest& guest, uint32_t player, const float pos[3]) {
-    const float placed[3] = {pos[0], pos[1] + kSpawnLift, pos[2]};
+    const float placed[3] = {pos[0], pos[1] + g_placeLift, pos[2]};
     for (uint32_t k = 0; k < 3; ++k)
         guest.writeF(player + 0x14 + 4 * k, placed[k]);
     // Placement bypasses native movement. Do not turn its displacement or an old
@@ -725,7 +835,7 @@ void teleportOnce(drakan_input::IGuest& guest, uint32_t player, const float pos[
 
 // The way a spawn point faces: its own `yaw` when the map gives one, else toward the middle of the arena.
 float spawnYawDeg(const ArenaDef& def, const drakan::net::ArenaSpawn& s) {
-    if (s.yawDeg != 0.0f)
+    if (def.ootfRules != drakan::net::OotfArenaRules::None || s.yawDeg != 0.0f)
         return s.yawDeg;
     float cx = 0, cz = 0;
     if (def.hasBounds) {
@@ -775,8 +885,9 @@ constexpr unsigned kPlaceHoldTicks = 120;
 constexpr unsigned kPlaceTries = 40, kPlaceRetryTicks = 40;
 
 void teleport(drakan_input::IGuest& guest, uint32_t player, const float pos[3], int index = -1,
-              float yawDeg = std::nanf("")) {
+              float yawDeg = std::nanf(""), float lift = kSpawnLift) {
     g_placeYaw = yawDeg;
+    g_placeLift = lift;
     teleportOnce(guest, player, pos);
     g_place.active = true;
     std::memcpy(g_place.target, pos, sizeof g_place.target);
@@ -896,16 +1007,41 @@ void firstPass(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
         }
         std::lock_guard<std::mutex> l(g_sessM);
         g_picks.clear();
+        g_soulOwner = 0;
+        g_arenaDragon = {};
         g_defFits.store(!g_hasDef || g_def.level == level);
+        g_ootfLevel = g_hasDef && g_defFits.load() && g_def.ootfRules != drakan::net::OotfArenaRules::None;
         if (g_hasDef && !g_defFits.load())
             arenaLog("map '%s' is for '%s' but '%s' is loaded: playing it as a plain level", g_def.name.c_str(),
                      g_def.level.c_str(), level.c_str());
-        if (g_hasDef && g_defFits.load())
+        if (g_hasDef && g_defFits.load()) {
             for (const ArenaPickup& p : g_def.pickups) {
                 Pick pk;
                 pk.def = p;
+                if (p.visual)
+                    for (const auto& e : g_snap.entities) {
+                        if (e.resourceId != p.visual || dist2xz(e.position, p.pos) >= 100 ||
+                            std::abs(e.position.y - p.pos[1]) >= 100)
+                            continue;
+                        pk.display = e.handle;
+                        if (g_dumpWanted)
+                            g_displayTrace.emplace(e.handle, DisplayTrace{g_picks.size()});
+                        arenaLog("pickup display %s: bound %x (model %x)", p.label.c_str(), e.handle, e.resourceId);
+                        break;
+                    }
                 g_picks.push_back(std::move(pk));
             }
+            if (g_def.ootfRules == drakan::net::OotfArenaRules::MasterOfTheDragon)
+                for (const auto& e : g_snap.entities)
+                    if (e.classId == kClassDragon && e.ref) {
+                        g_arenaDragon.handle = e.handle;
+                        g_arenaDragon.ref = e.ref;
+                        g_arenaDragon.start[0] = e.position.x;
+                        g_arenaDragon.start[1] = e.position.y;
+                        g_arenaDragon.start[2] = e.position.z;
+                        break;
+                    }
+        }
     }
     bindPickups(guest, rdram);
     bindAdoptLoadout();
@@ -923,16 +1059,109 @@ void firstPass(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
 }
 
 void applyPickupEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
-    std::deque<PickupEvent> evs;
+    std::deque<drakan::net::PickupState> evs;
     {
         std::lock_guard<std::mutex> l(g_sessM);
         evs.swap(g_pickupEvents);
     }
-    for (const PickupEvent& e : evs) {
+    if (std::any_of(evs.begin(), evs.end(), [](const auto& e) { return !e.taken; }) && g_ootfLevel)
+        snapshot(rdram);
+    for (const auto& e : evs) {
         const bool all = e.index == drakan::net::kAllPickups;
         for (size_t i = all ? 0 : e.index; i < g_picks.size() && (all || i == e.index); ++i) {
             Pick& p = g_picks[i];
             p.serverTaken = e.taken;
+            if (!p.def.rewards.empty()) {
+                if (all || e.reward >= p.def.rewards.size())
+                    continue; // every reset is followed by individual authoritative reward selections
+                const bool first = !p.reward();
+                p.rewardIndex = e.reward;
+                const auto& reward = p.def.rewards[e.reward];
+                if (p.display) {
+                    if (e.taken)
+                        g_hiddenArenaActors.insert(p.display);
+                    else
+                        g_hiddenArenaActors.erase(p.display);
+                    if (const auto it = g_displayTrace.find(p.display); it != g_displayTrace.end())
+                        it->second.drawn = false;
+                    if (!first || e.taken)
+                        arenaLog("pickup display %s: %s", p.def.label.c_str(), e.taken ? "hidden" : "restored");
+                }
+                if (e.taken && e.player == g_local.load() && reward.potion()) {
+                    if (reward.kind == drakan::net::ArenaReward::Kind::Speed) {
+                        // The campaign potion slows the world clock. Arena QuickSpeed only affects the collector.
+                        g_quickSpeedUntil =
+                            std::chrono::steady_clock::now() + std::chrono::milliseconds(reward.durationMs);
+                        arenaLog("QuickSpeed: movement boosted for %u ms", reward.durationMs);
+                    } else {
+                        const uint32_t index = findResourceIndex(rdram, reward.value);
+                        if (index != 0xffffffffu)
+                            queueSpawn(index, p.def.pos, kPotionSpawn);
+                    }
+                }
+                if (e.taken && reward.kind == drakan::net::ArenaReward::Kind::FireRing && e.effectPosition) {
+                    const uint32_t index = findResourceIndex(rdram, reward.value);
+                    if (index != 0xffffffffu) {
+                        SpawnReq effect;
+                        effect.resIndex = index;
+                        effect.pickup = kFireRingSpawn;
+                        effect.life = 0; // this ring expires through its own class handler
+                        std::copy(e.effectPosition->begin(), e.effectPosition->end(), effect.pos);
+                        effect.owner = e.player == g_local.load() ? controlledActor(rdram) : 0;
+                        if (!effect.owner) {
+                            const int id = drakan_netplay::ghostOfPlayer(e.player);
+                            drakan_ghost::forEach([&](const drakan_ghost::Info& body) {
+                                if (body.id == id)
+                                    effect.owner = body.handle;
+                            });
+                        }
+                        g_spawnQueue.push_back(effect);
+                        arenaLog("Fire Summon: native fire ring queued for player %u", e.player);
+                    }
+                }
+                if (p.def.rewards[e.reward].kind == drakan::net::ArenaReward::Kind::SoulCrystal) {
+                    const uint8_t owner = e.taken ? e.player : 0;
+                    if (owner != g_soulOwner) {
+                        g_soulOwner = owner;
+                        g_arenaDragon.handoff = e.effectPosition;
+                        g_arenaDragon.retryAt = 0;
+                    }
+                }
+                if (e.taken && p.state == PState::Touch && e.player == g_local.load() && p.resource() &&
+                    p.resIndex != 0xffffffffu) {
+                    queueSpawn(p.resIndex, p.def.pos,
+                               -1); // the native item can be stowed even if it cannot register loose
+                    arenaLog("pickup %zu (%s): granted to the local inventory", i, p.def.label.c_str());
+                }
+                if (!e.taken && p.state != PState::Present && p.state != PState::Spawning) {
+                    const uint32_t resource = p.resource();
+                    p.resIndex = resource ? findResourceIndex(rdram, resource) : 0;
+                    if (p.resIndex == 0xffffffffu)
+                        arenaLog("pickup %zu (%s): resource %x absent from the level", i, p.def.label.c_str(),
+                                 resource);
+                    p.state = PState::Gone;
+                    p.spawnTries = 0;
+                    if (p.display) {
+                        p.state = PState::Touch;
+                        continue;
+                    }
+                    if (first && resource)
+                        for (const auto& item : g_snap.entities)
+                            if (p.originalItemAtPad(item) && item.resourceId == resource && item.ref &&
+                                world::isLiveHandle(RdramMemory(rdram), g_globals, item.handle, item.ref - 1)) {
+                                p.handle = item.handle;
+                                p.ref = item.ref;
+                                p.state = PState::Present;
+                                p.boundTick = g_ticks;
+                                p.home[0] = item.position.x;
+                                p.home[1] = item.position.y;
+                                p.home[2] = item.position.z;
+                                arenaLog("pickup %zu (%s): bound original placed item %x", i, p.def.label.c_str(),
+                                         item.handle);
+                                break;
+                            }
+                }
+            }
             if (e.taken && p.state == PState::Present) {
                 if (e.player != g_local.load() || !g_local.load()) {
                     killActor(guest, rdram, p.handle); // somebody else took it: ours goes too
@@ -947,6 +1176,113 @@ void applyPickupEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
 }
 
+bool postDragonControl(drakan_input::IGuest& guest, uint32_t data, bool mount) {
+    if (guest.postBusy())
+        return false;
+    // The native controller switches from the supplied instance to its linked partner and attaches the camera.
+    const uint32_t switchControl = guestAddress(0x44d3b0u);
+    return switchControl && ramPtr(data) &&
+           guest.post(drakan_input::GuestCall(switchControl).arg(data).arg(mount ? 1 : 0));
+}
+
+void dragonOwnershipTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
+    auto& dragon = g_arenaDragon;
+    if (!dragon.handle || !dragon.ref ||
+        !world::isLiveHandle(RdramMemory(rdram), g_globals, dragon.handle, dragon.ref - 1))
+        return;
+    const uint8_t local = g_local.load();
+    const bool mount = g_soulOwner != 0 && g_soulOwner == local;
+    const bool mounted = player == dragon.handle;
+    const uint32_t data = dataOf(rdram, player);
+    // Native proximity mounting needs a Rynn-to-dragon link. The owner keeps it so she can dismount and remount.
+    if (!mounted && ramPtr(data)) {
+        const uint32_t linked = rd32(rdram, data + 0x4d8);
+        const uint32_t wanted = (linked & 0xffff0000u) | (mount ? dragon.ref : 0u);
+        if (linked != wanted)
+            guest.write32(data + 0x4d8, wanted);
+    }
+    if (dragon.appliedOwner != g_soulOwner) {
+        if (mount == mounted) {
+            if (mounted && ramPtr(data))
+                guest.writeF(data + 0x6b4u, 100.0f); // the native dragon health bar is a percentage
+            if (mounted && dragon.handoff) {
+                const auto& pos = *dragon.handoff;
+                teleport(guest, player, pos.data(), -2, std::nanf(""), 0.0f);
+                arenaLog("dragon handoff at %.0f %.0f %.0f", static_cast<double>(pos[0]), static_cast<double>(pos[1]),
+                         static_cast<double>(pos[2]));
+                dragon.handoff.reset();
+            } else if (!g_soulOwner && dragon.appliedOwner) {
+                for (uint32_t i = 0; i < 3; ++i)
+                    guest.writeF(dragon.handle + 0x14 + 4 * i, dragon.start[i]);
+                drakan_ghost::refileActor(guest, dragon.handle);
+            }
+            dragon.appliedOwner = g_soulOwner;
+            arenaLog("dragon ownership applied: player %u (%s)", g_soulOwner, mounted ? "mounted" : "on foot");
+        } else if (g_ticks >= dragon.retryAt && postDragonControl(guest, data, mount)) {
+            g_useTaps = 0;
+            g_sweepFrom = 0;
+            arenaLog("dragon ownership: native %s requested", mount ? "mount" : "dismount");
+            dragon.retryAt = g_ticks + 90;
+        }
+    }
+}
+
+void neutralDragonTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
+    const auto& dragon = g_arenaDragon;
+    if (!dragon.handle || !dragon.ref ||
+        !world::isLiveHandle(RdramMemory(rdram), g_globals, dragon.handle, dragon.ref - 1))
+        return;
+    if (g_soulOwner && g_soulOwner != g_local.load() && player != dragon.handle)
+        g_hiddenArenaActors.insert(dragon.handle);
+    else
+        g_hiddenArenaActors.erase(dragon.handle);
+    if (g_soulOwner || player == dragon.handle)
+        return;
+    std::optional<drakan::net::NeutralDragonState> state;
+    uint32_t projectile;
+    {
+        std::lock_guard<std::mutex> l(g_sessM);
+        state = g_neutralDragon;
+        projectile = g_def.ootfDragon.projectile;
+    }
+    if (!state)
+        return;
+    float moved = 0;
+    for (uint32_t i = 0; i < state->pos.size(); ++i) {
+        const uint32_t addr = dragon.handle + 0x14 + i * 4;
+        moved += std::abs(rdf(rdram, addr) - state->pos[i]);
+        guest.writeF(addr, state->pos[i]);
+    }
+    if (moved > 1)
+        drakan_ghost::refileActor(guest, dragon.handle);
+    const float yaw = state->yaw;
+    writeYaw(guest, dragon.handle, yaw * (180.0f / 3.14159265f));
+    if (state->breath == g_neutralBreath)
+        return;
+    g_neutralBreath = state->breath;
+    const float s = std::sin(yaw), c = std::cos(yaw);
+    const float rot[9] = {c, 0, -s, 0, 1, 0, s, 0, c};
+    const float nose[3] = {state->pos[0] + 2100 * s, state->pos[1] - 500, state->pos[2] + 2100 * c};
+    const uint32_t index = projectile ? findResourceIndex(rdram, projectile) : 0xffffffffu;
+    if (index != 0xffffffffu) {
+        SpawnReq shot;
+        shot.resIndex = index;
+        shot.pickup = kEffectSpawn;
+        shot.life = 0;
+        shot.owner = dragon.handle;
+        std::copy_n(nose, 3, shot.pos);
+        constexpr float pitch = 0.42f;
+        const float cPitch = std::cos(pitch), sPitch = std::sin(pitch);
+        const float aimed[9] = {c, 0, -s, s * sPitch, cPitch, c * sPitch, s * cPitch, -sPitch, c * cPitch};
+        std::copy_n(aimed, 9, shot.rot);
+        g_spawnQueue.push_back(shot);
+    } else {
+        spawnEffect(rdram, 0x41875u, nose, rot, 40);
+    }
+    arenaLog("unclaimed dragon breath %u at %.0f %.0f %.0f", state->breath, static_cast<double>(nose[0]),
+             static_cast<double>(nose[1]), static_cast<double>(nose[2]));
+}
+
 // Pickups: presence check, claims, respawns. Every third boundary.
 void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (g_picks.empty())
@@ -958,18 +1294,37 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
     bool attemptedSpatialRegistration = false;
     const uint32_t owner = controlledActor(rdram);
     const uint32_t ownerClass = itemClassOf(rdram, owner);
-    const uint32_t ownerData = ownerClass == world::kClassRynn ? dataOf(rdram, owner) : 0;
+    const uint32_t ownerData = dataOf(rdram, inventoryRider(rdram));
     for (size_t i = 0; i < g_picks.size(); ++i) {
         Pick& p = g_picks[i];
+        if (const auto* reward = p.reward();
+            reward && (p.state == PState::Touch || reward->kind != drakan::net::ArenaReward::Kind::Item)) {
+            using Kind = drakan::net::ArenaReward::Kind;
+            const bool dragon = reward->kind == Kind::DragonHealth || reward->kind == Kind::DragonProtection;
+            if (p.serverTaken || g_ticks < p.nextClaimTick || !ramPtr(owner) || dragon != (ownerClass == kClassDragon))
+                continue;
+            const float dx = rdf(rdram, owner + 0x14) - p.def.pos[0], dy = rdf(rdram, owner + 0x18) - p.def.pos[1],
+                        dz = rdf(rdram, owner + 0x1c) - p.def.pos[2];
+            constexpr float radius = 1100.0f;
+            if (dx * dx + dy * dy + dz * dz <= radius * radius) {
+                p.nextClaimTick = g_ticks + 45;
+                std::lock_guard<std::mutex> l(g_sessM);
+                if (g_local.load())
+                    g_claims.push_back(static_cast<uint16_t>(i));
+            }
+            continue;
+        }
         switch (p.state) {
             case PState::Unbound:
+            case PState::Touch:
                 break;
             case PState::Present: {
                 bool here = liveAt(rdram, p);
                 // A newly spawned item may be collected while its initial position is
                 // still settling. Inventory ownership outranks following that position.
-                if (here && world::inventoryReferencesItem(ownerClass, ramPtr(ownerData) ? ownerData : 0, p.handle,
-                                                           [&](uint32_t address) { return rd32(rdram, address); }))
+                if (here &&
+                    world::inventoryReferencesItem(world::kClassRynn, ramPtr(ownerData) ? ownerData : 0, p.handle,
+                                                   [&](uint32_t address) { return rd32(rdram, address); }))
                     here = false;
                 if (here) {
                     float pos[3];
@@ -982,7 +1337,7 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                     // The factory can run before the destination terrain streams in, leaving
                     // a valid actor with cell -1: invisible and absent from native Use queries.
                     // Never refile an item already moved into inventory or claimed by a peer.
-                    if (p.def.resId &&
+                    if (p.resource() &&
                         p.spatialRegistration.service(
                             g_ticks, here && !p.serverTaken && !(rd32(rdram, p.handle + 4) & 0x80000000u),
                             static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu)), attemptedSpatialRegistration, [&] {
@@ -1047,11 +1402,19 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                     arenaShot("pickup" + std::to_string(i) + "_back");
                 } else if (p.spawnHandle && g_ticks > p.spawnTick + 45 && ramPtr(p.spawnHandle) &&
                            (rd32(rdram, p.spawnHandle + 0x10) >> 16) == 0) {
+                    if (p.reward()) {
+                        killActor(guest, rdram, p.spawnHandle);
+                        p.spawnHandle = 0;
+                        p.state = PState::Touch;
+                        arenaLog("pickup %zu (%s): native world registration failed, available by touch", i,
+                                 p.def.label.c_str());
+                        break;
+                    }
                     // The factory made an object the registry never took: the resource's model is not part of this
                     // level, a retry cannot help.
                     arenaLog(
                         "pickup %zu (%s): resource %x cannot be spawned in this level (never registered), disabled", i,
-                        p.def.label.c_str(), p.def.resId);
+                        p.def.label.c_str(), p.resource());
                     p.state = PState::Unbound;
                 } else if (g_ticks > p.spawnTick + 180) {
                     for (const auto& e : g_snap.entities)
@@ -1090,8 +1453,6 @@ void armLoadout(const uint8_t* rdram, uint32_t player) {
 std::vector<uint32_t> g_loadoutIdx;
 int g_loadoutPhase = 0; // 0 not started, 1 waiting for the spawns, 2 done
 unsigned g_loadoutStart = 0;
-
-uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle);
 
 // The controlled actor is Arokh while Rynn rides him (air arenas start mounted, netcode.md "Air arenas"): his data
 // object has no inventory, so the loadout stow / equip routines would call through garbage (JALR into 0x56d2c0).
@@ -2098,12 +2459,21 @@ void gotoTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player
                  static_cast<double>(p.def.pos[2]));
         float pos[3] = {p.def.pos[0], p.def.pos[1] - kSpawnLift + 60.0f, p.def.pos[2]};
         arenaShot("pickup" + std::to_string(s.pickup) + "_before");
-        teleport(guest, player, pos, -1);
+        const auto* reward = p.reward();
+        const bool needsUse =
+            p.state != PState::Touch && (!reward || reward->kind == drakan::net::ArenaReward::Kind::Item);
+        teleport(guest, player, pos, needsUse ? -1 : -2);
     }
 }
 
 void resetEeState() {
     g_picks.clear();
+    g_hiddenArenaActors.clear();
+    g_displayTrace.clear();
+    g_effects.clear();
+    g_neutralBreath = 0;
+    g_quickSpeedUntil = {};
+    g_arenaDragon = {};
     g_spawnQueue.clear();
     g_spawnInFlight = false;
     g_haveStart = false;
@@ -2138,6 +2508,17 @@ std::vector<MapEntry> maps() {
         m.description = a.description;
         m.source = a.source;
         m.game = a.game;
+        m.ootfRules = a.ootfRules;
+        if (a.ootfRules != drakan::net::OotfArenaRules::None) {
+            m.preloadItems = a.loadout;
+            for (const auto& pickup : a.pickups) {
+                if (pickup.visual)
+                    m.preloadItems.push_back(pickup.visual);
+                for (const auto& reward : pickup.rewards)
+                    if (reward.kind == drakan::net::ArenaReward::Kind::Item)
+                        m.preloadItems.push_back(reward.value);
+            }
+        }
         m.deathmatch = a.deathmatch;
         m.teamDeathmatch = a.teamDeathmatch;
         m.maxPlayers = a.maxPlayers;
@@ -2245,10 +2626,44 @@ void setLocalPlayer(uint8_t id) {
     g_local.store(id);
 }
 
-void onPickupState(uint16_t index, bool taken, uint8_t player) {
+void onPickupState(const drakan::net::PickupState& state) {
     std::lock_guard<std::mutex> l(g_sessM);
     if (g_pickupEvents.size() < 256)
-        g_pickupEvents.push_back({index, taken, player});
+        g_pickupEvents.push_back(state);
+}
+
+void setNeutralDragon(const std::optional<drakan::net::NeutralDragonState>& state) {
+    std::lock_guard<std::mutex> l(g_sessM);
+    g_neutralDragon = state;
+}
+
+bool hidesWorldActor(uint32_t handle) {
+    if (!g_active.load())
+        return false;
+    if (g_hiddenArenaActors.count(handle))
+        return true;
+    if (const auto it = g_displayTrace.find(handle); it != g_displayTrace.end() && !it->second.drawn) {
+        it->second.drawn = true;
+        arenaLog("pickup display %s: drawn", g_picks[it->second.pickup].def.label.c_str());
+    }
+    return false;
+}
+
+uint32_t ownedDragon() {
+    return g_active.load() && g_soulOwner && g_soulOwner == g_local.load() ? g_arenaDragon.handle : 0;
+}
+
+std::optional<uint8_t> dragonOwner() {
+    if (g_active.load() && g_arenaDragon.handle)
+        return g_soulOwner;
+    return std::nullopt;
+}
+
+void releaseDragonOnWorldDeath() {
+    if (g_soulOwner == 0 || g_soulOwner != g_local.load())
+        return;
+    std::lock_guard<std::mutex> l(g_sessM);
+    g_claims.push_back(drakan::net::kReleaseDragon);
 }
 
 bool takePickupClaim(uint16_t& index) {
@@ -2282,6 +2697,7 @@ bool awaitingSpawn() {
 }
 
 bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
+    g_quickSpeedUntil = {};
     ArenaDef def;
     {
         std::lock_guard<std::mutex> l(g_sessM);
@@ -2296,11 +2712,12 @@ bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
     const auto& s = def.spawns[static_cast<size_t>(index)];
     if (!g_haveStart)
         captureStart(rdram, player);
-    teleport(guest, player, s.pos, index, spawnYawDeg(def, s));
+    const float yaw = spawnYawDeg(def, s);
+    teleport(guest, player, s.pos, index, yaw, def.ootfRules == drakan::net::OotfArenaRules::None ? kSpawnLift : 0.0f);
     g_assignedSpawn = index;
     g_outsideTicks = 0;
-    arenaLog("player placed at spawn %d: %.0f %.0f %.0f", index, static_cast<double>(s.pos[0]),
-             static_cast<double>(s.pos[1]), static_cast<double>(s.pos[2]));
+    arenaLog("player placed at spawn %d: %.3f %.3f %.3f facing %.1f", index, static_cast<double>(s.pos[0]),
+             static_cast<double>(s.pos[1]), static_cast<double>(s.pos[2]), static_cast<double>(yaw));
     armLoadout(rdram, player);
     return true;
 }
@@ -2345,10 +2762,10 @@ bool spawnEffect(uint8_t* rdram, uint32_t resId, const float pos[3], const float
     const uint32_t idx = findResourceIndex(rdram, resId);
     if (idx == 0xffffffffu || g_spawnQueue.size() > 1)
         return false;
-    g_effectLife = lifeTicks ? lifeTicks : 40;
     SpawnReq r;
     r.resIndex = idx;
     r.pickup = kEffectSpawn;
+    r.life = lifeTicks ? lifeTicks : 40;
     std::memcpy(r.pos, pos, sizeof r.pos);
     std::memcpy(r.rot, rot, sizeof r.rot);
     g_spawnQueue.push_back(r);
@@ -2356,7 +2773,6 @@ bool spawnEffect(uint8_t* rdram, uint32_t resId, const float pos[3], const float
 }
 
 void install(PS2Runtime& rt) {
-    (void)rt;
     if (const char* f = std::getenv("DRAKAN_ARENA_PREVIEW_SHOT"))
         g_envShotFile = f;
     if (const char* v = std::getenv("DRAKAN_ARENA_LOG"))
@@ -2371,6 +2787,13 @@ void install(PS2Runtime& rt) {
         return;
     }
     g_globals = g;
+    g_moveActor = guestAddress(kMoveActor);
+    g_rootMotionReturn = guestAddress(kRootMotionReturn);
+    g_rootBlendReturn = guestAddress(kRootBlendReturn);
+    if (g_moveActor && g_rootMotionReturn && g_rootBlendReturn && rt.hasFunction(g_moveActor)) {
+        g_origMoveActor = rt.lookupFunction(g_moveActor);
+        rt.replaceFunction(g_moveActor, &moveActorWithQuickSpeed);
+    }
     for (uint32_t a = 0x100400u; a < 0x100500u && !(g_itemSlot1 && g_itemSlot2); a += 4) {
         if (rt.hasFunction(a))
             continue;
@@ -2411,6 +2834,12 @@ void install(PS2Runtime& rt) {
         g_haveStart = false;
         g_place.active = false;
         g_picks.clear();
+        g_hiddenArenaActors.clear();
+        g_displayTrace.clear();
+        g_effects.clear();
+        g_neutralBreath = 0;
+        g_quickSpeedUntil = {};
+        g_arenaDragon = {};
         g_spawnQueue.clear();
         g_spawnInFlight = false;
         g_calls.clear();
@@ -2480,14 +2909,25 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         return;
     }
     applyPickupEvents(guest, rdram);
-    while (!g_effects.empty() && g_ticks >= g_effects.front().dieTick) { // breath flames past their life
-        killActor(guest, rdram, g_effects.front().handle);
-        g_effects.pop_front();
-    }
+    dragonOwnershipTick(guest, rdram, player);
+    neutralDragonTick(guest, rdram, player);
+    g_effects.erase(std::remove_if(g_effects.begin(), g_effects.end(),
+                                   [&](const LiveEffect& effect) {
+                                       if (g_ticks < effect.dieTick)
+                                           return false;
+                                       const uint32_t h = effect.handle;
+                                       if (ramPtr(h) && rd32(rdram, h) == g_globals.handleVtable &&
+                                           (rd32(rdram, h + 0x10) & 0xffffu) == effect.resIndex &&
+                                           !(rd32(rdram, h + 4) & 0x80000000u))
+                                           killActor(guest, rdram, h);
+                                       return true;
+                                   }),
+                    g_effects.end());
     const unsigned since = g_ticks - g_passTick;
     if (since < kSweepTicks ? since % 20 == 0 : since % 120 == 0) {
         // A newly created loadout item is briefly a loose world actor until the native stow completes.
-        const bool stowing = g_loadoutArmed && g_loadoutPhase < 2;
+        const bool creatingItem = g_spawnInFlight && g_inflightPickup != kEffectSpawn;
+        const bool stowing = (g_loadoutArmed && g_loadoutPhase < 2) || creatingItem;
         if (snapshot(rdram)) {
             const bool sweepLoose = since < kSweepTicks || g_deferredLooseSweep;
             g_removed += removeCampaign(guest, rdram, sweepLoose && !stowing);

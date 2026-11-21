@@ -1727,10 +1727,25 @@ std::vector<gameui::mp::LevelEntry> mpArenas() {
             e.spawns = a.spawns;
             e.modes = (a.deathmatch ? 1u << static_cast<unsigned>(GameMode::Deathmatch) : 0u) |
                       (a.teamDeathmatch ? 1u << static_cast<unsigned>(GameMode::TeamDeathmatch) : 0u);
-            if (const drakan::net::ArenaDef* def = drakan_arena::findMap(a.id))
+            if (const drakan::net::ArenaDef* def = drakan_arena::findMap(a.id)) {
+                using Rules = drakan::net::OotfArenaRules;
+                switch (def->ootfRules) {
+                    case Rules::Air:
+                        e.ootfGroup = "Air Only";
+                        break;
+                    case Rules::Ground:
+                        e.ootfGroup = "Ground Only";
+                        break;
+                    case Rules::MasterOfTheDragon:
+                        e.ootfGroup = "Master of the Dragon";
+                        break;
+                    case Rules::None:
+                        break;
+                }
                 for (const drakan::net::ModeDef& m : drakan_modes::customModes().modes())
                     if (drakan::net::modeFitsArena(m, *def))
                         e.modeIds.push_back(m.id);
+            }
             cache.push_back(std::move(e));
         }
     }
@@ -1895,6 +1910,7 @@ void mpApply(const gameui::mp::MpAction& a, gameui::mp::MultiplayerScreen& scree
             hc.timeLimitSec = a.host.timeLimitMin * 60;
             hc.password = a.host.password;
             hc.modeId = a.host.modeId;
+            hc.useOotfGroup = a.host.levelGroup >= 3;
             drakan_netplay::hostMatch(hc, a.setup.name);
             break;
         }
