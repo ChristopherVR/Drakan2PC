@@ -24,11 +24,11 @@ jobs:
     runs-on: windows-2022
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           # The kit packs the formats submodule's sources (character_motion.py needs them).
           submodules: recursive
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -100,6 +100,8 @@ jobs:
           Get-Content build/changes.md -Raw >> $env:GITHUB_STEP_SUMMARY
       - name: Publish the release
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           $files = (Get-ChildItem build/publish -File).FullName
           $PSNativeCommandUseErrorActionPreference = $false
