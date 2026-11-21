@@ -52,10 +52,10 @@ struct FakeGuest : IGuest {
         mem[a] = static_cast<uint8_t>(v);
         mem[a + 1] = static_cast<uint8_t>(v >> 8);
     }
-    uint32_t call(const GuestCall& c) override {
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override {
         calls.push_back(c);
         if (c.addr == 0x325650u)
-            return motions[c.i[1]];
+            return motions[c.integerRegisters()[1]];
         if (const auto it = returns.find(c.addr); it != returns.end())
             return it->second;
         return c.addr == 0x49ec60 ? selectedTarget : 0;
@@ -339,17 +339,17 @@ constexpr uint32_t DACTOR = 0x690000, DREADER = 0x6a0000, DREADERVT = 0x6b0000, 
 struct DrawGuest : FakeGuest {
     InputModule* reenter = nullptr;
     int setterCalls = 0;
-    uint32_t call(const GuestCall& c) override {
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override {
         if (c.addr == 0x32cf30u) {
             ++setterCalls;
             if (reenter) // takes the module's lock: this deadlocks if the setter is called with the lock held
                 reenter->bowAttackMask(*this, 0, 0, 0);
-            const uint32_t rec = DRECS + static_cast<uint32_t>(readS16(DCHANS + 2 * c.i[2])) * 0x80;
-            write32(rec + 0x50, c.i[1]);
-            writeF(rec + 0x58, c.f[1] < 0.0f ? 0.0f : c.f[1]);
-            writeF(rec + 0x54, c.f[2]);
+            const uint32_t rec = DRECS + static_cast<uint32_t>(readS16(DCHANS + 2 * c.integerRegisters()[2])) * 0x80;
+            write32(rec + 0x50, c.integerRegisters()[1]);
+            writeF(rec + 0x58, c.floatRegisters()[1] < 0.0f ? 0.0f : c.floatRegisters()[1]);
+            writeF(rec + 0x54, c.floatRegisters()[2]);
         }
-        return FakeGuest::call(c);
+        return FakeGuest::callImmediate(c);
     }
 };
 
@@ -405,7 +405,8 @@ static void testHeldDraw() {
     for (const GuestCall& call : g.calls)
         if (call.addr == 0x32cf30u)
             play = &call;
-    CHECK(play && play->i[0] == PLAYER && play->i[2] == 2); // the torso channel from property 0x52
+    CHECK(play && play->integerRegisters()[0] == PLAYER &&
+          play->integerRegisters()[2] == 2); // the torso channel from property 0x52
     pad(m, mouse(MBTN_LEFT, 0, 0));
     m.updateBowAim(g);
     CHECK(g.setterCalls == 1); // still there: not restarted
@@ -575,18 +576,18 @@ static void testImportedBowAutoAimMetadata() {
     const std::string source = "format = 1\n[bow 0x343e2]\ncone_degrees = 35\nmaximum_range = 18000\n";
     CHECK(m.setBowAimFiles({{"source", source}}) == 1);
     CHECK(m.bowAutoTarget(g, BOW, scratch) == 5);
-    NEAR(g.calls.back().f[0], 35, 1e-6);
-    NEAR(g.calls.back().f[1], 18000, 1e-6);
+    NEAR(g.calls.back().floatRegisters()[0], 35, 1e-6);
+    NEAR(g.calls.back().floatRegisters()[1], 18000, 1e-6);
     CHECK(g.read16(PLAYER + 0x4da) == 0);
     // The metadata follows exact resource identity, not every weapon or NPC using a similar layout.
     g.write32(records + 2 * 0x24, 0x343e3);
     m.bowAutoTarget(g, BOW, scratch);
-    NEAR(g.calls.back().f[0], 25, 1e-6);
-    NEAR(g.calls.back().f[1], 16000, 1e-6);
+    NEAR(g.calls.back().floatRegisters()[0], 25, 1e-6);
+    NEAR(g.calls.back().floatRegisters()[1], 16000, 1e-6);
     g.write32(records + 2 * 0x24, 0x343e2);
     g.write32(records + 2 * 0x24 + 8, 0x1000e);
     m.bowAutoTarget(g, BOW, scratch);
-    NEAR(g.calls.back().f[0], 25, 1e-6);
+    NEAR(g.calls.back().floatRegisters()[0], 25, 1e-6);
     g.write32(records + 2 * 0x24 + 8, 0x1004f);
     g.write16(BOW + 0x60, 5);
     const auto count = g.calls.size();
@@ -611,7 +612,7 @@ static void testImportedBowAutoAimMetadata() {
     CHECK(m.setBowAimFiles({{"oversized", std::string(65537, 'x')}}) == 0);
     CHECK(m.setBowAimFiles({}) == 0);
     m.bowAutoTarget(g, BOW, scratch);
-    NEAR(g.calls.back().f[0], 25, 1e-6);
+    NEAR(g.calls.back().floatRegisters()[0], 25, 1e-6);
 }
 
 static void testOotfAutoTarget() {
@@ -626,10 +627,10 @@ static void testOotfAutoTarget() {
     m.beginFrame(FrameInput{});
     CHECK(m.bowAutoTarget(g, BOW, scratch) == 5);
     CHECK(g.calls.size() == 1);
-    CHECK(g.calls[0].addr == 0x49ec60 && g.calls[0].i[0] == PLH);
-    CHECK(g.calls[0].i[1] == scratch && g.calls[0].i[2] == scratch + 16);
-    NEAR(g.calls[0].f[0], 25.0, 1e-6);
-    NEAR(g.calls[0].f[1], 16000.0, 1e-6);
+    CHECK(g.calls[0].addr == 0x49ec60 && g.calls[0].integerRegisters()[0] == PLH);
+    CHECK(g.calls[0].integerRegisters()[1] == scratch && g.calls[0].integerRegisters()[2] == scratch + 16);
+    NEAR(g.calls[0].floatRegisters()[0], 25.0, 1e-6);
+    NEAR(g.calls[0].floatRegisters()[1], 16000.0, 1e-6);
     NEAR(g.readF(scratch + 4), 300.0, 1e-6);
     NEAR(g.readF(scratch + 16), -1.0, 1e-6);
     CHECK(g.read16(PLAYER + 0x4da) == 0); // selection never creates a persistent lock
@@ -706,8 +707,8 @@ void testAirborneShotChannel() {
     g.write32(PLAYER + 0xaec, 0);
     CHECK(m.bowShotChannel(g, PLAYER, caller, 0) == 2);
     CHECK(g.read32(PLAYER + 0xaec) == 2); // the native completion check then follows the torso clip
-    CHECK(g.calls.back().addr == GET && g.calls.back().i[0] == READER && g.calls.back().i[1] == 0x52 &&
-          g.calls.back().i[2] == 0xffffffffu);
+    CHECK(g.calls.back().addr == GET && g.calls.back().integerRegisters()[0] == READER &&
+          g.calls.back().integerRegisters()[1] == 0x52 && g.calls.back().integerRegisters()[2] == 0xffffffffu);
     CHECK(g.read32(PLAYER + 0x94) == 0x10); // the jump state itself is untouched
     const auto check = [&](uint32_t player, uint32_t from, uint32_t channel) {
         g.write32(PLAYER + 0xaec, 0);
@@ -969,8 +970,8 @@ void testOotfSightLocomotion() {
     g.write32(PLAYER + 0x504, 0x101);
     CHECK(m.updateBowSightLocomotion(g, PLAYER, 0x311314));
     CHECK(g.calls[g.calls.size() - 3].addr == 0x32cf30);
-    CHECK(g.calls[g.calls.size() - 3].i[1] == run);
-    CHECK(g.calls.back().addr == 0x11a548 && g.calls.back().i[1] == 1);
+    CHECK(g.calls[g.calls.size() - 3].integerRegisters()[1] == run);
+    CHECK(g.calls.back().addr == 0x11a548 && g.calls.back().integerRegisters()[1] == 1);
     CHECK(g.read32(PLAYER + 0x94) == 0 && g.read32(PLAYER + 0x504) == 0x101);
     CHECK(g.read32(PLAYER + 0xaec) == 0 && g.read32(PLAYER + 0xab0) == 0); // no torso/layer ownership
     g.write32(records + 0x50, run);
@@ -978,8 +979,8 @@ void testOotfSightLocomotion() {
     CHECK(!m.updateBowSightLocomotion(g, PLAYER, 0x311314)); // keep phase while unchanged
     g.write32(PLAYER + 0x504, 0);
     CHECK(m.updateBowSightLocomotion(g, PLAYER, 0x311314));
-    CHECK(g.calls[g.calls.size() - 2].addr == 0x32cf30 && g.calls[g.calls.size() - 2].i[1] == stand);
-    CHECK(g.calls.back().addr == 0x11a5a8 && g.calls.back().i[1] == 0);
+    CHECK(g.calls[g.calls.size() - 2].addr == 0x32cf30 && g.calls[g.calls.size() - 2].integerRegisters()[1] == stand);
+    CHECK(g.calls.back().addr == 0x11a5a8 && g.calls.back().integerRegisters()[1] == 0);
     g.write32(records + 0x50, stand);
     g.write32(model + 8, 0);
     FrameInput controller;
@@ -992,7 +993,7 @@ void testOotfSightLocomotion() {
     g.write32(model + 8, 0x50);
     g.write32(CAM + 0x48, 0);
     CHECK(!m.updateBowSightLocomotion(g, PLAYER, 0x311314));
-    CHECK(g.calls.back().addr == 0x11a5a8 && g.calls.back().i[1] == 0); // exit stops own run
+    CHECK(g.calls.back().addr == 0x11a5a8 && g.calls.back().integerRegisters()[1] == 0); // exit stops own run
     g.write32(CAM + 0x48, 0x20);
     g.write32(records + 0x50, stand);
     CHECK(m.updateBowSightLocomotion(g, PLAYER, 0x311314));

@@ -23,6 +23,7 @@
 #include "drakan_settings_host.h"
 #include "drakan_debug_menu.h"
 #include "drakan_game.h"
+#include "drakan_guest_call.h"
 #include "drakan_dual_wield.h"
 #include "drakan_menus.h"
 #include "drakan_save_pages_policy.h"
@@ -249,7 +250,7 @@ double nowS() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
 }
 
-std::atomic<int> g_postsPending{0}; // RecompGuest::post() calls that have not returned yet
+std::atomic<unsigned> g_postsPending{0}; // RecompGuest::post() calls that have not returned yet
 constexpr int kPauseScreenId = static_cast<int>(drakan_region::build().inputFlow.pauseScreen);
 
 // Guest access on top of rdram; call() runs a recompiled function to completion on a copy of the current context.
@@ -275,80 +276,29 @@ public:
     void write32(uint32_t a, uint32_t v) override {
         std::memcpy(m_rdram + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), &v, 4);
     }
-    uint32_t call(const GuestCall& c) override {
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override {
         const auto& input = module();
         if (drakan_region::supports(drakan_region::Feature::AdvancedInput) &&
             g_quickInventory.intercept(*this, c, !input.menuActive() && input.frame().focused && !input.suspended(),
                                        ilog))
             return 1;
-        if (c.addr == 0 || !m_rt->hasFunction(c.addr))
-            return 0;
         const bool trace = c.addr == 0x131fa8u && std::getenv("DRAKAN_COMBAT_CALL_TRACE");
+        const auto& registers = c.integerRegisters();
         if (trace)
-            ilog("[combat-call] enter target=%x cmd=%x action=%x pressed=%u sp=%x\n", c.addr, c.i[1], c.i[2], c.i[3],
-                 getRegU32(m_ctx, 29));
-        // R5900Context is large: keep it off the stack. The recompiled function expects pc == its own entry (otherwise
-        // it treats pc as a resume point) and returns by storing $ra into pc; $ra = 0 is the "finished" marker.
-        auto tmp = std::make_unique<R5900Context>(*m_ctx);
-        for (int i = 0; i < c.ni; ++i)
-            SET_GPR_U32(tmp.get(), 4 + i, c.i[i]);
-        for (int i = 0; i < c.nf; ++i)
-            tmp->f[12 + i] = c.f[i];
-        SET_GPR_U32(tmp.get(), 31, 0);
-        tmp->pc = c.addr;
-        tmp->in_delay_slot = false;
-        {
-            const ScopedEeNoPreempt noPreempt;
-            for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
-                if (!m_rt->hasFunction(tmp->pc))
-                    break;
-                PS2Runtime::RecompiledFunction fn = m_rt->lookupFunction(tmp->pc);
-                if (trace)
-                    ilog("[combat-call] step=%d pc=%x ra=%x sp=%x\n", guard, tmp->pc, getRegU32(tmp.get(), 31),
-                         getRegU32(tmp.get(), 29));
-                fn(m_rdram, tmp.get(), m_rt);
-                if (trace)
-                    ilog("[combat-call] step=%d returned pc=%x ra=%x sp=%x\n", guard, tmp->pc, getRegU32(tmp.get(), 31),
-                         getRegU32(tmp.get(), 29));
-            }
-        }
-        if (trace)
-            ilog("[combat-call] leave pc=%x result=%u sp=%x\n", tmp->pc, getRegU32(tmp.get(), 2),
-                 getRegU32(tmp.get(), 29));
-        return getRegU32(tmp.get(), 2);
+            ilog("[combat-call] enter target=%x cmd=%x action=%x pressed=%u sp=%x\n", c.addr, registers[1],
+                 registers[2], registers[3], getRegU32(m_ctx, 29));
+        return drakan_guest::callImmediate(m_rdram, *m_ctx, *m_rt, c, {.trace = trace ? ilog : nullptr});
     }
 
-    void post(const GuestCall& c) override {
-        if (c.addr == 0 || !m_rt->hasFunction(c.addr))
-            return;
-        // Runs on a scheduler-owned dispatcher thread at the priority of the game's RPC servers: it may block on a
-        // semaphore (sound resource loads) without abandoning a nested hook call.
-        constexpr int kPostPriority = 6;
-        ++g_postsPending;
-        m_rt->eeScheduler().postGuestCall(
-            c.addr, c.i[0], c.i[1], c.i[2], c.i[3], [](uint32_t) { --g_postsPending; }, kPostPriority);
-    }
+    bool enqueueCall(const GuestCall& c) override { return drakan_guest::enqueueCall(*m_rt, c, g_postsPending); }
     bool postBusy() const override { return g_postsPending.load() > 0; }
 
     bool mapMarkerState(uint32_t record, int& state) {
-        if (!m_rt->hasFunction(0x3937c8u))
+        const auto result = drakan_guest::callImmediate(m_rdram, *m_ctx, *m_rt, GuestCall(0x3937c8u).arg(record),
+                                                        {.maxDispatches = 16});
+        if (!result)
             return false;
-        auto tmp = std::make_unique<R5900Context>(*m_ctx);
-        SET_GPR_U32(tmp.get(), 4, record);
-        SET_GPR_U32(tmp.get(), 31, 0);
-        tmp->pc = 0x3937c8u;
-        tmp->in_delay_slot = false;
-        {
-            const ScopedEeNoPreempt noPreempt;
-            for (unsigned guard = 0; guard < 16 && tmp->pc; ++guard) {
-                if (!m_rt->hasFunction(tmp->pc))
-                    break;
-                m_rt->lookupFunction(tmp->pc)(m_rdram, tmp.get(), m_rt);
-            }
-        }
-        if (tmp->pc)
-            return false;
-        state = static_cast<int32_t>(getRegU32(tmp.get(), 2));
+        state = static_cast<int32_t>(*result);
         return state == 0 || state == 2;
     }
 

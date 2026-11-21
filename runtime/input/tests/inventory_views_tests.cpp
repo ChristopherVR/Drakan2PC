@@ -54,7 +54,7 @@ struct Guest final : IGuest {
         for (unsigned i = 0; i < 4; ++i)
             write8(p + i, uint8_t(v >> (i * 8)));
     }
-    uint32_t call(const GuestCall&) override { return 0; }
+    std::optional<uint32_t> callImmediate(const GuestCall&) override { return 0; }
 };
 
 // Map section with one marker drawn at native x = markerX, 20 x 20 pixels.

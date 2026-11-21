@@ -51,7 +51,7 @@ struct Guest final : IGuest {
         for (unsigned i = 0; i < 4; ++i)
             write8(p + i, uint8_t(v >> (i * 8)));
     }
-    uint32_t call(const GuestCall&) override { return 0; }
+    std::optional<uint32_t> callImmediate(const GuestCall&) override { return 0; }
 };
 
 // A player with a quick inventory and the native bar's reaction to the pad (only what the driver relies on).

@@ -3,6 +3,7 @@
 #include "drakan_pvp.h"
 #include "drakan_pvp_targets.h"
 #include "drakan_arena.h"
+#include "drakan_combat_guest.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
 #include "drakan_mp_death.h"
@@ -31,10 +32,8 @@ namespace {
 using drakan_region::guestAddress;
 
 constexpr uint32_t kContextPtr = 0x5565d4u, kBladeHit = 0x498020u, kStatsBlock = 0x4fbac8u, kHpKey = 0x4fe86cu;
-constexpr uint32_t kDamageMethod = 0x314ab0u; // Rynn data object: (data, int* damage, attacker, 0, 0, kind)
-constexpr uint32_t kDeathClip = 0x20577u;     // Rynn's death clip (lower channel when the engine kills her)
-constexpr float kDeathClipHold = 4.0f;        // seconds of the clip shown; the last pose is held after that
-constexpr uint32_t kScratch = 0x5b8480u;      // tail of the speech controller's text buffer (idle), 0xa0 bytes
+constexpr uint32_t kDeathClip = 0x20577u; // Rynn's death clip (lower channel when the engine kills her)
+constexpr float kDeathClipHold = 4.0f;    // seconds of the clip shown; the last pose is held after that
 constexpr uint32_t kRightHolder = 0xeb4u, kLeftHolder = 0xe90u, kHolderRef = 0x1cu;
 constexpr uint32_t kBladeHitCount = 0x1a0u;
 constexpr float kCrumbSpacing = 500.0f; // units of travel between two remembered walkable positions
@@ -598,9 +597,7 @@ void hurtLocal(drakan_input::IGuest& guest, uint8_t* rdram, int engineDamage) {
     const int d = std::clamp(engineDamage, 0, std::max(0, hp - 1));
     if (d <= 0)
         return;
-    guest.write32(kScratch, static_cast<uint32_t>(d));
-    guest.post(
-        drakan_input::GuestCall(guestAddress(kDamageMethod)).arg(data).arg(kScratch).arg(0).arg(0).arg(0).arg(1));
+    drakan_combat_guest::postPlayerDamage(guest, data, static_cast<uint32_t>(d));
 }
 
 // The behaviour handler the player has while a death is shown: it swallows every event but the destroy (2), so the
@@ -948,10 +945,12 @@ void install(PS2Runtime& rt) {
         return;
     drakan_mp_death::install(rt); // environmental deaths (falls, lava, drowning) never reach the engine's game over
     const uint32_t a = guestAddress(kBladeHit);
-    if (!a || !guestAddress(kContextPtr) || !guestAddress(kDamageMethod) || !(g_origBladeHit = rt.lookupFunction(a))) {
+    if (!guestAddress(kContextPtr) || !rt.hasFunction(guestAddress(drakan_combat_guest::kPlayerDamage)) ||
+        !rt.hasFunction(a)) {
         std::fprintf(stderr, "[pvp] disabled: no address translation / function for this disc profile\n");
         return;
     }
+    g_origBladeHit = rt.lookupFunction(a);
     g_probe = std::getenv("DRAKAN_PVP_PROBE") != nullptr;
     if (const uint32_t index = guestAddress(0x1cca68u); index && guestAddress(0x1244fcu) && rt.hasFunction(index)) {
         g_origClassIndex = rt.lookupFunction(index);

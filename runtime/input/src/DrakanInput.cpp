@@ -611,7 +611,7 @@ bool InputModule::pitchAllowed(IGuest& g, uint32_t player, uint32_t cam) {
         return false;
     GuestCall veto(fn);
     veto.arg(player + static_cast<uint32_t>(static_cast<int32_t>(g.readS16(vt + camera_.layout.vtablePitchThis))));
-    return g.call(veto) == 0;
+    return g.tryCall(veto) == 0u;
 }
 
 bool InputModule::readAimPitchState(IGuest& g, uint32_t player, AimPitchState& s) {

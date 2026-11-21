@@ -9,14 +9,14 @@ class QuickInventoryBridge {
 public:
     template <class Guest, class Call, class Log>
     bool intercept(Guest& g, const Call& call, bool enabled, Log log) {
-        if (call.addr != 0x131fa8u || call.ni < 5 || call.i[1] != 0x403au)
+        if (call.addr != 0x131fa8u || call.integers().size() < 5 || call.integerRegisters()[1] != 0x403au)
             return false;
-        const unsigned source = call.i[2] & 0x1ffu;
+        const unsigned source = call.integerRegisters()[2] & 0x1ffu;
         if (!enabled) {
             reset();
             return true;
         }
-        if (!call.i[3]) {
+        if (!call.integerRegisters()[3]) {
             held_.reset(source);
             if (!held_.any())
                 mask_ = 0;
@@ -29,9 +29,9 @@ public:
             const uint32_t mask = g.read32(0x4e9804u + n * 12);
             if (action >= 512 || !mask || mask > 0xffffu || (mask & (mask - 1)))
                 continue;
-            if (g.read16(call.i[0] + 8 + action * 2) != 0x403au)
+            if (g.read16(call.integerRegisters()[0] + 8 + action * 2) != 0x403au)
                 continue;
-            device_ = call.i[0];
+            device_ = call.integerRegisters()[0];
             action_ = action;
             mask_ = static_cast<uint16_t>(mask);
             held_.set(source);

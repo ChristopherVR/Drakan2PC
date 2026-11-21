@@ -1,6 +1,7 @@
 // Drakan: co-op prototype (drakan_coop.h).
 #include "runtime/ee_no_preempt.h"
 #include "drakan_coop.h"
+#include "drakan_combat_guest.h"
 #include "drakan_coop_target.h"
 #include "drakan_ghost.h"
 #include "drakan_lifecycle.h"
@@ -1120,22 +1121,21 @@ bool sendEngineMessage(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t sen
         return false;
     const uint32_t fn = rd32(rdram, vt + 0x14);
     const int16_t adj = static_cast<int16_t>(rd16(rdram, vt + 0x10));
-    if (!fn)
-        return false;
     const uint32_t scratch = drakan_region::guestAddress(kScratchMsg);
+    if (!fn || !scratch)
+        return false;
     for (uint32_t i = 0; i < 0x34; i += 4) {
         uint32_t w;
         std::memcpy(&w, msg + i, 4);
         guest.write32(scratch + i, w);
     }
-    guest.post(drakan_input::GuestCall(fn)
-                   .arg(obj + static_cast<uint32_t>(static_cast<int32_t>(adj)))
-                   .arg(sender)
-                   .arg(target)
-                   .arg(scratch)
-                   .arg(0x34)
-                   .arg(1));
-    return true;
+    return guest.post(drakan_input::GuestCall(fn)
+                          .arg(obj + static_cast<uint32_t>(static_cast<int32_t>(adj)))
+                          .arg(sender)
+                          .arg(target)
+                          .arg(scratch)
+                          .arg(0x34)
+                          .arg(1));
 }
 
 // ------------------------------------------------------------------------------------------------- message hook
@@ -1488,7 +1488,6 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
 // Client: pending damage from host enemies, then the replays of object messages.
 void clientEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (g_pendingHurt > 0 && !g_life.dead && !guest.postBusy()) {
-        constexpr uint32_t kDamageMethod = 0x314ab0u, kScratch = 0x5b8480u;
         const uint32_t me = controlled(rdram);
         const uint32_t inner = ramPtr(me) ? rd32(rdram, me + 0xfc) : 0;
         const uint32_t data = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
@@ -1501,15 +1500,7 @@ void clientEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
             g_pendingHurt = 0;
             if (lethal) {
                 startDeath(rdram);
-            } else if (d > 0) {
-                guest.write32(drakan_region::guestAddress(kScratch), static_cast<uint32_t>(d));
-                guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kDamageMethod))
-                               .arg(data)
-                               .arg(drakan_region::guestAddress(kScratch))
-                               .arg(0)
-                               .arg(0)
-                               .arg(0)
-                               .arg(1));
+            } else if (d > 0 && drakan_combat_guest::postPlayerDamage(guest, data, static_cast<uint32_t>(d))) {
                 ++g_st.hurtApplied;
                 coopLog("client: took %d damage from a host enemy (hp %d)", d, hp);
             }
@@ -1950,11 +1941,10 @@ void healChest(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t chest
         coopLog("client: chest key %08x: %d loot items are still parked after %d tries", key, parked, cs.healTries);
         return;
     }
-    if (guest.postBusy())
+    if (guest.postBusy() || !guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kChestSpewFn)).arg(comp)))
         return;
     ++cs.healTries;
     cs.appliedMs = nowMs();
-    guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kChestSpewFn)).arg(comp));
     coopLog("client: chest key %08x: %d loot items never flew out, spewing again (try %d)", key, parked, cs.healTries);
 }
 
@@ -2012,12 +2002,12 @@ void pollChests(drakan_input::IGuest& guest, uint8_t* rdram) {
             if (st == kStateChestOpen) {
                 cs.pendingOpen = false;
                 cs.openSeen = true;
-            } else if (!guest.postBusy()) {
+            } else if (!guest.postBusy() &&
+                       guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kChestOpenFn)).arg(comp))) {
                 // The engine's own open routine: state 2, awake, and the message that swings the lid.
                 cs.pendingOpen = false;
                 cs.openSeen = true;
                 cs.opened = true;
-                guest.post(drakan_input::GuestCall(drakan_region::guestAddress(kChestOpenFn)).arg(comp));
                 rebaseLoot(rdram, h, now);
                 coopLog("%s: chest %08x (key %08x) was opened by the partner: opening it", g_host ? "host" : "client",
                         h, o.key);
@@ -2617,7 +2607,7 @@ void install(PS2Runtime& rt) {
     // Co-op rides on the multiplayer session (drakan_netplay): the hooks go in with the multiplayer module and stay
     // idle until the session is a Coop match that is playing (syncLink). DRAKAN_COOP=0 leaves them out.
     const char* off = std::getenv("DRAKAN_COOP");
-    if (!drakan_netplay::wanted() || (off && off[0] == '0'))
+    if (g_installed.load() || !drakan_netplay::wanted() || (off && off[0] == '0'))
         return;
     if (!drakan_lifecycle::installed()) {
         coopLog("disabled: lifecycle hooks are not installed (unsupported disc profile)");
@@ -2718,15 +2708,17 @@ void install(PS2Runtime& rt) {
         coopLog("disabled: no free function slot");
         return;
     }
-    if (const uint32_t sendAddr = drakan_region::guestAddress(0x171150u)) {
-        if ((g_origSend = rt.lookupFunction(sendAddr)))
-            rt.replaceFunction(sendAddr, &hookSend);
+    if (const uint32_t sendAddr = drakan_region::guestAddress(0x171150u); rt.hasFunction(sendAddr)) {
+        const auto original = rt.lookupFunction(sendAddr);
+        if (rt.replaceFunction(sendAddr, &hookSend))
+            g_origSend = original;
     }
     if (!g_origSend)
         coopLog("warning: message hook not installed (combat and object sync off)");
-    if (const uint32_t spewAddr = drakan_region::guestAddress(kChestSpewFn)) {
-        if ((g_origSpew = rt.lookupFunction(spewAddr)))
-            rt.replaceFunction(spewAddr, &hookSpew);
+    if (const uint32_t spewAddr = drakan_region::guestAddress(kChestSpewFn); rt.hasFunction(spewAddr)) {
+        const auto original = rt.lookupFunction(spewAddr);
+        if (rt.replaceFunction(spewAddr, &hookSpew))
+            g_origSpew = original;
     }
     if (!g_origSpew)
         coopLog("warning: chest spew hook not installed (chest loot is not shared)");

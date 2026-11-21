@@ -309,6 +309,8 @@ public:
     void postAfterGuestCycles(uint64_t cycles, std::function<void()> fn);
     void postGuestCall(uint32_t pc, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
                        std::function<void(uint32_t)> done, int priority = 1);
+    void postGuestCall(uint32_t pc, const std::array<uint32_t, 8>& integers, const std::array<float, 8>& floats,
+                       std::function<void(uint32_t)> done, int priority);
     [[noreturn]] void invokeCurrent(GuestInvocation invocation);
     [[noreturn]] void invokeCurrentSequence(std::vector<GuestInvocation> invocations);
     [[nodiscard]] bool hasInvocation(GuestInvocationKind kind, uint64_t tag) const;

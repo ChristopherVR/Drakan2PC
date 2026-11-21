@@ -100,12 +100,24 @@ Explicit legacy signs, inversion and sensitivity are preserved during the versio
 
 ## Wiring into drakan_overrides.cpp
 
-The real API (`PS2Runtime::replaceFunction(addr, void(*)(uint8_t* rdram, R5900Context*, PS2Runtime*))`, `lookupFunction`,
-`getRegU32`, `SET_GPR_U32`, `ctx->f[]`, return = `ctx->pc = $ra`) is used below. An "after" hook = fetch the original with
-`lookupFunction` *before* replacing, call it, then do the extra work. Save `$a0..$a2` first: the original clobbers them.
+For an after hook, check `hasFunction` before obtaining the original with
+`lookupFunction`. Install the replacement with `replaceFunction`, call
+the original and then do the extra work. Save any needed argument
+registers before calling the original.
+
+Use `IGuest::tryCall` for an audited nonblocking routine. It returns
+`$v0` on completion, including zero, or an empty result if dispatch
+cannot finish. `call` provides a zero fallback for callers that already
+treat zero as failure. Use `IGuest::post` for routines that can block,
+and check the returned acceptance before recording a request as queued.
+A successful post can still be in flight. Keep guest pointers and shared
+scratch storage valid until the scheduler returns from the call.
+`GuestCall` accepts up to eight integer and eight floating-point
+register arguments and rejects an overflowed request.
 
 ```cpp
 #include "input/DrakanInput.h"   // add decomp/runtime/input/include to the include path, link drakan_input
+#include "drakan_guest_call.h"
 
 namespace {
 using namespace drakan_input;
@@ -118,16 +130,8 @@ public:
     uint32_t read32(uint32_t a) override { uint32_t v; std::memcpy(&v, rdram_ + (a & PS2_RAM_MASK), 4); return v; }
     void write8(uint32_t a, uint8_t v) override { rdram_[a & PS2_RAM_MASK] = v; }
     void write32(uint32_t a, uint32_t v) override { std::memcpy(rdram_ + (a & PS2_RAM_MASK), &v, 4); }
-    uint32_t call(const GuestCall& c) override {
-        // VERIFIED version (see drakan_input_glue.cpp): the callee wants pc == its entry, returns by storing $ra into pc.
-        auto tmp = std::make_unique<R5900Context>(*ctx_);          // R5900Context is large: keep it off the stack
-        for (int i = 0; i < c.ni; ++i) SET_GPR_U32(tmp.get(), 4 + i, c.i[i]);   // $a0.. = $4..
-        for (int i = 0; i < c.nf; ++i) tmp->f[12 + i] = c.f[i];                  // $f12.. (EABI floats)
-        SET_GPR_U32(tmp.get(), 31, 0);  tmp->pc = c.addr;  tmp->in_delay_slot = false;   // $ra = 0: "finished" marker
-        ps2xNoPreemptEnter();                                       // thread-local guard checked by EeScheduler::checkpointDue
-        for (int g = 0; g < 64 && tmp->pc != 0; ++g) rt_->lookupFunction(tmp->pc)(rdram_, tmp.get(), rt_);
-        ps2xNoPreemptLeave();
-        return getRegU32(tmp.get(), 2);
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override {
+        return drakan_guest::callImmediate(rdram_, *ctx_, *rt_, c);
     }
 private:
     uint8_t* rdram_; R5900Context* ctx_; PS2Runtime* rt_;

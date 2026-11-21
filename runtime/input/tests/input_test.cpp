@@ -57,7 +57,7 @@ struct FakeGuest : IGuest {
         mem[a] = v & 255;
         mem[a + 1] = v >> 8;
     }
-    uint32_t call(const GuestCall& c) override {
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override {
         calls.push_back(c);
         auto it = stubs.find(c.addr);
         return it == stubs.end() ? 0u : it->second(c);
@@ -67,13 +67,12 @@ struct FakeGuest : IGuest {
     bool asyncPost = false;
     bool busy = false;
     std::vector<GuestCall> posted;
-    void post(const GuestCall& c) override {
-        if (!asyncPost) {
-            call(c);
-            return;
-        }
+    bool enqueueCall(const GuestCall& c) override {
+        if (!asyncPost)
+            return callImmediate(c).has_value();
         posted.push_back(c);
         busy = true;
+        return true;
     }
     bool postBusy() const override { return busy; }
 };
@@ -397,9 +396,9 @@ static void testWalkControl() {
     auto checkCommand = [&](bool down) {
         int count = 0;
         for (const auto& call : g.calls)
-            if (call.addr == c.addrInvokeCallback && call.i[1] == 0x4010) {
-                CHECK(call.i[0] == c.addrPadMgr && call.i[2] == 0);
-                CHECK(call.i[3] == (down ? 1u : 0u));
+            if (call.addr == c.addrInvokeCallback && call.integerRegisters()[1] == 0x4010) {
+                CHECK(call.integerRegisters()[0] == c.addrPadMgr && call.integerRegisters()[2] == 0);
+                CHECK(call.integerRegisters()[3] == (down ? 1u : 0u));
                 ++count;
             }
         CHECK(count == 1);
@@ -584,10 +583,10 @@ static void testCamera() {
             turn = &cl;
     CHECK(turn != nullptr);
     if (turn) {
-        CHECK(turn->nf == 1 && turn->ni == 2);
-        NEAR(turn->f[0], -0.1, 1e-6);     // -dx*sens
-        CHECK(turn->i[0] == HEAD + 0x14); // *(player+0x80)+0x14
-        CHECK(turn->i[1] == 0x4e8c48);
+        CHECK(turn->floats().size() == 1 && turn->integers().size() == 2);
+        NEAR(turn->floatRegisters()[0], -0.1, 1e-6);       // -dx*sens
+        CHECK(turn->integerRegisters()[0] == HEAD + 0x14); // *(player+0x80)+0x14
+        CHECK(turn->integerRegisters()[1] == 0x4e8c48);
     }
     // consumed: a second call in the same frame does nothing
     size_t n = g.calls.size();
@@ -636,10 +635,10 @@ static void testCamera() {
     for (auto& cl : g2.calls)
         if (cl.addr == c2.addrTurnFn)
             t2 = &cl;
-    CHECK(t2 && t2->nf == 0 && t2->ni == 3);
-    if (t2 && t2->ni == 3) {
+    CHECK(t2 && t2->floats().size() == 0 && t2->integers().size() == 3);
+    if (t2 && t2->integers().size() == 3) {
         float a;
-        uint32_t b = t2->i[0];
+        uint32_t b = t2->integerRegisters()[0];
         std::memcpy(&a, &b, 4);
         NEAR(a, -0.05, 1e-6);
     }
@@ -1171,9 +1170,11 @@ static void testCommands() {
     for (auto& c : g.calls)
         if (c.addr == 0x131fa8)
             inv = &c;
-    CHECK(inv && inv->ni == 5);
-    if (inv && inv->ni == 5) {
-        CHECK(inv->i[0] == PAD && inv->i[1] == 0x403a && inv->i[2] == 0x0e && inv->i[3] == 1 && inv->i[4] == 1234);
+    CHECK(inv && inv->integers().size() == 5);
+    if (inv && inv->integers().size() == 5) {
+        CHECK(inv->integerRegisters()[0] == PAD && inv->integerRegisters()[1] == 0x403a &&
+              inv->integerRegisters()[2] == 0x0e && inv->integerRegisters()[3] == 1 &&
+              inv->integerRegisters()[4] == 1234);
     }
     // held: no new events; release: one release
     g.calls.clear();
@@ -1182,14 +1183,15 @@ static void testCommands() {
     m.afterPadMgrUpdate(g);
     CHECK(g.calls.empty());
     for (auto& c : g.calls)
-        std::printf("call %x ni=%d i1=%x i2=%x i3=%x\n", c.addr, c.ni, c.i[1], c.i[2], c.i[3]);
+        std::printf("call %x ni=%zu i1=%x i2=%x i3=%x\n", c.addr, c.integers().size(), c.integerRegisters()[1],
+                    c.integerRegisters()[2], c.integerRegisters()[3]);
     f.keyDown.reset();
     f.keyReleased[static_cast<size_t>(d)] = true;
     m.beginFrame(f);
     m.afterPadMgrUpdate(g);
     int rel = 0;
     for (auto& c : g.calls)
-        if (c.addr == 0x131fa8 && c.i[3] == 0)
+        if (c.addr == 0x131fa8 && c.integerRegisters()[3] == 0)
             ++rel;
     CHECK(rel == 1);
     // unmapped action ids are skipped
@@ -1260,9 +1262,9 @@ static void testMenuAndCapture() {
     for (auto& cl : g.calls)
         if (cl.addr == 0xCCCC00)
             sc = &cl;
-    CHECK(sc && sc->ni == 3);
-    if (sc && sc->ni == 3)
-        CHECK(sc->i[0] == PAD && sc->i[1] == 320 && sc->i[2] == 224);
+    CHECK(sc && sc->integers().size() == 3);
+    if (sc && sc->integers().size() == 3)
+        CHECK(sc->integerRegisters()[0] == PAD && sc->integerRegisters()[1] == 320 && sc->integerRegisters()[2] == 224);
     // menu layer: W = dpad up, sticks centred; LMB is not Cross any more (MenuMouse handles the click natively), RMB =
     // Circle
     PadSample s = sampleOf(m, [] {
@@ -1547,12 +1549,12 @@ static void testMenuMouse() {
     p.down = MBTN_LEFT;
     g.calls.clear();
     mm.update(g, p, view, 5000);
-    CHECK(callsTo(0x302000) == 1 && g.calls.back().i[1] == 3);
+    CHECK(callsTo(0x302000) == 1 && g.calls.back().integerRegisters()[1] == 3);
     CHECK(g.read32(0x4fb19c) == C);
     MenuMouseSample q = sample(100, 275);
     q.released = MBTN_LEFT;
     mm.update(g, q, view, 5000);
-    CHECK(callsTo(0x302000) == 2 && g.calls.back().i[1] == 2);
+    CHECK(callsTo(0x302000) == 2 && g.calls.back().integerRegisters()[1] == 2);
     CHECK(g.read32(0x4fb19c) == 0);
     // press on C, drag off it, release outside: no activation for a button
     g.calls.clear();
@@ -1607,7 +1609,8 @@ static void testMenuMouse() {
     p.pressed = p.down = MBTN_LEFT;
     mm.update(g, p, view, 5000);
     // track 512, thumb = 10 / 100 * 512 = 51 wide at (512 - 51) / 2 = 230: centre 255
-    CHECK(g.posted.size() == 1 && g.posted[0].addr == 0x302000 && g.posted[0].i[1] == 3 && g.posted[0].i[2] == 255);
+    CHECK(g.posted.size() == 1 && g.posted[0].addr == 0x302000 && g.posted[0].integerRegisters()[1] == 3 &&
+          g.posted[0].integerRegisters()[2] == 255);
     CHECK(callsTo(0x302000) == 0); // nothing runs nested in the hook
     CHECK(g.read32(0x4fb19c) == C);
     MenuMouseSample held = sample(60, 275);
@@ -1616,12 +1619,13 @@ static void testMenuMouse() {
     CHECK(g.posted.size() == 1);
     g.busy = false;
     mm.update(g, held, view, 5000);
-    CHECK(g.posted.size() == 2 && g.posted[1].addr == 0x302100 && g.posted[1].i[2] == 60); // drag to the click
+    CHECK(g.posted.size() == 2 && g.posted[1].addr == 0x302100 &&
+          g.posted[1].integerRegisters()[2] == 60); // drag to the click
     q = sample(60, 275);
     q.released = MBTN_LEFT;
     g.busy = false;
     mm.update(g, q, view, 5000);
-    CHECK(g.posted.size() == 3 && g.posted[2].addr == 0x302000 && g.posted[2].i[1] == 2);
+    CHECK(g.posted.size() == 3 && g.posted[2].addr == 0x302000 && g.posted[2].integerRegisters()[1] == 2);
     CHECK(g.read32(0x4fb19c) == C); // release still running
     g.busy = false;
     mm.update(g, sample(60, 275), view, 5000);
@@ -1717,7 +1721,7 @@ static void testMenuMouse() {
             click.pressed = click.down = 0;
             click.released = MBTN_LEFT;
             dialog.update(g, click, modalView, 5000);
-            CHECK(callsTo(0x302000) == 2 && g.calls.back().i[1] == 2);
+            CHECK(callsTo(0x302000) == 2 && g.calls.back().integerRegisters()[1] == 2);
             click = sample(10 * scale, 205);
             click.pressed = click.down = MBTN_LEFT;
             g.calls.clear();
@@ -1822,7 +1826,7 @@ static void testOwnershipFollowup() {
         int releases = 0, presses = 0;
         for (const auto& call : guest.calls)
             if (call.addr == 0x131fa8) {
-                if (call.i[3])
+                if (call.integerRegisters()[3])
                     ++presses;
                 else
                     ++releases;
@@ -1943,7 +1947,7 @@ static void testLookAndCombatFollowup() {
         NEAR(guest.readF(CAM + 0x84), inverse ? -.03f : .03f, 1e-6);
         for (const auto& call : guest.calls)
             if (call.addr == c.addrTurnFn)
-                NEAR(call.f[0], inverse ? .04f : -.04f, 1e-6);
+                NEAR(call.floatRegisters()[0], inverse ? .04f : -.04f, 1e-6);
         c.lookMode = LookMode::Stick;
         InputModule stick;
         stick.initHeadless(legacyPitch(c));
@@ -1960,7 +1964,7 @@ static void testLookAndCombatFollowup() {
         m.initHeadless(legacyPitch(Config::defaults()));
         float yaw = 0;
         g.stubs[m.config().addrTurnFn] = [&](const GuestCall& call) {
-            yaw += call.f[0];
+            yaw += call.floatRegisters()[0];
             return 0u;
         };
         FrameInput f;
@@ -2434,7 +2438,7 @@ static void testMouseDisplacementOwnership() {
             setupCamera(g, 0, 0.6283f);
             float yaw = 0;
             g.stubs[c.addrTurnFn] = [&](const GuestCall& call) {
-                yaw += call.f[0];
+                yaw += call.floatRegisters()[0];
                 return 0u;
             };
             // Equal total counts over one second, camera only runs every other sample.
@@ -2472,7 +2476,7 @@ static void testMouseDisplacementOwnership() {
         setupCamera(g, 0, 0.6283f);
         float yaw = 0;
         g.stubs[c.addrTurnFn] = [&](const GuestCall& call) {
-            yaw += call.f[0];
+            yaw += call.floatRegisters()[0];
             return 0u;
         };
         FrameInput f;
@@ -2583,7 +2587,7 @@ static void testNativePitchVetoes() {
         guest.write32(VT + 0x17c, 0x32cda8);
         guest.write16(VT + 0x178, 0xfffc);
         guest.stubs[0x32cda8] = [&](const GuestCall& call) {
-            CHECK(call.ni == 1 && call.i[0] == PLAYER - 4);
+            CHECK(call.integers().size() == 1 && call.integerRegisters()[0] == PLAYER - 4);
             return 0u;
         };
         t.beginFrame(mouse);
@@ -2605,7 +2609,7 @@ static void testNativePitchVetoes() {
     for (const auto& call : g.calls)
         if (call.addr == c.addrTurnFn) {
             turned = true;
-            NEAR(call.f[0], -.02f, 1e-6);
+            NEAR(call.floatRegisters()[0], -.02f, 1e-6);
         }
     CHECK(turned);
     NEAR(g.readF(CAM + 0x84), 0, 1e-6);
@@ -3172,11 +3176,11 @@ static void testHeldMouseBowSight() {
     m.beginFrame(FrameInput{});
     m.afterPadMgrUpdate(g);
     CHECK(g.calls.size() == 2 && g.calls.back().addr == c.addrInvokeCallback);
-    CHECK(g.calls.back().i[1] == 0x4007 && g.calls.back().i[3] == 1);
+    CHECK(g.calls.back().integerRegisters()[1] == 0x4007 && g.calls.back().integerRegisters()[3] == 1);
     m.setSuspended(true);
     m.beginFrame(FrameInput{});
     m.afterPadMgrUpdate(g);
-    CHECK(g.calls.size() == 4 && g.calls.back().i[3] == 0); // release even on ownership loss
+    CHECK(g.calls.size() == 4 && g.calls.back().integerRegisters()[3] == 0); // release even on ownership loss
     m.setSuspended(false);
     m.beginFrame(FrameInput{});
     m.afterPadMgrUpdate(g);
@@ -3221,7 +3225,7 @@ static void testFreeMouseCombat() {
     CHECK(m.afterCameraUpdateLook(g, PLAYER, LIM, false));
     NEAR(g.readF(CAM + 0x84), .1f, 1e-6);
     CHECK(g.calls.size() == 1 && g.calls[0].addr == c.addrTurnFn);
-    NEAR(g.calls[0].f[0], -.2f, 1e-6);
+    NEAR(g.calls[0].floatRegisters()[0], -.2f, 1e-6);
     CHECK(!m.afterCameraUpdateLook(g, PLAYER, LIM, false));
     for (uint32_t flags : {1u, 2u, 0x4000u, 0x8000u}) {
         g.write32(PLAYER + 0x94, flags);
@@ -3603,7 +3607,32 @@ static void testCameraFollowAndPitchGain() {
     NEAR(g.readF(CAM + 0x84), 0.1, 1e-6);
 }
 
+static void guestCallArguments() {
+    constexpr uint32_t address = 0x314ab0;
+    FakeGuest guest;
+    GuestCall call(address);
+    call.arg(10).arg(20).arg(30).arg(40).arg(50).arg(60).arg(70).arg(80);
+    for (unsigned i = 0; i < 8; ++i)
+        call.argf(static_cast<float>(i) + 0.5f);
+    CHECK(guest.tryCall(call) == 0u);
+    guest.asyncPost = true;
+    CHECK(guest.post(call));
+    CHECK(guest.calls.size() == 1 && guest.posted.size() == 1);
+    if (!guest.posted.empty()) {
+        CHECK(guest.posted.back().integers().size() == 8 && guest.posted.back().integerRegisters()[5] == 60);
+        CHECK(guest.posted.back().floats().size() == 8 && guest.posted.back().floatRegisters()[7] == 7.5f);
+    }
+    GuestCall tooManyFloats = call;
+    tooManyFloats.argf(9.0f);
+    CHECK(!guest.tryCall(call.arg(90)));
+    CHECK(!guest.post(tooManyFloats));
+    CHECK(!guest.tryCall(GuestCall(0)));
+    CHECK(!guest.post(GuestCall(address + 1)));
+    CHECK(guest.calls.size() == 1 && guest.posted.size() == 1);
+}
+
 int main() {
+    guestCallArguments();
     {
         InputModule basic;
         basic.setDirectLookAvailable(false);

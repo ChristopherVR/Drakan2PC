@@ -1,6 +1,7 @@
 #include "drakan_portable_camera.h"
 #include "drakan_config.h"
 #include "drakan_controlled_actor.h"
+#include "drakan_guest_call.h"
 #include "drakan_quick_inventory.h"
 #include "drakan_settings_host.h"
 #include "input/DrakanInput.h"
@@ -22,8 +23,6 @@
 #include <emscripten.h>
 #endif
 
-void ps2xNoPreemptEnter() noexcept;
-void ps2xNoPreemptLeave() noexcept;
 void drakanInstallPortableMenuHooks(PS2Runtime&);
 void drakanTickPortableMenuHooks(uint8_t*, R5900Context*, PS2Runtime*);
 void drakanPortableMenuBoundary(uint8_t*, R5900Context*, PS2Runtime*);
@@ -63,39 +62,15 @@ public:
     }
     void write8(uint32_t address, uint8_t value) override { memory_[address & kMask] = value; }
     void write32(uint32_t address, uint32_t value) override { std::memcpy(memory_ + (address & kMask), &value, 4); }
-    uint32_t call(const drakan_input::GuestCall& call) override {
+    std::optional<uint32_t> callImmediate(const drakan_input::GuestCall& call) override {
         if (g_quickInventory.intercept(
                 *this, call, !g_controls.menuActive() && g_controls.frame().focused && !g_controls.suspended(),
                 [](const char* text) { std::fputs(text, stderr); }))
             return 1;
-        if (!call.addr || !runtime_->hasFunction(call.addr))
-            return 0;
-        auto temporary = std::make_unique<R5900Context>(*context_);
-        for (int i = 0; i < call.ni; ++i)
-            SET_GPR_U32(temporary.get(), 4 + i, call.i[i]);
-        for (int i = 0; i < call.nf; ++i)
-            temporary->f[12 + i] = call.f[i];
-        SET_GPR_U32(temporary.get(), 31, 0);
-        temporary->pc = call.addr;
-        temporary->in_delay_slot = false;
-        struct NoPreempt {
-            NoPreempt() { ps2xNoPreemptEnter(); }
-            ~NoPreempt() { ps2xNoPreemptLeave(); }
-        } scope;
-        for (unsigned guard = 0; guard < 64 && temporary->pc; ++guard) {
-            auto function = runtime_->lookupFunction(temporary->pc);
-            if (!function)
-                return 0;
-            function(memory_, temporary.get(), runtime_);
-        }
-        return temporary->pc ? 0 : getRegU32(temporary.get(), 2);
+        return drakan_guest::callImmediate(memory_, *context_, *runtime_, call);
     }
-    void post(const drakan_input::GuestCall& call) override {
-        if (!call.addr || !runtime_->hasFunction(call.addr))
-            return;
-        ++g_postsPending;
-        runtime_->eeScheduler().postGuestCall(
-            call.addr, call.i[0], call.i[1], call.i[2], call.i[3], [](uint32_t) { --g_postsPending; }, 6);
+    bool enqueueCall(const drakan_input::GuestCall& call) override {
+        return drakan_guest::enqueueCall(*runtime_, call, g_postsPending);
     }
     bool postBusy() const override { return g_postsPending.load() != 0; }
 };

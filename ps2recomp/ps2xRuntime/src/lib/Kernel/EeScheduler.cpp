@@ -1190,7 +1190,12 @@ void EeScheduler::postAfterGuestCycles(uint64_t cycles, std::function<void()> fn
 
 void EeScheduler::postGuestCall(uint32_t pc, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3,
                                 std::function<void(uint32_t)> done, int priority) {
-    postHostTask([this, pc, a0, a1, a2, a3, priority, done = std::move(done)]() {
+    postGuestCall(pc, {a0, a1, a2, a3}, {}, std::move(done), priority);
+}
+
+void EeScheduler::postGuestCall(uint32_t pc, const std::array<uint32_t, 8>& integers,
+                                const std::array<float, 8>& floats, std::function<void(uint32_t)> done, int priority) {
+    postHostTask([this, pc, integers, floats, priority, done = std::move(done)]() {
         GuestInvocation invocation{};
         invocation.kind = GuestInvocationKind::HleCall;
         invocation.tag = static_cast<uint64_t>(priority);
@@ -1201,10 +1206,10 @@ void EeScheduler::postGuestCall(uint32_t pc, uint32_t a0, uint32_t a1, uint32_t 
             gp = getRegU32(&mainThread->context, 28);
         }
         SET_GPR_U32(&invocation.context, 28, gp);
-        SET_GPR_U32(&invocation.context, 4, a0);
-        SET_GPR_U32(&invocation.context, 5, a1);
-        SET_GPR_U32(&invocation.context, 6, a2);
-        SET_GPR_U32(&invocation.context, 7, a3);
+        for (size_t i = 0; i < integers.size(); ++i)
+            SET_GPR_U32(&invocation.context, static_cast<int>(4 + i), integers[i]);
+        for (size_t i = 0; i < floats.size(); ++i)
+            invocation.context.f[12 + i] = floats[i];
         SET_GPR_U32(&invocation.context, 29, 0u);
         SET_GPR_U32(&invocation.context, 31, 0u);
         invocation.onComplete = [done](const R5900Context& completed, R5900Context&) {

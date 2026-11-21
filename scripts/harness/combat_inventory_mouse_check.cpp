@@ -23,7 +23,7 @@ struct Guest : IGuest {
         for (int i = 0; i < 4; ++i)
             write8(a + i, uint8_t(v >> (i * 8)));
     }
-    uint32_t call(const GuestCall&) override {
+    std::optional<uint32_t> callImmediate(const GuestCall&) override {
         ++calls;
         return 0;
     }

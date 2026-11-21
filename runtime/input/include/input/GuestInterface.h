@@ -1,8 +1,12 @@
 // Abstract view of the recompiled PS2 guest, so the input module does not depend on PS2Recomp.
 // The runtime owner implements this once on top of rdram + R5900Context (see README.md).
 #pragma once
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
+#include <span>
 
 namespace drakan_input {
 
@@ -20,20 +24,34 @@ inline constexpr uint32_t kGuestRamEnd = 0x10000000u;
 // A module that wants "everything in GPRs" simply passes float bit patterns as integers.
 struct GuestCall {
     uint32_t addr = 0;
-    uint32_t i[8] = {};
-    int ni = 0;
-    float f[8] = {};
-    int nf = 0;
     GuestCall() = default;
     explicit GuestCall(uint32_t a) : addr(a) {}
     GuestCall& arg(uint32_t v) {
-        i[ni++] = v;
+        if (integerCount_ < integerRegisters_.size())
+            integerRegisters_[integerCount_++] = v;
+        else
+            overflow_ = true;
         return *this;
     }
     GuestCall& argf(float v) {
-        f[nf++] = v;
+        if (floatCount_ < floatRegisters_.size())
+            floatRegisters_[floatCount_++] = v;
+        else
+            overflow_ = true;
         return *this;
     }
+    bool valid() const { return addr != 0 && (addr & 3u) == 0 && !overflow_; }
+    std::span<const uint32_t> integers() const { return {integerRegisters_.data(), integerCount_}; }
+    std::span<const float> floats() const { return {floatRegisters_.data(), floatCount_}; }
+    const std::array<uint32_t, 8>& integerRegisters() const { return integerRegisters_; }
+    const std::array<float, 8>& floatRegisters() const { return floatRegisters_; }
+
+private:
+    std::array<uint32_t, 8> integerRegisters_{};
+    std::array<float, 8> floatRegisters_{};
+    std::size_t integerCount_ = 0;
+    std::size_t floatCount_ = 0;
+    bool overflow_ = false;
 };
 
 class IGuest {
@@ -44,14 +62,17 @@ public:
     virtual uint32_t read32(uint32_t addr) = 0;
     virtual void write8(uint32_t addr, uint8_t v) = 0;
     virtual void write32(uint32_t addr, uint32_t v) = 0;
-    // Call a (recompiled) guest function to completion and return $v0 (low 32 bits).
-    // Must be safe to call from inside a replaced-function hook (use a copy of the current context).
-    virtual uint32_t call(const GuestCall& c) = 0;
+    // Run a known nonblocking guest routine on a copy of the current context. A completed call returns $v0,
+    // including a legitimate zero. An invalid, unavailable, or incomplete call has no value.
+    [[nodiscard]] std::optional<uint32_t> tryCall(const GuestCall& c) {
+        return c.valid() ? callImmediate(c) : std::nullopt;
+    }
+    uint32_t call(const GuestCall& c) { return tryCall(c).value_or(0); }
     // Queue a guest call to run on its own scheduler-owned guest thread (like an RPC server thread) instead of nested
     // inside the hook. Use it for calls that can wait on a semaphore (sound resource loads): a wait inside call()
-    // cannot be continued and would abandon the call with its locks held. Fire and forget; the default runs it
-    // synchronously.
-    virtual void post(const GuestCall& c) { call(c); }
+    // cannot be continued and would abandon the call with its locks held. Returns whether the request was accepted.
+    // Only adapters with a guest scheduler can enqueue calls in the game.
+    bool post(const GuestCall& c) { return c.valid() && enqueueCall(c); }
     // True while a post()ed call has not finished yet (always false for the synchronous default).
     virtual bool postBusy() const { return false; }
 
@@ -70,6 +91,10 @@ public:
         std::memcpy(&v, &f, 4);
         write32(a, v);
     }
+
+protected:
+    virtual std::optional<uint32_t> callImmediate(const GuestCall& c) = 0;
+    virtual bool enqueueCall(const GuestCall&) { return false; }
 };
 
 } // namespace drakan_input

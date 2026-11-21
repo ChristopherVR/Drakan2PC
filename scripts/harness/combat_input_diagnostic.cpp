@@ -15,7 +15,7 @@ struct Guest : IGuest {
         for (int i = 0; i < 4; ++i)
             write8(a + i, uint8_t(v >> (i * 8)));
     }
-    uint32_t call(const GuestCall& c) override {
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override {
         calls.push_back(c);
         return 100;
     }
@@ -107,7 +107,7 @@ int main() {
     unsigned releaseCalls = 0, pressCalls = 0;
     for (const auto& c : guest.calls)
         if (c.addr == cfg.addrInvokeCallback) {
-            if (c.i[3])
+            if (c.integerRegisters()[3])
                 ++pressCalls;
             else
                 ++releaseCalls;
@@ -125,7 +125,7 @@ int main() {
     releaseCalls = pressCalls = 0;
     for (const auto& c : guest.calls)
         if (c.addr == cfg.addrInvokeCallback) {
-            if (c.i[3])
+            if (c.integerRegisters()[3])
                 ++pressCalls;
             else
                 ++releaseCalls;

@@ -10,6 +10,7 @@
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "drakan_config.h"
+#include "drakan_guest_call.h"
 #include "drakan_language_policy.h"
 #include "input/DrakanInput.h"
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
@@ -146,36 +147,13 @@ public:
     void write8(uint32_t a, uint8_t v) override { ram_[a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)] = v; }
     void write32(uint32_t a, uint32_t v) override { std::memcpy(ram_ + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), &v, 4); }
     uint32_t scratch(uint32_t off) const { return sp_ - 0x400u + off; }
-    uint32_t call(const GuestCall& c) override { return callWith(nullptr, c); }
-    // `first` overrides the function table entry for the first invocation (the original of a replaced function).
-    uint32_t callWith(PS2Runtime::RecompiledFunction first, const GuestCall& c) {
-        if (c.addr == 0 || (!first && !rt_->hasFunction(c.addr)))
-            return 0;
-        auto tmp = std::make_unique<R5900Context>(*ctx_);
-        for (int i = 0; i < c.ni; ++i)
-            SET_GPR_U32(tmp.get(), 4 + i, c.i[i]);
-        for (int i = 0; i < c.nf; ++i)
-            tmp->f[12 + i] = c.f[i];
-        SET_GPR_U32(tmp.get(), 29, sp_ - 0x800u);
-        SET_GPR_U32(tmp.get(), 31, 0);
-        tmp->pc = c.addr;
-        tmp->in_delay_slot = false;
-        {
-            const ScopedEeNoPreempt noPreempt;
-            for (int guard = 0; guard < 64 && tmp->pc != 0u; ++guard) {
-                PS2Runtime::RecompiledFunction fn = first;
-                first = nullptr;
-                if (!fn) {
-                    if (!rt_->hasFunction(tmp->pc))
-                        break;
-                    fn = rt_->lookupFunction(tmp->pc);
-                }
-                fn(ram_, tmp.get(), rt_);
-            }
-        }
-        if (tmp->pc != 0u)
-            std::fprintf(stderr, "[menus] nested call 0x%x did not finish (pc=0x%x)\n", c.addr, tmp->pc);
-        return getRegU32(tmp.get(), 2);
+    std::optional<uint32_t> callImmediate(const GuestCall& c) override { return callWith(nullptr, c); }
+    // The original overrides the dispatch table for the first call only.
+    std::optional<uint32_t> callWith(PS2Runtime::RecompiledFunction original, const GuestCall& c) {
+        auto result = drakan_guest::callImmediate(ram_, *ctx_, *rt_, c, {.original = original, .stack = sp_ - 0x800u});
+        if (!result)
+            std::fprintf(stderr, "[menus] nested call 0x%x failed\n", c.addr);
+        return result;
     }
 
 private:
@@ -457,7 +435,7 @@ void hookAnySave(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     for (int p = 0; p < g_pages; ++p) {
         const int q = (keep + p) % g_pages; // the visible page first
         writeSlotNames(g, q);
-        const uint32_t r = g.callWith(g_origAnySave, GuestCall(kAnySave).arg(0));
+        const uint32_t r = g.callWith(g_origAnySave, GuestCall(kAnySave).arg(0)).value_or(0);
         if (first)
             result = r;
         first = false;
