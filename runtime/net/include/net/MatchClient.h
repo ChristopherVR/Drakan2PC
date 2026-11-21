@@ -88,7 +88,7 @@ public:
     MatchOutcome outcome() const;
 
     // Outgoing. All are no-ops (false) until connected.
-    bool sendState(PlayerState state);                              // fills player + sequence
+    bool sendState(PlayerState state); // fills player + sequence
     bool sendHit(PlayerId victim, uint8_t weapon, uint16_t damage, bool dragon = false);
     bool sendChat(const std::string& text);
     bool sendLoadDone();

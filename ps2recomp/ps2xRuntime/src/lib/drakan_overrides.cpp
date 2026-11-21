@@ -1556,7 +1556,8 @@ void campaignCreditsCopyHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) 
         // s5 is the byte offset in its array of two block pointers.
         const uint32_t block = getRegU32(ctx, 21), dest = getRegU32(ctx, 4), size = getRegU32(ctx, 6);
         if ((block == 0 || block == 4) && size <= (64u << 10) && guestOk(dest, size)) {
-            const auto id = block == 0 ? hle::CampaignCreditsOverride::kFirstId : hle::CampaignCreditsOverride::kSecondId;
+            const auto id =
+                block == 0 ? hle::CampaignCreditsOverride::kFirstId : hle::CampaignCreditsOverride::kSecondId;
             if (g_campaignCreditsText->copyBlock(id, rdram + (dest & 0x1FFFFFFFu), size)) {
                 SET_GPR_U32(ctx, 2, dest);
                 ctx->pc = g_creditsCopyRa;
@@ -1653,8 +1654,8 @@ std::optional<std::array<uint16_t, N>> creditsArtworkIds(const std::vector<std::
 }
 
 void installCreditsArtwork(PS2Runtime& runtime, const hle::mods::ModManager& mods) {
-    if (!drakan_region::build().identityAddresses || !runtime.hasFunction(0x2be488u) || !runtime.hasFunction(0x4295d8u) ||
-        !runtime.hasFunction(0x12c3f0u) || !runtime.hasFunction(0x1bf6e0u))
+    if (!drakan_region::build().identityAddresses || !runtime.hasFunction(0x2be488u) ||
+        !runtime.hasFunction(0x4295d8u) || !runtime.hasFunction(0x12c3f0u) || !runtime.hasFunction(0x1bf6e0u))
         return;
     for (const auto& st : mods.status()) {
         const auto& m = st.manifest;

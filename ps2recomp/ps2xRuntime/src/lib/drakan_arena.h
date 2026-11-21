@@ -90,10 +90,10 @@ void setLocalPlayer(uint8_t id);
 void onPickupState(const drakan::net::PickupState& state);
 void setNeutralDragon(const std::optional<drakan::net::NeutralDragonState>& state);
 bool hidesWorldActor(uint32_t handle);
-uint32_t ownedDragon();                                         // EE thread
-std::optional<uint8_t> dragonOwner();                           // EE thread, set only during Master of the Dragon
-bool takePickupClaim(uint16_t& index);                          // net::PickupClaim to send; false when none
-void releaseDragonOnWorldDeath();                               // EE thread, before the local respawn
+uint32_t ownedDragon();                // EE thread
+std::optional<uint8_t> dragonOwner();  // EE thread, set only during Master of the Dragon
+bool takePickupClaim(uint16_t& index); // net::PickupClaim to send; false when none
+void releaseDragonOnWorldDeath();      // EE thread, before the local respawn
 
 // ---- the PvP glue (drakan_pvp) ----
 // EE thread. Move the controlled actor to spawn point `index` (the server's Respawn.spawnIndex); false when the map has

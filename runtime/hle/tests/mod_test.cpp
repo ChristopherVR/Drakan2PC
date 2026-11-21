@@ -1047,13 +1047,12 @@ int main() {
         CHECK(m.id == "j1" && m.profiles[0] == "pal" && m.profileHashes[0] == "ABCDEF" && m.loadAfter[0] == "x" &&
               m.dependencies.size() == 2);
         // A custom campaign (docs/reference/modding.md "Campaign packs").
-        CHECK(
-            parseManifest("id = \"c1\"\nlevels = [\"A Copy\", \"B Copy\"]\ncampaign = \"test-valley\"\n"
-                          "campaign_name = \"The Test Valley\"\ncampaign_description = \"Two levels.\"\n"
-                          "campaign_start = \"A Copy\"\ncampaign_saves = \"testvalley\"\n"
-                          "campaign_credits_music = 7\ncampaign_credits_logos = [81, 82, 83]\n"
-                          "campaign_credits_backdrop = [91, 92, 93, 94, 95, 96]\n[target]\nprofile = \"pal\"\n",
-                          false, m, err));
+        CHECK(parseManifest("id = \"c1\"\nlevels = [\"A Copy\", \"B Copy\"]\ncampaign = \"test-valley\"\n"
+                            "campaign_name = \"The Test Valley\"\ncampaign_description = \"Two levels.\"\n"
+                            "campaign_start = \"A Copy\"\ncampaign_saves = \"testvalley\"\n"
+                            "campaign_credits_music = 7\ncampaign_credits_logos = [81, 82, 83]\n"
+                            "campaign_credits_backdrop = [91, 92, 93, 94, 95, 96]\n[target]\nprofile = \"pal\"\n",
+                            false, m, err));
         CHECK(m.campaign == "test-valley" && m.campaignName == "The Test Valley" &&
               m.campaignDescription == "Two levels." && m.campaignStart == "A Copy" && m.campaignSaves == "testvalley");
         CHECK(m.campaignCreditsMusic == "7");

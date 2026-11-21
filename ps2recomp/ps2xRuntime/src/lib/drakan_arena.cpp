@@ -194,7 +194,7 @@ std::atomic<uint8_t> g_local{0};
 std::atomic<uint32_t> g_sessionSerial{0}; // changes with every setSession(true, ...)
 
 std::deque<drakan::net::PickupState> g_pickupEvents; // g_sessM
-std::deque<uint16_t> g_claims;          // g_sessM
+std::deque<uint16_t> g_claims;                       // g_sessM
 
 // ---------------------------------------------------------------------------------------------------- EE thread
 
