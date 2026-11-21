@@ -53,3 +53,6 @@ b9ab477eedca0d9ba83c17fc814e05a2f50cbe9c
 
 # style(repo): Apply C++ formatting before CI
 e63ea054dbe8537c6aeaaa2d6cd55c778d32a4cb
+
+# style(repo): Fix clang-format failures on main
+2abcb1f5b91a95b899e1e31d0fb2410cd0849c25
