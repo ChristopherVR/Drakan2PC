@@ -10,6 +10,18 @@ Note: `docs/reference/iop-and-io.md` quotes libpad entry points 4 bytes off for 
 `scePadInit` 0x4b0948, `PortOpen` 0x4b0ba8, `Read` 0x4b0ef8, `GetState` 0x4b0f78, `SetMainMode` 0x4b1490, `SetActDirect` 0x4b1548.
 Use the `functions.csv` entry addresses for hooks.
 
+## Gamepad layout on foot
+
+In Settings > Controls > Gamepad, **On-foot stick layout** defaults to **Automatic**. Order of the Flame uses left
+stick for forward/back and strafe, and right stick for turning Rynn and looking up/down. Other campaigns use the
+selected native controller scheme. Select **Twin-stick** to use the new layout in any campaign or **Native** to use
+the game's controller scheme. The same choice is saved in `drakan_input.ini` as `[gamepad] layout = auto | native |
+twin_stick`.
+
+Twin-stick takes the horizontal turn sensitivity from the native turn axis and uses **Camera follow** to carry the
+view with Rynn as she turns. Vertical look uses the game's controller inversion setting. Menus, spell gestures and
+mounted play use the native stick mapping.
+
 ## Arokh on mouse and keyboard (2026-11-16)
 
 `[mouse] dragon_mode = mouse` (default from controls v3; `direct` is the same value) steers the controlled Arokh like

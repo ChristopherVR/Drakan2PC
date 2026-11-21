@@ -784,7 +784,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     menuScreensTick(rdram, c, rt, g); // the modern title / Save / Load screens (after the pause: input mode)
     quickSaveTick(rdram, c, rt, g, scr, gameplay);
     if (!(g_skipBits & 8)) {
-        beforePadMgrUpdate(g, g_dragon.load());
+        beforePadMgrUpdate(g, g_dragon.load(), drakan_game::current() == drakan_game::Game::Ootf);
         updateBowAim(g);
     }
     drakan_parry_audit::frame = upcoming;
@@ -1378,7 +1378,8 @@ bool drakanInputAutostartReady(int playRun) {
 
 void drakanInputBeforePadMgr(uint8_t* ram, R5900Context* context, PS2Runtime* runtime) {
     RecompGuest guest(ram, context, runtime);
-    module().beforePadMgrUpdate(guest, module().controlledDragon(guest));
+    module().beforePadMgrUpdate(guest, module().controlledDragon(guest),
+                                drakan_game::current() == drakan_game::Game::Ootf);
 }
 
 // The debug menu around the basic-input PadMgr hook (drakan_overrides.cpp, discs without AdvancedInput).

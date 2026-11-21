@@ -33,6 +33,7 @@ constexpr int kDebugMenuHoldMs = 500;
 //   Always:   whenever a movement key is held (the 2026-11-05 behaviour; walking while attacking is not possible).
 //   Off:      never; use the D-pad bindings (arrow keys) for special moves.
 enum class DirectionalAttackMode { Modifier, Tap, Always, Off };
+enum class GamepadLayout { Auto, Native, TwinStick };
 constexpr float kDirectionalTapSeconds = 0.25f;
 const char* directionalAttackModeName(DirectionalAttackMode m); // "modifier" | "tap" | "always" | "off"
 bool directionalAttackModeFromName(const std::string& name, DirectionalAttackMode* m);
@@ -98,6 +99,7 @@ struct Config {
     // [gamepad]
     bool gamepadEnabled = true;
     float gamepadDeadzone = 0.15f;
+    GamepadLayout gamepadLayout = GamepadLayout::Auto;
     // [gamepad] debug_menu_combo: controller buttons held together for kDebugMenuHoldMs open / close the debug menu
     // (DualShock mask; 0 = none). Default L3 + R3: both stick clicks, which have no game function.
     uint16_t debugMenuCombo = 0x200 | 0x400;

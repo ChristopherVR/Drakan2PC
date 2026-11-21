@@ -453,6 +453,18 @@ static void testBindings() {
         CHECK_EQ(settingLabel("input.gamepad.debug_menu_combo"), "Debug menu shortcut");
     }
     {
+        SettingsStore store;
+        store.loadFromText("", "[gamepad]\nenabled = 1\n");
+        Settings s = store.loaded();
+        CHECK_EQ(s.controls.gamepadLayout, "auto");
+        s.controls.gamepadLayout = "native";
+        std::string game, input;
+        store.render(s, game, input);
+        SettingsStore reload;
+        reload.loadFromText(game, input);
+        CHECK_EQ(reload.loaded().controls.gamepadLayout, "native");
+    }
+    {
         SettingsStore quick;
         quick.loadFromText("", "[bindings]\nW = LSTICK_UP\n");
         Settings s = quick.loaded();
