@@ -2,6 +2,7 @@
 #include <cassert>
 #include <iostream>
 
+using drakan_dragon_flight::callTimeExtension;
 using drakan_dragon_flight::dropLookAheadHit;
 using drakan_dragon_flight::insideBox;
 
@@ -26,6 +27,11 @@ int main() {
     assert(!dropLookAheadHit(true, true, corner, axes, above));
     assert(!dropLookAheadHit(true, false, corner, axes, arrival));
     assert(!dropLookAheadHit(false, true, corner, axes, arrival));
+    assert(callTimeExtension(8.0f, 0.0f, 70000.0f) == 32.0f);
+    assert(callTimeExtension(8.0f, 0.0f, 300000.0f) == 60.0f);
+    assert(callTimeExtension(8.0f, 0.0f, 20480.0f) == 0.0f);
+    assert(callTimeExtension(10.0f, 0.0f, 70000.0f) == 0.0f);
+    assert(callTimeExtension(0.0f, 0.0f, 70000.0f) == 0.0f);
     std::cout << "dragon flight policy: ok\n";
     return 0;
 }

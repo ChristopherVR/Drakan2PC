@@ -1,5 +1,6 @@
 #include "drakan_dragon_flight.h"
 #include "drakan_dragon_flight_policy.h"
+#include "drakan_game.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -16,7 +17,10 @@ using Fn = PS2Runtime::RecompiledFunction;
 constexpr uint32_t kWorldRay = 0x372d38u;
 constexpr uint32_t kLookAheadBegin = 0x274250u, kLookAheadEnd = 0x274710u; // the dragon's look-ahead (the caller)
 constexpr uint32_t kWorldBox = 0xb8u; // object + 0xb8: its world box (minimum corner, three scaled edges)
-Fn g_origRay = nullptr;
+constexpr uint32_t kDragonAi = 0x267cf0u;
+constexpr uint32_t kCallFlags = 0x590u, kExplicitCall = 0x4u, kApproachTimeout = 0x8e0u;
+Fn g_origRay = nullptr, g_origAi = nullptr;
+uint32_t g_extendedCall = 0;
 bool g_trace = false;
 std::atomic<int> g_lines{0}, g_dropped{0};
 int g_limit = 400;
@@ -40,6 +44,41 @@ struct Ram {
         return v;
     }
 };
+
+uint32_t actorData(const Ram& ram, uint32_t actor) {
+    return ram.u32(ram.u32(actor + 0xfcu) + 0x10u);
+}
+
+void dragonAiEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    const Ram ram{rdram};
+    const uint32_t dragon = getRegU32(c, 4);
+    const bool calling = (ram.u32(dragon + kCallFlags) & kExplicitCall) != 0;
+    if (!calling && g_extendedCall == dragon)
+        g_extendedCall = 0;
+    if (calling && g_extendedCall != dragon && ram.u32(dragon + 0x98u) == 13u &&
+        drakan_game::current() == drakan_game::Game::Ootf) {
+        const uint32_t context = ram.u32(0x5565d4u);
+        const uint32_t rynn = ram.u32(context + 0x4b0u);
+        const uint32_t ref = ram.u32(actorData(ram, rynn) + 0x4d8u) & 0xffffu;
+        const uint32_t table = ram.u32(context + 0x7cu);
+        const uint32_t handle = ram.u32(dragon + 0x80u);
+        if (Ram::ok(handle, 0x20u) && rynn != handle && ref && ref <= ram.u32(context + 0x84u) &&
+            Ram::ok(table, ref * 8u) && ram.u32(table + (ref - 1) * 8u) == handle) {
+            const float remaining = ram.f32(dragon + kApproachTimeout);
+            const float dx = ram.f32(handle + 0x14u) - ram.f32(rynn + 0x14u);
+            const float dz = ram.f32(handle + 0x1cu) - ram.f32(rynn + 0x1cu);
+            if (const float extra = callTimeExtension(remaining, dx, dz);
+                extra > 0.0f && Ram::ok(dragon + kApproachTimeout)) {
+                const float timeout = remaining + extra;
+                std::memcpy(rdram + ((dragon + kApproachTimeout) & 0x1fffffffu), &timeout, sizeof(timeout));
+                g_extendedCall = dragon;
+                std::fprintf(stderr, "[dragon-call] Extended distant approach by %.1f seconds (%.0f units)\n",
+                             static_cast<double>(extra), static_cast<double>(std::hypot(dx, dz)));
+            }
+        }
+    }
+    g_origAi(rdram, c, rt);
+}
 
 void rayEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t ra = getRegU32(c, 31);
@@ -84,7 +123,14 @@ void rayEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 } // namespace
 
 void install(PS2Runtime& rt) {
-    if (!drakan_region::build().identityAddresses || !rt.hasFunction(drakan_region::guestAddress(kWorldRay)))
+    if (!drakan_region::build().identityAddresses)
+        return;
+    if (rt.hasFunction(kDragonAi)) {
+        g_extendedCall = 0;
+        g_origAi = rt.lookupFunction(kDragonAi);
+        rt.replaceFunction(kDragonAi, &dragonAiEntry);
+    }
+    if (!rt.hasFunction(drakan_region::guestAddress(kWorldRay)))
         return;
     const char* e = std::getenv("DRAKAN_DRAGON_RAY_TRACE");
     g_trace = e && *e && *e != '0';

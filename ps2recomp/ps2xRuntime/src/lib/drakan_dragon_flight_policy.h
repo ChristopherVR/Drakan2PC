@@ -12,7 +12,21 @@
 // the box size) and applies the result.
 #pragma once
 
+#include <algorithm>
+#include <cmath>
+
 namespace drakan_dragon_flight {
+
+// The retail approach expires after 20 seconds even on a valid long route. Allow one bounded
+// extension for an explicit distant call. Native landing, obstacle checks and short calls still run.
+inline float callTimeExtension(float remaining, float dx, float dz) {
+    if (!(remaining > 0.0f && remaining <= 8.0f))
+        return 0.0f;
+    const float distance = std::hypot(dx, dz);
+    if (!std::isfinite(distance) || distance <= 20480.0f)
+        return 0.0f;
+    return std::min(distance / 3500.0f + 12.0f, 60.0f);
+}
 
 // True when `p` lies inside the box with minimum corner `corner` and edge vectors `axes` (3 x 3, row per edge), with
 // a small tolerance. A box with a zero edge holds nothing.

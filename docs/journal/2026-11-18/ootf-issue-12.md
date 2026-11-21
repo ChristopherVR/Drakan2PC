@@ -453,3 +453,20 @@ The Windows build replayed the seesaw collapse in Wartok Canyons. The detector f
 reloaded rockfall. See `build/harness/issue12-cave-followup` and the maintained `ootf_spider_cave_check.py`.
 
 The crash report still has no save, exact landmark or crash log beyond the original description.
+
+### Long-range Arokh calls on 22 November 2026 (4–5)
+
+The PAL dragon's approach tick expires the active call after about 20 seconds. An explicit Order of the Flame call
+for Rynn's linked dragon now receives one timed extension if Arokh is still more than 20,480 horizontal units away
+late in the approach. The extension is based on the remaining distance and is capped at 60 seconds. The game still
+selects the flight path and landing site. Nearby calls and automatic following keep their existing timing.
+
+In a Wartok Canyons replay, the initial separation was 88,366 units. The harness placed Rynn at the valley while
+Arokh was still following the original point. The extension fired once at 55,441 units. The explicit call remained
+active until 22.8 seconds after the input, beyond the original deadline. Arokh landed at 27.5 seconds, 2,581 units from
+Rynn, and she remounted through normal input. A shorter meadow check also ended in a remount without extending the
+timer. See `build/harness/live-drive/issue12-moving-call-deadline` and `issue12-meadow-delayed-after`.
+
+The budget applies while the dragon is active in the level and cannot move him across blocked terrain or wake an
+actor outside the engine's activity area. A new report can use the two positions and a save to distinguish a path or
+activation problem from a call that expires in flight.
