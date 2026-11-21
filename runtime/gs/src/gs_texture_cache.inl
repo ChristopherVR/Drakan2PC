@@ -823,6 +823,8 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
         return true;
     }
 
+    const auto fromReadback = [&] { return psm == PSM_CT32 && mxl == 0 && mem.containsReadbackCT32(tbp, tbw, W, H); };
+
     TexKey key{};
     key.tbp = tbp;
     key.tbw = tbw;
@@ -928,7 +930,7 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
                 }
             // The game re-uploads most textures every frame. Identical bytes keep the decoded, created and
             // upscaled texture; only a real content change decodes again.
-            if (written && rawHash(e.spans) != e.rawHash)
+            if (written && (rawHash(e.spans) != e.rawHash || fromReadback() != e.fromReadback))
                 valid = false;
             else {
                 if (written) {
@@ -1251,12 +1253,13 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
     e.bytes = bytes;
     e.rawHash = rawHash(spans);
     e.spans = std::move(spans);
+    e.fromReadback = fromReadback();
     { // Explicit runtime atlases also apply when automatic upscaling is off.
         CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureUpscale);
-        // The decoded RAM pixels omit GPU writes that were copied into e.tex. A pack or generated atlas identified
-        // by those RAM pixels could erase the live contents, such as the HUD liquid.
-        if (!aliased && !(paletteOnly && !hlHit &&
-                          setupPaletteHd(e, paletteIndices, paletteIndexHash, levels[0], W, H, mxl, s, uiHint)))
+        // A saved pack image must not replace live HUD pixels, whether the GPU supplied them directly or through RAM.
+        if (!aliased && !e.fromReadback &&
+            !(paletteOnly && !hlHit &&
+              setupPaletteHd(e, paletteIndices, paletteIndexHash, levels[0], W, H, mxl, s, uiHint)))
             setupUpscale(e, levels[0], W, H, mxl, s, uiHint, volatileSlot, decodedHashValid ? &decodedHash : nullptr);
     }
     out.srv = e.tex.get();

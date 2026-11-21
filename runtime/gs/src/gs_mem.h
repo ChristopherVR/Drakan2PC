@@ -297,8 +297,8 @@ inline void spanBlocks(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint3
 class LocalMemory {
 public:
     LocalMemory()
-        : m_data(kVramSize, 0), m_stamp(kVramBlocks, 0), m_pageStamp(kVramBlocks / 32, 0),
-          m_superStamp(kVramBlocks / 1024, 0) {}
+        : m_data(kVramSize, 0), m_stamp(kVramBlocks, 0), m_readbackStamp(kVramBlocks, 0),
+          m_pageStamp(kVramBlocks / 32, 0), m_superStamp(kVramBlocks / 1024, 0) {}
 
     uint8_t* data() { return m_data.data(); }
     const uint8_t* data() const { return m_data.data(); }
@@ -357,7 +357,8 @@ public:
             m_superStamp[b >> 10] = m_clock;
         }
     }
-    void touchRect(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h) {
+    void touchRect(uint32_t psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
+                   bool readback = false) {
         if (!w || !h)
             return;
         ++m_clock;
@@ -366,9 +367,21 @@ public:
             for (uint32_t bx = x & ~(g.blockW - 1); bx < x + w; bx += g.blockW) {
                 const uint32_t b = blockOf(psm, bp, bw, bx, by);
                 m_stamp[b] = m_clock;
+                if (readback)
+                    m_readbackStamp[b] = m_clock;
                 m_pageStamp[b >> 5] = m_clock;
                 m_superStamp[b >> 10] = m_clock;
             }
+    }
+
+    bool containsReadbackCT32(uint32_t bp, uint32_t bw, uint32_t w, uint32_t h) const {
+        for (uint32_t y = 0; y < h; y += 8)
+            for (uint32_t x = 0; x < w; x += 8) {
+                const uint32_t block = blockOf(PSM_CT32, bp, bw, x, y);
+                if (m_readbackStamp[block] && m_readbackStamp[block] == m_stamp[block])
+                    return true;
+            }
+        return false;
     }
 
     // PSMCT32 words of the w x h rectangle at (x0, y0), row-major into out (same values as read() pixel by pixel).
@@ -482,8 +495,9 @@ public:
 private:
     std::vector<uint8_t> m_data;
     std::vector<uint64_t> m_stamp;
-    std::vector<uint64_t> m_pageStamp;  // max of m_stamp over each 32-block page
-    std::vector<uint64_t> m_superStamp; // max of m_stamp over each 1024-block run of 32 pages
+    std::vector<uint64_t> m_readbackStamp; // host writes make these older than m_stamp
+    std::vector<uint64_t> m_pageStamp;     // max of m_stamp over each 32-block page
+    std::vector<uint64_t> m_superStamp;    // max of m_stamp over each 1024-block run of 32 pages
     uint64_t m_clock = 1;
 };
 

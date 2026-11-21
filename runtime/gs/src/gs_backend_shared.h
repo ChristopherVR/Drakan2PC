@@ -200,6 +200,7 @@ struct TexEntryOf {
     uint64_t rawHash = 0;              // LocalMemory::hashBlocks over spans when decoded
     const void* aliasTarget = nullptr; // RT whose dirty blocks were copied in from its GPU texture
     uint64_t aliasWrites = 0;
+    bool fromReadback = false;
     std::vector<std::pair<uint32_t, uint32_t>> spans;
     std::vector<std::vector<uint32_t>>
         cpu; // CPU copies of the levels (only kept when Config::onTexture is set, for the audit)

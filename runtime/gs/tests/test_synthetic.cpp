@@ -1255,6 +1255,14 @@ static void aliasedPackTest(Config cfg, const std::string& outDir) {
             replacement.rgba[pixel + 3] = 255;
         }
     expectTrue(writePng((cfg.textureDir + name).c_str(), replacement), "write aliased atlas pack fixture");
+    // The same capture can be present in an existing pack, even though the current texture was drawn.
+    auto drawn = native;
+    for (unsigned y = 0; y < 64; ++y)
+        for (unsigned x = 0; x < (y < 32 ? 128u : 64u); ++x)
+            drawn[y * 128 + x] = 0x800000c8u;
+    const auto drawnHash = textureContentHash(drawn.data(), 128, 128);
+    std::snprintf(name, sizeof(name), "/%016llx.png", (unsigned long long)drawnHash);
+    expectTrue(writePng((cfg.textureDir + name).c_str(), replacement), "write stale replacement for the drawn atlas");
     auto gs = Renderer::create(cfg);
     if (!gs) {
         ++g_fail;
@@ -1293,6 +1301,27 @@ static void aliasedPackTest(Config cfg, const std::string& outDir) {
     expectPixel(image, 8 * cfg.scale, 8 * cfg.scale, 0, 0, 0, 1, "static atlas fill is transparent");
     expectPixel(image, 24 * cfg.scale, 8 * cfg.scale, 200, 0, 0, 1, "GPU-written fill survives the static pack match");
     expectPixel(image, 34 * cfg.scale, 2 * cfg.scale, 0, 255, 0, 1, "host reupload restores the pack image");
+
+    Gif redraw;
+    redraw.ad({{FRAME_1, parent | (2ull << 16)}, {SCISSOR_1, 127ull << 16 | 511ull << 48}});
+    sprite(redraw, 0, 128, 128, 192, 200, 0, 0, 128, 0, plain);
+    gs->submitGifPacket(GifPath::Path3, redraw.d.data(), (uint32_t)redraw.d.size());
+    expectTrue(gs->readVram(0, atlas, 2, 8, 8) == 0x800000c8u, "readback has the live fill in GS memory");
+    Gif fromMemory;
+    fromMemory.ad({{FRAME_1, 1ull << 16}, {SCISSOR_1, 63ull << 16 | 63ull << 48}, {TEXFLUSH, 0}});
+    sprite(fromMemory, 0, 16, 16, 32, 128, 128, 128, 128, 0, textured, 8, 8, 24, 24);
+    std::memcpy(raw.data(), drawn.data(), raw.size());
+    uploadImage(fromMemory, atlas, 2, 0, 0, 0, 128, 128, raw);
+    fromMemory.ad({{TEXFLUSH, 0}});
+    sprite(fromMemory, 16, 16, 32, 32, 128, 128, 128, 128, 0, textured, 8, 8, 24, 24);
+    gs->submitGifPacket(GifPath::Path3, fromMemory.d.data(), (uint32_t)fromMemory.d.size());
+    if (!gs->captureFramebuffer(0, 1, 0, 64, 64, image)) {
+        ++g_fail;
+        return;
+    }
+    expectPixel(image, 8 * cfg.scale, 24 * cfg.scale, 200, 0, 0, 1,
+                "readback preserves the live fill despite a pack match");
+    expectPixel(image, 18 * cfg.scale, 18 * cfg.scale, 0, 255, 0, 1, "identical host upload can use pack art again");
 }
 
 // Regression: a rejected shifted-row alias is decoded and cached, then

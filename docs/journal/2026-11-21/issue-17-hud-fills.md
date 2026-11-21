@@ -78,3 +78,16 @@ replay with ray-traced diffuse lighting showed the air gauge draining. Captures 
 
 The reporter's installed `textures` directory and affected saves were unavailable. A comparison on the same save with
 HD textures and automatic texture upscaling switched off would isolate whether either replacement path is involved.
+
+## Preserve fills after render-target readback
+
+The earlier fix covered a texture assembled directly from the GPU. A separate regression forced the same atlas through
+GS memory. The native red pixels were present after readback, but a matching HD pack image with a transparent fill
+still won the texture lookup. The capture showed black where the red fill should be.
+
+The cache now keeps the original pixels when a single-level 32-bit texture still contains render-target readback data.
+A later host upload can use its usual replacement even if the uploaded bytes are identical. The regression checks both
+transitions and passes on Direct3D 11 and Vulkan. The rebuilt Windows game showed health in gameplay and Original
+inventory on both renderers using the reported campaign pack. The Direct3D 11 run used the reported ultrawide settings
+with DLSS Quality and also showed the air gauge draining underwater. Captures are under
+`build/harness/issue17-readback-fill-{live,vulkan}`.

@@ -558,7 +558,8 @@ void GSR_IMPL::readbackRT(RT& rt) {
     rt.readbackFrame = frame;
     uint32_t readScale = scale; // target pixels per native pixel in the rows read
     size_t pitch = 0;
-    if (const uint8_t* src = beginReadback(rt, y0, y1, readScale, pitch)) {
+    const uint8_t* src = beginReadback(rt, y0, y1, readScale, pitch);
+    if (src) {
         CpuProfile::Scope packProfile(cpuProfile, CpuProfile::ReadbackPack);
         const uint32_t half = readScale / 2;
         for (uint32_t y = 0; y < rows; ++y) {
@@ -584,7 +585,7 @@ void GSR_IMPL::readbackRT(RT& rt) {
         }
         endReadback();
     }
-    mem.touchRect(rt.psm, rt.base(), rt.fbw, 0, y0, rt.w, rows);
+    mem.touchRect(rt.psm, rt.base(), rt.fbw, 0, y0, rt.w, rows, src != nullptr);
     const uint32_t ph = rt.pageH();
     for (uint32_t r = y0 / ph; r < (y1 + ph - 1) / ph && r < rt.rowStamp.size(); ++r) {
         rt.rowStamp[r] = mem.clock();
@@ -613,9 +614,8 @@ void GSR_IMPL::syncRows(RT& rt, rt_sync::Rows rows) {
         uint64_t oldest = ~uint64_t{0};
         while (last < end && rt.base() + last * pagesPerRow * 32u < kVramBlocks)
             oldest = std::min(oldest, rt.rowStamp[last++]);
-        if (last > rows.first &&
-            mem.maxStamp(rt.base() + rows.first * pagesPerRow * 32u, (last - rows.first) * pagesPerRow * 32u) <=
-                oldest) {
+        if (last > rows.first && mem.maxStamp(rt.base() + rows.first * pagesPerRow * 32u,
+                                              (last - rows.first) * pagesPerRow * 32u) <= oldest) {
             if (runtimeFlags().cpuOffloadVerify) {
                 ++cpuCuts.syncSkipped;
                 for (uint32_t r = rows.first; r < last; ++r)
