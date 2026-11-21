@@ -106,7 +106,7 @@ public:
     // pointing the left stick's X at the strafe axis (3) instead of the turn axis (0). `dragon` = current
     // controlled-actor role. With [mouse] dragon_mode = mouse it also turns / pitches the controlled Arokh by the mouse
     // counts of this tick (steerDragon, DragonSteer.h) before the game's controller runs.
-    void beforePadMgrUpdate(IGuest& g, bool dragon);
+    void beforePadMgrUpdate(IGuest& g, bool dragon, bool orderOfTheFlame = false);
 
     // After-hook for PadMgr_Update (0x1e3970): delivers ACT:/CMD: bindings and (optionally) menu cursor / clicks.
     void afterPadMgrUpdate(IGuest& g);
@@ -331,6 +331,7 @@ private:
     bool dragon_ = false;     // controlled-actor role reported through beforePadMgrUpdate
     DragonSteer dragonSteer_; // dragon_mode = mouse: counts not yet turned into Arokh's heading / pitch
     void steerDragon(IGuest& g, bool dragon);
+    void restorePadMapping(IGuest& g);
     void carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch,
                            bool grounded);
     bool meleeDirections_ = false; // current native Rynn has a drawn melee weapon, no bow or summon
@@ -338,6 +339,16 @@ private:
     bool strafeActive_ = false;
     int32_t strafeOrigAxis_ = 0;
     uint32_t strafeOrigScale_ = 0;
+    struct StickMapping {
+        uint32_t axis, scale;
+        bool operator==(const StickMapping&) const = default;
+    };
+    struct ScopedStickMapping {
+        uint32_t record = 0;
+        StickMapping native{}, applied{};
+    };
+    ScopedStickMapping padMapping_[2]{};
+    bool padTwinStickActive_ = false;
     std::atomic<bool> suspended_{false};
     std::atomic<bool> hostScreen_{false};
     std::atomic<bool> muted_{false};
@@ -398,7 +409,7 @@ void beginFrame();
 bool fillPadSample(int port, int slot, uint8_t out[32]);
 bool afterCameraUpdateLook(IGuest& g, uint32_t playerAddr, uint32_t limitsAddr, bool dragonMode);
 void beforeCameraUpdateLook(IGuest& g, bool dragonMode, uint32_t playerAddr = 0);
-void beforePadMgrUpdate(IGuest& g, bool dragon);
+void beforePadMgrUpdate(IGuest& g, bool dragon, bool orderOfTheFlame);
 void afterPadMgrUpdate(IGuest& g);
 void beforeCameraFollow(IGuest& g, uint32_t cam);
 void noteCameraTarget(const float target[3]);

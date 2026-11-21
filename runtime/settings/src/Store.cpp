@@ -673,6 +673,7 @@ const std::vector<Field>& fields() {
          "arrow keys only"},
         {"gamepad", "enabled", true, GETB(controls.gamepadEnabled), SETB(controls.gamepadEnabled), nullptr},
         {"gamepad", "deadzone", true, GETF(controls.gamepadDeadzone, "%.2f"), SETF(controls.gamepadDeadzone), nullptr},
+        {"gamepad", "layout", true, GETS(controls.gamepadLayout), SETS(controls.gamepadLayout), nullptr},
         {"gamepad", "debug_menu_combo", true, GETS(controls.debugMenuCombo), SETS(controls.debugMenuCombo), nullptr},
     };
     return f;
@@ -879,6 +880,8 @@ std::string settingLabel(const std::string& key) {
         return "A / D strafe on Arokh";
     if (key == "input.mouse.bow_aim")
         return "Bow combat";
+    if (key == "input.gamepad.layout")
+        return "On-foot stick layout";
     if (key == "input.gamepad.debug_menu_combo")
         return "Debug menu shortcut";
     if (key == "input.keyboard.directional_attack")

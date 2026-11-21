@@ -340,6 +340,7 @@ curve_compensation = 1     ; undo the game's squared stick response so WASD is f
 directional_attack = modifier ; when WASD + attack is a directional special move: modifier = only while DIRECTIONAL_ATTACK (Left Alt) is held, so a plain attack keeps walking / strafing; tap = press the movement key and attack together; always = whenever a movement key is held; off = arrow keys only
 
 [gamepad]
+layout = auto               ; auto = twin-stick on foot in Order of the Flame, native in other campaigns
 enabled = 1                ; XInput pad is merged with keyboard/mouse
 deadzone = 0.15
 debug_menu_combo = L3+R3   ; hold 0.5 s to open / close the debug menu (Gameplay > Developer); NONE = off
@@ -640,7 +641,17 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
                 B(c.gamepadEnabled);
             else if (K == "DEADZONE")
                 F(c.gamepadDeadzone);
-            else if (K == "DEBUG_MENU_COMBO") {
+            else if (K == "LAYOUT") {
+                const auto value = upper(v);
+                if (value == "AUTO")
+                    c.gamepadLayout = GamepadLayout::Auto;
+                else if (value == "NATIVE")
+                    c.gamepadLayout = GamepadLayout::Native;
+                else if (value == "TWIN_STICK")
+                    c.gamepadLayout = GamepadLayout::TwinStick;
+                else
+                    w("layout must be auto|native|twin_stick");
+            } else if (K == "DEBUG_MENU_COMBO") {
                 if (!padComboFromText(v, &c.debugMenuCombo))
                     w("bad button combination '" + v + "'");
             } else

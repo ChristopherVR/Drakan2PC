@@ -1,6 +1,7 @@
 #include "drakan_portable_camera.h"
 #include "drakan_config.h"
 #include "drakan_controlled_actor.h"
+#include "drakan_game.h"
 #include "drakan_guest_call.h"
 #include "drakan_quick_inventory.h"
 #include "drakan_settings_host.h"
@@ -169,7 +170,7 @@ void pad(uint8_t* memory, R5900Context* context, PS2Runtime* runtime) {
                             imageHeight, 0.5f, 1.0f, true});
     g_controls.beginExternalFrame(controls);
     drakanTickPortableMenuHooks(memory, context, runtime);
-    g_controls.beforePadMgrUpdate(guest, actor.dragon);
+    g_controls.beforePadMgrUpdate(guest, actor.dragon, drakan_game::current() == drakan_game::Game::Ootf);
     g_controls.updateBowAim(guest);
     int quickSlot = 0;
     for (const auto& binding : g_controls.config().game)

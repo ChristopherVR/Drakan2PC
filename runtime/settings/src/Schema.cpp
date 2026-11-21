@@ -738,6 +738,13 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.sec = &pg.sections.back();
     b.toggle("input.gamepad.enabled", "Use gamepad", "Merge an XInput pad with keyboard and mouse.", false,
              env.caps.gamepad);
+    b.choice("input.gamepad.layout", "On-foot stick layout",
+             "Twin-stick: left stick moves and strafes, right stick turns Rynn and looks up or down. "
+             "Turning uses the Camera follow setting. Automatic uses twin-stick in Order of the Flame and the "
+             "native controller scheme in other campaigns.",
+             {{"auto", "Automatic"}, {"native", "Native"}, {"twin_stick", "Twin-stick"}}, false,
+             env.caps.gamepad && c.gamepadEnabled)
+        .needs = "Needs Use gamepad.";
     b.slider("input.gamepad.deadzone", "Stick dead zone", "Ignore small stick movements.", c.gamepadDeadzone, 0.0f,
              0.5f, "%.2f", 0.01f, env.caps.gamepad && c.gamepadEnabled)
         .needs = "Needs Use gamepad.";

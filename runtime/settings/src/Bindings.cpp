@@ -448,6 +448,7 @@ directional_attack = modifier
 [gamepad]
 enabled = 1
 deadzone = 0.15
+layout = auto
 
 [bindings]
 W = LSTICK_UP

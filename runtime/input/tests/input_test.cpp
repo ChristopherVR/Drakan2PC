@@ -1107,6 +1107,47 @@ static void testControlsV2() {
         m3.beforePadMgrUpdate(g3, false);
         CHECK(g3.read32(REC) == 0);
     }
+    // The game reads the twin-stick map during its pad update. Menus and Arokh use the current native scheme.
+    {
+        FakeGuest g;
+        setupCamera(g, 0.0f, 0.6283f);
+        const uint32_t rx = REC + 24;
+        g.write32(REC, 0);
+        g.writeF(REC + 8, 0.8f);
+        g.write32(rx, 5);
+        g.writeF(rx + 8, 1.0f);
+        InputModule m;
+        m.initHeadless(c);
+        FrameInput pad;
+        pad.gamepad.connected = true;
+        pad.gamepad.lx = 0.6f;
+        pad.gamepad.rx = -0.8f;
+        m.beginFrame(pad);
+        m.beforePadMgrUpdate(g, false);
+        CHECK(g.read32(REC) == 0 && g.read32(rx) == 5);
+        m.beforePadMgrUpdate(g, false, true);
+        CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
+        NEAR(g.readF(REC + 8), 1.0, 1e-6);
+        NEAR(g.readF(rx + 8), 0.8, 1e-6);
+        m.afterPadMgrUpdate(g);
+        CHECK(g.read32(REC) == 0 && g.read32(rx) == 5);
+        NEAR(g.readF(REC + 8), 0.8, 1e-6);
+        NEAR(g.readF(rx + 8), 1.0, 1e-6);
+        m.beforePadMgrUpdate(g, true, true);
+        CHECK(g.read32(REC) == 0 && g.read32(rx) == 5);
+        m.setMenuActive(true);
+        m.beginFrame(pad);
+        m.beforePadMgrUpdate(g, false, true);
+        CHECK(g.read32(REC) == 0 && g.read32(rx) == 5);
+        m.setMenuActive(false);
+        m.beginFrame(pad);
+        m.beforePadMgrUpdate(g, false, true);
+        CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
+        g.writeF(rx + 8, 0.7f); // the guest switches to scheme C during the update
+        m.afterPadMgrUpdate(g);
+        CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
+        NEAR(g.readF(rx + 8), 0.7, 1e-6);
+    }
     // capture: cut scenes / loading (menu layer without a menu context) keep the mouse captured; a game menu or the
     // overlay release it
     {

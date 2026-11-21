@@ -1,6 +1,7 @@
 #include "input/DrakanInput.h"
 #include "input/CameraCarry.h"
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -810,9 +811,11 @@ void InputModule::beforeCameraFollow(IGuest& g, uint32_t cam) {
     // Only the player-controlled camera of the context, outside cut scenes / control locks. Flags 0x80 / 0x20000
     // already snap, 0x100 skips the orientation, bit5 is another view; a running 0x21c timer blends the orientation
     // with cam+0x210 too, so leave those alone.
-    if (!(rate > 0.0f && rate < 1.0e6f) || !cam || !mouseKeyboardOwner_ || !frame_.captured || layerIsMenu_ ||
-        menuActive_.load() || hostOwned() || dragon_ || nativeLookControlActive() || !inner ||
-        g.read32(inner + camera_.layout.innerData) != cam || g.read32(cam + camera_.layout.cameraMode) != 6 ||
+    const bool mouseFollow = mouseKeyboardOwner_ && frame_.captured && !nativeLookControlActive();
+    const bool padFollow = padTwinStickActive_ && frame_.focused;
+    if (!(rate > 0.0f && rate < 1.0e6f) || !cam || !(mouseFollow || padFollow) || layerIsMenu_ || menuActive_.load() ||
+        hostOwned() || dragon_ || !inner || g.read32(inner + camera_.layout.innerData) != cam ||
+        g.read32(cam + camera_.layout.cameraMode) != 6 ||
         (g.read32(cam + camera_.layout.cameraFlags) & (0x20u | 0x80u | 0x100u | 0x20000u)) ||
         g.readF(cam + camera_.layout.cameraBlendTimer) > 0.0f || g.read32(camera_.scripted) || !obj ||
         !cameraPlayerPose(g, camera_, ctx, pos, heading, player) ||
@@ -1056,8 +1059,26 @@ bool InputModule::afterCameraUpdateLook(IGuest& g, uint32_t player, uint32_t lim
     return true;
 }
 
-void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
+void InputModule::restorePadMapping(IGuest& g) {
+    if (!padMapping_[0].record)
+        return;
+    const auto unchanged = [&](const ScopedStickMapping& entry) {
+        return StickMapping{g.read32(entry.record), g.read32(entry.record + 8)} == entry.applied;
+    };
+    // The native options code can replace both mappings in the same update.
+    if (unchanged(padMapping_[0]) && unchanged(padMapping_[1])) {
+        for (const auto& entry : padMapping_) {
+            g.write32(entry.record, entry.native.axis);
+            g.write32(entry.record + 8, entry.native.scale);
+        }
+    }
+    padMapping_[0].record = 0;
+}
+
+void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon, bool orderOfTheFlame) {
     std::lock_guard<std::mutex> lock(m_);
+    restorePadMapping(g);
+    padTwinStickActive_ = false;
     if (dragon_ != dragon)
         pendingDx_ = pendingDy_ = 0;
     dragon_ = dragon;
@@ -1067,9 +1088,9 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     // record i (0 = lx) at addrStickMap + 12 * i: {s32 axisId, float out, float scale} (docs/reference/input.md 2
     // / 3.2)
     const uint32_t rec = cfg_.addrStickMap;
-    // A real left stick overrides keyboard synthesis, so retain its native map.
-    const bool padSteering =
-        cfg_.gamepadEnabled && frame_.gamepad.connected && (frame_.gamepad.lx != 0.0f || frame_.gamepad.ly != 0.0f);
+    const auto& pad = frame_.gamepad;
+    const bool hasPad = cfg_.gamepadEnabled && pad.connected;
+    const bool padSteering = hasPad && (pad.lx != 0.0f || pad.ly != 0.0f);
     // Native spell gestures read axes 0/2, not the strafe axis 3. The summon state
     // outlives the Circle press, so use the current actor rather than a mouse latch.
     const auto& layout = camera_.layout;
@@ -1112,9 +1133,15 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
     meleeDirections_ = melee;
     meleeIdentity_ = meleeIdentity;
     const bool casting = summon >= 1 && summon <= 4;
+    const bool twinStickLayout = cfg_.gamepadLayout == GamepadLayout::TwinStick ||
+                                 (cfg_.gamepadLayout == GamepadLayout::Auto && orderOfTheFlame);
+    const bool gameplay = frame_.focused && !layerIsMenu_ && !menuActive_.load() && !hostOwned();
+    const bool padTwinStick = twinStickLayout && hasPad && (!mouseKeyboardOwner_ || padSteering || pad.rx != 0.0f) &&
+                              gameplay && !dragon && !casting && debugFlightInput_ == DebugFlightInput::None &&
+                              !g.read32(camera_.scripted);
     // On Arokh (flight and mounted ground alike) the remap follows [keyboard] dragon_strafe alone, whatever
     // dragon_mode / look_mode say: the mouse turns him in both modes, so A / D turning is redundant (issue #11).
-    const bool want = cfg_.strafeKeys && !casting && !padSteering && frame_.focused && !layerIsMenu_ &&
+    const bool want = cfg_.strafeKeys && !casting && !padSteering && !padTwinStick && frame_.focused && !layerIsMenu_ &&
                       (!dragon || cfg_.dragonStrafe) && !hostOwned();
     const int32_t axis = static_cast<int32_t>(g.read32(rec));
     if (want) {
@@ -1131,6 +1158,24 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon) {
             g.write32(rec + 8, strafeOrigScale_);
         }
         strafeActive_ = false;
+    }
+    if (padTwinStick && rec) {
+        const uint32_t right = rec + 24;
+        const StickMapping lx{g.read32(rec), g.read32(rec + 8)};
+        const StickMapping rx{g.read32(right), g.read32(right + 8)};
+        if (lx.axis == 3 && rx.axis == 0) {
+            padTwinStickActive_ = true; // Native scheme C already has these axes.
+        } else if (lx.axis == 0 && rx.axis == 5) {
+            const StickMapping strafe{3, std::bit_cast<uint32_t>(1.0f)};
+            const StickMapping turn{0, lx.scale};
+            padMapping_[0] = {rec, lx, strafe};
+            padMapping_[1] = {right, rx, turn};
+            g.write32(rec, strafe.axis);
+            g.write32(rec + 8, strafe.scale);
+            g.write32(right, turn.axis);
+            g.write32(right + 8, turn.scale);
+            padTwinStickActive_ = true;
+        }
     }
 }
 
@@ -1299,6 +1344,7 @@ void InputModule::steerDragon(IGuest& g, bool dragon) {
 
 void InputModule::afterMovementInput(IGuest& g) {
     std::lock_guard<std::mutex> lock(m_);
+    restorePadMapping(g);
     updateWalkCommand(g);
 }
 
@@ -1322,6 +1368,7 @@ void InputModule::updateWalkCommand(IGuest& g) {
 
 void InputModule::afterPadMgrUpdate(IGuest& g) {
     std::lock_guard<std::mutex> lock(m_);
+    restorePadMapping(g);
     // If ownership changed after beginFrame, discard presses and release held
     // commands here on the EE thread. Releases must reach the guest even while
     // the settings overlay owns input.
@@ -1520,8 +1567,8 @@ void beforeCameraFollow(IGuest& g, uint32_t cam) {
 void noteCameraTarget(const float target[3]) {
     module().noteCameraTarget(target);
 }
-void beforePadMgrUpdate(IGuest& g, bool d) {
-    module().beforePadMgrUpdate(g, d);
+void beforePadMgrUpdate(IGuest& g, bool d, bool orderOfTheFlame) {
+    module().beforePadMgrUpdate(g, d, orderOfTheFlame);
 }
 void afterPadMgrUpdate(IGuest& g) {
     module().afterPadMgrUpdate(g);

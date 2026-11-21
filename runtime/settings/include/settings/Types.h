@@ -186,6 +186,7 @@ struct ControlSettings {
     std::string directionalAttack = "modifier"; // [keyboard] directional_attack: modifier | tap | always | off
     bool gamepadEnabled = true;                 // [gamepad] enabled
     float gamepadDeadzone = 0.15f;              // [gamepad] deadzone
+    std::string gamepadLayout = "auto";         // [gamepad] layout: auto | native | twin_stick
     std::string debugMenuCombo = "L3+R3";       // [gamepad] debug_menu_combo (held 0.5 s: debug menu; NONE = off)
     BindingLayer game;                          // [bindings]
     BindingLayer menu;                          // [menu_bindings]
