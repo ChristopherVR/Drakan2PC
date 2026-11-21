@@ -274,7 +274,25 @@ void report() {
     }
 }
 } // namespace drakan_issue
-#else
+#elif defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+
+namespace drakan_issue {
+bool runHelper(int, char*[]) {
+    return false;
+}
+void watchForCrashes() {}
+void markCrash() {
+    MAIN_THREAD_ASYNC_EM_ASM({ Module['onGameCrash']?.(); });
+}
+bool available() {
+    return true;
+}
+void report() {
+    MAIN_THREAD_ASYNC_EM_ASM({ Module['onIssueReport']?.(); });
+}
+} // namespace drakan_issue
+#elif !defined(__linux__) || defined(__ANDROID__)
 namespace drakan_issue {
 bool runHelper(int, char*[]) {
     return false;

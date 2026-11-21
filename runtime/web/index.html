@@ -20,6 +20,15 @@
     <p>The saved game could not be stored.</p>
     <button id="retry-save">Retry</button>
   </section>
+  <dialog id="issue-report" aria-labelledby="issue-heading" aria-describedby="issue-instructions">
+    <h2 id="issue-heading">Report an Issue</h2>
+    <p id="issue-instructions">Download and review the session log before attaching it to your GitHub report.</p>
+    <div class="issue-actions">
+      <a id="download-issue-log" download>Download log</a>
+      <a id="open-issue-form" target="_blank" rel="noopener noreferrer">Open GitHub form</a>
+      <form method="dialog"><button>Close</button></form>
+    </div>
+  </dialog>
 </main>
 <script src="pointer_motion.js"></script>
 <script src="player.js"></script>

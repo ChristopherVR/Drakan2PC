@@ -149,9 +149,10 @@ for prerequisites, Linux and browser builds, presets and every option.
 
 ## Reporting an issue
 
-On Windows, choose **Report an Issue** from the modern title or pause menu, or from **F1 → Gameplay**.
-The game saves a copy of the current session log. If you continue, it opens the report folder and the GitHub bug form.
-After a crash, the prompt opens the crash form. Review the saved `.log` for personal information before attaching it.
+Choose **Report an Issue** from the modern title or pause menu on Windows, Linux, or the browser player. It is also
+available under **F1 → Gameplay** in the PC settings overlay. The reporting prompt offers the current session log
+and links to the GitHub bug form. If the game crashes, the prompt offers the crash form.
+Review the saved or downloaded `.log` for personal information before attaching it.
 You can also open the [GitHub bug and crash forms](https://github.com/ChristopherVR/Drakan2PC/issues/new/choose) directly.
 
 ## Controls

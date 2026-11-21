@@ -5,8 +5,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.resolve(__dirname, '../../runtime/web/pre.js'), 'utf8');
 
-function fixture() {
-  const state = {calls: [], timers: [], errors: [], saveErrors: [], handlers: {}, active: 0, maximum: 0, foreign: 0};
+function fixture(hasSettings = true) {
+  const state = {calls: [], timers: [], errors: [], saveErrors: [], handlers: {}, active: 0, maximum: 0, foreign: 0,
+                 settings: []};
   const context = {
     Module: {preRun: [], printErr: text => state.errors.push(text), onSaveError: e => state.saveErrors.push(e)},
     ENVIRONMENT_IS_PTHREAD: false,
@@ -16,6 +17,8 @@ function fixture() {
     IDBFS: {queuePersist: () => { ++state.foreign; }},
     FS: {
       mkdir() {},
+      analyzePath: () => ({exists: hasSettings}),
+      writeFile: (name, value) => state.settings.push([name, value]),
       mount(backend, options, root) {
         assert.equal(root, '/persist');
         assert.equal(options.autoPersist, true);
@@ -49,6 +52,12 @@ async function run() {
   assert.equal(s.calls.length, 1, 'restoration must finish before any writes');
   assert.equal(s.timers.length, 0, 'restoring existing nodes must not schedule write-back');
   s.calls[0].finish(null);
+  assert.deepEqual(s.settings, [], 'existing menu settings must be preserved');
+
+  const fresh = fixture(false);
+  assert.deepEqual(fresh.state.settings, [], 'wait for the save restore before choosing fresh defaults');
+  fresh.state.calls[0].finish(null);
+  assert.deepEqual(fresh.state.settings, [['/persist/drakan.ini', '[general]\ntitle_menu = modern\npause_menu = modern\n']]);
 
   c.IDBFS.queuePersist({mountpoint: '/other'});
   assert.equal(s.foreign, 1);

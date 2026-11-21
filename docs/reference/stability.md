@@ -3,10 +3,10 @@
 Status 2026-10-17. Scope: investigate the reported intermittent intro crash / main thread death in intro-with-START and Level 0 runs. Finite boot runs and an incomplete software reference cannot prove that all crash classes are eliminated.
 Work is committed as **`7f4a650f1cd0ec3964ce5617a00f415e102dc234`** on branch `drakan-stab` of `tools/PS2Recomp` (worktree `tools/PS2Recomp-stab`, build dir `build/recomp_stab`), based on `drakan` @ `990f30c`. Not merged.
 
-## Windows player reports
+## Player reports
 
-**Report an Issue** is available in the modern title and pause menus and in **F1 → Gameplay**. It captures the
-current session log in `%LOCALAPPDATA%\DrakanPC\reports`. The report is capped at 4 MiB of log text. Large logs
+**Report an Issue** is available in the modern title and pause menus and in the **F1 → Gameplay** overlay.
+On Windows it captures the session log in `%LOCALAPPDATA%\DrakanPC\reports`. The report is capped at 4 MiB of log text. Large logs
 retain the first 64 KiB for startup details and the most recent entries for the failure. Select **Yes** to open
 the folder and GitHub form. Players choose what to attach after reviewing the log for personal information.
 
@@ -14,6 +14,16 @@ A separate process watches the game and offers the crash form after an abnormal 
 that session's log so a restart or a second instance cannot substitute its own log. A clean quit or a normal
 startup validation failure closes the watcher quietly. Existing Windows crash dumps are generated beside the game
 when supported by the fault handler and can be shared separately if requested.
+
+Linux keeps the session output available to the terminal and captures a copy into `$XDG_STATE_HOME/drakanpc/reports`
+or `~/.local/state/drakanpc/reports`. The local report page links to the log and form. If no desktop opener is
+available, the terminal gives the report page location and GitHub URL. A separate process saves reports after fatal
+signals and caught runtime exceptions. On both native builds, `DRAKAN_CRASH_PROMPT=0` saves the log without opening
+a prompt, and `DRAKAN_LOG_DIR` can relocate reports for a test run.
+
+The browser player offers a download of the recent session log and a link to the matching GitHub form. Fresh browser
+profiles start with the modern title and pause menus. Existing profiles keep their menu settings. When the game
+runtime fails, the player page can show this prompt while the page itself is still running.
 
 ## 0. Summary
 

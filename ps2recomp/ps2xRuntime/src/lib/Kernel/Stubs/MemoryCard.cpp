@@ -2,6 +2,7 @@
 #include "MemoryCard.h"
 
 #include <atomic>
+#include <thread>
 
 namespace ps2_stubs {
 namespace {

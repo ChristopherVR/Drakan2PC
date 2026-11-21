@@ -6,6 +6,10 @@ const startButton = document.getElementById('start');
 const loadProgress = document.getElementById('load-progress');
 const saveError = document.getElementById('save-error');
 const retrySave = document.getElementById('retry-save');
+const issueReport = document.getElementById('issue-report');
+const issueHeading = document.getElementById('issue-heading');
+const issueDownload = document.getElementById('download-issue-log');
+const issueForm = document.getElementById('open-issue-form');
 const pointerMotion = new DrakanPointerMotion((x, y) => window.Module?._drakan_web_mouse_move?.(x, y));
 window.drakanLog = '';
 function message(text) {
@@ -141,7 +145,7 @@ canvas.addEventListener('wheel', event => {
 }, {passive:false});
 // The first standard-mapping gamepad, sampled every animation frame (the Gamepad API is main-thread only).
 function pollGamepad() {
-  if (gameActive()) {
+  if (gameActive() && !issueReport.open) {
     const pad = Array.from(navigator.getGamepads?.() || []).find(p => p && p.connected && p.mapping === 'standard');
     if (pad) {
       let buttons = 0;
@@ -168,6 +172,27 @@ window.addEventListener('focus', () => window.Module?._drakan_web_focus?.(docume
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseInput(); });
 canvas.addEventListener('contextmenu', event => event.preventDefault());
 
+let issueLogUrl;
+function showIssueReport(crashed) {
+  releaseInput();
+  releaseMouse();
+  issueHeading.textContent = crashed ? 'Report a crash' : 'Report an Issue';
+  const kind = crashed ? 'crash' : 'bug';
+  const stamp = new Date().toISOString();
+  const report = `Drakan PC ${kind} report\nCaptured (UTC): ${stamp}\nPlatform: Browser\n\n--- Session log ---\n${window.drakanLog}`;
+  if (issueLogUrl) URL.revokeObjectURL(issueLogUrl);
+  issueLogUrl = URL.createObjectURL(new Blob([report], {type: 'text/plain;charset=utf-8'}));
+  issueDownload.href = issueLogUrl;
+  issueDownload.download = `drakan-${crashed ? 'crash' : 'issue'}-${stamp.replace(/[:.]/g, '-')}.log`;
+  issueForm.href = `https://github.com/ChristopherVR/Drakan2PC/issues/new?template=${kind}-report.yml`;
+  if (!issueReport.open) issueReport.showModal();
+}
+issueReport.addEventListener('close', () => {
+  if (issueReport.open) return;
+  if (gameActive()) canvas.focus();
+  else startButton.focus();
+});
+
 function showFailure(error) {
   if (failureReported) return;
   releaseInput();
@@ -181,6 +206,7 @@ function showFailure(error) {
   startButton.disabled = false;
   startButton.textContent = 'Reload';
   startButton.onclick = reloadGame;
+  showIssueReport(initialized);
   globalThis.drakanAudioNode?.disconnect();
   audioContext?.suspend().catch(() => {});
   try { window.Module?._drakan_web_stop?.(); } catch (_) {}
@@ -283,6 +309,8 @@ startButton.onclick = async function () {
       }
     },
     onAbort:showFailure,
+    onGameCrash:() => showFailure('The game stopped unexpectedly.'),
+    onIssueReport:() => { if (gameActive()) showIssueReport(false); },
     onSaveError:showSaveError,
     onExit:code => {
       if (sessionEnded) return;

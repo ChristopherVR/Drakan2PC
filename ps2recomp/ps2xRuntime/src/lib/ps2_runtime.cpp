@@ -8,6 +8,7 @@
 #include "drakan_config.h"
 #include "drakan_issue.h"
 #include "drakan_null_call_recovery.h"
+#include "drakan_present_clock.h"
 #include "drakan_region.h"
 #include "drakan_settings_host.h"
 #if defined(PS2X_HAVE_GSR)
@@ -16,7 +17,6 @@
 #if defined(_WIN32)
 #include "drakan_fpsmeter.h"
 #include "drakan_log.h"
-#include "drakan_present_clock.h"
 #endif
 void drakanShutdownAudio(); // drakan_overrides.cpp
 void ps2PollHostPad();      // Window thread snapshot for the portable libpad backend.

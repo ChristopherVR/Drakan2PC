@@ -157,11 +157,20 @@ void decodeMain(std::string path) {
             as = -1;
         }
         if (as >= 0) {
+#if LIBSWRESAMPLE_VERSION_INT >= AV_VERSION_INT(4, 5, 100)
             AVChannelLayout out{};
             av_channel_layout_default(&out, 2);
             if (swr_alloc_set_opts2(&swr, &out, AV_SAMPLE_FMT_FLT, 48000, &actx->ch_layout, actx->sample_fmt,
-                                    actx->sample_rate, 0, nullptr) < 0 ||
-                swr_init(swr) < 0) {
+                                    actx->sample_rate, 0, nullptr) < 0)
+                swr_free(&swr);
+            av_channel_layout_uninit(&out);
+#else
+            const int64_t layout = actx->channel_layout ? static_cast<int64_t>(actx->channel_layout)
+                                                        : av_get_default_channel_layout(actx->channels);
+            swr = swr_alloc_set_opts(nullptr, AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_FLT, 48000, layout, actx->sample_fmt,
+                                     actx->sample_rate, 0, nullptr);
+#endif
+            if (!swr || swr_init(swr) < 0) {
                 std::fprintf(stderr, "[intro-movie] cannot resample the sound track, playing silent\n");
                 swr_free(&swr);
                 as = -1;

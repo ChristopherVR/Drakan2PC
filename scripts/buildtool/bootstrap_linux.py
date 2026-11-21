@@ -188,7 +188,12 @@ def main():
         command += ["-Incremental"]
     if args.texture_dir:
         command += ["-TextureDirectory", args.texture_dir.resolve(strict=True)]
-    run(command, cwd=ROOT)
+    env = dict(os.environ)
+    env["PATH"] = str(Path(python).parent) + os.pathsep + env.get("PATH", "")
+    if not args.web:
+        env.setdefault("CC", "clang")
+        env.setdefault("CXX", "clang++")
+    run(command, cwd=ROOT, env=env)
 
 
 if __name__ == "__main__":

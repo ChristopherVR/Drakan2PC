@@ -20,4 +20,11 @@ button:disabled { color: #9d9c8d; cursor: default; }
 #save-error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 40px)); padding: 24px; text-align: center; background: #0c1112; border: 1px solid #80643e; box-shadow: 0 8px 40px #0009; }
 #save-error p { margin: 0 0 16px; line-height: 1.5; }
 #save-error button { min-width: 120px; font-size: 20px; }
+#issue-report { width: min(540px, calc(100% - 32px)); padding: 24px; text-align: center; color: var(--paper); background: #0c1112; border: 1px solid #80643e; }
+#issue-report::backdrop { background: #0009; }
+#issue-report h2 { margin: 0; color: var(--gold); font-weight: normal; }
+#issue-instructions { line-height: 1.5; }
+.issue-actions { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 12px; }
+.issue-actions a, .issue-actions button { min-width: auto; padding: 8px 12px; color: #f1c77d; font: inherit; }
+.issue-actions a:hover { color: #ffe0a0; }
 @media (max-height: 420px) { #startup { gap: 16px; } .title h1 { font-size: 44px; } .title p { font-size: 14px; } button { font-size: 20px; padding: 7px 20px; } }

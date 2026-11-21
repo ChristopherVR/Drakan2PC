@@ -102,6 +102,11 @@ Module['preRun'].push(function () {
   addRunDependency('restore-saves');
   FS.syncfs(true, function (error) {
     if (error) { Module['printErr']('Cannot restore browser saves: ' + error); abort(error); }
+    const ini = ENV['DRAKAN_INI'];
+    if (!FS.analyzePath(ini).exists) {
+      try { FS.writeFile(ini, '[general]\ntitle_menu = modern\npause_menu = modern\n'); }
+      catch (error) { reportSaveError(error); }
+    }
     restored = true;
     removeRunDependency('restore-saves');
   });

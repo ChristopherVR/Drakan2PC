@@ -3,6 +3,7 @@
 #include "drakan_subtitles.h"
 #include "drakan_software_frame_clock.h"
 #include "drakan_config.h"
+#include "drakan_issue.h"
 #include "drakan_tab_screen.h"
 #include "drakan_pause.h"
 #include "drakan_menus.h"
@@ -505,6 +506,7 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             ui.titleSession = ms.titleSession.load();
             gameui::TitleConfig cfg;
             cfg.screen.measure = ui.renderer.measure();
+            cfg.showIssueReporting = drakan_issue::available();
             cfg.pcSettingsPages = cfg.unifiedOptions = true;
             ui.title = gameui::TitleScreen(cfg);
             ui.title.open();
@@ -519,8 +521,14 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
         state.pcSettings = &ui.settings.schema();
         state.capturedKey = captured;
         auto out = ui.title.frame(state, in, viewport);
-        for (const auto& action : out.actions)
-            ms.titleActions.push(action);
+        for (const auto& action : out.actions) {
+            if (action.kind == gameui::TitleActionKind::ReportIssue) {
+                drakan_issue::report();
+                sound(out.sound);
+            } else {
+                ms.titleActions.push(action);
+            }
+        }
         for (const auto& action : out.optionActions)
             ms.titleOptionActions.push(action);
         ui.settings.applyAll(out.settings, ui.title.pcSettings());
@@ -534,6 +542,7 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             ui.pauseSession = ps.session.load();
             gameui::PauseConfig cfg;
             cfg.screen.measure = ui.renderer.measure();
+            cfg.showIssueReporting = drakan_issue::available();
             cfg.hostPages = cfg.quitCard = cfg.pcSettingsPages = cfg.unifiedOptions = true;
             ui.pause = gameui::PauseScreen(cfg);
             ui.pause.open();
@@ -549,8 +558,14 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             state.pcSettings = &ui.settings.schema();
             state.capturedKey = captured;
             auto out = ui.pause.frame(*snapshot, state, in, viewport);
-            for (const auto& action : out.actions)
-                ps.actions.push(action);
+            for (const auto& action : out.actions) {
+                if (action.kind == gameui::PauseActionKind::ReportIssue) {
+                    drakan_issue::report();
+                    sound(out.sound);
+                } else {
+                    ps.actions.push(action);
+                }
+            }
             ui.settings.applyAll(out.settings, ui.pause.pcSettings());
             if (out.wantsResume)
                 ps.resuming.store(true);
