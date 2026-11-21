@@ -132,6 +132,8 @@ public:
     // "Quit to Desktop": close the game cleanly (the host saves / fades the audio / releases the window and exits the
     // process).
     virtual void requestQuit() {}
+    virtual bool canReportIssue() const { return false; }
+    virtual void reportIssue() {}
 
     // The mod list behind the Mods page (ModsModel.h); null = no Mods page. Owned by the host, which fills it from its
     // mod manager and may set an "open folder" action.

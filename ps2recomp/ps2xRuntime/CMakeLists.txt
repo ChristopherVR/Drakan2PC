@@ -367,6 +367,7 @@ add_library(ps2_runtime STATIC
     src/lib/drakan_save_guard.cpp
     src/lib/drakan_log.cpp
     src/lib/drakan_crash.cpp
+    src/lib/drakan_issue.cpp
     src/lib/drakan_object_motion.cpp
     src/lib/drakan_dual_wield.cpp
     src/lib/drakan_texscale.cpp
@@ -448,6 +449,7 @@ endif()
 # the Windows implementation retains DPI/restart handling unchanged.
 if(WIN32)
     target_sources(ps2_runtime PRIVATE src/lib/drakan_config_win.cpp)
+    target_link_libraries(ps2_runtime PRIVATE shell32 ole32)
 else()
     target_sources(ps2_runtime PRIVATE src/lib/drakan_config_posix.cpp)
 endif()

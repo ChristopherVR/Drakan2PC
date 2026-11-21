@@ -6,6 +6,7 @@
 #include "ps2_vu1_batch.h"
 #include "drakan_card_root.h"
 #include "drakan_config.h"
+#include "drakan_issue.h"
 #include "drakan_null_call_recovery.h"
 #include "drakan_region.h"
 #include "drakan_settings_host.h"
@@ -2643,8 +2644,10 @@ void PS2Runtime::run() {
                                                       << static_cast<uint32_t>(_mm_extract_epi32(m_cpuContext.r[31], 0))
                                                       << std::dec << std::endl);
         } catch (const std::exception& e) {
+            drakan_issue::markCrash();
             std::cerr << "Error during program execution: " << e.what() << std::endl;
         } catch (...) {
+            drakan_issue::markCrash();
             std::cerr << "Error during program execution: unknown exception" << std::endl;
         }
         gameThreadFinished.store(true, std::memory_order_release);

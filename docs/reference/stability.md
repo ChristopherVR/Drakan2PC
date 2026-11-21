@@ -3,6 +3,18 @@
 Status 2026-10-17. Scope: investigate the reported intermittent intro crash / main thread death in intro-with-START and Level 0 runs. Finite boot runs and an incomplete software reference cannot prove that all crash classes are eliminated.
 Work is committed as **`7f4a650f1cd0ec3964ce5617a00f415e102dc234`** on branch `drakan-stab` of `tools/PS2Recomp` (worktree `tools/PS2Recomp-stab`, build dir `build/recomp_stab`), based on `drakan` @ `990f30c`. Not merged.
 
+## Windows player reports
+
+**Report an Issue** is available in the modern title and pause menus and in **F1 → Gameplay**. It captures the
+current session log in `%LOCALAPPDATA%\DrakanPC\reports`. The report is capped at 4 MiB of log text. Large logs
+retain the first 64 KiB for startup details and the most recent entries for the failure. Select **Yes** to open
+the folder and GitHub form. Players choose what to attach after reviewing the log for personal information.
+
+A separate process watches the game and offers the crash form after an abnormal exit. It holds a read handle to
+that session's log so a restart or a second instance cannot substitute its own log. A clean quit or a normal
+startup validation failure closes the watcher quietly. Existing Windows crash dumps are generated beside the game
+when supported by the fault handler and can be shared separately if requested.
+
 ## 0. Summary
 
 * **Mass run of the current `drakan` HEAD** (50 boots, 5 scenarios, 4 in parallel, `PS2X_TRACE_RING=1`): see section 2. The two known crash classes of the earlier reports
@@ -20,7 +32,7 @@ Work is committed as **`7f4a650f1cd0ec3964ce5617a00f415e102dc234`** on branch `d
 
 | tool | what | how |
 |---|---|---|
-| crash reporter | `ps2xRuntime/src/lib/drakan_crash.cpp`: `SetUnhandledExceptionFilter` -> `[crash]` lines in the log (exception code, faulting address, module+offset, access type, host registers, live guest thread/pc/ra/sp, all 32 GPRs, the thread-local dispatch history, `PS2X_TRACE_RING` ring), `crash_<pid>.dmp` (MiniDumpNormal) next to the exe; installed terminate handlers use `drakan_crash::fatal` (exit code 3). Other worker threads can retain their CRT default terminate handler. | `DRAKAN_CRASH_DUMP=0` skips the dump; self test `DRAKAN_CRASH_TEST=<seconds>[:abort\|:throw]` (default: null write on a helper thread). `:abort` exercises CRT abort and is not guaranteed to produce a report. |
+| crash reporter | `ps2xRuntime/src/lib/drakan_crash.cpp` records the host exception and live guest details when available. The watcher also detects Windows exception exit statuses when a fault bypasses the in-process handler. | `DRAKAN_CRASH_DUMP=0` skips the minidump. `DRAKAN_CRASH_PROMPT=0` saves the crash log with no dialog. `DRAKAN_CRASH_TEST=<seconds>[:abort\|:throw\|:failfast]` forces a test crash. The default exercises an access violation. |
 | matrix runner | `scripts/harness/stability/stab_matrix2.sh <exe> <tag> "<scenarios>" <rounds> [VAR=val ...]`: N boots in private slot dirs (hard-linked DLLs, private ELF copy so `mc0` is per slot), one summary line per boot. `STAB_PAR` defaults to 4, `STAB_SLOT_FIRST` to 1. | verdicts by `scripts/harness/stability/stab_verdict.sh`: `OK`, `CRASH`, `DEAD` / `DEAD_EXC`, `MISSING` (target >= 0x10), `HANG`, `EXITn`, `NOEXIT`, `NOLOG`, `NOPROGRESS`, `INCOMPLETE`. Standalone verdict takes `<log> [rc] [input-log]`; input-log is required to certify script completion. |
 | scenario scripts | `scripts/harness/stability/stab_genscript.py <a..e> <seed>` -> `DRAKAN_INPUT_SCRIPT` file (docs/reference/input.md section 11) | a: logo, New Game, intro plays fully, walk; b: START-skip, short gameplay; c: START-skip + 3 minutes of Level 0 with random walking / strafing / jumping / attacks / mouse look; d: START-skip + 25x pause menu + inventory open/close; e: START-skip, Save Game, Load Game (twice) |
 | resume fuzzer | `PS2X_FUZZ_UNWIND=<N>`: `EeScheduler::checkpointDue` asks for an unwind at about one of N safe points (every call / back edge), chosen at random (not inside `DI` sections) | every function must continue correctly from any call or back edge; a wrong or missing resume label shows up as `[bad-resume]`, a null JALR, ... |

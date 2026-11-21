@@ -1,0 +1,32 @@
+name: Report a bug
+description: Report a problem with gameplay, graphics, audio, controls, or menus.
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the campaign, level or menu and how often the problem occurs.
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Drakan PC build
+      description: Enter the builder kit release or source commit, if known.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Setup
+      description: Include your OS, disc region, GPU, graphics backend, and any enabled mods that may be relevant.
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Log and screenshots
+      description: Use Report an Issue in the game to capture a session log. Review it for personal information before attaching it here. Screenshots are welcome.

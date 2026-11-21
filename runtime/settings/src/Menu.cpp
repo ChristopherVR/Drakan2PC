@@ -1289,6 +1289,11 @@ void SettingsMenu::drawGeneral() {
     ImGui::TextColored(kMuted, "Settings are stored in drakan.ini and drakan_input.ini next to the game. Comments and "
                                "keys this menu does not know are kept.");
     ImGui::PopTextWrapPos();
+    if (host_.canReportIssue()) {
+        ImGui::Dummy(ImVec2(0, S(10)));
+        if (PlateButton("Report an Issue", ImVec2(0, S(46))))
+            host_.reportIssue();
+    }
 }
 
 void SettingsMenu::drawPopups() {

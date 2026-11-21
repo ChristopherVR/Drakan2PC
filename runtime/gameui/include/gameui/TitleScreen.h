@@ -50,6 +50,7 @@ enum class TitleRow : uint8_t {
     // Main page, shown when TitleConfig::showSwitchCampaigns is set and more than one game is installed: back to the
     // Choose your game card without restarting.
     SwitchCampaigns,
+    ReportIssue,
 };
 // Label shown (the skin's `title.row.<id>` when set, else the default), stable id, default label / description.
 const char* titleRowLabel(TitleRow r);
@@ -70,6 +71,7 @@ enum class TitleActionKind : uint8_t {
     ModsEnable,
     ModsKeepOff,
     OpenMods,
+    ReportIssue,
 };
 const char* titleActionName(TitleActionKind k);
 
@@ -168,6 +170,7 @@ struct TitleConfig {
     bool showPcSettings = true;       // a PC Settings row on the main page
     bool showMultiplayer = false;     // a Multiplayer row (after New Game); the host glue turns it on
     bool showSwitchCampaigns = false; // a Switch Campaigns row (before Quit) while TitleState::games has several games
+    bool showIssueReporting = false;
     bool showCoop = false; // New Game asks Solo / Co-op first (Co-op is played on the campaign, not in Multiplayer)
     uint32_t suspendFrames = 240; // input ignored after an action that leaves the menu, until reactivate()
     int32_t sliderStep = 5;       // Options pages (PauseConfig)

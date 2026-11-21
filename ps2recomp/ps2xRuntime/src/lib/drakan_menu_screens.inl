@@ -1031,6 +1031,7 @@ void titleExecute(RecompGuest& g, uint32_t active, int id) {
         case K::ModsEnable: // the new mod packs card: handled by the host glue, never queued here
         case K::ModsKeepOff:
         case K::OpenMods:
+        case K::ReportIssue:
             return titleFinish(gameui::Outcome::Confirmed, true);
         case K::QuitToDesktop:
             menuLog("quit to desktop: closing the window");

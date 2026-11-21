@@ -1,6 +1,7 @@
 #include "lib/drakan_config.h"
 #include "lib/drakan_log.h"
 #include "lib/drakan_crash.h"
+#include "lib/drakan_issue.h"
 #include "lib/drakan_region.h"
 #include "ps2_runtime.h"
 #include "games_database.h"
@@ -189,10 +190,14 @@ std::filesystem::path getExecutablePath(int argc, char* argv[]) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    if (drakan_issue::runHelper(argc, argv))
+        return 0;
 #if defined(__ANDROID__)
     redirectStdioToLogcat();
 #endif
     drakan_log::init(); // GUI-subsystem exe: stdout / stderr -> async log (never blocks the game threads)
+    drakan_issue::watchForCrashes();
+    drakan_crash::install();
     setupTerminateLogger();
 
     try {
@@ -237,16 +242,25 @@ int main(int argc, char* argv[]) {
 #endif
         if (!runtime.initialize(windowTitle.c_str())) {
             std::cerr << "Failed to initialize PS2 runtime" << std::endl;
+            drakan_log::flush();
             return 1;
         }
 
         if (!runtime.loadELF(filePathStr)) {
             std::cerr << "Failed to load ELF file: " << filePathStr << std::endl;
+            drakan_log::flush();
             return 1;
         }
 
-        drakan_crash::install(&runtime);
-        runtime.run();
+        drakan_crash::setRuntime(&runtime);
+        try {
+            runtime.run();
+        } catch (...) {
+            drakan_crash::setRuntime(nullptr);
+            drakan_issue::markCrash();
+            throw;
+        }
+        drakan_crash::setRuntime(nullptr);
 
 #ifdef _DEBUG
         ps2_log::print_saved_location();
@@ -265,5 +279,6 @@ int main(int argc, char* argv[]) {
 
     std::cout.flush();
     std::cerr.flush();
+    drakan_log::flush();
     finishProcess(1);
 }

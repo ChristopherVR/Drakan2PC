@@ -80,6 +80,8 @@ const char* rowDescription(PauseRow r, bool enabled, int32_t scheme) {
             return menuText("Controller, audio and PC settings.");
         case PauseRow::Quit:
             return menuText("Leave the game. Unsaved progress is lost.");
+        case PauseRow::ReportIssue:
+            return menuText("Save a log and open the bug report form.");
         case PauseRow::Controller:
             return menuText("Button scheme, vibration and pitch.");
         case PauseRow::Audio:
@@ -178,6 +180,8 @@ const char* pauseActionName(PauseActionKind k) {
             return "QuitToTitle";
         case PauseActionKind::QuitToDesktop:
             return "QuitToDesktop";
+        case PauseActionKind::ReportIssue:
+            return "ReportIssue";
     }
     return "?";
 }
@@ -257,6 +261,8 @@ const char* pauseRowId(PauseRow r) {
             return "options";
         case PauseRow::Quit:
             return "quit";
+        case PauseRow::ReportIssue:
+            return "report_issue";
         case PauseRow::Controller:
             return "controller";
         case PauseRow::Audio:
@@ -307,6 +313,8 @@ const char* pauseRowDefaultLabel(PauseRow r) {
             return menuText("Options");
         case PauseRow::Quit:
             return menuText("Quit");
+        case PauseRow::ReportIssue:
+            return menuText("Report an Issue");
         case PauseRow::Controller:
             return menuText("Controller");
         case PauseRow::Audio:
@@ -572,13 +580,16 @@ std::vector<PausePage> PauseScreen::pageStack() const {
     return v;
 }
 
-std::vector<PauseRow> PauseScreen::rowsOf(PausePage p) {
+std::vector<PauseRow> PauseScreen::rowsOf(PausePage p, bool showIssueReporting) {
     const char* page = nullptr; // the skin's [rows] page, for the pages a mod may reorder
     std::vector<PauseRow> r;
     switch (p) {
         case PausePage::Root:
             page = "pause.root";
-            r = {PauseRow::Resume, PauseRow::Save, PauseRow::Load, PauseRow::Options, PauseRow::Quit};
+            r = {PauseRow::Resume, PauseRow::Save, PauseRow::Load, PauseRow::Options};
+            if (showIssueReporting)
+                r.push_back(PauseRow::ReportIssue);
+            r.push_back(PauseRow::Quit);
             break;
         case PausePage::Options:
             page = "pause.options";
@@ -601,7 +612,7 @@ std::vector<PauseRow> PauseScreen::rowsOf(PausePage p) {
 }
 
 std::vector<PauseRow> PauseScreen::rows() const {
-    return rowsOf(page_);
+    return rowsOf(page_, cfg_.showIssueReporting);
 }
 
 bool PauseScreen::rowEnabled(PauseRow r, const PauseState& st) const {
@@ -856,6 +867,9 @@ void PauseScreen::activate(PauseRow r, const PauseState& st, PauseFrameOutput& o
             break;
         case PauseRow::QuitToDesktop:
             emit(PauseActionKind::QuitToDesktop);
+            break;
+        case PauseRow::ReportIssue:
+            out.actions.push_back({0, PauseActionKind::ReportIssue});
             break;
         case PauseRow::Back:
         case PauseRow::Cancel:
@@ -1156,8 +1170,12 @@ void PauseScreen::draw(const Snapshot& s, const PauseState& st, DrawList& d) con
 void PauseScreen::drawMenu(PausePage page, bool live, const PauseState& st, DrawList& d) const {
     const detail::Paint p(lf_, cfg_.screen);
     const Theme& th = cfg_.screen.theme;
-    d.panel(p.map(shifted(design::pause::menuPanel())), PanelStyle::Main, th.panel);
-    const std::vector<PauseRow> rs = rowsOf(page);
+    const std::vector<PauseRow> rs = rowsOf(page, cfg_.showIssueReporting);
+    const int lastRow = static_cast<int>(std::max<size_t>(5, rs.size())) - 1;
+    const Rect desc{rowX() + dx() + 4, design::pause::row(lastRow).bottom() + 20, rowW() - 8, 60};
+    Rect panel = shifted(design::pause::menuPanel());
+    panel.h = std::max(panel.h, desc.bottom() + 40 - panel.y);
+    d.panel(p.map(panel), PanelStyle::Main, th.panel);
     std::optional<PauseRow> focusedRow;
     for (size_t i = 0; i < rs.size(); ++i) {
         drawRow(rs[i], shifted(design::pause::row(static_cast<int>(i))), live, st, d);
@@ -1165,7 +1183,6 @@ void PauseScreen::drawMenu(PausePage page, bool live, const PauseState& st, Draw
             focusedRow = rs[i];
     }
     if (focusedRow) {
-        const Rect desc{rowX() + dx() + 4, rowY() + 5 * rowStep() + 4, rowW() - 8, 60};
         p.rule(d, rowX() + dx(), desc.y - 6, rowW());
         const bool en = rowEnabled(*focusedRow, st);
         const std::vector<std::string> lines =

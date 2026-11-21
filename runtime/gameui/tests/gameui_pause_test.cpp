@@ -501,6 +501,32 @@ void testCards() {
 
 // ---- layout ----
 
+void testIssueReporting() {
+    ScreenWorld w;
+    const Snapshot snapshot = w.read();
+    const PauseState state = validState();
+    const Viewport vp{0, 0, 1920, 1080};
+    PauseConfig cfg = hostConfig();
+    cfg.showIssueReporting = true;
+    PauseScreen screen(cfg);
+    screen.open();
+    screen.frame(snapshot, state, {}, vp);
+    const auto frame = screen.frame(snapshot, state, keys({UiKey::Down, UiKey::Down, UiKey::Down, UiKey::Down}), vp);
+    CHECK(focused(screen, PauseRow::ReportIssue));
+    CHECK(hasText(frame.draw, "Report an Issue"));
+
+    const HitTarget* quit = rowTarget(screen, PauseRow::Quit);
+    const DrawCmd* description = nullptr;
+    for (const DrawCmd& cmd : frame.draw.commands())
+        if (cmd.kind == DrawKind::Text && cmd.text == "Save a log and open the bug report form.")
+            description = &cmd;
+    CHECK(quit && description && description->rect.y > quit->rect.bottom());
+
+    const auto action = screen.frame(snapshot, state, keys({UiKey::Confirm}), vp);
+    CHECK(action.actions.size() == 1 && findAction(action, PauseActionKind::ReportIssue));
+    CHECK(screen.isOpen() && !screen.suspended() && focused(screen, PauseRow::ReportIssue));
+}
+
 void testAspect() {
     ScreenWorld w;
     const Snapshot s = w.read();
@@ -572,6 +598,7 @@ int main() {
     testTogglesAndScheme();
     testDisabled();
     testCards();
+    testIssueReporting();
     testAspect();
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

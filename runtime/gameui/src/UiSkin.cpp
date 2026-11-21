@@ -413,7 +413,9 @@ std::vector<SkinKeyInfo> stringKeys() {
     }
     v.push_back({"title.quit.title", "Quit the game?"});
     v.push_back({"title.quit.body", "Drakan closes and returns to the desktop."});
-    for (int i = 0; i <= static_cast<int>(PauseRow::Cancel); ++i) {
+    v.push_back({"title.row.report_issue", titleRowDefaultLabel(TitleRow::ReportIssue)});
+    v.push_back({"title.desc.report_issue", titleRowDefaultDescription(TitleRow::ReportIssue)});
+    for (int i = 0; i <= static_cast<int>(PauseRow::ReportIssue); ++i) {
         const PauseRow r = static_cast<PauseRow>(i);
         v.push_back({std::string("pause.row.") + pauseRowId(r), pauseRowDefaultLabel(r)});
     }
@@ -422,8 +424,8 @@ std::vector<SkinKeyInfo> stringKeys() {
 
 std::vector<SkinKeyInfo> rowPages() {
     return {
-        {"title.main", "continue, load_game, new_game, multiplayer, options, credits, pc_settings, quit"},
-        {"pause.root", "resume, save, load, options, quit"},
+        {"title.main", "continue, load_game, new_game, multiplayer, options, credits, pc_settings, report_issue, quit"},
+        {"pause.root", "resume, save, load, options, report_issue, quit"},
         {"pause.options", "controller, audio, pc_settings, defaults, back"},
         {"pause.audio", "master_volume, music_volume, subtitles, stereo, back"},
         {"pause.controller", "scheme, vibration, reverse_pitch, key_bindings, back"},

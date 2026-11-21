@@ -8,10 +8,13 @@
 //     selection mode blocks every writer until the selection ends, which used to freeze the EE and loop the audio).
 //   * console = 1: AllocConsole (when the process has none) with QuickEdit and insert mode disabled.
 #pragma once
+#include <filesystem>
 
 namespace drakan_log {
 // Call first thing in main(). Safe to call once; no-op on non-Windows.
 void init();
+// The active session log, including any fallback used when another instance owns drakan.log.
+const std::filesystem::path& path();
 // Shutdown: waits (at most timeoutMs) until everything written so far has reached drakan.log / the sinks, then flushes
 // the file to disk.
 void flush(int timeoutMs = 1500);

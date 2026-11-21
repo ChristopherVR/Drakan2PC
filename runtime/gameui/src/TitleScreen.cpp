@@ -74,6 +74,8 @@ std::string rowDescription(TitleRow r, bool enabled, const TitleState& st) {
             return menuText("Host or join a match over the network.");
         case TitleRow::SwitchCampaigns:
             return menuText("Go back to Choose your game.");
+        case TitleRow::ReportIssue:
+            return menuText("Save a log and open the bug report form.");
         case TitleRow::QuitToDesktop:
         case TitleRow::Cancel:
         case TitleRow::NewGameSolo:
@@ -124,6 +126,8 @@ const char* titleRowId(TitleRow r) {
             return "mods_keep_off";
         case TitleRow::SwitchCampaigns:
             return "switch_campaigns";
+        case TitleRow::ReportIssue:
+            return "report_issue";
         default: // game rows
             break;
     }
@@ -148,6 +152,8 @@ const char* titleRowDefaultDescription(TitleRow r) {
             return menuText("Host or join a match over the network.");
         case TitleRow::SwitchCampaigns:
             return menuText("Go back to Choose your game.");
+        case TitleRow::ReportIssue:
+            return menuText("Save a log and open the bug report form.");
         default:
             return nullptr;
     }
@@ -195,6 +201,8 @@ const char* titleRowDefaultLabel(TitleRow r) {
             return menuText("Keep them off");
         case TitleRow::SwitchCampaigns:
             return menuText("Switch Campaigns");
+        case TitleRow::ReportIssue:
+            return menuText("Report an Issue");
     }
     return "";
 }
@@ -221,6 +229,8 @@ const char* titleActionName(TitleActionKind k) {
             return "ModsKeepOff";
         case TitleActionKind::OpenMods:
             return "OpenMods";
+        case TitleActionKind::ReportIssue:
+            return "ReportIssue";
     }
     return "?";
 }
@@ -410,6 +420,8 @@ std::vector<TitleRow> TitleScreen::rowsOf(TitlePage page, const TitleState& st) 
         r.push_back(TitleRow::PcSettings);
     if (cfg_.showSwitchCampaigns && st.games.size() > 1)
         r.push_back(TitleRow::SwitchCampaigns);
+    if (cfg_.showIssueReporting)
+        r.push_back(TitleRow::ReportIssue);
     if (st.canQuit)
         r.push_back(TitleRow::Quit);
     return applyRowOrder("title.main", std::move(r), [](TitleRow x) { return titleRowId(x); }); // skin order / hidden
@@ -622,6 +634,10 @@ void TitleScreen::activate(TitleRow r, const TitleState& st, TitleFrameOutput& o
             break;
         case TitleRow::QuitToDesktop:
             emit(TitleActionKind::QuitToDesktop);
+            break;
+        case TitleRow::ReportIssue:
+            out.actions.push_back({0, TitleActionKind::ReportIssue});
+            out.sound = UiSound::Confirm;
             break;
         case TitleRow::Cancel:
             back(out);

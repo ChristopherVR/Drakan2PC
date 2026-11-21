@@ -1,0 +1,30 @@
+name: Report a crash
+description: Report an unexpected exit or a freeze.
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: What were you doing when it happened?
+      description: Say whether the game closed or froze, and include the campaign, level or menu and any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Can you reproduce it?
+      description: List the steps and how often it happens, if known.
+  - type: input
+    id: build
+    attributes:
+      label: Drakan PC build
+      description: Enter the builder kit release or source commit, if known.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Setup
+      description: Include your OS, disc region, GPU, graphics backend, and any enabled mods that may be relevant.
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Crash log
+      description: Attach the drakan-crash log from the crash prompt or the session log from the affected run, if available. Review it for personal information first.

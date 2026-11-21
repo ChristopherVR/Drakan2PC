@@ -2,6 +2,7 @@
 
 #if defined(_WIN32)
 #include "drakan_config.h"
+#include "drakan_issue.h"
 #include "drakan_log.h"
 #include "ps2_runtime.h"
 #include "runtime/ee_scheduler.h"
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <string>
 #include <chrono>
+#include <csignal>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
@@ -22,7 +24,7 @@ std::string ps2FormatDispatchHistoryForCrash();
 
 namespace drakan_crash {
 namespace {
-PS2Runtime* g_rt = nullptr;
+std::atomic<PS2Runtime*> g_rt{nullptr};
 std::atomic<int> g_inCrash{0};
 
 typedef BOOL(WINAPI* MiniDumpWriteDumpFn)(HANDLE, DWORD, HANDLE, int, void*, void*, void*);
@@ -63,13 +65,14 @@ void writeDump(EXCEPTION_POINTERS* ep) {
 }
 
 void dumpGuestState() {
-    if (!g_rt)
+    PS2Runtime* const runtime = g_rt.load();
+    if (!runtime)
         return;
     uint32_t pc = 0, ra = 0, sp = 0;
     int tid = 0;
-    const bool ok = g_rt->eeScheduler().sampleLive(pc, ra, sp, tid);
+    const bool ok = runtime->eeScheduler().sampleLive(pc, ra, sp, tid);
     std::fprintf(stderr, "[crash] guest live: ok=%d tid=%d pc=0x%x ra=0x%x sp=0x%x\n", ok, tid, pc, ra, sp);
-    if (const R5900Context* c = g_rt->eeScheduler().liveContextForCrash()) {
+    if (const R5900Context* c = runtime->eeScheduler().liveContextForCrash()) {
         static const char* names[32] = {"zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2",
                                         "t3",   "t4", "t5", "t6", "t7", "s0", "s1", "s2", "s3", "s4", "s5",
                                         "s6",   "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"};
@@ -89,6 +92,7 @@ void dumpGuestState() {
 LONG WINAPI filter(EXCEPTION_POINTERS* ep) {
     if (g_inCrash.exchange(1))
         return EXCEPTION_CONTINUE_SEARCH;
+    drakan_issue::markCrash();
     const DWORD code = ep->ExceptionRecord->ExceptionCode;
     const void* addr = ep->ExceptionRecord->ExceptionAddress;
     HMODULE mod = nullptr;
@@ -117,29 +121,35 @@ LONG WINAPI filter(EXCEPTION_POINTERS* ep) {
 }
 } // namespace
 
-void install(PS2Runtime* rt) {
-    g_rt = rt;
+void install() {
     SetUnhandledExceptionFilter(filter);
     // abort() / std::terminate must not open the CRT "abnormal termination" dialog on an unattended run
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
-    // DRAKAN_CRASH_TEST=<seconds>[:abort|:throw]: self test of the crash report (null write on a helper thread /
-    // abort() / uncaught exception)
+    std::signal(SIGABRT, [](int) { fatal("abort"); });
+}
+
+void setRuntime(PS2Runtime* rt) {
+    g_rt.store(rt);
+    if (!rt)
+        return;
+    // Self-test the Win32 filter, CRT fatal paths, or a fail-fast that bypasses the filter.
     if (const char* t = std::getenv("DRAKAN_CRASH_TEST")) {
         const double secs = std::atof(t);
-        const char* mode = std::strchr(t, ':');
-        const int kind = !mode ? 0 : (mode[1] == 'a' ? 1 : 2);
-        std::thread([secs, kind]() {
+        const char* suffix = std::strchr(t, ':');
+        const std::string mode = suffix ? suffix + 1 : "";
+        std::thread([secs, mode]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long long>(secs * 1000.0)));
-            if (kind == 0)
-                *static_cast<volatile int*>(nullptr) = 1;
-            else if (kind == 1)
+            if (mode == "abort")
                 std::abort();
-            else {
+            if (mode == "failfast")
+                RaiseFailFastException(nullptr, nullptr, 0);
+            if (mode == "throw") {
                 // MSVC worker threads can start with the CRT's default terminate handler.
                 // Install this explicitly so the self-test exercises our fatal reporting path.
                 std::set_terminate([]() { fatal("std::terminate (crash self-test thread)"); });
                 throw std::runtime_error("DRAKAN_CRASH_TEST");
             }
+            *static_cast<volatile int*>(nullptr) = 1;
         }).detach();
     }
 }
@@ -147,6 +157,7 @@ void install(PS2Runtime* rt) {
 void fatal(const char* why) {
     if (g_inCrash.exchange(1))
         return;
+    drakan_issue::markCrash();
     std::fprintf(stderr, "[crash] fatal: %s\n", why ? why : "?");
     writeDump(nullptr);
     dumpGuestState();
@@ -156,7 +167,8 @@ void fatal(const char* why) {
 } // namespace drakan_crash
 #else
 namespace drakan_crash {
-void install(PS2Runtime*) {}
+void install() {}
+void setRuntime(PS2Runtime*) {}
 void fatal(const char*) {}
 } // namespace drakan_crash
 #endif

@@ -35,6 +35,27 @@ struct State {
     std::atomic<bool> markerSeen{false};
 };
 State* g = nullptr;
+std::filesystem::path g_path;
+
+HANDLE openSessionLog(const std::filesystem::path& dir) {
+    const std::filesystem::path cur = dir / L"drakan.log", prev = dir / L"drakan.1.log";
+    MoveFileExW(cur.c_str(), prev.c_str(), MOVEFILE_REPLACE_EXISTING);
+    // The writer's share mode protects this session against rotation and truncation by another instance.
+    auto open = [](const std::filesystem::path& path) {
+        return CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    };
+    HANDLE file = open(cur);
+    if (file != INVALID_HANDLE_VALUE) {
+        g_path = cur;
+        return file;
+    }
+    const std::filesystem::path separate = dir / (L"drakan." + std::to_wstring(GetCurrentProcessId()) + L".log");
+    file = open(separate);
+    if (file != INVALID_HANDLE_VALUE)
+        g_path = separate;
+    return file;
+}
 
 void writeAll(HANDLE h, const char* p, size_t n) {
     while (n) {
@@ -108,6 +129,10 @@ void flush(int timeoutMs) {
         FlushFileBuffers(g->sinkFile);
 }
 
+const std::filesystem::path& path() {
+    return g_path;
+}
+
 void init() {
     if (g)
         return;
@@ -142,16 +167,20 @@ void init() {
                                      OPEN_EXISTING, 0, nullptr);
     }
 
-    // drakan.log (+ the previous run as drakan.1.log); DRAKAN_LOG_DIR=<dir> moves both (test runs keep the player's
-    // logs next to the exe untouched)
-    {
-        const char* logDir = std::getenv("DRAKAN_LOG_DIR");
-        const std::string base = logDir && *logDir ? std::string(logDir) + "/" : drakan_cfg::exeDir();
-        const std::string cur = base + "drakan.log", prev = base + "drakan.1.log";
-        MoveFileExA(cur.c_str(), prev.c_str(),
-                    MOVEFILE_REPLACE_EXISTING); // fails quietly when another instance still has it open
-        g->sinkFile = CreateFileA(cur.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                                  nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // DRAKAN_LOG_DIR isolates test runs from the player's regular logs.
+    const wchar_t* logDir = _wgetenv(L"DRAKAN_LOG_DIR");
+    if (logDir && *logDir) {
+        g->sinkFile = openSessionLog(logDir);
+    } else {
+        g->sinkFile = openSessionLog(drakan_cfg::exeDir());
+        if (const wchar_t* appData = _wgetenv(L"LOCALAPPDATA"); appData && *appData &&
+            g->sinkFile == INVALID_HANDLE_VALUE) {
+            const auto fallback = std::filesystem::path(appData) / L"DrakanPC" / L"logs";
+            std::error_code ec;
+            std::filesystem::create_directories(fallback, ec);
+            if (!ec)
+                g->sinkFile = openSessionLog(fallback);
+        }
     }
 
     HANDLE r = nullptr, w = nullptr;
@@ -185,5 +214,9 @@ void init() {
 namespace drakan_log {
 void init() {}
 void flush(int) {}
+const std::filesystem::path& path() {
+    static const std::filesystem::path empty;
+    return empty;
+}
 } // namespace drakan_log
 #endif

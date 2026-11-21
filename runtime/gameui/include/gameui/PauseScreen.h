@@ -53,6 +53,7 @@ enum class PauseActionKind : uint8_t {
     // ---- phase 3 (quitCard) ----
     QuitToTitle,   // 0x2315 + the native box Yes, without the quit_exits conversion
     QuitToDesktop, // close the window (as F1 > Quit to Desktop)
+    ReportIssue,
 };
 const char* pauseActionName(PauseActionKind k);
 // The option a Set* action changes (nullopt for the others), and the Set* action of an option.
@@ -124,6 +125,7 @@ enum class PauseRow : uint8_t {
     QuitToDesktop,
     RestoreDefaults,
     Cancel,
+    ReportIssue,
 };
 // Label shown (the skin's `pause.row.<id>` when set, else the default) and the stable id / default label.
 const char* pauseRowLabel(PauseRow r);
@@ -158,6 +160,7 @@ struct PauseConfig {
     // no host Options / Audio / Controller page. The native screens 9 / 13 / 10 are still entered (EnterPage /
     // LeavePage) so the game's options apply through the same Set* actions.
     bool unifiedOptions = false;
+    bool showIssueReporting = false;
 };
 
 struct PauseFrameOutput {
@@ -190,7 +193,7 @@ public:
     const std::vector<HitTarget>& targets() const { return targets_; }
     const std::vector<Hint>& hints() const { return hints_; }
     std::vector<PauseRow> rows() const; // rows of the current page, in order
-    static std::vector<PauseRow> rowsOf(PausePage p);
+    static std::vector<PauseRow> rowsOf(PausePage p, bool showIssueReporting = false);
     bool rowEnabled(PauseRow r, const PauseState& st) const;
     // The value shown for an option: the last one set from this screen until the guest reports it (or the hold time
     // passes), else the guest's.
