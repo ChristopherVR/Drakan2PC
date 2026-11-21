@@ -40,6 +40,7 @@ import {
     buildManifestToml,
     buildOotfPack,
     ootfArenaFromPc,
+    ootfCredits,
     ootfSubtitleTable,
     previewFileName,
     zipOotfPack,
@@ -447,6 +448,8 @@ const previewPng = (name: string | undefined): Uint8Array | undefined => {
     const f = name && opt['previews'] ? join(opt['previews'], previewFileName(name)) : '';
     return f && existsSync(f) ? new Uint8Array(readFileSync(f)) : undefined;
 };
+const credits = opt['campaign'] !== undefined ? await ootfCredits(src) : undefined;
+if (credits && !credits.files['credits/credits.txt']) console.warn('warning: Dragon.rrc has no Order of the Flame credits');
 const pack = await buildOotfPack(
     {
         id: opt['id'] ?? 'ootf-levels',
@@ -465,6 +468,8 @@ const pack = await buildOotfPack(
         ...(opt['campaign'] !== undefined && opt['treasure'] !== '1' ? { campaignGoldCounter: false } : {}),
         // the rendered OotF title theme ("gui", PC Background Music ID 4) plays on the title menu while the campaign is chosen
         ...(opt['campaign'] !== undefined && res.music?.title ? { campaignTitleMusic: res.music.title } : {}),
+        ...(opt['campaign'] !== undefined && res.music?.credits ? { campaignCreditsMusic: res.music.credits } : {}),
+        ...credits?.artwork,
         // levels of flat picture scenes are shown at the aspect they were framed for (the Ruined Village Book: 4:3)
         ...(res.levelAspect ? { levelAspect: res.levelAspect } : {}),
         // exits that close once taken (the church stair to the Book: a backed-out save offers it again until then)
@@ -481,26 +486,8 @@ const pack = await buildOotfPack(
         preview: previewPng(arenas.get(l.pcPath)?.name),
     })),
     ps2BlobFor,
-    { splats, extraFiles: res.files },
+    { splats, extraFiles: { ...res.files, ...credits?.files } },
 );
-// The campaign's own end card: the game serves it in place of the Drakan 2 credits while this campaign is the current game
-// (docs/reference/modding.md "Campaign credits"). No names beyond the studio and the game: the PC install carries no credits.
-if (opt['campaign'] !== undefined) {
-    const nl = String.fromCharCode(13, 10);
-    const card = [
-        '=Drakan: Order of the Flame',
-        "Converted campaign for Drakan: The Ancients' Gates",
-        '',
-        '=Original game',
-        'Drakan: Order of the Flame, Surreal Software, 1999',
-        '',
-        '=Engine',
-        "Drakan: The Ancients' Gates, Surreal Software, 2002",
-        '',
-        '',
-    ].join(nl);
-    pack.files['credits/credits.txt'] = new TextEncoder().encode(card);
-}
 // --cover <png> / --background <png>: the campaign's card cover (previews/campaign-ootf.png) and its menu background
 // (previews/background-ootf.png, docs/reference/modding.md "Campaign packs"). The art is the player's own file (never committed);
 // a single picture passed as --cover also serves as the background.

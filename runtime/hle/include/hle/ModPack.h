@@ -60,7 +60,10 @@ struct Manifest {
     // one-line description, `campaign_saves` = the memory card folder suffix (`<card>_<saves>`, default the id),
     // `campaign_title_music` = the PS2MUSIC.SDB sound id (decimal) the title menu plays while the campaign is chosen
     // (hle::CampaignMusicRedirect; the pack adds that track with `new/PS2MUSIC.SDB/` entries).
-    std::string campaign, campaignName, campaignStart, campaignDescription, campaignSaves, campaignTitleMusic;
+    // `campaign_credits_music` is the equivalent track for the credits roll.
+    std::string campaign, campaignName, campaignStart, campaignDescription, campaignSaves, campaignTitleMusic,
+        campaignCreditsMusic;
+    std::vector<std::string> campaignCreditsBackdrop, campaignCreditsLogos;
     // top-level `campaign_spells = false`: the campaign has no spells (Drakan: Order of the Flame). While it is the
     // current game the Spells pages, the mana orb and bar and the casting are gone (drakan_game::spellsEnabled).
     // Missing, or any value but false / 0 / no / off: spells as on the disc.
@@ -241,10 +244,8 @@ public:
     // UI skins (docs/reference/modding.md "Menus and HUD"): the text of every `ui/*.ini` of every loaded pack, in load
     // order. `first` is "mod <id>: <path>", `second` the file content (gameui::parseUiSkin reads it).
     const std::vector<std::pair<std::string, std::string>>& uiFiles() const { return uiFiles_; }
-    // Campaign credits: the text of every loaded pack's `credits/credits.txt` (<= 64 KiB), `first` = the pack id. The
-    // game serves it in place of the credits text entries (DRAKAN2.RRC 0x401 ids 8807 / 8808) only while that pack's
-    // campaign is the current game (CampaignCreditsOverride).
-    const std::vector<std::pair<std::string, std::string>>& creditsFiles() const { return creditsFiles_; }
+    // Campaign credits by pack id: `credits/credits.txt` and optional `credits/credits-2.txt` (<= 64 KiB each).
+    const std::map<std::string, CampaignCreditsText>& creditsFiles() const { return creditsFiles_; }
     // Campaign sound swaps: the text of every loaded pack's `sounds/swaps.ini` (<= 64 KiB), `first` = the pack id. The
     // game plays the listed ids in place of Drakan 2 ones only while that pack's campaign is the current game
     // (CampaignSoundSwaps, docs/reference/modding.md "Campaign sound swaps").
@@ -284,7 +285,7 @@ private:
     std::vector<std::pair<std::string, std::string>> mapFiles_;
     std::vector<std::pair<std::string, std::vector<u8>>> previewFiles_;
     std::vector<std::pair<std::string, std::string>> uiFiles_;
-    std::vector<std::pair<std::string, std::string>> creditsFiles_;
+    std::map<std::string, CampaignCreditsText> creditsFiles_;
     std::vector<std::pair<std::string, std::string>> soundSwapFiles_;
     std::vector<std::pair<std::string, std::string>> bowAimFiles_;
     std::vector<std::pair<std::string, std::string>> crystalFiles_;

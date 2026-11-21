@@ -442,7 +442,7 @@ void CampaignSceneMusic::reset() {
 }
 
 // ---- campaign credits
-const std::string* CampaignCreditsOverride::current() const {
+const CampaignCreditsText* CampaignCreditsOverride::current() const {
     if (!active_)
         return nullptr;
     const auto it = texts_.find(active_());
@@ -527,12 +527,12 @@ bool CampaignCreditsOverride::wants(const ResourceId& id) {
 }
 
 bool CampaignCreditsOverride::apply(const ResourceId& id, std::vector<u8>& data) {
-    const std::string* text = current();
-    if (!text || id.type != kType)
+    if (id.type != kType || (id.id != kFirstId && id.id != kSecondId) || id.file != "DRAKAN2.RRC")
         return false;
-    // The first entry carries the pack's text, the second (the disc's second credits block) is emptied so the scroll
-    // ends.
-    const std::string body = id.id == kFirstId ? *text : std::string("\r\n");
+    const CampaignCreditsText* text = current();
+    if (!text)
+        return false;
+    const std::string& body = id.id == kFirstId ? text->first : text->second;
     data.assign(body.begin(), body.end());
     return true;
 }
@@ -558,34 +558,47 @@ const std::vector<CampaignCreditsOverride::Range>& CampaignCreditsOverride::rang
         const u16 type = q[0] | (q[1] << 8), id = q[2] | (q[3] << 8);
         const u32 off = q[6] | (q[7] << 8) | (q[8] << 16) | ((u32)q[9] << 24);
         const u32 size = q[10] | (q[11] << 8) | (q[12] << 16) | ((u32)q[13] << 24);
-        if (type == kType && (id == kFirstId || id == kSecondId))
+        if (type == kType && (id == kFirstId || id == kSecondId) && off <= idx && size <= idx - off)
             out.push_back({id, off, size});
     }
     return out;
 }
 
-std::string CampaignCreditsOverride::bodyFor(u16 id, u64 size) {
-    const std::string* text = current();
-    const std::string crlf = std::string(1, (char)13) + std::string(1, (char)10);
-    std::string body = id == kFirstId && text ? *text : std::string();
+std::string CampaignCreditsOverride::bodyFor(const std::string& text, size_t size) {
+    const std::string crlf = "\r\n";
+    std::string body = text == crlf ? std::string() : text;
     if (body.size() + crlf.size() > size) { // cut at a line end that fits
         body.resize(size > crlf.size() ? size - crlf.size() : 0);
-        const size_t cut = body.rfind((char)10);
+        const size_t cut = body.rfind('\n');
         body.resize(cut == std::string::npos ? 0 : cut + 1);
     }
     body.resize(size > crlf.size() ? size - crlf.size() : 0, ' ');
     return (body + crlf).substr(0, size);
 }
 
+bool CampaignCreditsOverride::copyBlock(u16 id, u8* dest, size_t size) const {
+    if (id != kFirstId && id != kSecondId)
+        return false;
+    const CampaignCreditsText* text = current();
+    if (!text)
+        return false;
+    const std::string body = bodyFor(id == kFirstId ? text->first : text->second, size);
+    memcpy(dest, body.data(), body.size());
+    return true;
+}
+
 void CampaignCreditsOverride::patchRead(const IsoFs& fs, const IsoFs::Node& node, u64 offset, u8* data, size_t n) {
     const size_t k = node.key.size();
-    if (k < 11 || node.key.compare(k - 11, 11, "DRAKAN2.RRC") != 0 || !current())
+    if (k < 11 || node.key.compare(k - 11, 11, "DRAKAN2.RRC") != 0)
+        return;
+    const CampaignCreditsText* text = current();
+    if (!text)
         return;
     for (const Range& r : rangesOf(fs, node)) {
         const u64 a = std::max<u64>(offset, r.off), b = std::min<u64>(offset + n, r.off + r.size);
         if (a >= b)
             continue;
-        const std::string body = bodyFor(r.id, r.size);
+        const std::string body = bodyFor(r.id == kFirstId ? text->first : text->second, r.size);
         memcpy(data + (a - offset), body.data() + (a - r.off), (size_t)(b - a));
         // The credits are read in many small chunks: log the first few only.
         static unsigned logged = 0;

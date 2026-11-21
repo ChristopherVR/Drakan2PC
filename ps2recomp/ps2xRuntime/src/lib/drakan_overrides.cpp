@@ -42,12 +42,13 @@
 #include "hle/ArenaLevel.h"
 #include "drakan_modes.h"
 #endif
-#include "drakan_game.h"
 #include "settings/Bindings.h"
 #include "drakan_netplay.h"
 #endif
 #include "spu2/AudioOutput.h"
 #include "drakan_pause.h"
+#include "drakan_game.h"
+#include "drakan_guest_call.h"
 #include "drakan_config.h"
 #include "drakan_settings_host.h"
 #include "drakan_subtitles.h"
@@ -97,7 +98,9 @@
 #include "drakan_coop_character.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <charconv>
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
@@ -1528,9 +1531,151 @@ void soundDebugInstall(PS2Runtime& rt) {
 // and Arokh's records and the Drakan 2 creature clips are shared with Drakan 2, so they are never changed; the id is
 // swapped at the call. PvP arenas keep the disc's sounds.
 std::shared_ptr<hle::CampaignSoundSwaps> g_soundSwaps;
-PS2Runtime::RecompiledFunction g_swapPlayOrig = nullptr;
-uint32_t g_swapPlayAt = 0;
+std::map<std::string, uint16_t> g_campaignCreditsMusic;
+PS2Runtime::RecompiledFunction g_campaignPlayOrig = nullptr;
+uint32_t g_campaignPlayAt = 0, g_creditsPlayRa = 0;
 std::atomic<int> g_swapLog{0};
+
+bool guestOk(uint32_t a, uint32_t n) {
+    a &= 0x1FFFFFFFu;
+    return a >= 0x100000u && a + n <= PS2_RAM_SIZE;
+}
+uint32_t gu32(const uint8_t* rdram, uint32_t a) {
+    uint32_t v = 0;
+    std::memcpy(&v, rdram + (a & 0x1FFFFFFFu), 4);
+    return v;
+}
+
+std::shared_ptr<hle::CampaignCreditsOverride> g_campaignCreditsText;
+PS2Runtime::RecompiledFunction g_creditsCopyOrig = nullptr;
+uint32_t g_creditsCopyAt = 0, g_creditsCopyRa = 0;
+
+void campaignCreditsCopyHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == g_creditsCopyAt && getRegU32(ctx, 31) == g_creditsCopyRa) {
+        // The credits handler copies the current RRC entry into a private buffer before parsing its lines.
+        // s5 is the byte offset in its array of two block pointers.
+        const uint32_t block = getRegU32(ctx, 21), dest = getRegU32(ctx, 4), size = getRegU32(ctx, 6);
+        if ((block == 0 || block == 4) && size <= (64u << 10) && guestOk(dest, size)) {
+            const auto id = block == 0 ? hle::CampaignCreditsOverride::kFirstId : hle::CampaignCreditsOverride::kSecondId;
+            if (g_campaignCreditsText->copyBlock(id, rdram + (dest & 0x1FFFFFFFu), size)) {
+                SET_GPR_U32(ctx, 2, dest);
+                ctx->pc = g_creditsCopyRa;
+                return;
+            }
+        }
+    }
+    g_creditsCopyOrig(rdram, ctx, rt);
+}
+
+uint32_t creditsUiRef(uint8_t* rdram, const R5900Context& ctx, PS2Runtime& rt, uint32_t property) {
+    using drakan_input::GuestCall;
+    const auto entry = drakan_guest::callImmediate(rdram, ctx, rt, GuestCall(drakan_region::guestAddress(0x2bec48u)));
+    const uint32_t obj = entry && guestOk(*entry, 0x10) ? gu32(rdram, *entry + 0xc) : 0;
+    const uint32_t vt = guestOk(obj, 0xc) ? gu32(rdram, obj + 8) : 0;
+    if (!guestOk(vt, 0x20))
+        return 0;
+    const auto ref = drakan_guest::callImmediate(
+        rdram, ctx, rt,
+        GuestCall(gu32(rdram, vt + 0x1c)).arg(obj + int16_t(gu32(rdram, vt + 0x18))).arg(property).arg(-1u));
+    return ref && guestOk(*ref, 4) ? gu32(rdram, *ref) : 0;
+}
+
+struct CreditsArtwork {
+    std::optional<std::array<uint16_t, 6>> backdrop;
+    std::optional<std::array<uint16_t, 3>> logos;
+};
+std::map<std::string, CreditsArtwork> g_creditsArtwork;
+const CreditsArtwork* g_activeCreditsArtwork = nullptr;
+uint32_t g_creditsTextureBank = 0;
+PS2Runtime::RecompiledFunction g_creditsPositionOrig = nullptr, g_creditsLoadTexOrig = nullptr,
+                               g_creditsFindTexOrig = nullptr, g_creditsDestroyOrig = nullptr;
+
+void creditsPositionHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    // The credits constructor positions the screen before asking the texture manager for any artwork.
+    if (ctx->pc == 0x2be488u && getRegU32(ctx, 31) == 0x428a08u) {
+        const auto it = g_creditsArtwork.find(drakan_game::currentModId());
+        g_activeCreditsArtwork = it == g_creditsArtwork.end() ? nullptr : &it->second;
+        g_creditsTextureBank = g_activeCreditsArtwork ? (creditsUiRef(rdram, *ctx, *rt, 14) & 0xffff0000u) : 0;
+    }
+    g_creditsPositionOrig(rdram, ctx, rt);
+}
+
+void creditsDestroyHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == 0x4295d8u)
+        g_activeCreditsArtwork = nullptr;
+    g_creditsDestroyOrig(rdram, ctx, rt);
+}
+
+void creditsTextureRef(R5900Context* ctx, const std::array<uint32_t, 3>& logoCallers) {
+    if (!g_activeCreditsArtwork || !g_creditsTextureBank)
+        return;
+    if (g_activeCreditsArtwork->logos) {
+        const auto logo = std::find(logoCallers.begin(), logoCallers.end(), getRegU32(ctx, 31));
+        if (logo != logoCallers.end()) {
+            const uint16_t id = (*g_activeCreditsArtwork->logos)[logo - logoCallers.begin()];
+            SET_GPR_U32(ctx, 5, id ? g_creditsTextureBank | id : 0);
+            return;
+        }
+    }
+    const uint32_t ref = getRegU32(ctx, 5);
+    if (!g_activeCreditsArtwork->backdrop || (ref & 0xffff0000u) != g_creditsTextureBank)
+        return;
+    const uint16_t id = ref & 0xffffu;
+    if (id >= 136 && id <= 141)
+        SET_GPR_U32(ctx, 5, g_creditsTextureBank | (*g_activeCreditsArtwork->backdrop)[id - 136]);
+}
+
+void creditsLoadTextureHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == 0x12c3f0u)
+        creditsTextureRef(ctx, {0x428cb0u, 0x428d00u, 0x428d50u});
+    g_creditsLoadTexOrig(rdram, ctx, rt);
+}
+
+void creditsFindTextureHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == 0x1bf6e0u)
+        creditsTextureRef(ctx, {0x428e00u, 0x428ec8u, 0x428facu});
+    g_creditsFindTexOrig(rdram, ctx, rt);
+}
+
+template <size_t N>
+std::optional<std::array<uint16_t, N>> creditsArtworkIds(const std::vector<std::string>& ids, bool allowZero) {
+    if (ids.size() != N)
+        return std::nullopt;
+    std::array<uint16_t, N> values{};
+    for (size_t i = 0; i < N; ++i) {
+        const std::string& text = ids[i];
+        const char* end = text.data() + text.size();
+        const auto parsed = std::from_chars(text.data(), end, values[i]);
+        if (parsed.ec != std::errc() || parsed.ptr != end || (!allowZero && values[i] == 0))
+            return std::nullopt;
+    }
+    return values;
+}
+
+void installCreditsArtwork(PS2Runtime& runtime, const hle::mods::ModManager& mods) {
+    if (!drakan_region::build().identityAddresses || !runtime.hasFunction(0x2be488u) || !runtime.hasFunction(0x4295d8u) ||
+        !runtime.hasFunction(0x12c3f0u) || !runtime.hasFunction(0x1bf6e0u))
+        return;
+    for (const auto& st : mods.status()) {
+        const auto& m = st.manifest;
+        if (st.state != hle::mods::ModState::Loaded || m.campaign.empty())
+            continue;
+        CreditsArtwork art{creditsArtworkIds<6>(m.campaignCreditsBackdrop, false),
+                           creditsArtworkIds<3>(m.campaignCreditsLogos, true)};
+        if (art.backdrop || art.logos)
+            g_creditsArtwork.emplace(m.id, art);
+    }
+    if (g_creditsArtwork.empty())
+        return;
+    g_creditsPositionOrig = runtime.lookupFunction(0x2be488u);
+    g_creditsDestroyOrig = runtime.lookupFunction(0x4295d8u);
+    g_creditsLoadTexOrig = runtime.lookupFunction(0x12c3f0u);
+    g_creditsFindTexOrig = runtime.lookupFunction(0x1bf6e0u);
+    runtime.replaceFunction(0x2be488u, &creditsPositionHook);
+    runtime.replaceFunction(0x4295d8u, &creditsDestroyHook);
+    runtime.replaceFunction(0x12c3f0u, &creditsLoadTextureHook);
+    runtime.replaceFunction(0x1bf6e0u, &creditsFindTextureHook);
+}
 
 inline bool swapArenaWorld() {
 #if defined(PS2X_HAVE_GSR)
@@ -1540,8 +1685,20 @@ inline bool swapArenaWorld() {
 #endif
 }
 
-void campaignSoundSwapHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
-    if (ctx->pc == g_swapPlayAt && g_soundSwaps && g_soundSwaps->campaignActive() && !swapArenaWorld()) {
+void campaignSoundHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+    if (ctx->pc == g_campaignPlayAt && g_creditsPlayRa && getRegU32(ctx, 31) == g_creditsPlayRa) {
+        const auto track = g_campaignCreditsMusic.find(drakan_game::currentModId());
+        if (track != g_campaignCreditsMusic.end()) {
+            // Background Music File (58) resolves PS2MUSIC.SDB to its current global database index.
+            if (const uint32_t bank = creditsUiRef(rdram, *ctx, *rt, 58) & 0xffff0000u) {
+                SET_GPR_U32(ctx, 5, bank | track->second);
+                std::fprintf(stderr, "[game] campaign credits music: PS2MUSIC.SDB %u\n", (unsigned)track->second);
+                g_campaignPlayOrig(rdram, ctx, rt);
+                return;
+            }
+        }
+    }
+    if (ctx->pc == g_campaignPlayAt && g_soundSwaps && g_soundSwaps->campaignActive() && !swapArenaWorld()) {
         const uint32_t id = getRegU32(ctx, 5), to = g_soundSwaps->map(id);
         if (to != id) {
             if (g_swapLog.fetch_add(1) < 400)
@@ -1554,7 +1711,7 @@ void campaignSoundSwapHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
             SET_GPR_U32(ctx, 5, to);
         }
     }
-    g_swapPlayOrig(rdram, ctx, rt);
+    g_campaignPlayOrig(rdram, ctx, rt);
 }
 
 // Scene music stop. A cut scene's music action (sequence action 8, handler in 0x1a4c50) can start a track and set the
@@ -1599,15 +1756,6 @@ std::atomic<int> g_musicHandLog{0};
 
 bool campaignMusic() {
     return g_campaignMusic && g_campaignMusic->campaignActive();
-}
-bool guestOk(uint32_t a, uint32_t n) {
-    a &= 0x1FFFFFFFu;
-    return a >= 0x100000u && a + n <= PS2_RAM_SIZE;
-}
-uint32_t gu32(const uint8_t* rdram, uint32_t a) {
-    uint32_t v = 0;
-    std::memcpy(&v, rdram + (a & 0x1FFFFFFFu), 4);
-    return v;
 }
 float gf32(const uint8_t* rdram, uint32_t a) {
     float v = 0;
@@ -2324,17 +2472,26 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                         }
                 gameui::setUiSkin(std::move(skin));
             });
+        if (g_mods)
+            installCreditsArtwork(runtime, *g_mods);
         if (g_mods && !g_mods->creditsFiles().empty()) {
-            // A campaign pack's credits/credits.txt replaces the credits text only while that campaign is the current
-            // game.
             auto credits = std::make_shared<hle::CampaignCreditsOverride>();
             for (const auto& [modId, text] : g_mods->creditsFiles())
                 credits->add(modId, text);
             credits->setActive([] { return drakan_game::currentModId(); });
-            host->iop.res.addOverride(credits);
-            host->iop.file.setReadOverlay([credits](const hle::IsoFs& fs, const hle::IsoFs::Node& node, uint64_t offset,
-                                                    uint8_t* data,
-                                                    size_t n) { credits->patchRead(fs, node, offset, data, n); });
+            g_creditsCopyAt = drakan_region::guestAddress(0x4cd27cu);
+            g_creditsCopyRa = drakan_region::guestAddress(0x428b34u);
+            if (g_creditsCopyAt && g_creditsCopyRa && runtime.hasFunction(g_creditsCopyAt)) {
+                g_campaignCreditsText = credits;
+                g_creditsCopyOrig = runtime.lookupFunction(g_creditsCopyAt);
+                runtime.replaceFunction(g_creditsCopyAt, &campaignCreditsCopyHook);
+            } else {
+                // The legacy file overlay covers profiles without a verified credits copy call.
+                host->iop.res.addOverride(credits);
+                host->iop.file.setReadOverlay([credits](const hle::IsoFs& fs, const hle::IsoFs::Node& node,
+                                                        uint64_t offset, uint8_t* data,
+                                                        size_t n) { credits->patchRead(fs, node, offset, data, n); });
+            }
             std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
         }
         {
@@ -2387,7 +2544,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 runtime.replaceFunction(baseGainAt, &musicBaseGainHook);
             }
         }
-        if (g_mods && !g_mods->soundSwapFiles().empty()) {
+        if (g_mods) {
             // Campaign sound swaps (sounds/swaps.ini): Drakan 2 sounds this campaign plays differently, only while it
             // is the current game.
             auto swaps = std::make_shared<hle::CampaignSoundSwaps>();
@@ -2397,12 +2554,30 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
                 std::fprintf(stderr, "[game] pack '%s': %zu campaign sound swap(s)%s\n", modId.c_str(), n,
                              bad ? " (some lines not understood)" : "");
             }
-            g_swapPlayAt = drakan_region::guestAddress(0x1b7f30u);
-            if (swaps->size() && g_swapPlayAt && runtime.hasFunction(g_swapPlayAt)) {
-                swaps->setActive([] { return drakan_game::currentModId(); });
-                g_soundSwaps = swaps;
-                g_swapPlayOrig = runtime.lookupFunction(g_swapPlayAt);
-                runtime.replaceFunction(g_swapPlayAt, &campaignSoundSwapHook);
+            swaps->setActive([] { return drakan_game::currentModId(); });
+            g_soundSwaps = swaps;
+            g_campaignCreditsMusic.clear();
+            g_creditsPlayRa = drakan_region::guestAddress(0x428c54u);
+            if (g_creditsPlayRa) {
+                for (const hle::mods::ModStatus& st : g_mods->status()) {
+                    const auto& m = st.manifest;
+                    if (st.state != hle::mods::ModState::Loaded || m.campaign.empty() || m.campaignCreditsMusic.empty())
+                        continue;
+                    char* end = nullptr;
+                    const unsigned long id = std::strtoul(m.campaignCreditsMusic.c_str(), &end, 10);
+                    if (*end || id == 0 || id > 0xFFFF) {
+                        std::fprintf(stderr, "[game] pack '%s': campaign_credits_music '%s' is not a sound id\n",
+                                     m.id.c_str(), m.campaignCreditsMusic.c_str());
+                        continue;
+                    }
+                    g_campaignCreditsMusic.emplace(m.id, static_cast<uint16_t>(id));
+                }
+            }
+            g_campaignPlayAt = drakan_region::guestAddress(0x1b7f30u);
+            if ((swaps->size() || !g_campaignCreditsMusic.empty()) && g_campaignPlayAt &&
+                runtime.hasFunction(g_campaignPlayAt)) {
+                g_campaignPlayOrig = runtime.lookupFunction(g_campaignPlayAt);
+                runtime.replaceFunction(g_campaignPlayAt, &campaignSoundHook);
             }
         }
         if (g_mods) {

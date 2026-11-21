@@ -60,6 +60,12 @@ export interface ModMeta {
      * `new/PS2MUSIC.SDB/` entries; the OotF converter writes the rendered "gui" theme, ootfdmusic.ts).
      */
     campaignTitleMusic?: number;
+    /** PS2MUSIC.SDB sound id for the campaign's credits roll. */
+    campaignCreditsMusic?: number;
+    /** The six native credits backdrop tiles in INTERFCE.TXD, in stock texture ID order (136–141). */
+    campaignCreditsBackdrop?: readonly [number, number, number, number, number, number];
+    /** Credits logo textures in INTERFCE.TXD: left and right studio logo halves, then the publisher logo. */
+    campaignCreditsLogos?: readonly [number, number, number];
     /**
      * `campaign_spells = false`: the campaign has no spells (Drakan: Order of the Flame). While it is the game being
      * played there is no Spells page in either inventory screen, no mana orb or bar, and Circle only parries; Drakan
@@ -185,6 +191,19 @@ export function validateModMeta(m: ModMeta): void {
         (!Number.isInteger(m.campaignTitleMusic) || m.campaignTitleMusic < 1 || m.campaignTitleMusic > 0xffff)
     )
         throw new ModError('campaignTitleMusic must be a sound id 1-65535');
+    if (
+        m.campaignCreditsMusic !== undefined &&
+        (!Number.isInteger(m.campaignCreditsMusic) || m.campaignCreditsMusic < 1 || m.campaignCreditsMusic > 0xffff)
+    )
+        throw new ModError('campaignCreditsMusic must be a sound id 1-65535');
+    const refId = (id: number): boolean => Number.isInteger(id) && id >= 0 && id <= 0xffff;
+    if (
+        m.campaignCreditsBackdrop &&
+        (m.campaignCreditsBackdrop.length !== 6 || !m.campaignCreditsBackdrop.every((id) => id > 0 && refId(id)))
+    )
+        throw new ModError('campaignCreditsBackdrop must contain six texture ids 1-65535');
+    if (m.campaignCreditsLogos && (m.campaignCreditsLogos.length !== 3 || !m.campaignCreditsLogos.every(refId)))
+        throw new ModError('campaignCreditsLogos must contain three texture ids 0-65535');
     for (const level of m.levels ?? []) {
         const why = levelNameProblem(level);
         // The runtime skips such a level with only a log line, which leaves a pack that loads but has no level.
@@ -227,6 +246,10 @@ export function buildManifestToml(m: ModMeta): string {
     if (m.campaign && m.campaignStart) l.push(`campaign_start = ${tomlStr(m.campaignStart)}`);
     if (m.campaign && m.campaignSaves) l.push(`campaign_saves = ${tomlStr(m.campaignSaves)}`);
     if (m.campaign && m.campaignTitleMusic) l.push(`campaign_title_music = ${m.campaignTitleMusic}`);
+    if (m.campaign && m.campaignCreditsMusic) l.push(`campaign_credits_music = ${m.campaignCreditsMusic}`);
+    if (m.campaign && m.campaignCreditsBackdrop)
+        l.push(`campaign_credits_backdrop = [${m.campaignCreditsBackdrop.join(', ')}]`);
+    if (m.campaign && m.campaignCreditsLogos) l.push(`campaign_credits_logos = [${m.campaignCreditsLogos.join(', ')}]`);
     if (m.campaign && m.campaignSpells === false) l.push('campaign_spells = false');
     if (m.campaign && m.campaignTreasure === false) l.push('campaign_treasure = false');
     if (m.campaign && m.campaignGoldCounter === false) l.push('campaign_gold_counter = false');

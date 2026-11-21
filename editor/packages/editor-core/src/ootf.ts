@@ -1,7 +1,10 @@
 import { strToU8 } from 'fflate';
 import {
     buildPs2Lvl,
+    encodePs2Texture,
     isOotfArenaLevel,
+    isSkip,
+    latin1,
     mangleComponent,
     ps2BlobBuilder,
     ps2BlobFor,
@@ -14,16 +17,78 @@ import {
     listObjectSounds,
     mergeSubtitleFiles,
     parseSubtitleFile,
+    readPcTexture,
+    SrscReader,
     terrainHeightAt,
     type BlobBuilder,
     type PcLevel,
     type PcFileSource,
     type SubtitleFile,
     type Ps2LevelParts,
-    type SrscReader,
 } from '@drakan/formats';
 import { newDraft, previewFileName, serializeMapFile, slugify, type ArenaDraft, type MarkerKind, type Vec3 } from './arena.ts';
 import { buildManifestToml, ModError, MOD_MAX_ENTRY, zipModFiles, type ModMeta } from './mod.ts';
+
+/** Read the original credits text and artwork from the player's Dragon.rrc. */
+export async function ootfCredits(src: PcFileSource): Promise<{
+    files: Record<string, Uint8Array>;
+    artwork?: Pick<ModMeta, 'campaignCreditsBackdrop' | 'campaignCreditsLogos'>;
+}> {
+    const raw = await src.read('Dragon.rrc');
+    if (!raw) return { files: {} };
+    const rrc = await SrscReader.fromBytes(raw);
+    const first = rrc.find(0x401, 8804, 0);
+    const second = rrc.find(0x401, 8805, 0);
+    if (!first?.size || !second?.size) return { files: {} };
+    const wrap = (text: string): string => {
+        // The credits use a narrow native canvas. Break the PC's long lines at word boundaries.
+        const lines: string[] = [];
+        for (let line of text.split('\r\n')) {
+            while (line.length > 44 && !line.startsWith('=')) {
+                const space = line.lastIndexOf(' ', 44);
+                if (space <= 0) break;
+                lines.push(line.slice(0, space).trimEnd());
+                line = line.slice(space + 1).trimStart();
+            }
+            lines.push(line);
+        }
+        return lines.join('\r\n');
+    };
+    const encode = ({ data }: { data: Uint8Array }): Uint8Array => {
+        const lines = latin1(data)
+            .split(/\r\n|\n|\r/)
+            .map((rawLine) => {
+                const line = rawLine.trim();
+                if (line.endsWith(':')) return '=' + line.slice(0, -1);
+                if (line && /^\t\t {3,}/.test(rawLine)) return '=' + line;
+                return line.replace(/^(.+?):[ \t]*\t+(.+)$/, '=$1\r\n$2');
+            });
+        return Uint8Array.from(wrap(lines.join('\r\n')), (ch) => ch.charCodeAt(0));
+    };
+    const [firstBlock, secondBlock] = await Promise.all([rrc.read(first).then(encode), rrc.read(second).then(encode)]);
+    const files: Record<string, Uint8Array> = {
+        'credits/credits.txt': firstBlock,
+        'credits/credits-2.txt': secondBlock,
+    };
+    const [left, right, publisher] = await Promise.all([8807, 8808, 8806].map((id) => readPcTexture(rrc, id)));
+    if (!left || !right || !publisher || isSkip(left) || isSkip(right) || isSkip(publisher)) return { files };
+    const logos = [32752, 32753, 32754] as const;
+    for (const [index, logo] of [left, right, publisher].entries()) {
+        files[`new/INTERFCE.TXD/0040_${logos[index]}_0.bin`] = encodePs2Texture(logo.image, {
+            maxTruecolorPixels: 256 * 256,
+        }).body;
+    }
+    // The PC credits clear to black. Use one black tile for all six parts of the console roll's backdrop.
+    const black = 32755;
+    const tileSize = 256;
+    const rgba = new Uint8Array(tileSize * tileSize * 4);
+    for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255;
+    files[`new/INTERFCE.TXD/0040_${black}_0.bin`] = encodePs2Texture({ width: tileSize, height: tileSize, rgba }).body;
+    return {
+        files,
+        artwork: { campaignCreditsBackdrop: [black, black, black, black, black, black], campaignCreditsLogos: logos },
+    };
+}
 
 /** Explicit transcripts take precedence over the install's own file and the matching bundled language. */
 export async function ootfSubtitleTable(src: PcFileSource, explicit?: SubtitleFile[], log?: (s: string) => void) {

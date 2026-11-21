@@ -1050,10 +1050,15 @@ int main() {
         CHECK(
             parseManifest("id = \"c1\"\nlevels = [\"A Copy\", \"B Copy\"]\ncampaign = \"test-valley\"\n"
                           "campaign_name = \"The Test Valley\"\ncampaign_description = \"Two levels.\"\n"
-                          "campaign_start = \"A Copy\"\ncampaign_saves = \"testvalley\"\n[target]\nprofile = \"pal\"\n",
+                          "campaign_start = \"A Copy\"\ncampaign_saves = \"testvalley\"\n"
+                          "campaign_credits_music = 7\ncampaign_credits_logos = [81, 82, 83]\n"
+                          "campaign_credits_backdrop = [91, 92, 93, 94, 95, 96]\n[target]\nprofile = \"pal\"\n",
                           false, m, err));
         CHECK(m.campaign == "test-valley" && m.campaignName == "The Test Valley" &&
               m.campaignDescription == "Two levels." && m.campaignStart == "A Copy" && m.campaignSaves == "testvalley");
+        CHECK(m.campaignCreditsMusic == "7");
+        CHECK(m.campaignCreditsLogos == std::vector<std::string>({"81", "82", "83"}));
+        CHECK(m.campaignCreditsBackdrop == std::vector<std::string>({"91", "92", "93", "94", "95", "96"}));
         CHECK(!parseManifest("name = \"x\"\n", false, m, err) && err.find("'id'") != std::string::npos);
         CHECK(!parseManifest("id = \"a b\"\n", false, m, err));
         CHECK(!parseManifest("id = \"a\"\nname = \"unterminated\n", false, m, err));

@@ -89,32 +89,37 @@ public:
 
 // ---- campaign credits
 // ----------------------------------------------------------------------------------------------------------------
-// The end credits are two plain text entries of DRAKAN2.RRC (type 0x401, ids 8807 and 8808; "=Heading" lines, names, a
-// blank line) the engine reads by id. This serves a campaign pack's own text in place of both while `activeMod()` names
-// that pack (the current game is its campaign), so the disc game's credits are untouched.
+// The credits roll reads two plain text entries of DRAKAN2.RRC (type 0x401, ids 8807 and 8808).
+// The active campaign can supply both blocks. A pack with only the first block gets a blank second block.
+struct CampaignCreditsText {
+    std::string first;
+    std::string second = "\r\n";
+};
+
 class CampaignCreditsOverride final : public IResourceOverride {
 public:
     static constexpr u16 kType = 0x401, kFirstId = 8807, kSecondId = 8808;
-    void add(const std::string& modId, std::string text) { texts_[modId] = std::move(text); }
+    void add(const std::string& modId, CampaignCreditsText text) { texts_[modId] = std::move(text); }
     void setActive(std::function<std::string()> f) { active_ = std::move(f); }
     bool wants(const ResourceId& id) override;
     bool apply(const ResourceId& id, std::vector<u8>& data) override;
+    // Fill the credits screen's private copy of a block, leaving the archive and its caches intact.
+    bool copyBlock(u16 id, u8* dest, size_t size) const;
     // The engine reads the credits with plain file reads of the opened DRAKAN2.RRC, not through the entry layer: a
     // FileService read overlay (setReadOverlay) calls this to rewrite the bytes of the two entries in place. The text
-    // is padded with spaces to the entry's size (a longer text is cut at a line end); the second entry becomes one
-    // blank line.
+    // is padded with spaces to the entry's size (a longer text is cut at a line end).
     void patchRead(const IsoFs& fs, const IsoFs::Node& node, u64 offset, u8* data, size_t n);
 
 private:
-    const std::string* current() const;
+    const CampaignCreditsText* current() const;
     struct Range {
         u16 id;
         u64 off, size;
     };
     std::map<std::string, std::vector<Range>> ranges_; // file key -> the entries' byte ranges
     const std::vector<Range>& rangesOf(const IsoFs& fs, const IsoFs::Node& node);
-    std::string bodyFor(u16 id, u64 size);
-    std::map<std::string, std::string> texts_;
+    static std::string bodyFor(const std::string& text, size_t size);
+    std::map<std::string, CampaignCreditsText> texts_;
     std::function<std::string()> active_;
 };
 

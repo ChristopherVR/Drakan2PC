@@ -821,18 +821,25 @@ sets it in Project Settings > Campaign > Gameplay > **Gold** (`ProjectCampaign.g
 
 ### Campaign credits
 
-A campaign pack may ship `credits/credits.txt` (up to 64 KiB, plain text in the credits format: `=Heading` lines followed by
-names, a blank line between blocks). While that campaign is the current game the engine's end credits show this text
-instead of Drakan 2's: the credits are two text entries (`0x401` ids 8807 and 8808 in `DRAKAN2.RRC`) the engine reads by id,
-and the pack's text is served for the first while the second is emptied (`hle::CampaignCreditsOverride`, test
-`override_test`). The disc game keeps its own list. `ootf-convert.ts --campaign 1` writes a short end card (the game, the
-original studio, the engine) with no personal names, since the PC install carries no credits.
+A campaign pack can supply `credits/credits.txt` and an optional `credits/credits-2.txt`. The active campaign's text
+appears in the main menu's Credits and in the ending roll. Use plain text with CRLF line endings, `=Heading` for
+headings, and blank lines between groups. A pack with only the first file gets a blank second block.
 
-The engine reads the credits with plain file reads of the opened `Drakan 2.rrc`, not through the entry layer, so the text is
-patched per read: a `FileService` read overlay (`setReadOverlay`, evaluated at read time, so a game chosen on the title after the
-file was first read still counts) rewrites the two entries' bytes in place (`CampaignCreditsOverride::patchRead`; the text is padded
-with spaces to the entry's size, a longer one is cut at a line end, the second entry becomes one blank line). Verified in game: the
-end card scrolls over the Wartok farm and the game returns to the title (`credits: read at ... patched entry 8807` in the log).
+`CampaignCreditsOverride` serves the text for entries 8807 and 8808 (type `0x401`) in `DRAKAN2.RRC`. On PAL the
+override fills the credits screen's private copy so opening Credits after switching campaigns uses the newly selected
+game's text. Profiles without that hook use the file read overlay. Each file can be up to 64 KiB. The native roll reads
+only the corresponding disc entry's size, about 1.5 KiB and 2.1 KiB for the English PAL disc. Text beyond that size is
+cut at a line break.
+
+On PAL, `campaign_credits_music = <id>` selects a credits track added through `new/PS2MUSIC.SDB/`.
+`campaign_credits_backdrop` lists six replacement texture IDs in the order of stock tiles 136 through 141.
+The three texture IDs
+in `campaign_credits_logos` select the left and right halves of the opening logo and the publisher logo before the
+second block. Add those textures through `new/INTERFCE.TXD/`. A zero ID omits that logo.
+
+The Order of the Flame converter reads both credit blocks and the scrolling Surreal Software and Psygnosis logos from
+the player's PC `Dragon.rrc`. It adapts the text to the native roll, uses the PC credits' black background, and selects
+the rendered track from the PC interface's Credits Music ID.
 
 ### Campaign sound swaps
 

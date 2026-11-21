@@ -268,7 +268,7 @@ int main() {
     {
         std::string active;
         CampaignCreditsOverride cc;
-        cc.add("ootf-levels", "=Drakan: Order of the Flame\r\nTest\r\n");
+        cc.add("ootf-levels", {"=Drakan: Order of the Flame\r\nTest\r\n"});
         cc.setActive([&] { return active; });
         ResourceId first{"DRAKAN2.RRC", "ENGLISH\\DRAKAN2.RRC", 0x401, 8807, 0};
         ResourceId second = first;
@@ -285,8 +285,14 @@ int main() {
         std::vector<u8> d(10, 1);
         CHECK(cc.apply(first, d) && std::string(d.begin(), d.end()) == "=Drakan: Order of the Flame\r\nTest\r\n");
         CHECK(cc.apply(second, d) && std::string(d.begin(), d.end()) == "\r\n");
+        std::vector<u8> block(64, 'a');
+        CHECK(cc.copyBlock(first.id, block.data(), block.size()));
+        CHECK(std::string(block.begin(), block.begin() + 7) == "=Drakan");
         active = "";
         CHECK(!cc.wants(first));
+        block.assign(block.size(), 'a');
+        CHECK(!cc.copyBlock(first.id, block.data(), block.size()));
+        CHECK(block == std::vector<u8>(64, 'a'));
     }
     {
         // Campaign sound swaps: only while that campaign is the current game; in turn; "none" plays nothing.
@@ -413,7 +419,7 @@ int main() {
         CHECK(rrc.lookup("\\ENGLISH\\DRAKAN2.RRC", node) || rrc.lookup("ENGLISH\\DRAKAN2.RRC", node));
         std::string active;
         CampaignCreditsOverride cc;
-        cc.add("ootf-levels", "=Drakan: Order of the Flame\r\nTest\r\n");
+        cc.add("ootf-levels", {"=Drakan: Order of the Flame\r\nTest\r\n", "=Publishing\r\nTest\r\n"});
         cc.setActive([&] { return active; });
         std::vector<u8> all(node.size);
         CHECK(rrc.read(node, 0, all.data(), all.size()) == all.size());
@@ -426,12 +432,17 @@ int main() {
         const size_t at = find(orig, 'a'), at2 = find(orig, 'b'), at3 = find(orig, 'c');
         CHECK(std::string(all.begin() + at, all.begin() + at + 7) == "=Drakan");
         CHECK(all[at + 119] == 10 && all[at + 118] == 13); // padded with spaces, ends with a line break
-        CHECK(all[at2] == ' ' && all[at2 + 59] == 10);     // the second entry is one blank line
+        CHECK(std::string(all.begin() + at2, all.begin() + at2 + 19) == "=Publishing\r\nTest\r\n");
+        CHECK(all[at2 + 59] == 10);
         CHECK(std::vector<u8>(all.begin() + at3, all.begin() + at3 + 40) == other); // other entries untouched
         // a read that covers only the middle of the first entry gets the matching bytes
         std::vector<u8> part(orig.begin() + at + 10, orig.begin() + at + 30);
         cc.patchRead(rrc, node, at + 10, part.data(), part.size());
         CHECK(part == std::vector<u8>(all.begin() + at + 10, all.begin() + at + 30));
+        active.clear();
+        auto restored = orig;
+        cc.patchRead(rrc, node, 0, restored.data(), restored.size());
+        CHECK(restored == orig);
     }
     // --- character LOD fix: the fat villagers' last LOD is never selected, other records stay as they are -------
     {

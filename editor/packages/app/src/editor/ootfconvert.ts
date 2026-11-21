@@ -4,6 +4,7 @@
 import {
     buildOotfPack,
     ootfArenaFromPc,
+    ootfCredits,
     ootfSubtitleTable,
     previewFileName,
     type ModMeta,
@@ -183,6 +184,7 @@ export async function runConversion(
         });
     }
     const start = result.levels.find((l) => !l.arena);
+    const credits = start ? await ootfCredits(src) : undefined;
     const meta: Omit<ModMeta, 'levels'> = {
         id: 'ootf-levels',
         name: 'Order of the Flame levels',
@@ -197,13 +199,19 @@ export async function runConversion(
         ...(start && !req.treasure ? { campaignGoldCounter: false } : {}),
         // the rendered OotF title theme plays on the title menu while the campaign is chosen
         ...(start && result.music?.title ? { campaignTitleMusic: result.music.title } : {}),
+        ...(start && result.music?.credits ? { campaignCreditsMusic: result.music.credits } : {}),
+        ...credits?.artwork,
         // levels of flat picture scenes are shown at the aspect they were framed for
         ...(result.levelAspect ? { levelAspect: result.levelAspect } : {}),
         // exits that close once taken (the church stair to the Book)
         ...(result.oneWayExits?.length ? { oneWayExits: result.oneWayExits } : {}),
     };
     progress('Building the mod pack');
-    const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, { splats, extraFiles: result.files });
+    const pack = await buildOotfPack(meta, template, inputs, ps2BlobFor, {
+        splats,
+        extraFiles: { ...result.files, ...credits?.files },
+    });
+    if (credits && !credits.files['credits/credits.txt']) pack.warnings.push('Dragon.rrc has no Order of the Flame credits');
     if (start && req.cover?.length) {
         pack.files['previews/campaign-ootf.png'] = req.cover;
         pack.files['previews/background-ootf.png'] = req.cover;

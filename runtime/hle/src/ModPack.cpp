@@ -452,6 +452,9 @@ bool parseManifest(const std::string& textIn, bool json, Manifest& m, std::strin
     m.campaignDescription = one("campaign_description");
     m.campaignSaves = one("campaign_saves");
     m.campaignTitleMusic = one("campaign_title_music");
+    m.campaignCreditsMusic = one("campaign_credits_music");
+    m.campaignCreditsBackdrop = many("campaign_credits_backdrop");
+    m.campaignCreditsLogos = many("campaign_credits_logos");
     const auto switchedOff = [&](const char* key) {
         std::string v = one(key);
         for (char& ch : v)
@@ -1775,10 +1778,13 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     uiFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
-            if (lowPath == lower(c.prefix) + "credits/credits.txt") {
+            const bool firstCredits = lowPath == lower(c.prefix) + "credits/credits.txt";
+            if (firstCredits || lowPath == lower(c.prefix) + "credits/credits-2.txt") {
                 std::vector<u8> text;
-                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
-                    creditsFiles_.emplace_back(mid, std::string(text.begin(), text.end()));
+                if (it.size <= (64u << 10) && c.archive->read(it.path, text)) {
+                    auto& credits = creditsFiles_[mid];
+                    (firstCredits ? credits.first : credits.second).assign(text.begin(), text.end());
+                }
                 continue;
             }
             if (lowPath == lower(c.prefix) + "sounds/swaps.ini") {
