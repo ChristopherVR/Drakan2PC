@@ -147,6 +147,8 @@ Options: `--iso`, `--work` (default build\hdpack), `--out`, `--exe`, `--scale` (
   only, when a quarter of their neighbour pairs jump by more than 64 (half of the rows; sparse random memory, the Order
   of the Flame night sky ramp behind the Ruined Village sea, `docs/journal/2026-11-15/ootf-distant-sea.md`; palette and
   32-bit art with stripes or sparkles reaches that too, so it is not tested there).
+  The same 24-bit rule keeps a Shiverbane sky ramp native when the unused rows contain sparse video memory data.
+  See [Shiverbane sky texture verification](../journal/2026-11-21/shiverbane-sky-cells.md).
 
 ## 8b. Live smooth filter: colour under low alpha (2026-11-16)
 `smoothUpscale` (`gs_texup.cpp`, the live filter for photographic textures when there is no HD image) filters

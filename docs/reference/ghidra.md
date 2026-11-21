@@ -36,6 +36,13 @@ Export only (no changes): add `-readOnly` and drop FixFunctions.
 
 Final: 12173 functions (~12.5k `jr ra` in the ELF, so roughly consistent), 185 jump tables.
 
+The installed PAL build's generated dispatch table included all 12,173
+exported starts in the 21 November audit. Each entry describes where the
+PS2 guest can transfer control. Calling a routine from host code also
+requires verified arguments, return values, object lifetime, thread and
+blocking behavior, and disc-specific layouts.
+[Dispatch audit and host integration points](../journal/2026-11-21/runtime-performance-and-game-functions.md).
+
 ## Known issues
 - Auto-analysis alone missed ~3.4k functions (mostly never `jal`'d directly: virtual methods / fn pointers). FixFunctions creates them heuristically: a gap starting right after a function that contains `jr ra` is assumed to be a function. Some may be fragments of a larger function (e.g. code only reachable through an unrecovered switch) or hand-written/multi-entry code; ~6.8k functions have 0 callers (expected for vtable/callback targets). 1316 functions are <=8 bytes (`jr ra; nop` stubs).
 - Jump tables: 211 non-`ra` `jr` instructions exist in .text, 185 have recovered targets in jumptables.csv; ~26 (e.g. 0x2532e0, 0x253374, 0x25d0f8, 0x26640c, 0x2a0eb8) have none (could be tail-calls through registers/vtables rather than switches). Verify against the instruction before relying on it. Targets start at the jr's delay-slot+4 for some entries, i.e. Ghidra lists case labels, not the table contents - re-read the table words from the ELF for exact recompilation.

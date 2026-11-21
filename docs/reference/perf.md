@@ -937,6 +937,25 @@ and Grotto gained about 1–1.5 FPS in median throughput. Rift World's
 tunnel was primarily limited by the game thread in the profile.
 [Profiles and five-level retest](../journal/2026-11-20/ootf-4k-gpu.md).
 
+## Rust rewrite assessment (2026-11-21)
+
+Keep the game runtime and recompiler in C++ for performance work. Recent
+4K DLSS Quality captures put several views near GPU saturation. The Rift
+World tunnel instead points to the emulated game thread. Surdana improved
+after reducing terrain and material work on the render worker. These
+results identify work to remove on each frame's critical path. A Rust
+comparison would require a separate measurement. See the
+[performance and game-function audit](../journal/2026-11-21/runtime-performance-and-game-functions.md).
+
+## Rift World tunnel follow-up (2026-11-21)
+
+At 4K DLSS Quality, the tunnel reached 121 world FPS at 98% median GPU
+use. The game thread also used about 92% of a core. Two 35-second stack
+captures put terrain drawing on 23–24% of game-thread stacks and GS
+store-image on 19–22%. These inclusive shares overlap and contain
+waiting time. The two threads have limited headroom at this view and
+setting. [Rift World follow-up](../journal/2026-11-21/rift-world-and-guest-calls.md)
+
 ## DXR composition without water receivers (2026-11-21)
 
 At 4K DLSS Quality in Rift World with Dota 2 sharing the GPU, pooled
