@@ -356,13 +356,17 @@ def install(play, tag, pid, ready):
 
 
 def main(args):
+    usage = "Usage: drakan-update.py check | vX.Y.Z game-pid"
+    if args in (["-h"], ["--help"]):
+        print(usage)
+        return 0
     try:
         if args == ["check"]:
             print(latest_release(), flush=True)
         elif len(args) == 2 and args[1].isdigit() and int(args[1]) > 1:
             install(PLAY, args[0], int(args[1]), lambda: print("READY", flush=True))
         else:
-            raise ValueError("Usage: drakan-update.py check | vX.Y.Z game-pid")
+            raise ValueError(usage)
     except (
         OSError,
         ValueError,
