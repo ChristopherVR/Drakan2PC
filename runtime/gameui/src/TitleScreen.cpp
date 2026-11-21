@@ -38,9 +38,7 @@ constexpr UpdateButton kUpdateButtons[] = {
     {TitleUpdateAction::ViewChanges,
      {kUpdateX, kUpdateY, kUpdateInnerW - kDismissW - kUpdateGap, kUpdateRowH},
      "View changes"},
-    {TitleUpdateAction::Dismiss,
-     {kUpdateX + kUpdateInnerW - kDismissW, kUpdateY, kDismissW, kUpdateRowH},
-     "Dismiss"},
+    {TitleUpdateAction::Dismiss, {kUpdateX + kUpdateInnerW - kDismissW, kUpdateY, kDismissW, kUpdateRowH}, "Dismiss"},
     {TitleUpdateAction::DownloadAndRebuild, {kUpdateX, kUpdateY, kUpdateInnerW, kUpdateRowH}, "Download and rebuild"},
 };
 
@@ -515,7 +513,9 @@ void TitleScreen::buildTargets(const TitleState& st) {
                 continue;
             const bool enabled = updateButtonEnabled(button.action, st.updateInstall);
             targets_.push_back({{TargetKind::TitleUpdate, static_cast<int>(button.action)},
-                                lf_.map(updateButtonRect(button, st.updateInstall)), enabled, enabled});
+                                lf_.map(updateButtonRect(button, st.updateInstall)),
+                                enabled,
+                                enabled});
         }
     }
 }
@@ -1201,8 +1201,7 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
             p.fittedText(d, detail, menuText("Closes Drakan and rebuilds locally."), FontRole::Body, th.text,
                          TextAlign::Center);
         else if (st.updateInstall == TitleUpdateInstall::Downloading)
-            p.fittedText(d, detail, menuText("Downloading update..."), FontRole::Body, th.text,
-                         TextAlign::Center);
+            p.fittedText(d, detail, menuText("Downloading update..."), FontRole::Body, th.text, TextAlign::Center);
         else if (st.updateInstall == TitleUpdateInstall::Failed)
             p.fittedText(d, detail, menuText("Could not start the update. Try again."), FontRole::Body, th.text,
                          TextAlign::Center);
