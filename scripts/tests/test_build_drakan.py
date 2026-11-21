@@ -162,14 +162,16 @@ class CheckOnlyTests(unittest.TestCase):
             self.skipTest("Build-Drakan.ps1 -CheckOnly needs Git on PATH outside the kit")
         with tempfile.TemporaryDirectory() as temp:
             # A copy, so the remembered ISO, build options and build-log.txt land in the temporary folder.
-            copy = Path(temp) / "kit"
+            copy = Path(temp) / "builder kit with an intentionally long installation path for the warning check"
             shutil.copytree(BUILDTOOL, copy / "scripts/buildtool", ignore=shutil.ignore_patterns("__pycache__"))
             iso = synthetic_iso(temp)
             python_dir = str(Path(sys.executable).parent)
             env = dict(os.environ, PATH=python_dir + os.pathsep + os.environ["PATH"])
             result = pwsh(
+                "if ($PSStyle) { $PSStyle.OutputRendering = 'Ansi' }; "
                 f"& {quote(copy / 'scripts/buildtool/Build-Drakan.ps1')} -IsoPath {quote(iso)} -CheckOnly "
-                "-CpuAffinity 0x1 -Cores 0 -VuBlocks Whole",
+                "-CpuAffinity 0x1 -Cores 0 -VuBlocks Whole; "
+                "if ($PSStyle -and $PSStyle.OutputRendering -ne 'Ansi') { throw 'Rendering preference changed' }",
                 env=env,
                 timeout=300,
             )
@@ -180,6 +182,7 @@ class CheckOnlyTests(unittest.TestCase):
             self.assertLess(output.index("System check"), output.index("Game files"))
             self.assertLess(output.index("Game files"), output.index("Build plan"))
             self.assertIn("Use original textures", output)
+            self.assertIn("The installation path has", output)
             self.assertNotIn("\x1b", output)
             self.assertTrue((copy / "build/iso-path.txt").is_file())
             options = json.loads((copy / "build/build-options.json").read_text())

@@ -166,7 +166,9 @@ function Install-BuildTools {
     }
 }
 Start-Transcript -LiteralPath $sessionLog -Force | Out-Null
+$previousRendering = if ($PSStyle) { $PSStyle.OutputRendering }
 try {
+    if ($PSStyle -and -not (Test-BuildConsoleColor)) { $PSStyle.OutputRendering = 'PlainText' }
     Write-BuildHeading 'Drakan PC | The Ancients'' Gates'
     if ($CheckOnly) { Write-Host ('  ' + (Get-BuildText 'check_mode')) }
     else { Write-Host ('  ' + (Get-BuildText 'build_mode')) }
@@ -580,5 +582,6 @@ try {
     Write-BuildValue (Get-BuildText 'session_log') $sessionLog
     exit 1
 } finally {
+    if ($PSStyle) { $PSStyle.OutputRendering = $previousRendering }
     Stop-Transcript | Out-Null
 }
