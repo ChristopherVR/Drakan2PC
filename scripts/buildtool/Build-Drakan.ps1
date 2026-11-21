@@ -30,10 +30,11 @@ param(
     [string]$OotfSource,
     # Scene captions for Order of the Flame. The setup choice is remembered for later rebuilds.
     [ValidateSet('', 'bundled', 'generate')][string]$OotfSubtitles = '',
-    # HD textures, optional: after the build every texture of the disc (and of Order of the Flame, when chosen) is
-    # upscaled 4x with Real-ESRGAN into <play folder>	extures. 'on' | 'off'; asked for (with the estimated time on this PC)
-    # when omitted on the first interactive run, then remembered. Needs a Vulkan graphics card.
-    [ValidateSet('', 'on', 'off')][string]$HdTextures = '',
+    # By default, reuse a local HD texture pack. 'on' also generates textures from the disc after the build (Vulkan).
+    # 'auto' and the older 'off' choice both skip generation. The choice is remembered for rebuilds.
+    [ValidateSet('', 'auto', 'on', 'off')][string]$HdTextures = '',
+    # Use an existing folder of HD textures instead of searching the local and play folders.
+    [string]$TextureDirectory,
     # Vulkan device number the upscaler uses (default: the first). -1 clears a remembered choice.
     [ValidateRange(-1, 15)][int]$HdGpu = -2,
     # Starting values of three PC features, written into the play folder's ini files after the build (only the ones given;
@@ -59,12 +60,16 @@ param(
     # Start the game when the build has finished.
     [switch]$LaunchWhenDone,
     # Only check the prerequisites and the ISO path, then stop (installs nothing).
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [ValidateSet('auto', 'en', 'de', 'fr', 'it', 'es')][string]$Language,
+    # Use plain, motion-free console output.
+    [switch]$Plain
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
 . (Join-Path $PSScriptRoot 'Build-Policy.ps1')
 . (Join-Path $PSScriptRoot 'Build-Progress.ps1')
+. (Join-Path $PSScriptRoot 'Build-Textures.ps1')
 . (Join-Path $PSScriptRoot 'Build-Job.ps1')
 # Everything the build starts (cmake, MSBuild, the compilers, the game for the pictures) ends with this window.
 [void](Enter-BuildJob)
@@ -75,21 +80,52 @@ $problems = [Collections.Generic.List[string]]::new()
 $buildToolsPage = 'https://visualstudio.microsoft.com/visual-cpp-build-tools/'
 $webPlayerUrl = 'https://christophervr.github.io/Drakan2PC/'
 $vsComponents = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.VisualStudio.Component.VC.CMake.Project'
-
-function Write-Step([string]$Text) { Write-Host "`n== $Text" -ForegroundColor Cyan }
+$sessionLog = Join-Path $RepoRoot 'build-log.txt'
+$toolLog = "$WorkDir-output.log"
+$optionsFile = Join-Path $RepoRoot 'build/build-options.json'
+$saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
+    try { Get-Content -LiteralPath $optionsFile -Raw | ConvertFrom-Json } catch { $null }
+}
+$languagePreference = if ($Language) { $Language } else { $saved.language }
+Initialize-BuildConsole $languagePreference -Plain:$Plain
 
 # Optional extras (scripts/buildtool/extras.py): what they cost on this PC, printed before anything long starts.
 function Get-GpuNames {
     @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Where-Object { $_ }) -join '|'
 }
 
+function Format-ExtrasDuration([double]$Low, [double]$High) {
+    $first = Format-Duration ([TimeSpan]::FromMinutes($Low))
+    $last = Format-Duration ([TimeSpan]::FromMinutes($High))
+    if ($first -eq $last) { return $first }
+    return Get-BuildText 'estimate_range' @($first, $last)
+}
+
 function Show-ExtrasEstimate([string]$Python, [string]$Extras, [bool]$Ootf, [string]$Source, [bool]$Hd) {
-    $estimateArgs = @($Extras, 'estimate', '--timings', (Join-Path $RepoRoot 'build/extras-timings.json'), '--gpu-names', (Get-GpuNames))
+    $estimateArgs = @($Extras, 'estimate', '--json', '--timings', (Join-Path $RepoRoot 'build/extras-timings.json'), '--gpu-names', (Get-GpuNames))
     if ($Ootf) { $estimateArgs += '--ootf' }
     if ($OotfSubtitles -eq 'generate') { $estimateArgs += '--generate-subtitles' }
     if ($Source) { $estimateArgs += @('--source', $Source) }
     if ($Hd) { $estimateArgs += '--hd' }
-    & $Python @estimateArgs
+    $output = & $Python @estimateArgs
+    if ($LASTEXITCODE -ne 0) { return }
+    $estimate = $output | ConvertFrom-Json
+    Write-BuildHeading (Get-BuildText 'estimate_title')
+    if ($Hd) {
+        $gpuName = $estimate.gpu.name
+        if (-not $gpuName) { $gpuName = Get-BuildText 'estimate_gpu_missing' }
+        Write-BuildValue (Get-BuildText 'estimate_gpu') $gpuName
+    }
+    foreach ($item in $estimate.steps) {
+        $key = 'estimate_' + $item.key.Replace('-', '_')
+        $duration = Format-ExtrasDuration $item.low $item.high
+        if ($item.measured) { $duration = Get-BuildText 'estimate_measured' @($duration) }
+        Write-BuildValue (Get-BuildText $key) $duration
+    }
+    Write-BuildValue (Get-BuildText 'estimate_total') (Format-ExtrasDuration $estimate.low $estimate.high)
+    if ($estimate.diskGb) { Write-BuildValue (Get-BuildText 'estimate_disk') "$($estimate.diskGb) GB" }
+    if ($Hd -and $estimate.gpu.tier -eq 'none') { Write-Warning (Get-BuildText 'estimate_gpu_incompatible') }
+    elseif ($Hd) { Write-Host ('  ' + (Get-BuildText 'estimate_gpu_approximate')) }
 }
 
 function Find-VisualStudio {
@@ -109,7 +145,7 @@ function Install-BuildTools {
     $existing = if (Test-Path -LiteralPath "$installerDir/vswhere.exe") {
         & "$installerDir/vswhere.exe" -products 'Microsoft.VisualStudio.Product.BuildTools' -version '[17.0,18.0)' -property installationPath
     }
-    Write-Host 'Installing the C++ Build Tools (about 3 GB). Windows asks for permission; the installer shows its progress.'
+    Write-Host (Get-BuildText 'cpp_prompt')
     if ($existing -and (Test-Path -LiteralPath "$installerDir/setup.exe")) {
         $arguments = @('modify', '--installPath', "`"$(@($existing)[0])`"") + $vsArguments
         $code = (Start-Process -FilePath "$installerDir/setup.exe" -ArgumentList $arguments -Wait -PassThru).ExitCode
@@ -118,24 +154,24 @@ function Install-BuildTools {
             --accept-package-agreements --accept-source-agreements --override ($vsArguments -join ' ')
         $code = $LASTEXITCODE
     } else {
-        throw ("winget is not available to install Microsoft's C++ Build Tools. Install 'App Installer' from the " +
-            "Microsoft Store, or install Visual Studio 2022 Build Tools with 'Desktop development with C++' from " +
-            "$buildToolsPage, then run the build again.")
+        throw (Get-BuildText 'cpp_winget' @($buildToolsPage))
     }
     switch ($code) {
         0 { }
-        3010 { Write-Warning 'The Build Tools ask for a restart. The build continues; restart Windows afterwards if it fails.' }
+        3010 { Write-Warning (Get-BuildText 'cpp_restart') }
         # winget: APPINSTALLER_CLI_ERROR_INSTALL_REBOOT_REQUIRED_TO_FINISH / _FOR_INSTALL
-        { $_ -in -1978334967, -1978334966 } { Write-Warning 'The Build Tools ask for a restart. The build continues; restart Windows afterwards if it fails.' }
-        1602 { throw 'The Build Tools installation was cancelled.' }
-        default { throw ('The Build Tools installation failed (exit code 0x{0:X8}).' -f $code) }
+        { $_ -in -1978334967, -1978334966 } { Write-Warning (Get-BuildText 'cpp_restart') }
+        1602 { throw (Get-BuildText 'cpp_cancel') }
+        default { throw (Get-BuildText 'cpp_fail' @($code)) }
     }
 }
-Start-Transcript -LiteralPath (Join-Path $RepoRoot 'build-log.txt') -Force | Out-Null
+Start-Transcript -LiteralPath $sessionLog -Force | Out-Null
 try {
-    Write-Step 'Checking what the build needs'
-    if ($env:OS -ne 'Windows_NT') { throw 'The game build is Windows-only.' }
-    if ($PSVersionTable.PSVersion.Major -lt 7) { $problems.Add('PowerShell 7 or newer (winget install Microsoft.PowerShell)') }
+    Write-BuildHeading 'Drakan PC | The Ancients'' Gates'
+    if ($CheckOnly) { Write-Host ('  ' + (Get-BuildText 'check_mode')) }
+    else { Write-Host ('  ' + (Get-BuildText 'build_mode')) }
+    Write-BuildHeading (Get-BuildText 'system_check')
+    if ($env:OS -ne 'Windows_NT') { throw (Get-BuildText 'windows_only') }
 
     # Python 3.11+: the bundled copy first, then the first interpreter on PATH that is new enough.
     $python = $null
@@ -149,7 +185,7 @@ try {
             if ($LASTEXITCODE -eq 0 -and $lines.Count -ge 2 -and $lines[0] -eq 'True') { $python = $lines[1]; break }
         }
     }
-    if ($python) { Write-Host "Python:  $python" } else { $problems.Add('Python 3.11 or newer on PATH (https://www.python.org/downloads/)') }
+    if (-not $python) { $problems.Add((Get-BuildText 'python_required')) }
 
     # Node.js 22.18+ or 23.6+ (TypeScript type stripping on by default) makes the multiplayer character motions in the
     # last step: the bundled copy first, then one on PATH. character_motion.py finds it on PATH. No TypeScript flag is
@@ -160,35 +196,42 @@ try {
     $nodeVersion = if ($node) { (& $node.Source -p 'process.versions.node' 2>$null | Out-String).Trim() }
     $nodeOk = $nodeVersion -and [version]$nodeVersion -ge [version]'22.18' -and
         -not ([version]$nodeVersion -ge [version]'23.0' -and [version]$nodeVersion -lt [version]'23.6')
-    if ($nodeOk) { Write-Host "Node.js: $($node.Source) ($nodeVersion)" }
-    else { $problems.Add('Node.js 22.18 or newer on PATH (winget install OpenJS.NodeJS.LTS)') }
+    if (-not $nodeOk) { $problems.Add((Get-BuildText 'node_required')) }
 
     # Git is only needed to fetch sources the kit does not already carry.
     $offline = (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'ps2_recomp.exe') -PathType Leaf) -and
         (Test-Path -LiteralPath (Join-Path $RepoRoot 'deps/raylib') -PathType Container)
-    if ($offline) { Write-Host 'Sources: bundled (no downloads needed besides the Build Tools)' }
-    elseif (Get-Command git -ErrorAction SilentlyContinue) { Write-Host "Git:     $((Get-Command git).Source)" }
-    else { $problems.Add('Git on PATH (winget install Git.Git); the build fetches pinned dependencies with it') }
+    if (-not $offline -and -not (Get-Command git -ErrorAction SilentlyContinue)) {
+        $problems.Add((Get-BuildText 'git_required'))
+    }
 
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($WorkDir))
     $freeGb = [Math]::Round($drive.AvailableFreeSpace / 1GB, 1)
     $vs = Find-VisualStudio
     $neededGb = if ($vs) { 4 } else { 8 }
-    Write-Host "Build:   $WorkDir ($freeGb GB free on $($drive.Name))"
     if (-not (Test-Path -LiteralPath $WorkDir) -and $freeGb -lt $neededGb) {
-        $problems.Add("At least $neededGb GB free on $($drive.Name) (the build uses about 2 GB$(if (-not $vs) { ', the C++ Build Tools about 3 GB' }))")
+        $problems.Add((Get-BuildText 'disk_required' @($neededGb, $drive.Name)))
     }
     if ($RepoRoot.Length -gt 80) {
-        Write-Warning "The install folder path is long ($($RepoRoot.Length) characters). If the build fails with path errors, reinstall somewhere short such as C:\DrakanPC."
+        Write-Warning (Get-BuildText 'path_long' @($RepoRoot.Length))
     }
+    if ($problems.Count) {
+        Write-BuildHeading (Get-BuildText 'requirements') Yellow
+        $problems | ForEach-Object { Write-Host "  - $_" }
+        Write-BuildValue (Get-BuildText 'session_log') $sessionLog
+        exit 1
+    }
+    $pythonVersion = (& $python --version | Out-String).Trim()
+    Write-BuildValue (Get-BuildText 'tools') "$pythonVersion, Node.js $nodeVersion"
+    Write-BuildValue (Get-BuildText 'sources') $(if ($offline) { (Get-BuildText 'bundled') } else { (Get-BuildText 'fetched') })
+    $cppStatus = if ($vs) { (Get-BuildText 'ready') } else { (Get-BuildText 'cpp_first') }
+    Write-BuildValue 'C++ Build Tools' $cppStatus
+    Write-BuildValue (Get-BuildText 'build_disk') (Get-BuildText 'disk_free' @($freeGb, $drive.Name))
+    Write-Verbose "Python: $python | Node.js: $($node.Source) | Visual Studio: $vs"
 
     # Compiler memory: up to about 2 GB per process (1.3 GB on the largest generated files, 1.9 GB on a VU1 AOT slice);
     # a second MSBuild project only runs when there is room for both sets. Sizing: Get-BuildParallelism (Build-Policy.ps1).
     # The CPU choice (installer page or -Cores / -Priority) is remembered so "Rebuild Drakan" keeps it.
-    $optionsFile = Join-Path $RepoRoot 'build/build-options.json'
-    $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
-        try { Get-Content -LiteralPath $optionsFile -Raw | ConvertFrom-Json } catch { $null }
-    }
     if ($Cores -lt 0) { $Cores = if ($saved -and $null -ne $saved.cores) { [int]$saved.cores } else { 0 } }
     if (-not $Priority) { $Priority = if ($saved -and $saved.priority) { [string]$saved.priority } else { 'Normal' } }
     if (-not $VuBlocks) { $VuBlocks = if ($saved -and $saved.vuBlocks) { [string]$saved.vuBlocks } else { 'Chunked' } }
@@ -202,11 +245,12 @@ try {
     # The play folder (drakan.exe, saves, settings) is asked for once on the first interactive run; the setup passes
     # -DistDirectory from its own folder page. Only an answered question is remembered, so -CheckOnly does not skip it.
     $playKnown = $PSBoundParameters.ContainsKey('DistDirectory') -or [bool]($saved -and $saved.PSObject.Properties['playFolder'])
+    Write-BuildHeading (Get-BuildText 'game_files')
     if (-not $playKnown -and [Environment]::UserInteractive -and -not $CheckOnly) {
         $defaultPlay = Join-Path $RepoRoot 'dist\DrakanPC'
-        Write-Host "`nWhere should the game go? That folder gets drakan.exe, your saves and settings. The build files stay in"
-        Write-Host "$WorkDir (next to this builder; move the builder folder or pass -WorkDir to put them elsewhere)."
-        $answer = (Read-Host "Game folder (drag a folder into this window), or Enter for $defaultPlay").Trim().Trim('"')
+        Write-Host ('  ' + (Get-BuildText 'choose_play'))
+        Write-BuildValue (Get-BuildText 'default') $defaultPlay
+        $answer = (Read-Host (Get-BuildText 'play_prompt')).Trim().Trim('"')
         if ($answer) {
             # A bare drive (D:\) gets its own folder rather than filling the drive root.
             $DistDirectory = if ([IO.Path]::GetFullPath($answer) -eq [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($answer))) {
@@ -217,41 +261,41 @@ try {
     }
     # Optional extras. A remembered key (even an empty one) means the question was answered before.
     $extrasKnown = [bool]($saved -and $saved.PSObject.Properties['ootfSource'])
-    $hdKnown = [bool]($saved -and $saved.PSObject.Properties['hdTextures'])
     if (-not $PSBoundParameters.ContainsKey('OotfSource') -and $extrasKnown) { $OotfSource = [string]$saved.ootfSource }
     if ($OotfSource -eq 'none') { $OotfSource = '' }
     if (-not $OotfSubtitles) { $OotfSubtitles = if ($saved -and $saved.ootfSubtitles -eq 'generate') { 'generate' } else { 'bundled' } }
-    if (-not $HdTextures -and $hdKnown) { $HdTextures = if ($saved.hdTextures) { 'on' } else { 'off' } }
+    if (-not $HdTextures) { $HdTextures = if ($saved -and $saved.hdTextures) { 'on' } else { 'auto' } }
     if ($HdGpu -eq -2) { $HdGpu = if ($saved -and $null -ne $saved.hdGpu) { [int]$saved.hdGpu } else { -1 } }
     if ($DistDirectory) {
         $DistDirectory = [IO.Path]::GetFullPath($DistDirectory)
         $inside = { param($Path, $Parent) $Path -eq $Parent -or $Path.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }
         if ($DistDirectory -eq [IO.Path]::GetPathRoot($DistDirectory) -or $DistDirectory -eq $RepoRoot -or
             (& $inside $DistDirectory $WorkDir) -or (& $inside $DistDirectory (Join-Path $RepoRoot 'build'))) {
-            throw "The play folder cannot be a drive root, the builder folder or inside its build folder: $DistDirectory"
+            throw (Get-BuildText 'play_invalid' @($DistDirectory))
         }
     }
     $playShown = if ($DistDirectory) { $DistDirectory } else { Join-Path $RepoRoot 'dist\DrakanPC' }
     $playDrive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($playShown))
     if (-not $playDrive.IsReady) {
-        throw "The drive of the play folder $playShown is not available. Run the build again with -DistDirectory <folder>."
+        throw (Get-BuildText 'play_unavailable' @($playShown))
     }
-    Write-Host "Play:    $playShown ($([Math]::Round($playDrive.AvailableFreeSpace / 1GB, 1)) GB free on $($playDrive.Name))"
-    if ($CpuAffinity) {
-        Resolve-BuildAffinity $CpuAffinity | Out-Null
-        Write-Host "Affinity: $CpuAffinity (Windows build processes only)"
+    Write-BuildValue (Get-BuildText 'play_folder') $playShown
+    if ($playDrive.Name -ne $drive.Name) {
+        Write-BuildValue (Get-BuildText 'play_disk') (Get-BuildText 'disk_free' @([Math]::Round($playDrive.AvailableFreeSpace / 1GB, 1), $playDrive.Name))
     }
+    if ($CpuAffinity) { Resolve-BuildAffinity $CpuAffinity | Out-Null }
+    $textureSource = Find-BuildTextureDirectory $RepoRoot $playShown $TextureDirectory
     New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
     $saveOptions = {
         $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; vuBlocks = $VuBlocks; hdGpu = $HdGpu }
         if ($playKnown) { $options.playFolder = $DistDirectory }
         # Only answered questions are remembered, so a run that never got to ask still asks the next time.
         if ($extrasKnown) { $options.ootfSource = $OotfSource; $options.ootfSubtitles = $OotfSubtitles }
-        if ($hdKnown) { $options.hdTextures = ($HdTextures -eq 'on') }
+        $options.hdTextures = ($HdTextures -eq 'on')
+        if ($languagePreference) { $options.language = $languagePreference }
         $options | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
     }
     if ($extrasKnown -or $PSBoundParameters.ContainsKey('OotfSource')) { $extrasKnown = $true }
-    if ($hdKnown -or $HdTextures) { $hdKnown = $true }
     & $saveOptions
 
     $logicalCores = [Environment]::ProcessorCount
@@ -261,52 +305,23 @@ try {
     $sizing = Get-BuildParallelism -Cores $Cores -LogicalCores $logicalCores -MemoryGb $memoryGb -UsableCores $usableCores -WholeVuBlocks:$wholeVu
     $jobs = $sizing.Jobs
     $compilerProcesses = $sizing.CompilerProcesses
-    $usableText = if ($usableCores -lt $logicalCores) { "$usableCores of $logicalCores logical cores, from the affinity mask" }
-    else { "$logicalCores logical cores" }
-    if ($Cores -gt 0) { Write-Host "CPU:     $($sizing.Budget) cores (your choice; $usableText)" }
-    else { Write-Host "CPU:     automatic ($usableText)" }
-    Write-Host "Memory:  $memoryGb GB -> $jobs project(s) x $compilerProcesses compiler process(es)"
     if ($Priority -eq 'Low') {
         # Compilers started from here inherit the priority class; MSBuild nodes left over from an earlier build would not.
         (Get-Process -Id $PID).PriorityClass = [Diagnostics.ProcessPriorityClass]::BelowNormal
         $env:MSBUILDDISABLENODEREUSE = '1'
-        Write-Host 'Priority: low (the PC stays responsive; the build takes longer while other programs are busy)'
     }
-    if ($wholeVu) { Write-Host 'VU1:     whole blocks (up to 17 GB per file, compiled one after another)' }
     if ($wholeVu -and $memoryGb -lt 24) {
-        Write-Warning ('Less than 24 GB of memory with whole VU1 blocks: four files need about 17 GB each while compiling, so ' +
-            'Windows will use its page file and the build will be slow. The default (-VuBlocks Chunked) needs about 2 GB.')
+        Write-Warning (Get-BuildText 'ram_whole')
     } elseif ($memoryGb -lt 8) {
-        Write-Warning ('Less than 8 GB of memory: each compiler process needs up to about 2 GB, so Windows will use its page file ' +
-            'and the build will be slow. Keep the page file enabled (the Windows default) and close other programs.')
+        Write-Warning (Get-BuildText 'ram_low')
     }
 
-    if ($problems.Count) {
-        Write-Host "`nInstall the following, then run this again:" -ForegroundColor Yellow
-        $problems | ForEach-Object { Write-Host "  - $_" -ForegroundColor Yellow }
-        exit 1
-    }
-    if ($vs) { Write-Host "C++:     $vs" }
-    elseif ($CheckOnly) { Write-Host 'C++:     not installed yet; the build installs Microsoft''s C++ Build Tools on its first run' }
-    else {
-        Write-Step 'Installing Microsoft C++ Build Tools (first run only)'
-        Install-BuildTools
-        $vs = Find-VisualStudio
-        if (-not $vs) { throw 'The C++ Build Tools were installed but cannot be found; restart Windows and run the build again.' }
-        Write-Host "C++:     $vs"
-    }
-    if ($vs) {
-        # Build with this instance (it has CMake), even when another Visual Studio is installed.
-        $env:CMAKE_GENERATOR_INSTANCE = $vs
-        $env:PATH = "$(Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin');$env:PATH"
-    }
-
-    Write-Step 'Choosing the ISO'
     $rememberedIso = Join-Path $RepoRoot 'build/iso-path.txt'
     if (-not $IsoPath -and (Test-Path -LiteralPath $rememberedIso -PathType Leaf)) {
         $previous = (Get-Content -LiteralPath $rememberedIso -Raw).Trim()
         if (Test-Path -LiteralPath $previous -PathType Leaf) {
-            $answer = Read-Host "Use $previous ? [Y/n]"
+            Write-BuildValue (Get-BuildText 'previous_disc') $previous
+            $answer = Read-Host (Get-BuildText 'use_disc')
             if ($answer -notmatch '^\s*n') { $IsoPath = $previous }
         }
     }
@@ -314,17 +329,17 @@ try {
         try {
             Add-Type -AssemblyName System.Windows.Forms
             $dialog = [Windows.Forms.OpenFileDialog]::new()
-            $dialog.Title = 'Select your Drakan: The Ancients'' Gates ISO (PAL SCES-500.06 or USA SCUS-971.28)'
-            $dialog.Filter = 'Disc images (*.iso)|*.iso|All files (*.*)|*.*'
+            $dialog.Title = Get-BuildText 'select_iso'
+            $dialog.Filter = (Get-BuildText 'iso_filter')
             if ($dialog.ShowDialog() -eq [Windows.Forms.DialogResult]::OK) { $IsoPath = $dialog.FileName }
         } catch {
             Write-Verbose "File dialog unavailable: $_"
         }
     }
-    if (-not $IsoPath) { $IsoPath = (Read-Host 'Path to your ISO (you can drag the file into this window)').Trim().Trim('"') }
-    if (-not $IsoPath -or -not (Test-Path -LiteralPath $IsoPath -PathType Leaf)) { throw "ISO not found: $IsoPath" }
+    if (-not $IsoPath) { $IsoPath = (Read-Host (Get-BuildText 'iso_prompt')).Trim().Trim('"') }
+    if (-not $IsoPath -or -not (Test-Path -LiteralPath $IsoPath -PathType Leaf)) { throw (Get-BuildText 'iso_missing' @($IsoPath)) }
     $IsoPath = (Resolve-Path -LiteralPath $IsoPath).Path
-    Write-Host "ISO:     $IsoPath"
+    Write-BuildValue (Get-BuildText 'disc') $IsoPath
     New-Item -ItemType Directory -Force -Path (Split-Path $rememberedIso) | Out-Null
     Set-Content -LiteralPath $rememberedIso -Value $IsoPath -NoNewline
 
@@ -335,69 +350,52 @@ try {
             Where-Object { $_.PNPDeviceID -match 'VEN_10DE' }).Count -gt 0
         if ($nvidiaGpu -and [Environment]::UserInteractive) {
             $lock = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'dlss.lock.json') -Raw | ConvertFrom-Json
-            Write-Host "`nOptional: NVIDIA DLSS for your NVIDIA GPU. The SDK is downloaded from NVIDIA under the NVIDIA RTX SDKs licence:"
-            Write-Host "  https://github.com/$($lock.repository)/blob/$($lock.tag)/LICENSE.txt"
-            $answer = Read-Host 'Accept the licence and enable DLSS? [y/N]'
-            if ($answer -match '^\s*y') { $EnableDlss = $true }
+            Write-BuildHeading (Get-BuildText 'dlss_optional')
+            Write-Host ('  ' + (Get-BuildText 'dlss_terms'))
+            Write-BuildValue (Get-BuildText 'licence') "https://github.com/$($lock.repository)/blob/$($lock.tag)/LICENSE.txt"
+            $answer = Read-Host (Get-BuildText 'dlss_prompt')
+            if ($answer.Trim().ToLowerInvariant() -in (Get-BuildText 'yes').Split(',')) { $EnableDlss = $true }
         }
     }
 
-    # Optional extras: Drakan: Order of the Flame and HD textures (scripts/buildtool/extras.py). Both are made from files
-    # the player owns and stay on this PC. A first interactive run asks once; the answers are remembered.
+    # Ask for the optional campaign once, then remember the answer.
     $extras = Join-Path $PSScriptRoot 'extras.py'
     $interactive = [Environment]::UserInteractive -and -not $CheckOnly
     $extraNotes = [Collections.Generic.List[string]]::new()
     if (-not $extrasKnown -and -not $OotfSource -and $interactive) {
-        Write-Host "`nOptional: Drakan: Order of the Flame (Drakan 1) as a second campaign. It is converted from your own PC copy"
-        Write-Host '(install folder, disc folder, .mdx / .iso disc image or Drakan.zip) into a mod pack on this PC; the title menu then'
-        Write-Host 'offers it next to Drakan: The Ancients'' Gates. Nothing is uploaded.'
-        Write-Host 'English scene captions are included. Use -OotfSubtitles generate to transcribe your recordings locally.'
-        Show-ExtrasEstimate $python $extras $true '' $false
-        $answer = (Read-Host 'Path to your Order of the Flame copy (drag it into this window), or Enter to skip').Trim().Trim('"')
+        Write-BuildHeading (Get-BuildText 'ootf_optional')
+        Write-Host ('  ' + (Get-BuildText 'ootf_intro'))
+        Write-Host ('  ' + (Get-BuildText 'ootf_formats'))
+        $answer = (Read-Host (Get-BuildText 'ootf_prompt')).Trim().Trim('"')
         if ($answer) {
             & $python $extras check-source --deep $answer
-            if ($LASTEXITCODE) { Write-Warning 'That is not usable, so Order of the Flame is skipped this time.' } else { $OotfSource = $answer }
+            if ($LASTEXITCODE) { Write-Warning (Get-BuildText 'ootf_bad') } else { $OotfSource = $answer }
         }
         $extrasKnown = $true
     }
-    if (-not $HdTextures -and $interactive) {
-        Write-Host "`nOptional: HD textures. Every texture is upscaled 4x with the free Real-ESRGAN AI upscaler on your graphics card"
-        Write-Host '(downloads about 75 MB of pinned tools once). The game plays without them; they can be made later by running the build again.'
-        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource $true
-        $answer = Read-Host 'Make the HD textures after the build? [y/N]'
-        $HdTextures = if ($answer -match '^\s*y') { 'on' } else { 'off' }
-        $hdKnown = $true
-    }
-    if (-not $HdTextures) { $HdTextures = 'off' }
     & $saveOptions
     if ($OotfSource) {
         # Checked before anything long starts. A source that does not work (moved disc, wrong file, damaged zip) only leaves
         # Order of the Flame out of this run; it never stops the game build, and the remembered choice is kept.
-        Write-Step 'Checking the Order of the Flame source'
+        Write-BuildHeading (Get-BuildText 'ootf_check')
         & $python $extras check-source --deep $OotfSource
         if ($LASTEXITCODE) {
-            Write-Warning "Order of the Flame is left out of this build: $OotfSource cannot be used (see above)."
-            $extraNotes.Add("Order of the Flame: skipped, the source cannot be used. Run the build again with -OotfSource <path> to add it.")
+            Write-Warning (Get-BuildText 'ootf_bad')
+            $extraNotes.Add((Get-BuildText 'ootf_failed'))
             $OotfSource = ''
         }
     }
-    if ($OotfSource -or $HdTextures -eq 'on') {
-        Write-Step 'Optional extras selected'
-        if ($OotfSource) { Write-Host "Order of the Flame: $OotfSource" }
-        if ($HdTextures -eq 'on') { Write-Host ('HD textures: on' + $(if ($HdGpu -ge 0) { " (graphics device $HdGpu)" } else { '' })) }
-        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource ($HdTextures -eq 'on')
-        Write-Host 'The game build below takes one to two hours on its own; the extras are added to that.'
-    }
-
     $buildArgs = @{
         IsoPath = $IsoPath; WorkDir = $WorkDir; Python = $python
         CpuAffinity = $CpuAffinity; Jobs = $jobs; CompilerProcesses = $compilerProcesses; Progress = $true
+        Language = $script:BuildLanguage; Plain = $Plain.IsPresent
         VuChunk = $(if ($wholeVu) { 0 } else { 8 })
     }
     # The installer's shortcuts open dist\DrakanPC, whichever region the ISO is (Build-LocalGame.ps1 alone would put a
     # USA build into dist\DrakanPC-usa next to a PAL one).
-    if (-not $DistDirectory) { $DistDirectory = Join-Path $RepoRoot 'dist/DrakanPC' }
+    $DistDirectory = $playShown
     $buildArgs.DistDirectory = $DistDirectory
+    if ($textureSource) { $buildArgs.TextureDirectory = $textureSource }
     if ($NoNvidia) { $buildArgs.NoNvidia = $true }
     elseif ($EnableDlss) { $buildArgs.AcceptNvidiaDlssLicense = $true }
     $prepared = Join-Path $WorkDir 'local-input.json'
@@ -405,11 +403,12 @@ try {
     # the other one, start that folder over (it only holds generated files; saves and settings live in the play folder).
     if (Test-Path -LiteralPath $prepared -PathType Leaf) {
         $isoRegion = (& $python (Join-Path $PSScriptRoot 'prepare_iso.py') --detect --iso $IsoPath | Out-String).Trim()
-        if ($LASTEXITCODE) { throw 'This ISO is not a supported Drakan: The Ancients'' Gates disc (PAL SCES-500.06 or USA SCUS-971.28).' }
+        if ($LASTEXITCODE) { throw (Get-BuildText 'iso_invalid') }
         $builtRegion = (Get-Content -LiteralPath $prepared -Raw | ConvertFrom-Json).region
         if (-not $builtRegion) { $builtRegion = 'pal' }
         if ($isoRegion -ne $builtRegion) {
-            Write-Step "The ISO is the $($isoRegion.ToUpper()) release; the previous build was $($builtRegion.ToUpper()). Building again from scratch."
+            Write-BuildHeading (Get-BuildText 'region_changed') Yellow
+            Write-Host ('  ' + (Get-BuildText 'region_rebuild' @($builtRegion.ToUpper(), $isoRegion.ToUpper())))
             $Fresh = $true
         }
     }
@@ -419,45 +418,77 @@ try {
         $state = Read-BuildState $WorkDir
         $review = Get-BuildReview $WorkDir (Join-Path $RepoRoot 'ps2recomp') (Join-Path $WorkDir 'bin/drakan.exe')
         $resumeAt = @($review | Where-Object { -not $_.Ok } | Select-Object -First 1)
-        Write-Step 'The last build'
+        Write-BuildHeading (Get-BuildText 'previous_build')
         if ($state) {
             $when = try { ([datetime]$state.updated).ToString('yyyy-MM-dd HH:mm') } catch { $state.updated }
+            $stageTitle = if ($state.step -in (1..$DrakanBuildSteps.Count)) { Get-BuildText "step_$($state.step)" } else { $state.title }
             switch ($state.status) {
-                'done' { Write-Host "Finished $when." }
-                'failed' { Write-Host "Stopped at step $($state.step) of $($state.steps), $($state.title), on ${when}:" -ForegroundColor Yellow
-                    Write-Host "  $($state.error)" -ForegroundColor Yellow }
-                default { Write-Host "Interrupted at step $($state.step) of $($state.steps), $($state.title), on $when (the window was closed or the PC restarted)." -ForegroundColor Yellow }
+                'done' { Write-BuildValue (Get-BuildText 'finished') $when }
+                'failed' {
+                    Write-BuildValue (Get-BuildText 'last_failure') "$stageTitle ($when)"
+                    Write-Host "  $($state.error)"
+                }
+                default { Write-BuildValue (Get-BuildText 'interrupted') "$stageTitle ($when)" }
             }
         }
-        foreach ($check in $review) {
-            $mark = if ($check.Ok) { '[ok]' } else { '[  ]' }
-            Write-Host ("  {0} {1}. {2}: {3}" -f $mark, $check.Step, $check.Title, $check.Detail) -ForegroundColor $(if ($check.Ok) { 'Gray' } else { 'Yellow' })
-        }
         if ($resumeAt -and $resumeAt[0].Step -eq 1) {
-            Write-Host 'The files read from the ISO are incomplete, so the build starts over.' -ForegroundColor Yellow
+            Write-BuildValue (Get-BuildText 'start_over') (Get-BuildText 'incomplete_iso')
             $Fresh = $true
         } elseif ($resumeAt -or ($state -and $state.status -ne 'done')) {
             $from = if ($resumeAt) { $resumeAt[0] } else { [pscustomobject]@{ Step = 6; Title = $DrakanBuildSteps[5] } }
-            $kept = if ($from.Step -eq 5 -and $from.Compiled) { " ($($from.Compiled) compiled files are kept)" } else { '' }
-            Write-Host "Continuing from step $($from.Step), $($from.Title)$kept. Steps before it are only checked again."
+            Write-BuildValue (Get-BuildText 'resume_at') "[$($from.Step)/$($DrakanBuildSteps.Count)] $(Get-BuildText "step_$($from.Step)")"
+            if ($from.Detail) { Write-BuildValue (Get-BuildText 'on_disk') $from.Detail }
             if ([Environment]::UserInteractive -and -not $CheckOnly) {
-                $answer = Read-Host 'Press Enter to continue, or type S to start over'
+                $answer = Read-Host (Get-BuildText 'resume_prompt')
                 if ($answer -match '^\s*s') { $Fresh = $true }
             }
         }
     }
-    if ($CheckOnly) { Write-Host "`nReady to build."; return }
+    $usingCache = (Test-Path -LiteralPath $prepared -PathType Leaf) -and -not $Fresh
+    Write-BuildHeading (Get-BuildText 'plan')
+    Write-BuildValue (Get-BuildText 'windows_game') $(if ($usingCache) { (Get-BuildText 'reuse_build') } else { (Get-BuildText 'full_build') })
+    $affinityText = if ($CpuAffinity) { Get-BuildText 'cpu_mask' @($CpuAffinity) } else { '' }
+    $workers = $jobs * $compilerProcesses
+    $workerLabel = if ($workers -eq 1) { (Get-BuildText 'worker') } else { (Get-BuildText 'workers') }
+    $priorityText = Get-BuildText "priority_$($Priority.ToLowerInvariant())"
+    Write-BuildValue (Get-BuildText 'compiler') (Get-BuildText 'compiler_plan' @($workers, $workerLabel, $memoryGb, $priorityText, $affinityText))
+    if ($wholeVu) { Write-BuildValue (Get-BuildText 'vu_mode') (Get-BuildText 'vu_whole') }
+    if ($OotfSource) { Write-BuildValue 'Order of the Flame' $OotfSource }
+    if ($Web) { Write-BuildValue (Get-BuildText 'browser_build') (Get-BuildText 'browser_after') }
+    $texturePlan = if ($HdTextures -eq 'on') { (Get-BuildText 'hd_generate') }
+        elseif ($textureSource) { Get-BuildText 'hd_reuse' @($textureSource) }
+        else { (Get-BuildText 'hd_original_plan') }
+    Write-BuildValue (Get-BuildText 'hd_label') $texturePlan
+    Write-BuildValue (Get-BuildText 'session_log') $sessionLog
+    Write-BuildValue (Get-BuildText 'tool_output') $toolLog
+    if ($CheckOnly) {
+        Write-BuildHeading (Get-BuildText 'ready_build') Green
+        Write-Host ('  ' + (Get-BuildText 'iso_found'))
+        return
+    }
+    if ($OotfSource -or $HdTextures -eq 'on') {
+        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource ($HdTextures -eq 'on')
+    }
+    if (-not $vs) {
+        Write-BuildHeading (Get-BuildText 'cpp_install')
+        Install-BuildTools
+        $vs = Find-VisualStudio
+        if (-not $vs) { throw (Get-BuildText 'cpp_not_found') }
+    }
+    # Use the CMake that belongs to the selected Visual Studio instance.
+    $env:CMAKE_GENERATOR_INSTANCE = $vs
+    $env:PATH = "$(Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin');$env:PATH"
     # Builds up to v0.1.11 saved into the build folder (next to the ELF) instead of the play folder. Before the build
     # folder is deleted, those saves are copied into the play folder (migrate_saves.py, issue #6); when that fails the
     # folder is not deleted.
     $rescueSaves = {
         & $python -I (Join-Path $PSScriptRoot 'migrate_saves.py') --play $DistDirectory --work $WorkDir --before-delete
         if ($LASTEXITCODE) {
-            throw "Saves in $WorkDir could not be copied to the play folder $DistDirectory, so the build folder was not deleted. Copy its mc0 and mc1 folders somewhere safe, then run the build again."
+            throw (Get-BuildText 'rescue_failed' @($WorkDir, $DistDirectory))
         }
     }
     if ($Fresh -and (Test-Path -LiteralPath $WorkDir)) {
-        Write-Step 'Starting over (the play folder, saves and settings are kept)'
+        Write-BuildHeading (Get-BuildText 'fresh_start')
         & $rescueSaves
         Remove-Item -LiteralPath $WorkDir -Recurse -Force
     }
@@ -466,20 +497,18 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $WorkDir 'runtime-build/CMakeCache.txt') -PathType Leaf)) {
         $buildArgs.NoWarnings = $true
     }
-    if (Test-Path -LiteralPath $prepared -PathType Leaf) {
-        Write-Step "Rebuilding (only what changed)"
+    if ($usingCache) {
         $buildArgs.Incremental = $true
     } else {
         # A folder without local-input.json stopped before the ISO was read; it holds nothing worth keeping.
         if (Test-Path -LiteralPath $WorkDir) { & $rescueSaves; Remove-Item -LiteralPath $WorkDir -Recurse -Force }
-        Write-Step 'Building the game: this takes one to two hours. A few files take several minutes each; the window is not stuck.'
     }
     $started = Get-Date
     $ootfPack = $null
     if ($OotfSource) {
         # Before the game build: the converter needs only the ISO's level template, and the build then installs the pack
         # (-ModDirectory) and pictures its maps. A failure here does not stop the game build.
-        Write-Step 'Converting Drakan: Order of the Flame'
+        Write-BuildHeading (Get-BuildText 'ootf_prepare')
         $ootfArgs = @($extras, 'ootf', '--iso', $IsoPath, '--source', $OotfSource, '--play', $DistDirectory, '--work', (Join-Path $RepoRoot 'build/ootf'))
         if ($OotfSubtitles -eq 'generate') { $ootfArgs += '--generate-subtitles' }
         if ($HdTextures -eq 'on') { $ootfArgs += '--hd' }
@@ -489,54 +518,67 @@ try {
             $ootfPack = Join-Path $ootfMods 'ootf-levels.zip'
             $buildArgs.ModDirectory = $ootfMods
         } else {
-            Write-Warning 'Order of the Flame was not converted. The game build continues without it; run the build again to retry.'
-            $extraNotes.Add('Order of the Flame: not converted (see the message above); run the build again to retry')
+            Write-Warning (Get-BuildText 'ootf_failed')
+            $extraNotes.Add((Get-BuildText 'ootf_failed'))
         }
     }
-    Invoke-BuildWithRetry (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') $buildArgs $prepared
+    Write-BuildHeading (Get-BuildText 'windows_start')
+    Invoke-BuildWithRetry (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') $buildArgs $prepared (Get-BuildText 'retry')
     if ($Web) {
-        Write-Step 'Building the browser version (WSL)'
+        Write-BuildHeading (Get-BuildText 'browser_start')
         try {
-            & (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') -IsoPath $IsoPath -TargetPlatform web -WorkDir $WorkDir -Jobs $jobs
-            Write-Host "Browser version: $(Join-Path $RepoRoot 'dist/DrakanPC-web')"
-            Write-Host "Play it at $webPlayerUrl (choose that folder and your ISO), or with Play-Browser.cmd in that folder."
+            & (Join-Path $PSScriptRoot 'Build-LocalGame.ps1') -IsoPath $IsoPath -TargetPlatform web -WorkDir $WorkDir -Jobs $jobs -TextureDirectory $textureSource
+            Write-BuildValue (Get-BuildText 'browser_folder') (Join-Path $RepoRoot 'dist/DrakanPC-web')
+            Write-Host ('  ' + (Get-BuildText 'browser_play' @($webPlayerUrl)))
         } catch {
-            Write-Warning "The browser version was not built: $_"
-            Write-Warning 'It needs WSL with Ubuntu (wsl --install -d Ubuntu). The Windows game is ready either way.'
+            Write-Warning (Get-BuildText 'browser_failed')
+            Write-Host "  $_"
         }
     }
-    $play = if ($DistDirectory) { [IO.Path]::GetFullPath($DistDirectory) } else { Join-Path $RepoRoot 'dist/DrakanPC' }
+    $play = $DistDirectory
     if ($HdTextures -eq 'on') {
-        Write-Step 'HD textures (the long step can be stopped and resumed by running the build again)'
+        Write-BuildHeading (Get-BuildText 'hd_start')
+        Write-Host ('  ' + (Get-BuildText 'hd_resume'))
         $hdArgs = @($extras, 'hd', '--iso', $IsoPath, '--play', $play, '--work', (Join-Path $RepoRoot 'build/hdpack'))
         if ($ootfPack) { $hdArgs += @('--ootf-pack', $ootfPack) }
         if ($HdGpu -ge 0) { $hdArgs += @('--gpu-index', $HdGpu) }
         & $python @hdArgs
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning 'The HD textures are not finished. The game works without them; run the build again to continue.'
-            $extraNotes.Add('HD textures: not finished (see the message above); run the build again to continue')
+            Write-Warning (Get-BuildText 'hd_failed')
+            $extraNotes.Add((Get-BuildText 'hd_failed'))
         }
     }
     if ($MenuStyle -or $BowCombat -or $DualWield) {
-        Write-Step 'Setting the starting game options (they can be changed in the game with F1)'
+        Write-BuildHeading (Get-BuildText 'applying_settings')
         $defaultArgs = @((Join-Path $PSScriptRoot 'apply_defaults.py'), '--play', $play)
         if ($MenuStyle) { $defaultArgs += @('--menus', $MenuStyle) }
         if ($BowCombat) { $defaultArgs += @('--bow', $BowCombat) }
         if ($DualWield) { $defaultArgs += @('--dual-wield', $DualWield) }
         & $python @defaultArgs
-        if ($LASTEXITCODE -ne 0) { $extraNotes.Add('Starting game options: not applied (see the message above); change them in the game with F1') }
+        if ($LASTEXITCODE -ne 0) { $extraNotes.Add((Get-BuildText 'settings_failed')) }
     }
     $elapsed = (Get-Date) - $started
-    Write-Step "Done in $([int]$elapsed.TotalMinutes) min"
-    Write-Host "Play folder: $play"
-    Write-Host 'Start the game with the Drakan shortcut (or Play.cmd in that folder). F1 opens the PC settings.'
-    Write-Host 'The game reads your ISO while it runs, so do not move or rename it.'
-    if ($ootfPack) { Write-Host 'Drakan: Order of the Flame is installed: choose it on the title menu ("Choose your game").' }
-    foreach ($note in $extraNotes) { Write-Host $note -ForegroundColor Yellow }
+    $installedTextures = Test-BuildTextureDirectory (Join-Path $play 'textures')
+    Write-BuildHeading (Get-BuildText 'play_ready') Green
+    Write-BuildValue (Get-BuildText 'elapsed') (Format-Duration $elapsed)
+    Write-BuildValue (Get-BuildText 'play_folder') $play
+    Write-BuildValue (Get-BuildText 'start_game') (Get-BuildText 'launch_tip')
+    Write-BuildValue (Get-BuildText 'disc') (Get-BuildText 'keep_disc')
+    Write-BuildValue (Get-BuildText 'hd_label') $(if ($installedTextures) { (Get-BuildText 'hd_ready') } else { (Get-BuildText 'hd_original') })
+    if ($ootfPack) { Write-BuildValue 'Order of the Flame' (Get-BuildText 'ootf_ready') }
+    if ($extraNotes.Count) {
+        Write-BuildHeading (Get-BuildText 'extra_notes') Yellow
+        foreach ($note in $extraNotes) { Write-Host "  - $note" }
+    }
     if ($LaunchWhenDone -and (Test-Path -LiteralPath (Join-Path $play 'drakan.exe') -PathType Leaf)) {
         Disable-BuildJobKill # the game must outlive this window
         Start-Process -FilePath (Join-Path $play 'drakan.exe') -WorkingDirectory $play
     }
+} catch {
+    Write-BuildHeading (Get-BuildText 'stopped') Red
+    Write-Error -Message $_.Exception.Message -ErrorAction Continue
+    Write-BuildValue (Get-BuildText 'session_log') $sessionLog
+    exit 1
 } finally {
     Stop-Transcript | Out-Null
 }

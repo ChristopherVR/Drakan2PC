@@ -41,6 +41,20 @@ WizardStyle=modern
 ; The build folder holds about 2 GB once the game is built.
 ExtraDiskSpaceRequired=2147483648
 
+[Languages]
+Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "de"; MessagesFile: "compiler:Languages\German.isl"
+Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
+Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
+
+[CustomMessages]
+en.BuildNow=Build the game now (one to two hours). The game may briefly open to capture missing map pictures.
+de.BuildNow=Spiel jetzt erstellen (ein bis zwei Stunden). Für fehlende Kartenbilder kann sich das Spiel kurz öffnen.
+fr.BuildNow=Compiler le jeu maintenant (une à deux heures). Le jeu peut s’ouvrir brièvement pour créer les aperçus manquants.
+it.BuildNow=Compila il gioco ora (una o due ore). Il gioco potrebbe aprirsi brevemente per acquisire le immagini mancanti.
+es.BuildNow=Compilar el juego ahora (una o dos horas). El juego puede abrirse brevemente para capturar imágenes de mapas que falten.
+
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "\SETUP-INFO.txt"; Flags: recursesubdirs ignoreversion
 
@@ -54,7 +68,7 @@ Name: "{autoprograms}\Drakan play folder"; Filename: "{code:GetPlayDir}"
 Name: desktopicon; Description: "Create a desktop shortcut"
 
 [Run]
-Filename: "{app}\Build-Drakan.cmd"; Parameters: "-IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "Build the game now (one to two hours; installs Microsoft's C++ Build Tools if needed). If a multiplayer map picture is missing, the game opens and closes by itself to take it; leave it alone"; Flags: postinstall shellexec nowait skipifsilent
+Filename: "{app}\Build-Drakan.cmd"; Parameters: "-Language {language} -IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "{cm:BuildNow}"; Flags: postinstall shellexec nowait skipifsilent
 
 [UninstallDelete]
 ; Build products; the play folder (saves and settings) is left in place.
@@ -194,16 +208,15 @@ begin
   DlssPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
 
   HdPage := CreateInputOptionPage(DlssPage.ID,
-    'HD textures (optional)',
-    'Upscale every texture with an AI upscaler on your graphics card.',
-    'After the build every texture of the game (and of Order of the Flame, when you chose it) is upscaled 4x with the ' +
-    'free Real-ESRGAN AI upscaler. It runs on any graphics card with Vulkan drivers and downloads about 75 MB of tools ' +
-    'once, checked against pinned hashes. About 17 to 32 min on a fast graphics card (about 2 GB), ' +
-    '23 to 43 min together with Order of the Flame (about 4 GB) before optional caption generation; several times longer on an older card and ' +
-    'hours on integrated graphics. The game plays without them, the step can be stopped and resumed, and the build can ' +
-    'be run again to make them later. The build window shows the estimate for your own PC before it starts.',
+    'HD textures',
+    'Reuse a local pack automatically or generate HD textures from your disc.',
+    'The builder reuses HD textures from local\textures in the builder folder or textures in an existing play folder. ' +
+    'If no pack is available, the game starts with the original textures. ' + #13#10#13#10 +
+    'Generation upscales textures 4x with Real-ESRGAN and downloads about 75 MB of tools once. On a fast graphics card, ' +
+    'allow 17 to 32 min (about 2 GB), or 23 to 43 min with Order of the Flame (about 4 GB). ' +
+    'The console shows an estimate for your PC. Run the builder again to resume generation.',
     False, False);
-  HdPage.Add('Make HD textures after the build (needs a Vulkan graphics card)');
+  HdPage.Add('Generate HD textures after the build (requires Vulkan)');
   // DrakanPC-Setup.exe /HD=1 ticks it.
   HdPage.Values[0] := ExpandConstant('{param:HD|}') = '1';
 
@@ -519,7 +532,7 @@ begin
   if HdPage.Values[0] then
     Result := Result + ' -HdTextures on'
   else
-    Result := Result + ' -HdTextures off';
+    Result := Result + ' -HdTextures auto';
   // Always passed, so "Rebuild Drakan" remembers it (build/build-options.json) and the shortcuts match.
   if CompareText(GetPlayDir(''), DefaultPlayDir) = 0 then
     Result := Result + ' -DistDirectory default'

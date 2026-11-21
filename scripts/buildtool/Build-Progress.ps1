@@ -1,6 +1,30 @@
 # Dot-sourced by Build-LocalGame.ps1 (compile progress) and Build-Drakan.ps1 (resume review). Kept apart from the
 # scripts so scripts/tests can run it against synthetic build folders without a compiler.
 
+$script:BuildMessageFile = Join-Path $PSScriptRoot 'build-messages.json'
+$script:BuildMessageCatalog = $null
+$script:BuildLanguage = 'en'
+$script:PlainBuildConsole = $false
+$script:BuildPulse = '|/-\'
+
+function Initialize-BuildConsole([string]$Language, [switch]$Plain) {
+    if (-not $Language -or $Language -eq 'auto') { $Language = [CultureInfo]::CurrentUICulture.TwoLetterISOLanguageName }
+    $Language = $Language.ToLowerInvariant()
+    $script:BuildLanguage = if ($Language -in 'en', 'de', 'fr', 'it', 'es') { $Language } else { 'en' }
+    $script:PlainBuildConsole = [bool]$Plain
+}
+
+function Get-BuildText([string]$Key, [object[]]$Values) {
+    if (-not $script:BuildMessageCatalog) {
+        $script:BuildMessageCatalog = Get-Content -LiteralPath $script:BuildMessageFile -Raw -Encoding utf8 | ConvertFrom-Json -AsHashtable
+    }
+    $messages = $script:BuildMessageCatalog[$Key]
+    if (-not $messages) { throw "No builder console message for '$Key'." }
+    $text = $messages[$script:BuildLanguage] ?? $messages['en']
+    if ($Values.Count) { return $text -f $Values }
+    return $text
+}
+
 # The six steps of a full Build-LocalGame.ps1 run, in order. Build-Drakan.ps1's review and the retry policy match on
 # these titles (the compile step's title gets a file count appended).
 $script:DrakanBuildSteps = @(
@@ -12,10 +36,41 @@ $script:DrakanBuildSteps = @(
     'Setting up the play folder'
 )
 
-# "[12/299]" when the total is known (and not yet passed), "[12]" otherwise. No padding: the counter is read, not aligned.
-function Format-CompileCounter([int]$Count, [int]$Total) {
-    if ($Total -gt 0 -and $Count -le $Total) { return "[$Count/$Total]" }
-    return "[$Count]"
+function Test-BuildConsoleColor {
+    return (-not $script:PlainBuildConsole -and (Test-BuildTerminal) -and -not $env:NO_COLOR)
+}
+
+function Test-BuildTerminal {
+    return ($Host.Name -eq 'ConsoleHost' -and -not [Console]::IsOutputRedirected -and [Console]::WindowWidth -gt 1)
+}
+
+function Write-BuildAccent([string]$Text, [ConsoleColor]$Color, [switch]$Live) {
+    $useColor = Test-BuildConsoleColor
+    if ($useColor) {
+        $previous = [Console]::ForegroundColor
+        [Console]::ForegroundColor = $Color
+    }
+    try {
+        if ($Live) { [Console]::Write($Text) }
+        else { Write-Host $Text }
+    } finally {
+        if ($useColor) { [Console]::ForegroundColor = $previous }
+    }
+}
+
+function Write-BuildHeading([string]$Title, [ConsoleColor]$Color = 'Cyan') {
+    Write-Host ''
+    Write-BuildAccent $Title $Color
+}
+
+function Write-BuildValue([string]$Label, [string]$Value) {
+    $line = '  {0,-19} {1}' -f $Label, $Value
+    if (-not [Console]::IsOutputRedirected -and $Host.Name -eq 'ConsoleHost' -and $line.Length -ge $Host.UI.RawUI.WindowSize.Width) {
+        Write-Host "  $Label"
+        Write-Host "    $Value"
+    } else {
+        Write-Host $line
+    }
 }
 
 # "45 s", "4 min", "1 h 05 min".
@@ -23,6 +78,41 @@ function Format-Duration([TimeSpan]$Span) {
     if ($Span.TotalSeconds -lt 60) { return "$([int][Math]::Floor($Span.TotalSeconds)) s" }
     if ($Span.TotalMinutes -lt 60) { return "$([int][Math]::Floor($Span.TotalMinutes)) min" }
     return '{0} h {1:00} min' -f [int][Math]::Floor($Span.TotalHours), $Span.Minutes
+}
+
+function Format-BuildProgressFrame([int]$Frame, [int]$Percent, [string]$Status, [int]$Width) {
+    $pulse = $script:BuildPulse[$Frame % $script:BuildPulse.Length]
+    $meter = if ($Percent -ge 0) { '{0,3}%' -f $Percent } else { '' }
+    $prefix = "  $pulse "
+    $room = $Width - $prefix.Length - 3
+    if ($meter) { $room -= $meter.Length + 2 }
+    $barWidth = [Math]::Min(20, $room - $Status.Length)
+    if ($barWidth -ge 8) {
+        if ($Percent -ge 0) {
+            $filled = [int][Math]::Floor($barWidth * $Percent / 100)
+            $bar = ('#' * $filled) + ('-' * ($barWidth - $filled))
+        } else {
+            $lead = $Frame % ($barWidth - 2)
+            $bar = ('-' * $lead) + '###' + ('-' * ($barWidth - $lead - 3))
+        }
+        $prefix += "[$bar] "
+    }
+    if ($meter) { $prefix += "$meter  " }
+    $line = $prefix + $Status
+    if ($line.Length -gt $Width) {
+        return $line.Substring(0, [Math]::Max(0, $Width - 3)) + ('.' * [Math]::Min(3, $Width))
+    }
+    return $line
+}
+
+function Write-BuildProgressFrame([int]$Frame, [int]$Percent, [string]$Status) {
+    $width = [Math]::Max(1, [Console]::WindowWidth - 1)
+    $line = Format-BuildProgressFrame $Frame $Percent $Status $width
+    Write-BuildAccent ("`r" + $line.PadRight($width)) Cyan -Live
+}
+
+function Clear-BuildProgressFrame {
+    [Console]::Write("`r" + (' ' * [Math]::Max(1, [Console]::WindowWidth - 1)) + "`r")
 }
 
 # The C/C++ sources of ps2EntryRunner.vcxproj and the projects it references (raylib's examples are configured but
@@ -91,6 +181,26 @@ function Get-PendingCompiles($Plan) {
     return , $pending
 }
 
+# Count nonempty objects created or updated during this invocation, even when MSBuild emits no source names.
+function New-CompileOutputWatch($Plan) {
+    $pending = [Collections.Generic.Dictionary[string, long]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in @($Plan)) {
+        $file = [IO.FileInfo]::new($entry.Object)
+        $stamp = if ($file.Exists -and $file.Length) { $file.LastWriteTimeUtc.Ticks } else { 0 }
+        [void]$pending.TryAdd($file.FullName, $stamp)
+    }
+    return [pscustomobject]@{ Pending = $pending; Finished = 0 }
+}
+
+function Update-CompileOutputWatch($Watch) {
+    $completed = @(foreach ($entry in $Watch.Pending.GetEnumerator()) {
+        $file = [IO.FileInfo]::new($entry.Key)
+        if ($file.Exists -and $file.Length -gt 0 -and $file.LastWriteTimeUtc.Ticks -gt $entry.Value) { $entry.Key }
+    })
+    foreach ($path in $completed) { [void]$Watch.Pending.Remove($path) }
+    $Watch.Finished += $completed.Count
+}
+
 # Files that are known to take long, with how long they took on a fast PC. Overridden by the times this PC measured
 # (<WorkDir>/compile-times.json), so the estimate fits the machine from the second build on.
 function Get-CompileEstimate([string]$Name, [hashtable]$Measured) {
@@ -117,12 +227,20 @@ function New-CompileTracker($Plan, [int]$Slots, [hashtable]$Measured) {
 function Add-CompileStart($Tracker, [string]$Name, [datetime]$Now) {
     $Tracker.Started++
     $Tracker.Running.Add([pscustomobject]@{
-        Name = $Name; Start = $Now; Objects = $Tracker.Objects[$Name]; NextNote = 3
+        Name = $Name; Start = $Now; Objects = $Tracker.Objects[$Name]
         Estimate = Get-CompileEstimate $Name $Tracker.Measured
     })
 }
 
-# Moves finished files out of Running; returns them (with .Elapsed) so the caller can report the slow ones.
+# MSBuild can print a bare name, a full path or a project-number prefix such as 4>.
+function Get-CompileSourceName([string]$Line) {
+    $name = ($Line.Trim() -replace '^\d+>\s*', '').Trim('"')
+    if ($name.Contains('"')) { return }
+    if ($name -match '^(?:[a-z]:[\\/]|[\\/])') { $name = ($name -split '[\\/]')[-1] }
+    if ($name -match '^[\w.+-]+\.(?:c|cc|cpp|cxx)$') { return $name }
+}
+
+# Moves finished files out of Running and records how long each took.
 function Update-CompileTracker($Tracker, [datetime]$Now) {
     $done = [Collections.Generic.List[object]]::new()
     foreach ($job in @($Tracker.Running)) {
@@ -155,26 +273,14 @@ function Get-OldestCompile($Tracker) {
     return ($known | Sort-Object Start | Select-Object -First 1)
 }
 
-# The short step name for the progress bar: "[5/6] Compiling the game (380 files, one to two hours ...)" -> "[5/6] Compiling the game".
-# A long title is cut off by the console's progress line.
-function Get-ProgressTitle([string]$Title) {
-    return ($Title -replace '\s*\(.*$', '').Trim()
-}
-
 # The progress line's text: "262/380 files, 00:04:09 | ps2_vu1_aot_2.cpp 4 min (about 6 min)". No file name repeats, no brackets.
 function Format-ProgressStatus([int]$Done, [int]$Total, [string]$Elapsed, $Oldest, [datetime]$Now) {
-    $text = if ($Total -gt 0 -and $Done -le $Total) { "$Done/$Total files, $Elapsed" } else { "$Done files, $Elapsed" }
-    if ($Oldest -and ($Now - $Oldest.Start).TotalSeconds -ge 20) {
+    $text = if ($Total -gt 0 -and $Done -le $Total) { Get-BuildText 'progress_known' @($Done, $Total, $Elapsed) }
+        else { Get-BuildText 'progress_unknown' @($Done, $Elapsed) }
+    if ($Oldest) {
         $text += " | $($Oldest.Name) $(Format-Duration ($Now - $Oldest.Start))"
-        if ($Oldest.Estimate) { $text += " (about $(Format-Duration $Oldest.Estimate))" }
+        if ($Oldest.Estimate) { $text += Get-BuildText 'progress_estimate' @((Format-Duration $Oldest.Estimate)) }
     }
-    return $text
-}
-
-# One line about a running file: "ps2_vu1_aot_2.cpp, 4 min so far (usually about 6 min)".
-function Format-RunningCompile($Job, [datetime]$Now) {
-    $text = "$($Job.Name), $(Format-Duration ($Now - $Job.Start)) so far"
-    if ($Job.Estimate) { $text += " (usually about $(Format-Duration $Job.Estimate))" }
     return $text
 }
 
@@ -213,28 +319,29 @@ function Get-BuildReview([string]$WorkDir, [string]$RuntimeSource, [string]$Game
     }
     $okIso = $boot -and (Test-Path -LiteralPath (Join-Path $WorkDir $boot) -PathType Leaf) -and
         (Test-Path -LiteralPath $config -PathType Leaf)
-    Add-Check 1 $okIso $(if ($okIso) { "game executable $boot read from the ISO" }
-        else { 'local-input.json, the game executable or config.toml missing' })
+    Add-Check 1 $okIso $(if ($okIso) { Get-BuildText 'review_iso' @($boot) }
+        else { Get-BuildText 'review_iso_missing' })
 
     $generated = Join-Path $WorkDir 'generated'
     $sources = @(Get-ChildItem -LiteralPath $generated -Filter '*.cpp' -File -ErrorAction SilentlyContinue).Count
     $stamp = Test-Path -LiteralPath (Join-Path $WorkDir 'recompile.stamp') -PathType Leaf
-    Add-Check 2 ($sources -gt 0 -and $stamp) $(if ($sources -and $stamp) { "$sources generated C++ files" }
-        elseif ($sources) { "$sources generated files, but the translation did not finish" } else { 'no generated C++ files' })
+    Add-Check 2 ($sources -gt 0 -and $stamp) $(if ($sources -and $stamp) { Get-BuildText 'review_cpp' @($sources) }
+        elseif ($sources) { Get-BuildText 'review_cpp_partial' @($sources) } else { Get-BuildText 'review_cpp_missing' })
 
     $vuImage = if ($RuntimeSource) { Join-Path $RuntimeSource 'ps2xRuntime/src/lib/vu/aot/ps2_vu1_image.inc' }
     $okVu = $vuImage -and (Test-Path -LiteralPath $vuImage -PathType Leaf)
-    Add-Check 3 $okVu $(if ($okVu) { 'VU1 microcode image present' } else { 'ps2_vu1_image.inc missing' })
+    Add-Check 3 $okVu $(if ($okVu) { Get-BuildText 'review_vu' } else { Get-BuildText 'review_vu_missing' })
 
     $runtimeBuild = Join-Path $WorkDir 'runtime-build'
     $okCmake = Test-Path -LiteralPath (Join-Path $runtimeBuild 'CMakeCache.txt') -PathType Leaf
-    Add-Check 4 $okCmake $(if ($okCmake) { 'build files generated' } else { 'not configured yet' })
+    Add-Check 4 $okCmake $(if ($okCmake) { Get-BuildText 'review_build_ready' } else { Get-BuildText 'review_build_missing' })
 
     $plan = if ($okCmake) { Get-CompilePlan $runtimeBuild } else { @() }
     $pending = if ($plan.Count) { Get-PendingCompiles $plan } else { @() }
     $exe = $GameExe -and (Test-Path -LiteralPath $GameExe -PathType Leaf)
-    $detail = if (-not $plan.Count) { 'nothing compiled yet' }
-        else { "$($plan.Count - $pending.Count) of $($plan.Count) files compiled$(if ($exe) { ', drakan.exe linked' })" }
+    $detail = if (-not $plan.Count) { Get-BuildText 'review_compile_missing' }
+        else { Get-BuildText 'review_compiled' @(($plan.Count - $pending.Count), $plan.Count) }
+    if ($exe -and $plan.Count) { $detail += Get-BuildText 'review_linked' }
     $okCompile = [bool]($plan.Count -and -not $pending.Count -and $exe)
     $review.Add([pscustomobject]@{ Step = 5; Title = $script:DrakanBuildSteps[4]; Ok = $okCompile; Detail = $detail
         Compiled = $plan.Count - $pending.Count; Total = $plan.Count })

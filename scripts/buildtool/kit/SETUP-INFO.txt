@@ -14,8 +14,9 @@ What happens:
      compiles at low priority so the PC stays responsive.
      Optional: add your own Drakan: Order of the Flame (PC) as a second
      campaign with included English subtitles (3 to 8 minutes, 1 GB) or generate
-     captions from your own recordings. HD textures take 17 to 32 minutes on a fast card, 23 to 43 with Order
-     of the Flame, and more on older cards. The build shows the estimate for your PC.
+     captions from your own recordings. The builder reuses local HD texture
+     packs. Generating a new pack takes 17 to 32 minutes on a fast card, or
+     23 to 43 minutes with Order of the Flame. The build shows your PC's estimate.
   2. The builder is copied to the install folder.
   3. A build window opens. On the first run it downloads and installs
      Microsoft's free "Visual Studio 2022 Build Tools" (the C++ compiler,

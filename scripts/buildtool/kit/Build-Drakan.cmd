@@ -13,13 +13,9 @@ if errorlevel 1 (
     exit /b 1
 )
 :run
-title Building Drakan: The Ancients' Gates
+title Drakan PC Builder
 "%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\buildtool\Build-Drakan.ps1" %*
 set RESULT=%ERRORLEVEL%
 echo.
-if not "%RESULT%"=="0" (
-    echo The build stopped with an error ^(exit code %RESULT%^). See the messages above.
-    echo The log is in "%~dp0build-log.txt", the compiler output in "%~dp0build\game-output.log".
-)
 pause
 exit /b %RESULT%

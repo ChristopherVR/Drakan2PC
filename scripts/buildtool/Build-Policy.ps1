@@ -30,15 +30,16 @@ function Get-BuildParallelism([int]$Cores, [int]$LogicalCores, [int]$MemoryGb, [
 # failure in any other step (a script error, a missing file) would only fail again after the same wait, so it is
 # rethrown, as is any failure before the ISO was read ($Prepared, WorkDir/local-input.json, missing).
 # Build-LocalGame.ps1 names its current step in $global:DrakanBuildStep.
-function Invoke-BuildWithRetry([string]$Builder, [hashtable]$BuildArgs, [string]$Prepared) {
+function Invoke-BuildWithRetry([string]$Builder, [hashtable]$BuildArgs, [string]$Prepared,
+    [string]$RetryMessage = 'Retrying with fewer compiler workers') {
     $global:DrakanBuildStep = $null
     try {
         & $Builder @BuildArgs
     } catch {
         if (-not (Test-Path -LiteralPath $Prepared -PathType Leaf)) { throw }
         if ($global:DrakanBuildStep -and $global:DrakanBuildStep -notlike 'Compiling the game*') { throw }
-        Write-Warning "The build stopped: $_"
-        Write-Host "`n== Trying again with less parallel compiling" -ForegroundColor Cyan
+        Write-Warning $_.Exception.Message
+        Write-Host "`n$RetryMessage"
         $BuildArgs.Incremental = $true
         $BuildArgs.Jobs = 1
         $processes = if ($BuildArgs.ContainsKey('CompilerProcesses')) { [int]$BuildArgs.CompilerProcesses } else { 2 }

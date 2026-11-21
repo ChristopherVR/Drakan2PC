@@ -45,6 +45,8 @@ param(
     # Player console: numbered steps, a progress bar with the elapsed time and a counter of compiled files instead of
     # the tools' own output, which goes to <WorkDir>-output.log (e.g. build/game-output.log).
     [switch]$Progress,
+    [ValidateSet('auto', 'en', 'de', 'fr', 'it', 'es')][string]$Language,
+    [switch]$Plain,
     # Compiler processes per project (cl /MP). The generated game code is 83 files of up to 3 MB in one project, so this is
     # what decides a full build's length: 1 compiles them one after another. Default: half the logical cores (of -CpuAffinity's, when set), at most 4 (the largest generated files use about 1.3 GB per compiler process; the VU1 AOT slices ~1.9 GB).
     # Total compiler load is about Jobs x CompilerProcesses; use 1 to keep the machine free for other work.
@@ -66,6 +68,8 @@ $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
 . (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
 . (Join-Path $PSScriptRoot 'Build-Progress.ps1')
+Initialize-BuildConsole $Language -Plain:$Plain
+. (Join-Path $PSScriptRoot 'Build-Textures.ps1')
 . (Join-Path $PSScriptRoot 'Build-Job.ps1')
 [void](Enter-BuildJob) # no-op when Build-Drakan.ps1 already did
 if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
@@ -171,15 +175,26 @@ New-Item -ItemType Directory -Force -Path (Split-Path $WorkDir) | Out-Null
 if ($Progress) { Set-Content -LiteralPath $outputLog -Value "Build-LocalGame.ps1 $(Get-Date -Format s)" }
 $stepCount = if ($PrepareOnly) { 1 } elseif ($GenerateOnly) { 2 } elseif ($SourceOnly) { 3 } else { 6 }
 $step = 0
+$stepStarted = $null
+function Complete-BuildStep {
+    if ($Progress -and $script:stepStarted) {
+        Write-BuildAccent ('  {0} - {1}' -f (Get-BuildText 'progress_complete'), (Format-Duration ((Get-Date) - $script:stepStarted))) Green
+    }
+}
 function Write-BuildStep([string]$Text) {
+    $script:stageNote = ''
+    Complete-BuildStep
     $script:step++
-    $script:stepTitle = "[$script:step/$stepCount] $Text"
+    $script:stepStarted = Get-Date
+    $script:stepTitle = "[$script:step/$stepCount] $(Get-BuildText "step_$script:step")"
     # Build-Drakan.ps1 reads this after a failure to decide whether a less parallel retry can help.
     $global:DrakanBuildStep = $Text
-    $script:stageNote = ''
     # The next "Rebuild Drakan" reads this to say where an interrupted build stopped (Build-Progress.ps1).
     Write-BuildState $WorkDir @{ step = $script:step; steps = $stepCount; title = $Text; status = 'running' }
-    if ($Progress) { Write-Host "`n$script:stepTitle" -ForegroundColor Cyan }
+    if ($Progress) {
+        Write-BuildHeading $script:stepTitle
+        Add-Content -LiteralPath $outputLog -Value "`n$script:stepTitle"
+    }
 }
 # A named stage inside a long step ("Making the multiplayer map pictures"): printed on the console and logged, and shown on
 # the progress bar until the next stage starts, so a long step never shows only a clock.
@@ -187,12 +202,12 @@ $script:stageNote = ''
 function Write-Stage([string]$Text, [string]$Detail = '') {
     $script:stageNote = $Text
     if ($Progress) {
-        Write-Host "  $Text" -ForegroundColor DarkGray
+        Write-Host "  $Text"
         Add-Content -LiteralPath $outputLog -Value $Text
     } else { Write-Host $Text }
     # An explanation for the console only (the bar shows just the stage name).
     if ($Detail) {
-        Write-Host "    $Detail" -ForegroundColor Yellow
+        Write-Host "    $Detail"
         if ($Progress) { Add-Content -LiteralPath $outputLog -Value $Detail }
     }
 }
@@ -201,7 +216,7 @@ function Write-Detail([string]$Text) {
     if ($Progress) { Add-Content -LiteralPath $outputLog -Value $Text } else { Write-Host $Text }
 }
 # With -Progress the tool's output goes to the output log; the console shows a progress bar with the elapsed time and
-# (for the compile, via -CompileTotal) one numbered line per compiled file. A failure prints the errors and the tail.
+# (for the compile, via -CompileTotal) a count of finished files. A failure prints a short excerpt.
 function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTotal = -1) {
     $info = [Diagnostics.ProcessStartInfo]::new((Get-Command $Program -CommandType Application | Select-Object -First 1).Source)
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
@@ -215,9 +230,17 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
     $log.WriteLine("`n> $Program $($Arguments -join ' ')")
     $tail = [Collections.Generic.Queue[string]]::new()
     $errors = [Collections.Generic.List[string]]::new()
-    $compiled = 0
-    $current = ''
     $started = Get-Date
+    $showProgress = -not $script:PlainBuildConsole -and (Test-BuildTerminal) -and $ProgressPreference -ne 'SilentlyContinue'
+    $pollMs = if ($showProgress) { 180 } else { 1000 }
+    $nextFrame = $nextStatus = $nextPlain = $plainHeartbeat = $started
+    $lastPlainCount = -1
+    $lastPlainSource = $activeSource = ''
+    $status = ''
+    $percent = -1
+    $done = 0
+    $frame = 0
+    $watch = $null
     $tracker = $null
     if ($CompileTotal -ge 0) {
         $timesFile = Join-Path $WorkDir 'compile-times.json'
@@ -230,66 +253,69 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
             foreach ($slice in 0..3) { if (-not $measured.ContainsKey("ps2_vu1_aot_$slice.cpp")) { $measured["ps2_vu1_aot_$slice.cpp"] = 600 } }
         }
         $tracker = New-CompileTracker $script:compilePlan ($Jobs * $CompilerProcesses) $measured
+        if ($script:compilePlan.Count) { $watch = New-CompileOutputWatch $script:compilePlan }
     }
-    $title = $Host.UI.RawUI.WindowTitle
     $process = [Diagnostics.Process]::Start($info)
     try {
         $stderr = $process.StandardError.ReadToEndAsync()
         $pending = $null
         while ($true) {
             if (-not $pending) { $pending = $process.StandardOutput.ReadLineAsync() }
-            if ($pending.Wait(1000)) {
+            if ($pending.Wait($pollMs)) {
                 $line = $pending.Result
-                $pending = $null
-                if ($null -eq $line) { break }
-                $log.WriteLine($line)
-                $tail.Enqueue($line)
-                if ($tail.Count -gt 40) { [void]$tail.Dequeue() }
-                if ($line -match '\b(fatal )?error [A-Z]+\d+:|^CMake Error') {
-                    $errors.Add($line.Trim())
-                    if ($CompileTotal -ge 0) { Write-Host "  $($line.Trim())" -ForegroundColor Red }
-                } elseif ($tracker -and $line -match '^\s+([\w.+-]+\.(c|cc|cpp|cxx))\s*$') {
-                    # MSBuild (minimal verbosity) prints each source file as cl starts on it.
-                    $compiled++
-                    $current = $Matches[1]
-                    Add-CompileStart $tracker $current (Get-Date)
-                    $estimate = Get-CompileEstimate $current $tracker.Measured
-                    $note = if ($estimate) {
-                        "  (slow file: about $(Format-Duration $estimate))"
-                    } else { '' }
-                    Write-Host "  $(Format-CompileCounter $compiled $CompileTotal) $current$note"
+                if ($null -eq $line) {
+                    if ($process.WaitForExit($pollMs)) { break }
+                } else {
+                    $pending = $null
+                    $log.WriteLine($line)
+                    $tail.Enqueue($line)
+                    if ($tail.Count -gt 40) { [void]$tail.Dequeue() }
+                    if ($line -match '\b(fatal )?error [A-Z]+\d+:|^CMake Error') {
+                        if ($errors.Count -lt 20 -and -not $errors.Contains($line.Trim())) { $errors.Add($line.Trim()) }
+                    } elseif ($tracker) {
+                        $sourceName = Get-CompileSourceName $line
+                        if ($sourceName) { Add-CompileStart $tracker $sourceName (Get-Date) }
+                    }
                 }
             }
             $now = Get-Date
+            if ($now -lt $nextFrame) { continue }
             $elapsed = $now - $started
-            $status = '{0:00}:{1:00}:{2:00} elapsed' -f [int][Math]::Floor($elapsed.TotalHours), $elapsed.Minutes, $elapsed.Seconds
-            $percent = -1
-            if ($tracker) {
-                foreach ($job in (Update-CompileTracker $tracker $now)) {
-                    if ($job.Elapsed.TotalSeconds -ge 60) {
-                        Write-Host "         finished $($job.Name) after $(Format-Duration $job.Elapsed)" -ForegroundColor DarkGray
-                    }
-                }
-                $oldest = Get-OldestCompile $tracker
-                # A file that runs for minutes gets a line every 3 minutes, so the window never looks stuck (not every
-                # console shows the progress bar, and the log keeps these lines).
-                if ($oldest -and ($now - $oldest.Start).TotalMinutes -ge $oldest.NextNote) {
-                    Write-Host "         still compiling $(Format-RunningCompile $oldest $now)" -ForegroundColor DarkGray
-                    $oldest.NextNote += 3
-                }
-                $done = [Math]::Max($tracker.Finished, $compiled - $tracker.Running.Count)
+            if ($now -ge $nextStatus) {
+                $nextStatus = $now.AddSeconds(1)
+                $log.Flush()
                 $clock = '{0:00}:{1:00}:{2:00}' -f [int][Math]::Floor($elapsed.TotalHours), $elapsed.Minutes, $elapsed.Seconds
-                $status = Format-ProgressStatus $done $CompileTotal $clock $oldest $now
-                if ($CompileTotal -gt 0) { $percent = [Math]::Min(99, [int](100 * $done / $CompileTotal)) }
-                $Host.UI.RawUI.WindowTitle = "Building Drakan: $(if ($percent -ge 0) { "$percent% " })($done files)"
-                # One short line (the console cuts a long one off): the step, the file count and the longest-running file.
-                Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $status -PercentComplete $percent
-            } else {
-                $note = if ($script:stageNote) { "$status | $($script:stageNote)" } else { $status }
-                Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Status $note -PercentComplete $percent
+                $status = Get-BuildText 'progress_elapsed' @($clock)
+                if ($script:stageNote) { $status += " | $($script:stageNote)" }
+                if ($tracker) {
+                    Update-CompileTracker $tracker $now | Out-Null
+                    $oldest = Get-OldestCompile $tracker
+                    $activeSource = [string]$oldest.Name
+                    if ($watch) { Update-CompileOutputWatch $watch }
+                    $done = if ($watch) { $watch.Finished } else { $tracker.Finished }
+                    $total = if ([Math]::Max($done, $tracker.Started) -le $CompileTotal) { $CompileTotal } else { 0 }
+                    if ($total -gt 0) { $percent = [Math]::Min(99, [int][Math]::Floor(100 * $done / $total)) }
+                    else { $percent = -1 }
+                    $status = if (-not $total -and -not $done -and -not $tracker.Started) {
+                        Get-BuildText 'progress_checking' @($clock)
+                    } else { Format-ProgressStatus $done $total $clock $oldest $now }
+                }
+            }
+            if ($showProgress) {
+                Write-BuildProgressFrame $frame $percent $status
+                $frame++
+                $nextFrame = $now.AddMilliseconds($pollMs)
+            } elseif ($now -ge $plainHeartbeat -or ($now -ge $nextPlain -and
+                ($done -ne $lastPlainCount -or $activeSource -ne $lastPlainSource))) {
+                Write-Host "  $status"
+                $lastPlainCount = $done
+                $lastPlainSource = $activeSource
+                $nextPlain = $now.AddSeconds(3)
+                $plainHeartbeat = $now.AddSeconds(15)
             }
         }
         $process.WaitForExit()
+        if ($tracker) { Update-CompileTracker $tracker (Get-Date) | Out-Null }
         $errorText = $stderr.Result
         if ($errorText) { $log.WriteLine($errorText) }
     } finally {
@@ -299,19 +325,20 @@ function Invoke-Logged([string]$Program, [string[]]$Arguments, [int]$CompileTota
             foreach ($name in $tracker.Durations.Keys) { if ($tracker.Durations[$name] -ge 60) { $measured[$name] = $tracker.Durations[$name] } }
             try { $measured | ConvertTo-Json | Set-Content -LiteralPath $timesFile } catch { Write-Verbose "compile-times.json: $_" }
         }
-        Write-Progress -Activity (Get-ProgressTitle $script:stepTitle) -Completed
-        $Host.UI.RawUI.WindowTitle = $title
+        if ($showProgress) { Clear-BuildProgressFrame }
     }
     if ($process.ExitCode) {
-        Write-Host "`n$script:stepTitle failed. Last output:" -ForegroundColor Red
-        $tail | ForEach-Object { Write-Host "  $_" }
-        if ($errorText) { $errorText.TrimEnd() -split "`r?`n" | Select-Object -Last 20 | ForEach-Object { Write-Host "  $_" } }
-        if ($errors.Count -and $CompileTotal -lt 0) {
-            Write-Host 'Errors:' -ForegroundColor Red
-            $errors | Select-Object -Unique -First 20 | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
-        }
-        Write-Host "Full output: $outputLog"
-        throw "$(Split-Path $Program -Leaf) failed ($($process.ExitCode))"
+        Write-BuildHeading (Get-BuildText 'step_stopped' @($script:stepTitle)) Red
+        $excerpt = if ($errors.Count) { $errors | Select-Object -First 12 }
+            elseif ($errorText) { $errorText.TrimEnd() -split "`r?`n" | Select-Object -Last 12 }
+            else { $tail | Select-Object -Last 12 }
+        $excerpt | ForEach-Object { Write-Host "  $_" }
+        Write-BuildValue (Get-BuildText 'tool_output') $outputLog
+        throw (Get-BuildText 'tool_failed' @((Split-Path $Program -Leaf), $process.ExitCode))
+    }
+    if ($watch) {
+        Update-CompileOutputWatch $watch
+        Write-BuildValue (Get-BuildText 'progress_files_completed') $watch.Finished
     }
 }
 function Invoke-Checked([string]$Program, [string[]]$Arguments, [int]$CompileTotal = -1) {
@@ -332,7 +359,7 @@ $regionProfile = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'regions.jso
 if (-not $regionProfile) { throw "Unknown disc region '$gameRegion' in $WorkDir/local-input.json" }
 $bootElf = Join-Path $WorkDir $regionProfile.boot
 Write-Detail "Disc: $($regionProfile.label)$(if ($regionProfile.status -ne 'validated') { " ($($regionProfile.status): docs/reference/regions.md)" })"
-if ($PrepareOnly) { return }
+if ($PrepareOnly) { Complete-BuildStep; return }
 # Everything the generated C++ depends on: the recompiler sources, its pinned deps, the config and metadata.
 function Get-RecompileStamp {
     $inputs = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'ps2recomp/ps2xRecomp') -Recurse -File)
@@ -355,7 +382,7 @@ if ($Incremental -and -not $Regenerate -and (Test-Path -LiteralPath $stampPath -
 }
 Write-BuildStep 'Translating the PS2 game code to C++'
 if ($skipRecompile) {
-    Write-Host 'Recompiler inputs unchanged; reusing generated sources.'
+    Write-Host (Get-BuildText 'recompiler_reuse')
 } else {
     if (-not $Compiler) {
         $adjacent = Join-Path $PSScriptRoot $(if ($windowsHost) { 'ps2_recomp.exe' } else { 'ps2_recomp' })
@@ -377,7 +404,7 @@ if ($skipRecompile) {
     # The recompiler only rewrites translation units whose text changed, so MSBuild recompiles just those.
     Set-Content -LiteralPath $stampPath -Value (Get-RecompileStamp) -NoNewline
 }
-if ($GenerateOnly) { return }
+if ($GenerateOnly) { Complete-BuildStep; return }
 Write-BuildStep 'Preparing the runtime files from the game'
 Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/prepare_local_runtime.py'),
     '--elf',$bootElf,'--runtime-source',$RuntimeSource)
@@ -387,6 +414,7 @@ foreach ($required in 'ps2xRuntime/CMakeLists.txt','ps2xRuntime/src/lib/vu/aot/p
     }
 }
 if ($SourceOnly) {
+    Complete-BuildStep
     Write-Host "Private sources prepared under $WorkDir. Generated-game compilation and launch were skipped."
     return
 }
@@ -492,10 +520,10 @@ Write-BuildStep 'Setting up the play folder'
 if ($gameRegion -eq 'pal') {
     # Private derivatives of the supplied disc, never tracked / downloaded. Cached in the existing WorkDir; copied
     # through the normal deployment below, so the multiplayer menu has live original meshes on its first launch.
-    Write-Stage 'Extracting the original character meshes and materials'
+    Write-Stage (Get-BuildText 'characters_extract')
     Invoke-Checked $Python @((Join-Path $RepoRoot 'analysis/scripts/character_previews.py'),'--iso',$IsoPath,
         '--out',(Join-Path $gameOutput 'previews/chars'))
-    Write-Stage 'Making the multiplayer character motions'
+    Write-Stage (Get-BuildText 'motions_make')
     Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/character_motion.py'),'--iso',$IsoPath,
         '--out',(Join-Path $gameOutput 'mods/drakan-character-motion.zip'))
 
@@ -504,12 +532,12 @@ if ($gameRegion -eq 'pal') {
     # The tracked widescreen cover (kit/art/d2-cover.png) is copied; a tree without it cuts the picture from the disc.
     $trackedCover = Join-Path $PSScriptRoot 'kit/art/d2-cover.png'
     if (Test-Path -LiteralPath $trackedCover -PathType Leaf) {
-        Write-Stage 'Copying the Drakan 2 cover picture'
+        Write-Stage (Get-BuildText 'cover_copy')
         New-Item -ItemType Directory -Force -Path (Join-Path $gameOutput 'previews') | Out-Null
         Copy-Item -LiteralPath $trackedCover -Destination (Join-Path $gameOutput 'previews/game-d2.png') -Force
         Copy-Item -LiteralPath $trackedCover -Destination (Join-Path $gameOutput 'previews/background-d2.png') -Force
     } else {
-        Write-Stage 'Extracting the Drakan 2 cover picture'
+        Write-Stage (Get-BuildText 'cover_extract')
         Invoke-Checked $Python @('-I',(Join-Path $RepoRoot 'analysis/scripts/title_cover.py'),'--iso',$IsoPath,
             '--out',(Join-Path $gameOutput 'previews/game-d2.png'),
             '--background-out',(Join-Path $gameOutput 'previews/background-d2.png'))
@@ -527,6 +555,14 @@ if (-not $NoDist) {
     }
     # Saves, user settings and hand-staged assets survive the clean; everything else is a build product or stale.
     $keep = 'mc0','mc1','mc0_*','mc1_*','saves','save-backups','save-migrations','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
+    $textureSource = Find-BuildTextureDirectory $RepoRoot $DistDirectory $TextureDirectory
+    if ($textureSource) {
+        $relative = [IO.Path]::GetRelativePath($DistDirectory, $textureSource)
+        $firstPart = ($relative -split '[/\\]')[0]
+        if (-not [IO.Path]::IsPathRooted($relative) -and $firstPart -ne '..' -and -not ($keep | Where-Object { $firstPart -like $_ })) {
+            throw (Get-BuildText 'hd_unsafe')
+        }
+    }
     New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
     foreach ($item in Get-ChildItem -LiteralPath $DistDirectory -Force) {
         $name = $item.Name
@@ -547,7 +583,7 @@ if (-not $NoDist) {
             Write-Detail "In use by a running game, set aside: $name -> $name.in-use-$n"
         }
     }
-    Write-Stage 'Copying the game into the play folder'
+    Write-Stage (Get-BuildText 'game_copy')
     foreach ($item in Get-ChildItem -LiteralPath $gameOutput -Force) {
         $name = $item.Name
         # Never let the build folder's test saves, default settings or launchers replace the preserved ones;
@@ -561,7 +597,7 @@ if (-not $NoDist) {
         # game reads the play folder's cards now, so copy those saves over: nothing is overwritten or deleted, a save
         # both places have keeps its other version in save-backups/ (migrate_saves.py, issue #6). A failure leaves
         # every save where it is and the game copies the missing ones itself on its next start.
-        Write-Stage 'Checking for saves outside the play folder'
+        Write-Stage (Get-BuildText 'saves_check')
         try {
             Invoke-Checked $Python @('-I',(Join-Path $PSScriptRoot 'migrate_saves.py'),'--play',$DistDirectory,'--work',$WorkDir)
         } catch {
@@ -570,12 +606,12 @@ if (-not $NoDist) {
         }
     }
     if ($ModDirectory) {
-        Write-Stage 'Installing the mod packs (Order of the Flame)'
+        Write-Stage (Get-BuildText 'mods_install')
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_private_mods.py'),
             '--source',$ModDirectory,'--target',(Join-Path $DistDirectory 'mods'))
     }
     if ($OotfSaveMigrations) {
-        Write-Stage 'Installing verified Order of the Flame save migrations'
+        Write-Stage (Get-BuildText 'saves_install')
         Invoke-Checked $Python @((Join-Path $PSScriptRoot 'install_ootf_save_migrations.py'),
             '--source',$OotfSaveMigrations,'--play',$DistDirectory)
     }
@@ -635,21 +671,14 @@ if (-not $NoDist) {
         $message = "No narration subtitles: put intro_english.srt / outro_english.srt in $subtitleSource"
         if ($Progress) { Write-Detail $message } else { Write-Warning $message }
     }
-    $textureSource = $TextureDirectory
-    if (-not $textureSource) {
-        foreach ($candidate in @((Join-Path $RepoRoot 'local/textures'), (Join-Path $RepoRoot 'dist/DrakanPC/textures'))) {
-            if (Test-Path -LiteralPath $candidate -PathType Container) { $textureSource = $candidate; break }
-        }
-    }
     if ($textureSource) {
-        $textureSource = (Resolve-Path -LiteralPath $textureSource).Path
         $textureDest = [IO.Path]::GetFullPath((Join-Path $DistDirectory 'textures'))
         if ($webBuild) {
             # Like the ISO, a local browser pack can be streamed directly from
             # its existing location; do not duplicate a multi-gigabyte pack.
             $webTextureSource = $textureSource
         } elseif ($textureSource -ne $textureDest) {
-            Write-Stage 'Staging the HD texture pack'
+            Write-Stage (Get-BuildText 'pack_copy')
             Invoke-Checked $Python @((Join-Path $PSScriptRoot 'stage_texture_pack.py'),$textureSource,$textureDest)
             Write-Detail "Staged shared HD texture pack from $textureSource"
         }
@@ -680,9 +709,10 @@ if ($webBuild) {
     Write-Detail "Private browser build: $gameOutput"
     Write-Detail "Launch: $gameOutput/Play-Browser.sh (loopback only; ISO remains local)"
     Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'); error = $null }
+    Complete-BuildStep
     return
 }
-Write-Stage 'Writing the launch files'
+Write-Stage (Get-BuildText 'launch_write')
 $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$RepoRoot,
     '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
 Invoke-Checked $Python $launchArgs
@@ -700,7 +730,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
             Copy-Item -LiteralPath $picture.FullName -Destination $target
             $settingsAdded++
         }
-        if ($settingsAdded) { Write-Stage "Installing $settingsAdded PC Settings pictures that ship with the builder" }
+        if ($settingsAdded) { Write-Stage (Get-BuildText 'settings_pictures_install' @($settingsAdded)) }
     }
     # The tracked pictures (kit/art/maps) are put in first, never over one the player already has, so the run below only
     # happens for a map that has none (a new arena, or a tree without them).
@@ -713,12 +743,12 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
             $target = Join-Path $mapDest $picture.Name
             if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { Copy-Item -LiteralPath $picture.FullName -Destination $target; $added++ }
         }
-        if ($added) { Write-Stage "Installing $added multiplayer map pictures that ship with the builder" }
+        if ($added) { Write-Stage (Get-BuildText 'map_pictures_install' @($added)) }
     }
     # The multiplayer menu's map pictures: one short game run per built-in arena without a picture yet, from the map's
     # authored camera point (previews/maps/ survives the play folder clean, so later builds skip this). A failure
     # only leaves the drawn sketch in the menu; it does not fail the build.
-    Write-Stage 'Making the multiplayer map pictures that are missing (a short game run per map; later builds skip the ones made)' 'The game opens and closes by itself several times to take these pictures; this is normal, so leave it alone.'
+    Write-Stage (Get-BuildText 'map_pictures_make') (Get-BuildText 'game_opens')
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/map_previews.py'),'--exe',$gameExe,
             '--src',$DistDirectory,'--out',(Join-Path $DistDirectory 'previews/maps'))
@@ -728,7 +758,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPi
     }
     # The enabled packs' own maps (Order of the Flame levels in mods/ootf-levels.zip) were pictured by the same run; put
     # the pictures into the packs so they travel with them. mod.toml is untouched, so a pack's `build` id (saves) stays.
-    Write-Stage 'Adding the map pictures to the mod packs'
+    Write-Stage (Get-BuildText 'map_pictures_add')
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/pack_map_previews.py'),
             '--mods',(Join-Path $DistDirectory 'mods'),'--pictures',(Join-Path $DistDirectory 'previews/maps'))
@@ -741,7 +771,7 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and $SettingPictu
     # The real pictures of the PC Settings help panel: screenshots of this game with each setting applied, made from the
     # player's disc into previews/settings/ (kept across builds, so later builds only make what is missing). A failure
     # only leaves a setting without a picture; it does not fail the build.
-    Write-Stage 'Making the settings pictures (a short game run per picture that is missing)' 'The game opens and closes by itself several times to take these pictures; this is normal, so leave it alone.'
+    Write-Stage (Get-BuildText 'settings_pictures_make') (Get-BuildText 'game_opens')
     try {
         Invoke-Checked $Python @((Join-Path $RepoRoot 'scripts/harness/setting_shots.py'),
             '--exe',(Join-Path $DistDirectory 'drakan.exe'),'--out',(Join-Path $DistDirectory 'previews/settings'))
@@ -757,6 +787,7 @@ Write-Detail "ISO playback path: $IsoPath"
 Write-Detail "Launch from PowerShell: Start-Process -FilePath '$quotedExe' -WorkingDirectory '$quotedOutput'"
 Write-Detail 'Local ISO/ELF paths and default input bindings are staged next to the executable; existing configs are preserved. Nothing was uploaded.'
 Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'); error = $null; play = $DistDirectory }
+Complete-BuildStep
 
 } catch {
     Write-BuildState $WorkDir @{ status = 'failed'; error = "$_" }

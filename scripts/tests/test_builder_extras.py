@@ -1114,6 +1114,11 @@ class PolicyTests(unittest.TestCase):
                 self.assertIn(time, text)
                 self.assertIn(f"{round(disk)} GB", text)
 
+    def test_console_can_translate_every_estimate_step(self):
+        messages = json.loads((ISS.parents[1] / "build-messages.json").read_text(encoding="utf-8"))
+        for key in extras.STEPS:
+            self.assertIn("estimate_" + key.replace("-", "_"), messages)
+
     def test_wizard_passes_the_choices_to_the_builder(self):
         text = ISS.read_text(encoding="utf-8")
         for needle in (
@@ -1121,7 +1126,7 @@ class PolicyTests(unittest.TestCase):
             "-OotfSubtitles bundled",
             "-OotfSubtitles generate",
             "-HdTextures on",
-            "-HdTextures off",
+            "-HdTextures auto",
             "-OotfSource none",
             "-EnableDlss",
             "HdPage.Values[0]",
@@ -1212,7 +1217,7 @@ class PolicyTests(unittest.TestCase):
             "hdTextures",
             "'--ootf-pack'",
             "check-source --deep",
-            "left out of this build",
+            "Get-BuildText 'ootf_bad'",
         ):
             self.assertIn(needle, text)
         # The pack is converted before the long game build, the HD textures made after it.

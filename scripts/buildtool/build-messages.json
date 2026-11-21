@@ -1,0 +1,1248 @@
+{
+  "applying_settings": {
+    "de": "Spieleinstellungen übernehmen",
+    "en": "Applying game settings",
+    "es": "Aplicando los ajustes del juego",
+    "fr": "Application des paramètres du jeu",
+    "it": "Applicazione delle impostazioni del gioco"
+  },
+  "browser_after": {
+    "de": "Nach dem Windows-Spiel erstellen (WSL erforderlich)",
+    "en": "Build after the Windows game (requires WSL)",
+    "es": "Compilar después del juego para Windows (requiere WSL)",
+    "fr": "Compilation après le jeu Windows (WSL requis)",
+    "it": "Compilazione dopo il gioco per Windows (richiede WSL)"
+  },
+  "browser_build": {
+    "de": "Browser-Version",
+    "en": "Browser build",
+    "es": "Versión para navegador",
+    "fr": "Version navigateur",
+    "it": "Versione per browser"
+  },
+  "browser_failed": {
+    "de": "Der Browser-Build ist fehlgeschlagen. Das Windows-Spiel ist bereit.",
+    "en": "The browser build failed. The Windows game is ready.",
+    "es": "Falló la compilación para navegador. El juego para Windows está listo.",
+    "fr": "La compilation navigateur a échoué. Le jeu Windows est prêt.",
+    "it": "La compilazione per browser è fallita. Il gioco per Windows è pronto."
+  },
+  "browser_folder": {
+    "de": "Ordner der Browser-Version",
+    "en": "Browser folder",
+    "es": "Carpeta de la versión para navegador",
+    "fr": "Dossier de la version navigateur",
+    "it": "Cartella della versione per browser"
+  },
+  "browser_play": {
+    "de": "Starte dort Play-Browser.cmd oder öffne {0} und wähle den Ordner und dein Disc-Abbild aus.",
+    "en": "Run Play-Browser.cmd there, or open {0} and choose that folder and your disc image.",
+    "es": "Ejecuta Play-Browser.cmd desde allí o abre {0} y elige esa carpeta y tu imagen de disco.",
+    "fr": "Lancez-y Play-Browser.cmd ou ouvrez {0} et sélectionnez ce dossier et votre image disque.",
+    "it": "Avvia Play-Browser.cmd da lì oppure apri {0} e scegli la cartella e l’immagine disco."
+  },
+  "browser_start": {
+    "de": "Browser-Version erstellen",
+    "en": "Building the browser version",
+    "es": "Compilando la versión para navegador",
+    "fr": "Compilation de la version navigateur",
+    "it": "Compilazione della versione per browser"
+  },
+  "build_disk": {
+    "de": "Laufwerk für Build-Dateien",
+    "en": "Build disk",
+    "es": "Unidad de compilación",
+    "fr": "Disque de compilation",
+    "it": "Unità di compilazione"
+  },
+  "build_mode": {
+    "de": "Das Windows-Spiel aus deinem Disc-Abbild erstellen",
+    "en": "Build the Windows game from your disc image",
+    "es": "Crear el juego para Windows a partir de tu imagen de disco",
+    "fr": "Créer le jeu Windows à partir de votre image disque",
+    "it": "Crea il gioco per Windows dalla tua immagine disco"
+  },
+  "bundled": {
+    "de": "Im Installationspaket enthalten",
+    "en": "Bundled with the builder",
+    "es": "Incluidos en el paquete",
+    "fr": "Inclus dans le programme de compilation",
+    "it": "Inclusi nel pacchetto"
+  },
+  "characters_extract": {
+    "de": "Originale Charaktermodelle und Materialien extrahieren",
+    "en": "Extracting the original character meshes and materials",
+    "es": "Extrayendo los modelos y materiales de los personajes",
+    "fr": "Extraction des modèles et matériaux des personnages",
+    "it": "Estrazione dei modelli e materiali dei personaggi"
+  },
+  "check_mode": {
+    "de": "Werkzeuge und Pfad zum Disc-Abbild prüfen",
+    "en": "Check tools and disc image path",
+    "es": "Comprobar las herramientas y la ruta de la imagen de disco",
+    "fr": "Vérifier les outils et le chemin de l’image disque",
+    "it": "Verifica gli strumenti e il percorso dell’immagine disco"
+  },
+  "choose_play": {
+    "de": "Wo soll das Spiel installiert werden? Dieser Ordner enthält das Spiel, Spielstände und Einstellungen.",
+    "en": "Where should the game go? This folder holds the game, saves and settings.",
+    "es": "¿Dónde quieres instalar el juego? Esta carpeta contiene el juego, las partidas y los ajustes.",
+    "fr": "Où installer le jeu ? Ce dossier contient le jeu, les sauvegardes et les paramètres.",
+    "it": "Dove vuoi installare il gioco? Questa cartella contiene il gioco, i salvataggi e le impostazioni."
+  },
+  "compiler": {
+    "de": "Compiler",
+    "en": "Compiler",
+    "es": "Compilador",
+    "fr": "Compilateur",
+    "it": "Compilatore"
+  },
+  "compiler_plan": {
+    "de": "Bis zu {0} {1}, {2} GB RAM, Priorität {3}{4}",
+    "en": "Up to {0} {1}, {2} GB RAM, {3} priority{4}",
+    "es": "Hasta {0} {1}, {2} GB de RAM, prioridad {3}{4}",
+    "fr": "Jusqu’à {0} {1}, {2} Go de RAM, priorité {3}{4}",
+    "it": "Fino a {0} {1}, {2} GB di RAM, priorità {3}{4}"
+  },
+  "cover_copy": {
+    "de": "Drakan-2-Titelbild kopieren",
+    "en": "Copying the Drakan 2 cover picture",
+    "es": "Copiando la portada de Drakan 2",
+    "fr": "Copie de l’illustration de Drakan 2",
+    "it": "Copia della copertina di Drakan 2"
+  },
+  "cover_extract": {
+    "de": "Drakan-2-Titelbild extrahieren",
+    "en": "Extracting the Drakan 2 cover picture",
+    "es": "Extrayendo la portada de Drakan 2",
+    "fr": "Extraction de l’illustration de Drakan 2",
+    "it": "Estrazione della copertina di Drakan 2"
+  },
+  "cpp_cancel": {
+    "de": "Die Installation der Build Tools wurde abgebrochen.",
+    "en": "The Build Tools installation was cancelled.",
+    "es": "Se canceló la instalación de las Build Tools.",
+    "fr": "L’installation des Build Tools a été annulée.",
+    "it": "L’installazione dei Build Tools è stata annullata."
+  },
+  "cpp_fail": {
+    "de": "Die Installation der Build Tools ist fehlgeschlagen (Fehlercode 0x{0:X8}).",
+    "en": "The Build Tools installation failed (exit code 0x{0:X8}).",
+    "es": "Falló la instalación de las Build Tools (código 0x{0:X8}).",
+    "fr": "L’installation des Build Tools a échoué (code 0x{0:X8}).",
+    "it": "L’installazione dei Build Tools è fallita (codice 0x{0:X8})."
+  },
+  "cpp_first": {
+    "de": "Installation beim ersten Erstellen (ca. 3 GB)",
+    "en": "Will install on the first build (about 3 GB)",
+    "es": "Se instalarán en la primera compilación (unos 3 GB)",
+    "fr": "Installés à la première compilation (environ 3 Go)",
+    "it": "Installazione alla prima compilazione (circa 3 GB)"
+  },
+  "cpp_install": {
+    "de": "Microsoft C++ Build Tools installieren",
+    "en": "Installing Microsoft C++ Build Tools",
+    "es": "Instalando Microsoft C++ Build Tools",
+    "fr": "Installation des Microsoft C++ Build Tools",
+    "it": "Installazione di Microsoft C++ Build Tools"
+  },
+  "cpp_not_found": {
+    "de": "Die installierten C++ Build Tools wurden nicht gefunden. Starte Windows und danach das Installationsprogramm neu.",
+    "en": "The installed C++ Build Tools could not be found. Restart Windows and run the builder again.",
+    "es": "No se encontraron las C++ Build Tools instaladas. Reinicia Windows y ejecuta el instalador de nuevo.",
+    "fr": "Les C++ Build Tools installés sont introuvables. Redémarrez Windows puis relancez la compilation.",
+    "it": "Impossibile trovare i C++ Build Tools installati. Riavvia Windows e avvia di nuovo il programma."
+  },
+  "cpp_prompt": {
+    "de": "Windows fragt nach der Berechtigung. Das Installationsprogramm zeigt Download und Installation an (ca. 3 GB).",
+    "en": "Windows asks for permission. The installer shows download and installation progress (about 3 GB).",
+    "es": "Windows solicita permiso. El instalador muestra el progreso de la descarga y la instalación (unos 3 GB).",
+    "fr": "Windows demande votre autorisation. Le programme d’installation affiche la progression (environ 3 Go).",
+    "it": "Windows chiede l’autorizzazione. Il programma mostra l’avanzamento di download e installazione (circa 3 GB)."
+  },
+  "cpp_restart": {
+    "de": "Die Build Tools verlangen einen Neustart. Falls der Build fehlschlägt, starte Windows neu und versuche es erneut.",
+    "en": "The Build Tools request a restart. If the build fails, restart Windows and try again.",
+    "es": "Las Build Tools requieren un reinicio. Si falla la compilación, reinicia Windows e inténtalo de nuevo.",
+    "fr": "Les Build Tools demandent un redémarrage. Si la compilation échoue, redémarrez Windows et réessayez.",
+    "it": "I Build Tools richiedono un riavvio. Se la compilazione fallisce, riavvia Windows e riprova."
+  },
+  "cpp_winget": {
+    "de": "Installiere den App-Installer aus dem Microsoft Store oder die Visual Studio 2022 Build Tools mit Desktopentwicklung mit C++ von {0}. Starte danach das Installationsprogramm erneut.",
+    "en": "Install App Installer from the Microsoft Store, or install Visual Studio 2022 Build Tools with Desktop development with C++ from {0}. Then run the builder again.",
+    "es": "Instala Instalador de aplicación desde Microsoft Store o Visual Studio 2022 Build Tools con Desarrollo para el escritorio con C++ desde {0}. Luego ejecuta de nuevo el instalador.",
+    "fr": "Installez Programme d’installation d’application depuis le Microsoft Store ou les Visual Studio 2022 Build Tools avec Développement Desktop en C++ depuis {0}. Relancez ensuite la compilation.",
+    "it": "Installa Programma di installazione app da Microsoft Store oppure Visual Studio 2022 Build Tools con Sviluppo di applicazioni desktop con C++ da {0}. Poi riavvia il programma."
+  },
+  "cpu_mask": {
+    "de": ", CPU-Maske {0}",
+    "en": ", CPU mask {0}",
+    "es": ", máscara de CPU {0}",
+    "fr": ", masque CPU {0}",
+    "it": ", maschera CPU {0}"
+  },
+  "default": {
+    "de": "Standard",
+    "en": "Default",
+    "es": "Predeterminado",
+    "fr": "Par défaut",
+    "it": "Predefinito"
+  },
+  "disc": {
+    "de": "Disc-Abbild",
+    "en": "Disc image",
+    "es": "Imagen de disco",
+    "fr": "Image disque",
+    "it": "Immagine disco"
+  },
+  "disk_free": {
+    "de": "{0} GB frei auf {1}",
+    "en": "{0} GB free on {1}",
+    "es": "{0} GB libres en {1}",
+    "fr": "{0} Go libres sur {1}",
+    "it": "{0} GB liberi su {1}"
+  },
+  "disk_required": {
+    "de": "Gib vor dem Erstellen mindestens {0} GB auf {1} frei.",
+    "en": "Free at least {0} GB on {1} before building.",
+    "es": "Libera al menos {0} GB en {1} antes de compilar.",
+    "fr": "Libérez au moins {0} Go sur {1} avant de compiler.",
+    "it": "Libera almeno {0} GB su {1} prima di compilare."
+  },
+  "dlss_optional": {
+    "de": "NVIDIA DLSS (optional)",
+    "en": "NVIDIA DLSS (optional)",
+    "es": "NVIDIA DLSS (opcional)",
+    "fr": "NVIDIA DLSS (facultatif)",
+    "it": "NVIDIA DLSS (facoltativo)"
+  },
+  "dlss_prompt": {
+    "de": "Lizenz akzeptieren und DLSS aktivieren? [j/N]",
+    "en": "Accept the licence and enable DLSS? [y/N]",
+    "es": "¿Aceptar la licencia y activar DLSS? [s/N]",
+    "fr": "Accepter la licence et activer DLSS ? [o/N]",
+    "it": "Accettare la licenza e attivare DLSS? [s/N]"
+  },
+  "dlss_terms": {
+    "de": "Akzeptiere die NVIDIA RTX SDKs-Lizenz, um DLSS auf deiner NVIDIA-GPU zu aktivieren.",
+    "en": "Enable DLSS on your NVIDIA GPU by accepting the NVIDIA RTX SDKs licence.",
+    "es": "Acepta la licencia de NVIDIA RTX SDKs para activar DLSS en tu GPU NVIDIA.",
+    "fr": "Acceptez la licence NVIDIA RTX SDKs pour activer DLSS sur votre GPU NVIDIA.",
+    "it": "Accetta la licenza NVIDIA RTX SDKs per attivare DLSS sulla tua GPU NVIDIA."
+  },
+  "elapsed": {
+    "de": "Dauer",
+    "en": "Elapsed",
+    "es": "Tiempo transcurrido",
+    "fr": "Durée",
+    "it": "Durata"
+  },
+  "estimate_disk": {
+    "de": "Speicherplatz",
+    "en": "Disk space",
+    "es": "Espacio en disco",
+    "fr": "Espace disque",
+    "it": "Spazio su disco"
+  },
+  "estimate_gpu": {
+    "de": "Grafikkarte",
+    "en": "Graphics card",
+    "es": "Tarjeta gráfica",
+    "fr": "Carte graphique",
+    "it": "Scheda grafica"
+  },
+  "estimate_gpu_approximate": {
+    "de": "Die Dauer hängt von der Grafikkarte ab. Integrierte Grafikeinheiten können deutlich länger brauchen.",
+    "en": "Texture generation time depends on your graphics card. Integrated graphics can take much longer.",
+    "es": "El tiempo depende de la tarjeta gráfica. Los gráficos integrados pueden tardar mucho más.",
+    "fr": "La durée dépend de la carte graphique. Un circuit graphique intégré peut prendre bien plus de temps.",
+    "it": "La durata dipende dalla scheda grafica. Una GPU integrata può richiedere molto più tempo."
+  },
+  "estimate_gpu_incompatible": {
+    "de": "Es wurde keine Vulkan-kompatible Grafikkarte gefunden.",
+    "en": "No Vulkan-compatible graphics card was found.",
+    "es": "No se encontró ninguna tarjeta gráfica compatible con Vulkan.",
+    "fr": "Aucune carte graphique compatible avec Vulkan n’a été détectée.",
+    "it": "Non è stata rilevata alcuna scheda grafica compatibile con Vulkan."
+  },
+  "estimate_gpu_missing": {
+    "de": "Grafikkarte nicht erkannt",
+    "en": "Graphics card not detected",
+    "es": "No se detectó la tarjeta gráfica",
+    "fr": "Carte graphique non détectée",
+    "it": "Scheda grafica non rilevata"
+  },
+  "estimate_hd_index": {
+    "de": "Texturen dekodieren und erfassen",
+    "en": "Decode and index textures",
+    "es": "Decodificar e indexar las texturas",
+    "fr": "Décoder et indexer les textures",
+    "it": "Decodificare e indicizzare le texture"
+  },
+  "estimate_hd_materials": {
+    "de": "Texturen nachbearbeiten und Materialkarten erstellen",
+    "en": "Refine textures and make material maps",
+    "es": "Ajustar las texturas y crear los mapas de materiales",
+    "fr": "Affiner les textures et créer les cartes de matériaux",
+    "it": "Rifinire le texture e creare le mappe dei materiali"
+  },
+  "estimate_hd_tools": {
+    "de": "HD-Werkzeuge laden (ca. 75 MB)",
+    "en": "Download HD tools (about 75 MB)",
+    "es": "Descargar las herramientas HD (unos 75 MB)",
+    "fr": "Télécharger les outils HD (environ 75 Mo)",
+    "it": "Scaricare gli strumenti HD (circa 75 MB)"
+  },
+  "estimate_hd_upscale": {
+    "de": "Drakan-2-Texturen hochskalieren",
+    "en": "Upscale Drakan 2 textures",
+    "es": "Aumentar la resolución de las texturas de Drakan 2",
+    "fr": "Agrandir les textures de Drakan 2",
+    "it": "Ingrandire le texture di Drakan 2"
+  },
+  "estimate_hd_upscale_ootf": {
+    "de": "Texturen von Order of the Flame hochskalieren",
+    "en": "Upscale Order of the Flame textures",
+    "es": "Aumentar la resolución de las texturas de Order of the Flame",
+    "fr": "Agrandir les textures d’Order of the Flame",
+    "it": "Ingrandire le texture di Order of the Flame"
+  },
+  "estimate_measured": {
+    "de": "{0} (letzter Lauf auf diesem PC)",
+    "en": "{0} (last run on this PC)",
+    "es": "{0} (última ejecución en este PC)",
+    "fr": "{0} (mesuré sur ce PC)",
+    "it": "{0} (ultima esecuzione su questo PC)"
+  },
+  "estimate_ootf_convert": {
+    "de": "Order of the Flame konvertieren",
+    "en": "Convert Order of the Flame",
+    "es": "Convertir Order of the Flame",
+    "fr": "Convertir Order of the Flame",
+    "it": "Convertire Order of the Flame"
+  },
+  "estimate_ootf_data": {
+    "de": "Drakan-2-Levelvorlage lesen",
+    "en": "Read the Drakan 2 level template",
+    "es": "Leer la plantilla de niveles de Drakan 2",
+    "fr": "Lire le modèle de niveau de Drakan 2",
+    "it": "Leggere il modello di livello di Drakan 2"
+  },
+  "estimate_ootf_source": {
+    "de": "Drakan-1-Disc lesen",
+    "en": "Read the Drakan 1 disc",
+    "es": "Leer el disco de Drakan 1",
+    "fr": "Lire le disque de Drakan 1",
+    "it": "Leggere il disco di Drakan 1"
+  },
+  "estimate_ootf_subtitles": {
+    "de": "Szenenuntertitel erstellen",
+    "en": "Generate scene subtitles",
+    "es": "Generar los subtítulos de las escenas",
+    "fr": "Créer les sous-titres des scènes",
+    "it": "Generare i sottotitoli delle scene"
+  },
+  "estimate_range": {
+    "de": "{0} bis {1}",
+    "en": "{0} to {1}",
+    "es": "De {0} a {1}",
+    "fr": "{0} à {1}",
+    "it": "Da {0} a {1}"
+  },
+  "estimate_title": {
+    "de": "Geschätzter Zusatzaufwand",
+    "en": "Optional work estimate",
+    "es": "Tiempo y espacio de las opciones",
+    "fr": "Estimation des options",
+    "it": "Stima delle attività facoltative"
+  },
+  "estimate_total": {
+    "de": "Gesamt",
+    "en": "Total",
+    "es": "Total",
+    "fr": "Total",
+    "it": "Totale"
+  },
+  "extra_notes": {
+    "de": "Hinweise zu optionalen Funktionen",
+    "en": "Optional features to review",
+    "es": "Funciones opcionales que conviene revisar",
+    "fr": "Fonctionnalités facultatives à vérifier",
+    "it": "Funzioni facoltative da verificare"
+  },
+  "fetched": {
+    "de": "Werden bei Bedarf geladen",
+    "en": "Fetched as needed",
+    "es": "Se descargan cuando hacen falta",
+    "fr": "Téléchargés au besoin",
+    "it": "Scaricati quando servono"
+  },
+  "finished": {
+    "de": "Abgeschlossen",
+    "en": "Finished",
+    "es": "Finalizada",
+    "fr": "Terminé",
+    "it": "Completata"
+  },
+  "fresh_start": {
+    "de": "Vollständigen Build starten",
+    "en": "Starting a fresh build",
+    "es": "Iniciando una compilación completa",
+    "fr": "Démarrage d’une compilation complète",
+    "it": "Avvio di una compilazione completa"
+  },
+  "full_build": {
+    "de": "Vollständiger Build, meist 1 bis 2 Stunden",
+    "en": "Full build, typically 1 to 2 hours",
+    "es": "Compilación completa, normalmente de 1 a 2 horas",
+    "fr": "Compilation complète, généralement 1 à 2 heures",
+    "it": "Compilazione completa, in genere da 1 a 2 ore"
+  },
+  "game_copy": {
+    "de": "Spiel in den Spielordner kopieren",
+    "en": "Copying the game into the play folder",
+    "es": "Copiando el juego en su carpeta",
+    "fr": "Copie du jeu dans son dossier",
+    "it": "Copia del gioco nella cartella di gioco"
+  },
+  "game_files": {
+    "de": "Spieldateien",
+    "en": "Game files",
+    "es": "Archivos del juego",
+    "fr": "Fichiers du jeu",
+    "it": "File di gioco"
+  },
+  "game_opens": {
+    "de": "Das Spiel öffnet und schließt sich selbstständig, um diese Bilder aufzunehmen.",
+    "en": "The game opens and closes by itself to capture these pictures.",
+    "es": "El juego se abre y se cierra solo para capturar estas imágenes.",
+    "fr": "Le jeu s’ouvre et se ferme automatiquement pour capturer ces images.",
+    "it": "Il gioco si apre e si chiude automaticamente per acquisire queste immagini."
+  },
+  "git_required": {
+    "de": "Git im PATH (winget install Git.Git) zum Laden der Abhängigkeiten",
+    "en": "Git on PATH (winget install Git.Git) to fetch build dependencies",
+    "es": "Git en PATH (winget install Git.Git) para descargar las dependencias",
+    "fr": "Git dans le PATH (winget install Git.Git) pour télécharger les dépendances",
+    "it": "Git nel PATH (winget install Git.Git) per scaricare le dipendenze"
+  },
+  "hd_empty": {
+    "de": "Keine HD-Ersatztexturen in {0} gefunden. Wähle den Ordner mit den PNG- oder DDS-Dateien.",
+    "en": "No HD texture replacements found in {0}. Choose the folder with the PNG or DDS files.",
+    "es": "No se encontraron texturas HD en {0}. Elige la carpeta con los archivos PNG o DDS.",
+    "fr": "Aucune texture de remplacement dans {0}. Choisissez le dossier des fichiers PNG ou DDS.",
+    "it": "Nessuna texture sostitutiva in {0}. Scegli la cartella con i file PNG o DDS."
+  },
+  "hd_failed": {
+    "de": "Die HD-Texturen sind unvollständig. Starte das Installationsprogramm erneut, um fortzufahren.",
+    "en": "HD textures are incomplete. Run the builder again to continue.",
+    "es": "Las texturas HD están incompletas. Ejecuta de nuevo el instalador para continuar.",
+    "fr": "Les textures HD sont incomplètes. Relancez la compilation pour reprendre.",
+    "it": "Le texture HD sono incomplete. Riavvia il programma per continuare."
+  },
+  "hd_generate": {
+    "de": "Nach dem Build lokal erstellen",
+    "en": "Generate locally after the build",
+    "es": "Generar de forma local después de compilar",
+    "fr": "Création locale après la compilation",
+    "it": "Generazione locale dopo la compilazione"
+  },
+  "hd_label": {
+    "de": "HD-Texturen",
+    "en": "HD textures",
+    "es": "Texturas HD",
+    "fr": "Textures HD",
+    "it": "Texture HD"
+  },
+  "hd_missing": {
+    "de": "Ordner für HD-Texturen nicht gefunden: {0}",
+    "en": "HD texture folder not found: {0}",
+    "es": "No se encontró la carpeta de texturas HD: {0}",
+    "fr": "Dossier de textures HD introuvable : {0}",
+    "it": "Cartella delle texture HD non trovata: {0}"
+  },
+  "hd_original": {
+    "de": "Originaltexturen",
+    "en": "Original textures",
+    "es": "Texturas originales",
+    "fr": "Textures d’origine",
+    "it": "Texture originali"
+  },
+  "hd_original_plan": {
+    "de": "Originaltexturen verwenden. Starte mit -HdTextures on, um HD-Texturen zu erstellen.",
+    "en": "Use original textures. To generate HD textures, run with -HdTextures on.",
+    "es": "Texturas originales. Para generar texturas HD, ejecuta con -HdTextures on.",
+    "fr": "Textures d’origine. Pour créer des textures HD, relancez avec -HdTextures on.",
+    "it": "Texture originali. Per generare texture HD, riavvia con -HdTextures on."
+  },
+  "hd_ready": {
+    "de": "Ersatztexturen im Spielordner verfügbar",
+    "en": "Replacement files available in the play folder",
+    "es": "Texturas de reemplazo disponibles en la carpeta del juego",
+    "fr": "Textures de remplacement dans le dossier du jeu",
+    "it": "Texture sostitutive disponibili nella cartella del gioco"
+  },
+  "hd_resume": {
+    "de": "Starte das Installationsprogramm erneut, wenn der Vorgang unterbrochen wird.",
+    "en": "If interrupted, run the builder again to resume.",
+    "es": "Si se interrumpe, ejecuta de nuevo el instalador para continuar.",
+    "fr": "En cas d’interruption, relancez la compilation pour reprendre.",
+    "it": "Se si interrompe, riavvia il programma per continuare."
+  },
+  "hd_reuse": {
+    "de": "{0} wiederverwenden",
+    "en": "Reuse {0}",
+    "es": "Reutilizar {0}",
+    "fr": "Réutiliser {0}",
+    "it": "Riutilizza {0}"
+  },
+  "hd_start": {
+    "de": "HD-Texturen erstellen",
+    "en": "Generating HD textures",
+    "es": "Generando texturas HD",
+    "fr": "Création des textures HD",
+    "it": "Generazione delle texture HD"
+  },
+  "hd_unsafe": {
+    "de": "Der Build erneuert diesen Ordner und würde das Paket löschen. Wähle den Ordner textures im Spielordner oder ein Paket außerhalb des Spielordners.",
+    "en": "The build refreshes this folder and would remove the pack. Choose the play folder’s textures directory or a pack outside the play folder.",
+    "es": "La compilación actualiza esta carpeta y eliminaría el paquete. Elige la carpeta textures del juego o un paquete fuera de la carpeta del juego.",
+    "fr": "La compilation remplace ce dossier et supprimerait le pack. Choisissez le dossier textures du jeu ou un pack situé ailleurs.",
+    "it": "La compilazione aggiorna questa cartella e rimuoverebbe il pacchetto. Scegli la cartella textures del gioco o un pacchetto esterno alla cartella del gioco."
+  },
+  "incomplete_iso": {
+    "de": "Die Dateien aus dem Disc-Abbild sind unvollständig.",
+    "en": "Files from the disc image are incomplete.",
+    "es": "Los archivos extraídos de la imagen de disco están incompletos.",
+    "fr": "Les fichiers extraits de l’image disque sont incomplets.",
+    "it": "I file estratti dall’immagine disco sono incompleti."
+  },
+  "interrupted": {
+    "de": "Unterbrochen",
+    "en": "Interrupted",
+    "es": "Interrumpida",
+    "fr": "Interrompu",
+    "it": "Interrotta"
+  },
+  "iso_filter": {
+    "de": "Disc-Abbilder (*.iso)|*.iso|Alle Dateien (*.*)|*.*",
+    "en": "Disc images (*.iso)|*.iso|All files (*.*)|*.*",
+    "es": "Imágenes de disco (*.iso)|*.iso|Todos los archivos (*.*)|*.*",
+    "fr": "Images disque (*.iso)|*.iso|Tous les fichiers (*.*)|*.*",
+    "it": "Immagini disco (*.iso)|*.iso|Tutti i file (*.*)|*.*"
+  },
+  "iso_found": {
+    "de": "Das Disc-Abbild wurde gefunden. Der Inhalt wird beim Erstellen geprüft.",
+    "en": "The disc image path exists. Its contents are checked during the build.",
+    "es": "Se encontró la imagen de disco. El contenido se comprueba durante la compilación.",
+    "fr": "L’image disque a été trouvée. Son contenu sera vérifié pendant la compilation.",
+    "it": "L’immagine disco è stata trovata. Il contenuto verrà verificato durante la compilazione."
+  },
+  "iso_invalid": {
+    "de": "Verwende ein unterstütztes Drakan-Disc-Abbild (PAL SCES-500.06 oder USA SCUS-971.28).",
+    "en": "Use a supported Drakan disc image (PAL SCES-500.06 or USA SCUS-971.28).",
+    "es": "Usa una imagen de disco de Drakan compatible (PAL SCES-500.06 o USA SCUS-971.28).",
+    "fr": "Utilisez une image disque de Drakan compatible (PAL SCES-500.06 ou USA SCUS-971.28).",
+    "it": "Usa un’immagine disco di Drakan compatibile (PAL SCES-500.06 o USA SCUS-971.28)."
+  },
+  "iso_missing": {
+    "de": "ISO nicht gefunden: {0}",
+    "en": "ISO not found: {0}",
+    "es": "ISO no encontrada: {0}",
+    "fr": "ISO introuvable : {0}",
+    "it": "ISO non trovata: {0}"
+  },
+  "iso_prompt": {
+    "de": "Pfad zum ISO (du kannst die Datei in dieses Fenster ziehen)",
+    "en": "Path to your ISO (you can drag the file into this window)",
+    "es": "Ruta de tu ISO (puedes arrastrar el archivo a esta ventana)",
+    "fr": "Chemin de votre ISO (vous pouvez glisser le fichier dans cette fenêtre)",
+    "it": "Percorso della ISO (puoi trascinare il file in questa finestra)"
+  },
+  "keep_disc": {
+    "de": "Lass die Datei am aktuellen Pfad, damit das Spiel sie lesen kann.",
+    "en": "Keep it at its current path so the game can read it.",
+    "es": "Déjala en su ubicación actual para que el juego pueda leerla.",
+    "fr": "Laissez-la à son emplacement actuel pour que le jeu puisse la lire.",
+    "it": "Lasciala nel percorso attuale affinché il gioco possa leggerla."
+  },
+  "last_failure": {
+    "de": "Letzter Fehler",
+    "en": "Last failure",
+    "es": "Último error",
+    "fr": "Dernier échec",
+    "it": "Ultimo errore"
+  },
+  "launch_tip": {
+    "de": "Öffne die Drakan-Verknüpfung oder Play.cmd. F1 öffnet die Einstellungen.",
+    "en": "Open the Drakan shortcut or Play.cmd. Press F1 for settings.",
+    "es": "Abre el acceso directo de Drakan o Play.cmd. Pulsa F1 para ver los ajustes.",
+    "fr": "Ouvrez le raccourci Drakan ou Play.cmd. Appuyez sur F1 pour les paramètres.",
+    "it": "Apri il collegamento a Drakan o Play.cmd. Premi F1 per le impostazioni."
+  },
+  "launch_write": {
+    "de": "Startdateien schreiben",
+    "en": "Writing the launch files",
+    "es": "Escribiendo los archivos de inicio",
+    "fr": "Écriture des fichiers de lancement",
+    "it": "Scrittura dei file di avvio"
+  },
+  "licence": {
+    "de": "Lizenz",
+    "en": "Licence",
+    "es": "Licencia",
+    "fr": "Licence",
+    "it": "Licenza"
+  },
+  "map_pictures_add": {
+    "de": "Kartenbilder zu den Mod-Paketen hinzufügen",
+    "en": "Adding the map pictures to the mod packs",
+    "es": "Añadiendo las imágenes de mapas a los paquetes de mods",
+    "fr": "Ajout des aperçus de cartes aux packs de mods",
+    "it": "Aggiunta delle anteprime delle mappe ai pacchetti mod"
+  },
+  "map_pictures_install": {
+    "de": "Mitgelieferte Mehrspieler-Kartenbilder installieren ({0})",
+    "en": "Installing bundled multiplayer map pictures ({0})",
+    "es": "Instalando las imágenes de mapas multijugador incluidas ({0})",
+    "fr": "Installation des aperçus de cartes multijoueur fournis ({0})",
+    "it": "Installazione delle anteprime delle mappe multigiocatore incluse ({0})"
+  },
+  "map_pictures_make": {
+    "de": "Mehrspieler-Kartenbilder erstellen",
+    "en": "Making the multiplayer map pictures",
+    "es": "Creando las imágenes de mapas multijugador",
+    "fr": "Création des aperçus de cartes multijoueur",
+    "it": "Creazione delle anteprime delle mappe multigiocatore"
+  },
+  "mods_install": {
+    "de": "Mod-Pakete installieren (Order of the Flame)",
+    "en": "Installing the mod packs (Order of the Flame)",
+    "es": "Instalando los paquetes de mods (Order of the Flame)",
+    "fr": "Installation des mods (Order of the Flame)",
+    "it": "Installazione dei pacchetti mod (Order of the Flame)"
+  },
+  "motions_make": {
+    "de": "Mehrspieler-Animationen erstellen",
+    "en": "Making the multiplayer character motions",
+    "es": "Creando las animaciones multijugador",
+    "fr": "Création des animations multijoueur",
+    "it": "Creazione delle animazioni multigiocatore"
+  },
+  "node_required": {
+    "de": "Node.js 22.18 oder neuer im PATH (winget install OpenJS.NodeJS.LTS)",
+    "en": "Node.js 22.18 or newer on PATH (winget install OpenJS.NodeJS.LTS)",
+    "es": "Node.js 22.18 o posterior en PATH (winget install OpenJS.NodeJS.LTS)",
+    "fr": "Node.js 22.18 ou version ultérieure dans le PATH (winget install OpenJS.NodeJS.LTS)",
+    "it": "Node.js 22.18 o successivo nel PATH (winget install OpenJS.NodeJS.LTS)"
+  },
+  "on_disk": {
+    "de": "Vorhandene Dateien",
+    "en": "On disk",
+    "es": "Archivos presentes",
+    "fr": "Fichiers présents",
+    "it": "File presenti"
+  },
+  "ootf_bad": {
+    "de": "Die Quelle für Order of the Flame konnte nicht verwendet werden. Das Windows-Spiel wird trotzdem erstellt.",
+    "en": "The Order of the Flame source could not be used. The Windows game build will continue.",
+    "es": "No se pudo usar la fuente de Order of the Flame. La compilación del juego para Windows continúa.",
+    "fr": "La source d’Order of the Flame est inutilisable. La compilation du jeu Windows continue.",
+    "it": "La sorgente di Order of the Flame non è utilizzabile. La compilazione del gioco per Windows prosegue."
+  },
+  "ootf_check": {
+    "de": "Dateien von Order of the Flame prüfen",
+    "en": "Checking Order of the Flame files",
+    "es": "Comprobando los archivos de Order of the Flame",
+    "fr": "Vérification des fichiers d’Order of the Flame",
+    "it": "Verifica dei file di Order of the Flame"
+  },
+  "ootf_failed": {
+    "de": "Order of the Flame konnte nicht hinzugefügt werden. Starte das Installationsprogramm erneut.",
+    "en": "Order of the Flame could not be added. Run the builder again to retry.",
+    "es": "No se pudo añadir Order of the Flame. Ejecuta de nuevo el instalador para reintentar.",
+    "fr": "Impossible d’ajouter Order of the Flame. Relancez la compilation pour réessayer.",
+    "it": "Impossibile aggiungere Order of the Flame. Riavvia il programma per riprovare."
+  },
+  "ootf_formats": {
+    "de": "Verwende einen Spielordner, einen Disc-Ordner, ein Disc-Abbild oder eine ZIP-Datei. Englische Szenenuntertitel sind enthalten.",
+    "en": "Use an installed game folder, disc folder, disc image or ZIP. English scene captions are included.",
+    "es": "Usa una carpeta de instalación o del disco, una imagen de disco o un ZIP. Se incluyen subtítulos en inglés para las escenas.",
+    "fr": "Utilisez un dossier d’installation ou de disque, une image disque ou un ZIP. Les sous-titres anglais des scènes sont inclus.",
+    "it": "Usa una cartella di installazione o del disco, un’immagine disco o uno ZIP. I sottotitoli inglesi delle scene sono inclusi."
+  },
+  "ootf_intro": {
+    "de": "Füge das erste Drakan mit deiner eigenen PC-Version als zweite Kampagne hinzu.",
+    "en": "Add the first Drakan as a second campaign using your own PC copy.",
+    "es": "Añade el primer Drakan como segunda campaña con tu copia para PC.",
+    "fr": "Ajoutez le premier Drakan comme seconde campagne à partir de votre copie PC.",
+    "it": "Aggiungi il primo Drakan come seconda campagna usando la tua copia per PC."
+  },
+  "ootf_optional": {
+    "de": "Order of the Flame (optional)",
+    "en": "Order of the Flame (optional)",
+    "es": "Order of the Flame (opcional)",
+    "fr": "Order of the Flame (facultatif)",
+    "it": "Order of the Flame (facoltativo)"
+  },
+  "ootf_prepare": {
+    "de": "Order of the Flame vorbereiten",
+    "en": "Preparing Order of the Flame",
+    "es": "Preparando Order of the Flame",
+    "fr": "Préparation d’Order of the Flame",
+    "it": "Preparazione di Order of the Flame"
+  },
+  "ootf_prompt": {
+    "de": "Pfad zu Order of the Flame (hierher ziehen) oder Eingabetaste zum Überspringen",
+    "en": "Path to your Order of the Flame copy (drag it into this window), or Enter to skip",
+    "es": "Ruta de tu copia de Order of the Flame (arrástrala aquí) o Intro para omitir",
+    "fr": "Chemin de votre copie d’Order of the Flame (glissez-la ici) ou Entrée pour passer",
+    "it": "Percorso della copia di Order of the Flame (trascinala qui) o Invio per saltare"
+  },
+  "ootf_ready": {
+    "de": "Im Titelmenü unter Spielauswahl verfügbar.",
+    "en": "Available in Choose Your Game on the title menu.",
+    "es": "Disponible en la selección de juego del menú principal.",
+    "fr": "Disponible dans la sélection du jeu depuis le menu principal.",
+    "it": "Disponibile nella selezione del gioco dal menu del titolo."
+  },
+  "pack_copy": {
+    "de": "Lokales HD-Texturpaket kopieren",
+    "en": "Copying the local HD texture pack",
+    "es": "Copiando el paquete local de texturas HD",
+    "fr": "Copie du pack local de textures HD",
+    "it": "Copia del pacchetto locale di texture HD"
+  },
+  "path_long": {
+    "de": "Der Installationspfad ist {0} Zeichen lang. Verwende bei Pfadfehlern einen kürzeren Pfad wie C:/DrakanPC.",
+    "en": "The installation path has {0} characters. If a path error occurs, use a shorter path such as C:/DrakanPC.",
+    "es": "La ruta de instalación tiene {0} caracteres. Si falla por la ruta, usa una más corta, como C:/DrakanPC.",
+    "fr": "Le chemin d’installation compte {0} caractères. En cas d’erreur, utilisez un chemin plus court comme C:/DrakanPC.",
+    "it": "Il percorso di installazione ha {0} caratteri. In caso di problemi, usa un percorso più breve come C:/DrakanPC."
+  },
+  "plan": {
+    "de": "Übersicht",
+    "en": "Build plan",
+    "es": "Plan de compilación",
+    "fr": "Plan de compilation",
+    "it": "Piano di compilazione"
+  },
+  "play_disk": {
+    "de": "Laufwerk des Spiels",
+    "en": "Play disk",
+    "es": "Unidad del juego",
+    "fr": "Disque du jeu",
+    "it": "Unità del gioco"
+  },
+  "play_folder": {
+    "de": "Spielordner",
+    "en": "Play folder",
+    "es": "Carpeta del juego",
+    "fr": "Dossier du jeu",
+    "it": "Cartella del gioco"
+  },
+  "play_invalid": {
+    "de": "Der Spielordner darf weder ein Laufwerksstamm noch der Ordner des Installationsprogramms oder ein Unterordner von build sein: {0}",
+    "en": "The play folder cannot be a drive root, the builder folder or inside its build folder: {0}",
+    "es": "La carpeta del juego no puede ser la raíz de una unidad, la carpeta del instalador ni una subcarpeta de build: {0}",
+    "fr": "Le dossier du jeu ne peut être ni la racine d’un disque, ni le dossier du programme de compilation, ni un sous-dossier de build : {0}",
+    "it": "La cartella del gioco non può essere la radice di un’unità, la cartella del programma di compilazione o una sottocartella di build: {0}"
+  },
+  "play_prompt": {
+    "de": "Ordner hierher ziehen oder Eingabetaste für den Standardordner drücken",
+    "en": "Drag a folder here, or press Enter for the default",
+    "es": "Arrastra una carpeta aquí o pulsa Intro para usar la predeterminada",
+    "fr": "Glissez un dossier ici ou appuyez sur Entrée pour le dossier par défaut",
+    "it": "Trascina qui una cartella o premi Invio per usare quella predefinita"
+  },
+  "play_ready": {
+    "de": "Drakan ist spielbereit",
+    "en": "Drakan is ready to play",
+    "es": "Drakan está listo para jugar",
+    "fr": "Drakan est prêt à jouer",
+    "it": "Drakan è pronto per giocare"
+  },
+  "play_unavailable": {
+    "de": "Das Laufwerk für {0} ist nicht verfügbar. Starte das Installationsprogramm erneut mit -DistDirectory <Ordner>.",
+    "en": "The drive for {0} is unavailable. Run the builder again with -DistDirectory <folder>.",
+    "es": "La unidad de {0} no está disponible. Ejecuta de nuevo el instalador con -DistDirectory <carpeta>.",
+    "fr": "Le disque de {0} est indisponible. Relancez la compilation avec -DistDirectory <dossier>.",
+    "it": "L’unità di {0} non è disponibile. Riavvia il programma con -DistDirectory <cartella>."
+  },
+  "previous_build": {
+    "de": "Vorheriger Build",
+    "en": "Previous build",
+    "es": "Compilación anterior",
+    "fr": "Compilation précédente",
+    "it": "Compilazione precedente"
+  },
+  "previous_disc": {
+    "de": "Vorherige Disc",
+    "en": "Previous disc",
+    "es": "Disco anterior",
+    "fr": "Disque précédent",
+    "it": "Disco precedente"
+  },
+  "priority_low": {
+    "de": "niedrig",
+    "en": "low",
+    "es": "baja",
+    "fr": "basse",
+    "it": "bassa"
+  },
+  "priority_normal": {
+    "de": "normal",
+    "en": "normal",
+    "es": "normal",
+    "fr": "normale",
+    "it": "normale"
+  },
+  "progress_checking": {
+    "de": "Änderungen prüfen oder Programm verknüpfen · {0}",
+    "en": "Checking for changes or linking · {0}",
+    "es": "Comprobación de cambios o enlace · {0}",
+    "fr": "Vérification des changements ou édition des liens · {0}",
+    "it": "Verifica delle modifiche o collegamento · {0}"
+  },
+  "progress_complete": {
+    "de": "Abgeschlossen",
+    "en": "Complete",
+    "es": "Completado",
+    "fr": "Terminé",
+    "it": "Completata"
+  },
+  "progress_elapsed": {
+    "de": "{0} vergangen",
+    "en": "{0} elapsed",
+    "es": "{0} transcurrido",
+    "fr": "{0} écoulé",
+    "it": "{0} trascorso"
+  },
+  "progress_estimate": {
+    "de": " (ca. {0})",
+    "en": " (about {0})",
+    "es": " (aprox. {0})",
+    "fr": " (environ {0})",
+    "it": " (circa {0})"
+  },
+  "progress_files_completed": {
+    "de": "Kompilierte Dateien",
+    "en": "Files compiled",
+    "es": "Archivos compilados",
+    "fr": "Fichiers compilés",
+    "it": "File compilati"
+  },
+  "progress_known": {
+    "de": "{0}/{1} Dateien, {2}",
+    "en": "{0}/{1} files, {2}",
+    "es": "{0}/{1} archivos, {2}",
+    "fr": "{0}/{1} fichiers, {2}",
+    "it": "{0}/{1} file, {2}"
+  },
+  "progress_unknown": {
+    "de": "{0} Dateien, {1}",
+    "en": "{0} files, {1}",
+    "es": "{0} archivos, {1}",
+    "fr": "{0} fichiers, {1}",
+    "it": "{0} file, {1}"
+  },
+  "python_required": {
+    "de": "Python 3.11 oder neuer im PATH (https://www.python.org/downloads/)",
+    "en": "Python 3.11 or newer on PATH (https://www.python.org/downloads/)",
+    "es": "Python 3.11 o posterior en PATH (https://www.python.org/downloads/)",
+    "fr": "Python 3.11 ou version ultérieure dans le PATH (https://www.python.org/downloads/)",
+    "it": "Python 3.11 o successivo nel PATH (https://www.python.org/downloads/)"
+  },
+  "ram_low": {
+    "de": "Mit weniger als 8 GB RAM kann der Build länger dauern. Lass die Windows-Auslagerungsdatei aktiviert und schließe andere Programme.",
+    "en": "With less than 8 GB of RAM, compilation can take longer. Keep the Windows page file enabled and close other apps.",
+    "es": "Con menos de 8 GB de RAM, la compilación puede tardar más. Mantén activo el archivo de paginación de Windows y cierra otras apps.",
+    "fr": "Avec moins de 8 Go de RAM, la compilation peut durer plus longtemps. Gardez le fichier d’échange Windows activé et fermez les autres applications.",
+    "it": "Con meno di 8 GB di RAM la compilazione può richiedere più tempo. Lascia attivo il file di paging di Windows e chiudi le altre app."
+  },
+  "ram_whole": {
+    "de": "Ganze VU1-Blöcke benötigen bis zu 17 GB pro Datei. Mit weniger als 24 GB RAM ist die Standardoption -VuBlocks Chunked schneller.",
+    "en": "Whole VU1 blocks use up to 17 GB per file. On PCs with less than 24 GB of RAM, use the default -VuBlocks Chunked for a faster build.",
+    "es": "Los bloques VU1 completos consumen hasta 17 GB por archivo. Si tienes menos de 24 GB de RAM, usa la opción predeterminada -VuBlocks Chunked para compilar más rápido.",
+    "fr": "Les blocs VU1 entiers utilisent jusqu’à 17 Go par fichier. Avec moins de 24 Go de RAM, utilisez l’option par défaut -VuBlocks Chunked pour compiler plus vite.",
+    "it": "I blocchi VU1 interi usano fino a 17 GB per file. Con meno di 24 GB di RAM, usa l’opzione predefinita -VuBlocks Chunked per compilare più velocemente."
+  },
+  "ready": {
+    "de": "Bereit",
+    "en": "Ready",
+    "es": "Listo",
+    "fr": "Prêt",
+    "it": "Pronto"
+  },
+  "ready_build": {
+    "de": "Bereit zum Erstellen.",
+    "en": "Ready to build.",
+    "es": "Listo para compilar.",
+    "fr": "Prêt à compiler.",
+    "it": "Pronto per la compilazione."
+  },
+  "recompiler_reuse": {
+    "de": "Erzeugte Quelldateien wiederverwenden",
+    "en": "Reusing generated source files",
+    "es": "Reutilizando los archivos fuente generados",
+    "fr": "Réutilisation des sources générées",
+    "it": "Riutilizzo dei file sorgente generati"
+  },
+  "region_changed": {
+    "de": "Disc-Region geändert",
+    "en": "Disc region changed",
+    "es": "Cambió la región del disco",
+    "fr": "Région du disque modifiée",
+    "it": "Regione del disco cambiata"
+  },
+  "region_rebuild": {
+    "de": "Der Wechsel von {0} zu {1} erfordert einen neuen Build.",
+    "en": "Switching from {0} to {1} requires a fresh build.",
+    "es": "Cambiar de {0} a {1} requiere una compilación completa.",
+    "fr": "Le passage de {0} à {1} nécessite une compilation complète.",
+    "it": "Per passare da {0} a {1} serve una compilazione completa."
+  },
+  "requirements": {
+    "de": "Vor dem Erstellen installieren",
+    "en": "Install these before building",
+    "es": "Instala lo siguiente antes de compilar",
+    "fr": "À installer avant la compilation",
+    "it": "Da installare prima della compilazione"
+  },
+  "rescue_failed": {
+    "de": "Spielstände konnten nicht von {0} nach {1} kopiert werden. Sichere mc0 und mc1, bevor du das Installationsprogramm erneut startest.",
+    "en": "Could not copy saves from {0} to {1}. Back up mc0 and mc1 before running the builder again.",
+    "es": "No se pudieron copiar las partidas de {0} a {1}. Haz una copia de mc0 y mc1 antes de volver a ejecutar el instalador.",
+    "fr": "Impossible de copier les sauvegardes de {0} vers {1}. Faites une copie de mc0 et mc1 avant de relancer la compilation.",
+    "it": "Impossibile copiare i salvataggi da {0} a {1}. Salva una copia di mc0 e mc1 prima di riavviare il programma."
+  },
+  "resume_at": {
+    "de": "Fortsetzen bei",
+    "en": "Resume at",
+    "es": "Reanudar en",
+    "fr": "Reprendre à",
+    "it": "Riprendi da"
+  },
+  "resume_prompt": {
+    "de": "Eingabetaste zum Fortsetzen oder S für einen Neustart",
+    "en": "Press Enter to continue, or type S to start over",
+    "es": "Pulsa Intro para continuar o escribe S para empezar de nuevo",
+    "fr": "Appuyez sur Entrée pour continuer ou tapez S pour recommencer",
+    "it": "Premi Invio per continuare o digita S per ricominciare"
+  },
+  "retry": {
+    "de": "Neuer Versuch mit weniger Compiler-Prozessen",
+    "en": "Retrying with fewer compiler workers",
+    "es": "Reintentando con menos procesos de compilación",
+    "fr": "Nouvelle tentative avec moins de processus de compilation",
+    "it": "Nuovo tentativo con meno processi di compilazione"
+  },
+  "reuse_build": {
+    "de": "Vorhandene Build-Dateien verwenden",
+    "en": "Reuse existing build files",
+    "es": "Reutilizar los archivos ya compilados",
+    "fr": "Réutilisation des fichiers déjà compilés",
+    "it": "Riutilizzo dei file già compilati"
+  },
+  "review_build_missing": {
+    "de": "noch nicht eingerichtet",
+    "en": "not configured yet",
+    "es": "Configuración pendiente",
+    "fr": "Configuration en attente",
+    "it": "Configurazione in attesa"
+  },
+  "review_build_ready": {
+    "de": "Build-Dateien erzeugt",
+    "en": "build files generated",
+    "es": "Archivos de compilación generados",
+    "fr": "Fichiers de compilation générés",
+    "it": "File di compilazione generati"
+  },
+  "review_compile_missing": {
+    "de": "noch keine Dateien kompiliert",
+    "en": "nothing compiled yet",
+    "es": "Aún no se ha compilado ningún archivo",
+    "fr": "Aucun fichier compilé",
+    "it": "Nessun file compilato"
+  },
+  "review_compiled": {
+    "de": "{0} von {1} Dateien kompiliert",
+    "en": "{0} of {1} files compiled",
+    "es": "{0} de {1} archivos compilados",
+    "fr": "{0} fichiers compilés sur {1}",
+    "it": "{0} file compilati su {1}"
+  },
+  "review_cpp": {
+    "de": "{0} erzeugte C++-Dateien",
+    "en": "{0} generated C++ files",
+    "es": "{0} archivos C++ generados",
+    "fr": "{0} fichiers C++ générés",
+    "it": "{0} file C++ generati"
+  },
+  "review_cpp_missing": {
+    "de": "keine erzeugten C++-Dateien",
+    "en": "no generated C++ files",
+    "es": "no hay archivos C++ generados",
+    "fr": "aucun fichier C++ généré",
+    "it": "nessun file C++ generato"
+  },
+  "review_cpp_partial": {
+    "de": "{0} erzeugte Dateien. Übersetzung läuft noch oder wurde unterbrochen.",
+    "en": "{0} generated files, but the translation did not finish",
+    "es": "{0} archivos generados. Traducción incompleta.",
+    "fr": "{0} fichiers générés. Traduction inachevée.",
+    "it": "{0} file generati. Traduzione incompleta."
+  },
+  "review_iso": {
+    "de": "Programmdatei {0} aus ISO gelesen",
+    "en": "game executable {0} read from the ISO",
+    "es": "Ejecutable {0} leído desde la ISO",
+    "fr": "Exécutable {0} lu depuis l’ISO",
+    "it": "Eseguibile {0} letto dalla ISO"
+  },
+  "review_iso_missing": {
+    "de": "local-input.json, Programmdatei oder config.toml fehlt",
+    "en": "local-input.json, the game executable or config.toml missing",
+    "es": "Falta local-input.json, el ejecutable del juego o config.toml",
+    "fr": "local-input.json, exécutable du jeu ou config.toml manquant",
+    "it": "Manca local-input.json, l’eseguibile del gioco o config.toml"
+  },
+  "review_linked": {
+    "de": ", drakan.exe gelinkt",
+    "en": ", drakan.exe linked",
+    "es": ", drakan.exe enlazado",
+    "fr": ", liaison de drakan.exe terminée",
+    "it": ", linking di drakan.exe completato"
+  },
+  "review_vu": {
+    "de": "VU1-Mikrocode vorhanden",
+    "en": "VU1 microcode image present",
+    "es": "Imagen del microcódigo VU1 presente",
+    "fr": "Image du microcode VU1 présente",
+    "it": "Immagine del microcodice VU1 presente"
+  },
+  "review_vu_missing": {
+    "de": "ps2_vu1_image.inc fehlt",
+    "en": "ps2_vu1_image.inc missing",
+    "es": "Falta ps2_vu1_image.inc",
+    "fr": "ps2_vu1_image.inc manquant",
+    "it": "Manca ps2_vu1_image.inc"
+  },
+  "saves_check": {
+    "de": "Nach Spielständen außerhalb des Spielordners suchen",
+    "en": "Checking for saves outside the play folder",
+    "es": "Buscando partidas fuera de la carpeta del juego",
+    "fr": "Recherche de sauvegardes en dehors du dossier du jeu",
+    "it": "Ricerca di salvataggi al di fuori della cartella di gioco"
+  },
+  "saves_install": {
+    "de": "Geprüfte Spielstandsmigrationen für Order of the Flame installieren",
+    "en": "Installing verified Order of the Flame save migrations",
+    "es": "Instalando las migraciones de partidas verificadas para Order of the Flame",
+    "fr": "Installation des migrations de sauvegardes vérifiées pour Order of the Flame",
+    "it": "Installazione delle migrazioni dei salvataggi verificate per Order of the Flame"
+  },
+  "select_iso": {
+    "de": "Wähle dein Drakan-ISO (PAL SCES-500.06 oder USA SCUS-971.28)",
+    "en": "Select your Drakan ISO (PAL SCES-500.06 or USA SCUS-971.28)",
+    "es": "Selecciona tu ISO de Drakan (PAL SCES-500.06 o USA SCUS-971.28)",
+    "fr": "Choisissez votre ISO de Drakan (PAL SCES-500.06 ou USA SCUS-971.28)",
+    "it": "Seleziona la tua ISO di Drakan (PAL SCES-500.06 o USA SCUS-971.28)"
+  },
+  "session_log": {
+    "de": "Sitzungsprotokoll",
+    "en": "Session log",
+    "es": "Registro de la sesión",
+    "fr": "Journal de session",
+    "it": "Registro della sessione"
+  },
+  "settings_failed": {
+    "de": "Die Starteinstellungen konnten nicht übernommen werden. Ändere sie im Spiel mit F1.",
+    "en": "Starting settings could not be applied. Change them in the game with F1.",
+    "es": "No se pudieron aplicar los ajustes iniciales. Cámbialos con F1 en el juego.",
+    "fr": "Impossible d’appliquer les paramètres initiaux. Modifiez-les en jeu avec F1.",
+    "it": "Impossibile applicare le impostazioni iniziali. Modificale nel gioco con F1."
+  },
+  "settings_pictures_install": {
+    "de": "Mitgelieferte Einstellungsbilder installieren ({0})",
+    "en": "Installing bundled settings pictures ({0})",
+    "es": "Instalando las imágenes de ajustes incluidas ({0})",
+    "fr": "Installation des images de paramètres fournies ({0})",
+    "it": "Installazione delle immagini delle impostazioni incluse ({0})"
+  },
+  "settings_pictures_make": {
+    "de": "Einstellungsbilder erstellen",
+    "en": "Making the settings pictures",
+    "es": "Creando las imágenes de los ajustes",
+    "fr": "Création des images de paramètres",
+    "it": "Creazione delle immagini delle impostazioni"
+  },
+  "sources": {
+    "de": "Quelldateien",
+    "en": "Build sources",
+    "es": "Archivos fuente",
+    "fr": "Sources du jeu",
+    "it": "File sorgente"
+  },
+  "start_game": {
+    "de": "Spiel starten",
+    "en": "Start the game",
+    "es": "Iniciar el juego",
+    "fr": "Lancer le jeu",
+    "it": "Avvia il gioco"
+  },
+  "start_over": {
+    "de": "Neu beginnen",
+    "en": "Start over",
+    "es": "Empezar de nuevo",
+    "fr": "Recommencer",
+    "it": "Ricomincia"
+  },
+  "step_1": {
+    "de": "Spieldaten aus dem ISO lesen",
+    "en": "Reading the game from the ISO",
+    "es": "Leyendo el juego desde la ISO",
+    "fr": "Lecture du jeu depuis l’ISO",
+    "it": "Lettura del gioco dalla ISO"
+  },
+  "step_2": {
+    "de": "PS2-Spielcode nach C++ übersetzen",
+    "en": "Translating the PS2 game code to C++",
+    "es": "Traduciendo el código de PS2 a C++",
+    "fr": "Traduction du code PS2 en C++",
+    "it": "Traduzione del codice PS2 in C++"
+  },
+  "step_3": {
+    "de": "Laufzeitdateien aus dem Spiel vorbereiten",
+    "en": "Preparing the runtime files from the game",
+    "es": "Preparando los archivos de ejecución",
+    "fr": "Préparation des fichiers d’exécution",
+    "it": "Preparazione dei file di esecuzione"
+  },
+  "step_4": {
+    "de": "C++-Build einrichten",
+    "en": "Setting up the C++ build",
+    "es": "Configurando la compilación de C++",
+    "fr": "Configuration de la compilation C++",
+    "it": "Configurazione della compilazione C++"
+  },
+  "step_5": {
+    "de": "Spiel kompilieren",
+    "en": "Compiling the game",
+    "es": "Compilando el juego",
+    "fr": "Compilation du jeu",
+    "it": "Compilazione del gioco"
+  },
+  "step_6": {
+    "de": "Spielordner vorbereiten",
+    "en": "Setting up the play folder",
+    "es": "Preparando la carpeta del juego",
+    "fr": "Préparation du dossier du jeu",
+    "it": "Preparazione della cartella del gioco"
+  },
+  "step_stopped": {
+    "de": "{0} – abgebrochen",
+    "en": "{0} stopped",
+    "es": "{0} – detenido",
+    "fr": "{0} – arrêté",
+    "it": "{0} – interrotta"
+  },
+  "stopped": {
+    "de": "Build abgebrochen",
+    "en": "Build stopped",
+    "es": "Compilación detenida",
+    "fr": "Compilation arrêtée",
+    "it": "Compilazione interrotta"
+  },
+  "system_check": {
+    "de": "Systemprüfung",
+    "en": "System check",
+    "es": "Comprobación del sistema",
+    "fr": "Vérification du système",
+    "it": "Verifica del sistema"
+  },
+  "tool_failed": {
+    "de": "{0} ist fehlgeschlagen ({1})",
+    "en": "{0} failed ({1})",
+    "es": "Falló {0} ({1})",
+    "fr": "Échec de {0} ({1})",
+    "it": "Errore di {0} ({1})"
+  },
+  "tool_output": {
+    "de": "Werkzeugausgabe",
+    "en": "Tool output",
+    "es": "Registro de las herramientas",
+    "fr": "Journal des outils",
+    "it": "Registro degli strumenti"
+  },
+  "tools": {
+    "de": "Werkzeuge",
+    "en": "Tools",
+    "es": "Herramientas",
+    "fr": "Outils",
+    "it": "Strumenti"
+  },
+  "use_disc": {
+    "de": "Dieses Disc-Abbild verwenden? [J/n]",
+    "en": "Use this disc image? [Y/n]",
+    "es": "¿Usar esta imagen de disco? [S/n]",
+    "fr": "Utiliser cette image disque ? [O/n]",
+    "it": "Usare questa immagine disco? [S/n]"
+  },
+  "vu_mode": {
+    "de": "VU1-Modus",
+    "en": "VU1 mode",
+    "es": "Modo VU1",
+    "fr": "Mode VU1",
+    "it": "Modalità VU1"
+  },
+  "vu_whole": {
+    "de": "Ganze Blöcke (bis zu 17 GB pro Datei)",
+    "en": "Whole blocks (up to 17 GB per file)",
+    "es": "Bloques completos (hasta 17 GB por archivo)",
+    "fr": "Blocs entiers (jusqu’à 17 Go par fichier)",
+    "it": "Blocchi interi (fino a 17 GB per file)"
+  },
+  "windows_game": {
+    "de": "Windows-Spiel",
+    "en": "Windows game",
+    "es": "Juego para Windows",
+    "fr": "Jeu Windows",
+    "it": "Gioco per Windows"
+  },
+  "windows_only": {
+    "de": "Dieser Build ist nur unter Windows verfügbar.",
+    "en": "The game build is Windows-only.",
+    "es": "Esta compilación solo funciona en Windows.",
+    "fr": "Ce mode de compilation est réservé à Windows.",
+    "it": "Questa compilazione è disponibile solo su Windows."
+  },
+  "windows_start": {
+    "de": "Windows-Spiel erstellen",
+    "en": "Building the Windows game",
+    "es": "Compilando el juego para Windows",
+    "fr": "Compilation du jeu Windows",
+    "it": "Compilazione del gioco per Windows"
+  },
+  "worker": {
+    "de": "Prozess",
+    "en": "worker",
+    "es": "proceso",
+    "fr": "processus",
+    "it": "processo"
+  },
+  "workers": {
+    "de": "Prozesse",
+    "en": "workers",
+    "es": "procesos",
+    "fr": "processus",
+    "it": "processi"
+  },
+  "yes": {
+    "de": "j,ja,y,yes",
+    "en": "y,yes",
+    "es": "s,sí,si,y,yes",
+    "fr": "o,oui,y,yes",
+    "it": "s,sì,si,y,yes"
+  }
+}

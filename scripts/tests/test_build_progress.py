@@ -80,10 +80,6 @@ def write_object(path):
 
 @unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) not on PATH")
 class CounterTests(unittest.TestCase):
-    def test_counter_has_no_padding(self):
-        out = run("Format-CompileCounter 1 299; Format-CompileCounter 7 0; Format-CompileCounter 12 3")
-        self.assertEqual(out.split(), ["[1/299]", "[7]", "[12]"])
-
     def test_durations(self):
         out = run(
             "Format-Duration ([TimeSpan]::FromSeconds(45)); Format-Duration ([TimeSpan]::FromMinutes(11.5)); "
@@ -145,13 +141,11 @@ class TrackerTests(unittest.TestCase):
                 [IO.File]::WriteAllBytes({quote(objects["ps2_vu1_aot_0.cpp"])}, [byte[]]@())
                 $finished = Update-CompileTracker $t $start.AddMinutes(2)
                 "finished $($finished.Name) running $($t.Running.Count) oldest $((Get-OldestCompile $t).Name)"
-                Format-RunningCompile (Get-OldestCompile $t) $start.AddMinutes(4)
                 """
             )
             lines = out.strip().splitlines()
             self.assertEqual(lines[0], "running 2 done 0")
             self.assertEqual(lines[1], "finished main.cpp running 1 oldest ps2_vu1_aot_0.cpp")
-            self.assertEqual(lines[2], "ps2_vu1_aot_0.cpp, 4 min so far (usually about 6 min)")
 
     def test_unknown_files_finish_once_the_slots_are_full(self):
         out = run(
@@ -184,12 +178,26 @@ class TrackerTests(unittest.TestCase):
 
 @unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) not on PATH")
 class ProgressLineTests(unittest.TestCase):
-    def test_the_step_title_is_short(self):
+    def test_live_frames_animate_and_keep_the_count_and_percentage(self):
         out = run(
-            "Get-ProgressTitle '[5/6] Compiling the game (380 files, one to two hours on a fast PC)'; "
-            "Get-ProgressTitle '[3/6] Generating the game C++'"
+            "Format-BuildProgressFrame 0 50 '2/4 files, 00:00:08' 79; "
+            "Format-BuildProgressFrame 1 50 '2/4 files, 00:00:08' 79; "
+            "Format-BuildProgressFrame 2 50 '2/4 files, 00:00:08 | very_long_source.cpp' 35; "
+            "Format-BuildProgressFrame 3 -1 '00:00:08 elapsed' 79; "
+            "Format-BuildProgressFrame 4 50 '2/4 files, 00:00:08 | multiplayer_session_menu.cpp 1 s' 79"
         )
-        self.assertEqual(out.strip().splitlines(), ["[5/6] Compiling the game", "[3/6] Generating the game C++"])
+        first, second, narrow, indeterminate, active = out.splitlines()
+        self.assertNotEqual(first, second)
+        self.assertIn("#" * 10 + "-" * 10, first)
+        for line in (first, second, narrow):
+            self.assertTrue(line.isascii())
+            self.assertIn("50%", line)
+            self.assertIn("2/4 files, 00:00:08", line)
+        self.assertLessEqual(len(narrow), 35)
+        self.assertIn("###", indeterminate)
+        self.assertNotIn("%", indeterminate)
+        self.assertIn("multiplayer_session_menu.cpp 1 s", active)
+        self.assertLessEqual(len(active), 79)
 
     def test_status_is_one_short_line_with_the_slow_file(self):
         out = run(
@@ -205,10 +213,50 @@ class ProgressLineTests(unittest.TestCase):
         lines = out.strip().splitlines()
         self.assertEqual(lines[0], "262/380 files, 00:04:09 | ps2_vu1_aot_2.cpp 4 min (about 6 min)")
         self.assertEqual(lines[1], "262/380 files, 00:04:09")
-        self.assertEqual(lines[2], "5/380 files, 00:00:20", "a file that just started is not shown")
+        self.assertEqual(lines[2], "5/380 files, 00:00:20 | a.cpp 5 s")
         self.assertEqual(lines[3], "400 files, 00:09:00")
         for line in lines:
             self.assertLess(len(line), 80, "short enough for a narrow console")
+
+    def test_active_source_accepts_msbuild_prefixes_and_paths(self):
+        out = run(
+            r"""
+            Get-CompileSourceName '  renderer.cpp'
+            Get-CompileSourceName '  4> "C:\Build directory\runtime.cpp"'
+            Get-CompileSourceName '  4> C:\Build directory\audio.cc'
+            Get-CompileSourceName '  "C:\VS\cl.exe" /c "C:\Build directory\other.cxx"'
+            Get-CompileSourceName '  renderer.cpp(3): error C2084: already defined'
+            """
+        )
+        self.assertEqual(out.split(), ["renderer.cpp", "runtime.cpp", "audio.cc"])
+
+    def test_silent_compiler_counts_new_and_rebuilt_objects_once(self):
+        with tempfile.TemporaryDirectory() as folder:
+            rebuilt = Path(folder) / "rebuilt.obj"
+            new = Path(folder) / "new.obj"
+            rebuilt.write_bytes(b"old")
+            os.utime(rebuilt, (1, 1))
+            out = run(
+                f"""
+                $rebuilt = {quote(rebuilt)}
+                $new = {quote(new)}
+                $watch = New-CompileOutputWatch @(@{{ Object = $rebuilt }}, @{{ Object = $new }})
+                Update-CompileOutputWatch $watch
+                $watch.Finished
+                [IO.File]::WriteAllBytes($new, [byte[]]@())
+                Update-CompileOutputWatch $watch
+                $watch.Finished
+                [IO.File]::WriteAllText($rebuilt, 'rebuilt')
+                Update-CompileOutputWatch $watch
+                $watch.Finished
+                [IO.File]::WriteAllText($new, 'compiled')
+                Update-CompileOutputWatch $watch
+                $watch.Finished
+                Update-CompileOutputWatch $watch
+                $watch.Finished
+                """
+            )
+            self.assertEqual(out.split(), ["0", "0", "1", "2", "2"])
 
 
 class StageNoteTests(unittest.TestCase):
@@ -220,20 +268,19 @@ class StageNoteTests(unittest.TestCase):
         start = text.index("Write-BuildStep 'Setting up the play folder'")
         step = text[start:]
         for stage in (
-            "Extracting the original character meshes",
-            "Making the multiplayer character motions",
-            "Extracting the Drakan 2 cover picture",
-            "Copying the game into the play folder",
-            "Installing the mod packs",
-            "Writing the launch files",
-            "Making the multiplayer map pictures",
-            "Adding the map pictures to the mod packs",
-            "Making the settings pictures",
+            "characters_extract",
+            "motions_make",
+            "cover_extract",
+            "game_copy",
+            "mods_install",
+            "launch_write",
+            "map_pictures_make",
+            "map_pictures_add",
+            "settings_pictures_make",
         ):
-            self.assertIn(f"Write-Stage '{stage}", step)
-        for stage in ("Making the multiplayer map pictures", "Making the settings pictures"):
-            line = next(ln for ln in step.splitlines() if f"Write-Stage '{stage}" in ln)
-            self.assertIn("opens and closes by itself", line, "users are told the game starts several times")
+            self.assertIn(f"Write-Stage (Get-BuildText '{stage}')", step)
+        for stage in ("map_pictures_make", "settings_pictures_make"):
+            self.assertIn(f"Write-Stage (Get-BuildText '{stage}') (Get-BuildText 'game_opens')", step)
         self.assertIn("$script:stageNote", text.split("function Invoke-Logged")[1], "the bar shows the stage")
         self.assertIn(
             "$script:stageNote = ''",

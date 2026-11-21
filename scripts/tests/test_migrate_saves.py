@@ -347,7 +347,7 @@ class BuilderWiringTests(unittest.TestCase):
             between = text[rescue : index + line.index("Remove-Item")]
             self.assertLessEqual(between.count("\n"), 1, between)
         # A failed rescue stops the script before the delete.
-        self.assertRegex(text, r"if \(\$LASTEXITCODE\) \{\s*throw \"Saves in \$WorkDir could not be copied")
+        self.assertRegex(text, r"if \(\$LASTEXITCODE\) \{\s*throw \(Get-BuildText 'rescue_failed'")
 
     def test_build_local_game_copies_the_saves_and_keeps_the_backups(self):
         text = (BUILDTOOL / "Build-LocalGame.ps1").read_text(encoding="utf-8")
@@ -355,7 +355,7 @@ class BuilderWiringTests(unittest.TestCase):
         for name in ("'mc0'", "'mc1'", "'mc0_*'", "'mc1_*'", "'save-backups'", "'*.ini'"):
             self.assertIn(name, keep)
         call = text.index("'migrate_saves.py'),'--play',$DistDirectory,'--work',$WorkDir")
-        self.assertGreater(call, text.index("Copying the game into the play folder"))
+        self.assertGreater(call, text.index("Write-Stage (Get-BuildText 'game_copy')"))
         # The build never deletes its own WorkDir, so the old place survives a failed copy.
         self.assertNotRegex(text, r"Remove-Item -LiteralPath \$WorkDir\b")
 

@@ -5,6 +5,12 @@ Tested 2026-10-17 with a private copy of the shipped exe (`build/research/run_hd
 `hd_batch_realesrgan.ps1`. Pipeline code: `runtime/gs/src/d3d11_backend.cpp` (`setupUpscale`, `scanTexDir`), `gs_texup.cpp` (`hashContent`, `writePngRGBA`, `readImageFile`).
 
 ## 1. How it works (verified)
+
+The builder reuses a local pack by default. Put the hash-named PNG or DDS files in `local/textures` or leave them in an
+existing play folder's `textures` directory. Use `-TextureDirectory <folder>` to select a pack explicitly. If you have
+no local pack, the game uses the original textures. `Build-Drakan.ps1 -HdTextures on` generates a pack from your disc.
+The repo and release packages exclude disc-derived packs. See [Building Drakan PC](../../BUILDING.md#optional-extras-order-of-the-flame-and-hd-textures).
+
 * A texture is hashed **after decoding** (CLUT + TEXA applied, RGBA8, alpha 0..0x80 in GS units) with a 64 bit hash of the level-0 pixels + width/height. Dump = `<texdir>/dump/<hash>.png`
   (alpha 0x80 -> 255); replacement = `<texdir>/<hash>.png|.dds` (any 2/4/8x multiple, else resampled to the nearest power-of-two factor); mips are regenerated from the replacement; render targets
   (framebuffer-as-texture) are never hashed; `exclude.txt` lists hashes to skip.

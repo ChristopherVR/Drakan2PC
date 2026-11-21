@@ -8,7 +8,9 @@
 
 import json
 import os
+import re
 import shutil
+import string
 import subprocess
 import sys
 import tempfile
@@ -29,7 +31,7 @@ def pwsh(body, cwd=None, timeout=120, env=None):
     return subprocess.run(
         [PWSH, "-NoProfile", "-NonInteractive", "-Command", f"$ErrorActionPreference = 'Stop'; {body}"],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
         timeout=timeout,
         cwd=cwd,
         env=env,
@@ -61,6 +63,21 @@ class BuilderParseTests(unittest.TestCase):
         self.assertIn("Write-BuildStep 'Setting up the play folder'", text)
         drakan = (BUILDTOOL / "Build-Drakan.ps1").read_text(encoding="utf-8")
         self.assertIn("Invoke-BuildWithRetry (Join-Path $PSScriptRoot 'Build-LocalGame.ps1')", drakan)
+
+
+class BuilderLanguageTests(unittest.TestCase):
+    def test_each_message_has_all_five_locales_and_the_same_format_arguments(self):
+        catalog = json.loads((BUILDTOOL / "build-messages.json").read_text(encoding="utf-8"))
+
+        def fields(text):
+            return sorted(field for _, field, _, _ in string.Formatter().parse(text) if field is not None)
+
+        for key, messages in catalog.items():
+            with self.subTest(key=key):
+                self.assertEqual(set(messages), {"en", "de", "fr", "it", "es"})
+                self.assertTrue(all(messages.values()))
+                for translation in messages.values():
+                    self.assertEqual(fields(translation), fields(messages["en"]))
 
 
 STUB = r"""
@@ -159,12 +176,16 @@ class CheckOnlyTests(unittest.TestCase):
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
             self.assertIn("Ready to build.", output)
-            self.assertRegex(output, r"Memory: +\d+ GB -> 1 project\(s\) x 1 compiler process\(es\)")
+            self.assertRegex(output, r"Compiler +Up to 1 worker, \d+ GB RAM, normal priority, CPU mask 0x1")
+            self.assertLess(output.index("System check"), output.index("Game files"))
+            self.assertLess(output.index("Game files"), output.index("Build plan"))
+            self.assertIn("Use original textures", output)
+            self.assertNotIn("\x1b", output)
             self.assertTrue((copy / "build/iso-path.txt").is_file())
             options = json.loads((copy / "build/build-options.json").read_text())
             self.assertEqual(options["cpuAffinity"], "0x1")
             self.assertEqual(options["vuBlocks"], "Whole")
-            self.assertIn("VU1:     whole blocks", output)
+            self.assertRegex(output, r"VU1 mode +Whole blocks")
 
     def kit_copy(self, temp, bundled=False):
         """A copy of the builder scripts, so the remembered ISO, build options and build-log.txt stay in temp."""
@@ -195,9 +216,74 @@ class CheckOnlyTests(unittest.TestCase):
             )
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
-            self.assertIn("Sources: bundled", output)
+            self.assertIn("Bundled with the builder", output)
             self.assertNotIn("Git on PATH", output)
             self.assertIn("Ready to build.", output)
+
+    def test_hd_plan_reuses_a_local_pack_by_default_and_accepts_an_explicit_pack(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp).resolve()
+            copy = self.kit_copy(temp)
+            iso = synthetic_iso(temp)
+            script = copy / "scripts/buildtool/Build-Drakan.ps1"
+            play = temp / "Play folder"
+            local_pack = copy / "local/textures"
+            play_pack = play / "textures"
+            local_pack.mkdir(parents=True)
+            play_pack.mkdir(parents=True)
+            (local_pack / "alias.txt").write_text("metadata only", encoding="utf-8")
+            (play_pack / "0123456789abcdef.png").write_bytes(b"replacement")
+            command = f"& {quote(script)} -IsoPath {quote(iso)} -DistDirectory {quote(play)} -CheckOnly"
+            result = pwsh(command)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stdout, r"HD textures +Reuse " + re.escape(str(play_pack)))
+            (local_pack / "abcdef0123456789.dds").write_bytes(b"replacement")
+            result = pwsh(command)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stdout, r"HD textures +Reuse " + re.escape(str(local_pack)))
+            result = pwsh(command + f" -TextureDirectory {quote(play_pack)}")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stdout, r"HD textures +Reuse " + re.escape(str(play_pack)))
+            result = pwsh(command + " -HdTextures on")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Generate locally after the build", result.stdout)
+            result = pwsh(command)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("Generate locally after the build", result.stdout)
+            result = pwsh(command + " -HdTextures auto")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stdout, r"HD textures +Reuse " + re.escape(str(local_pack)))
+            result = pwsh(command + f" -TextureDirectory {quote(play / 'missing')}")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("HD texture folder not found", result.stderr)
+            self.assertIn("Session log", result.stdout)
+
+    def test_console_language_is_remembered_and_auto_falls_back_to_english(self):
+        with tempfile.TemporaryDirectory() as temp:
+            copy = self.kit_copy(temp)
+            script = copy / "scripts/buildtool/Build-Drakan.ps1"
+            command = f"& {quote(script)} -IsoPath {quote(synthetic_iso(temp))} -CheckOnly -Plain"
+            for language, heading in (
+                ("de", "Systemprüfung"),
+                ("it", "Verifica del sistema"),
+                ("es", "Comprobación del sistema"),
+                ("fr", "Vérification du système"),
+            ):
+                with self.subTest(language=language):
+                    result = pwsh(command + f" -Language {language}")
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn(heading, result.stdout)
+                    self.assertNotIn("\x1b", result.stdout)
+            remembered = pwsh(command)
+            self.assertEqual(remembered.returncode, 0, remembered.stderr)
+            self.assertIn("Prêt à compiler.", remembered.stdout)
+            unsupported = pwsh(
+                "[CultureInfo]::CurrentUICulture = [CultureInfo]::GetCultureInfo('ja-JP'); "
+                + command
+                + " -Language auto"
+            )
+            self.assertEqual(unsupported.returncode, 0, unsupported.stderr)
+            self.assertIn("Ready to build.", unsupported.stdout)
 
     def test_first_run_asks_where_the_game_goes_and_remembers_it(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -226,7 +312,7 @@ class CheckOnlyTests(unittest.TestCase):
                     )
                     output = result.stdout + result.stderr
                     self.assertIn("Where should the game go?", output)
-                    self.assertIn(f"Play:    {expected}", output)
+                    self.assertRegex(output, r"Play folder +" + re.escape(expected))
                     self.assertIn("ISO not found", output)
                     self.assertEqual(json.loads(options_file.read_text())["playFolder"], expected)
             # Remembered: a later run does not ask again.

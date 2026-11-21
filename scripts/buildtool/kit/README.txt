@@ -35,12 +35,16 @@ changes that later.)
 
 BUILD
 -----
-DrakanPC-Setup.exe: choose a folder and your .iso, and leave "Build the game
-now" ticked on the last page. A build window opens.
+DrakanPC-Setup.exe: choose a language, a folder and your .iso, and leave
+"Build the game now" ticked on the last page. The build window uses the
+language you chose. The ZIP builder follows the Windows display language.
+Run Build-Drakan.cmd -Language en, de, fr, it or es to choose a language
+for rebuilds. Use -Language auto to return to the Windows default.
 
 The first build takes one to two hours; most of it is compiling the game code.
-Some files take about 10 minutes each with no new output, so the window can
-look stuck for a while; leave it running. When the window says "Done", start
+The activity indicator shows when a tool is still running. The file counter
+advances as files finish, and some take several minutes. Use -Plain for
+motion-free output. When the window says the game is ready, start
 the game with the "Drakan - The Ancients' Gates" shortcut (Start menu or
 desktop). The game files are in the install folder under dist\DrakanPC.
 
@@ -89,7 +93,11 @@ OPTIONAL EXTRAS
   to transcribe on this PC (about 145 MiB to download and 5 to 15 minutes the first time).
   -OotfSubtitles bundled restores the default. -OotfSource none removes
   the campaign from later rebuilds.
-* HD textures: tick "Make HD textures after the build" in the setup (or run
+* HD textures: the builder automatically reuses a pack in local\textures or
+  an existing play folder's textures directory. Use -TextureDirectory <folder>
+  to choose a pack elsewhere. If you have no pack, the game uses the original
+  textures. To make a pack from your disc, tick "Generate HD textures after
+  the build" in the setup (or run
   Build-Drakan.cmd -HdTextures on). Every texture of the disc, and of Order of
   the Flame when chosen, is upscaled 4x with the free Real-ESRGAN AI upscaler on
   your graphics card (any Vulkan card). The builder downloads the tools once

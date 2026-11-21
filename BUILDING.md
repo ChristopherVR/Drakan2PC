@@ -166,24 +166,22 @@ largest generated files and 1.9 GB on a VU1 AOT slice, whose blocks compile in c
 with room for both sets plus 6 GB) from the installed memory. `-VuBlocks Whole` (installer option "Compile the VU1
 microcode as whole blocks", `/VUBLOCKS=whole`; remembered in `build/build-options.json`) passes `Build-LocalGame.ps1
 -VuChunk 0` (CMake `PS2X_VU1_AOT_CHUNK=0`, and `PS2X_VU1_AOT_SERIAL=ON`: whole-block slices take up to ~17 GB each in
-cl) and keeps a 17 GB reservation for a slice in the `-Jobs` choice. From the
-installed memory, asks for the ISO when not given (file dialog; remembered in
+cl) and keeps a 17 GB reservation for a slice in the `-Jobs` choice. The builder asks for the ISO when omitted (file dialog; remembered in
 `build/iso-path.txt`) and calls `Build-LocalGame.ps1` with `WorkDir` `build/game` (`-Incremental` once prepared). A
 failed compile is retried once incrementally with `-Jobs 1` and half the compiler processes. `-DistDirectory` (play
 folder) is remembered in `build/build-options.json` with the CPU choices. Before a rebuild it reads
 `build/game/build-state.json` (the step `Build-LocalGame.ps1` last started and how the run ended) and checks each
 step's outputs on disk (`Get-BuildReview` in `Build-Progress.ps1`: the boot ELF and `config.toml`, generated sources
 plus `recompile.stamp`, the VU1 image, `CMakeCache.txt`, and the object of every source of `ps2EntryRunner` and its
-project references against its source), prints that, and continues from the first incomplete step (Enter) or starts
-over (`S`, or `-Fresh`); incomplete ISO files always start over. It also passes `-Progress` (numbered steps, a progress
-bar on one short line (step, `done/total files`, elapsed time, and the longest-running file with its usual time), one
-`[n/N]` line per compiled file where N is what is still out of date, and a
-"still compiling" line every 3 minutes for that file, measured against its time on this PC from
-`build/game/compile-times.json`; cl creates an empty object when it starts a file, so a file counts as finished once
-its object is non-empty and newer than its start (a file the plan has no object for is never shown as the longest-running one,
-since its end cannot be seen). The tools' own output goes to `build/game-output.log` and only errors
-and, on failure, the output's tail reach the console) and, while
-`build/game` is not configured yet, `-NoWarnings` (CMake `DRAKAN_COMPILER_WARNINGS=OFF`, `/W0` instead of `/W4`; not
+project references against its source). The console shows where it can resume. Press Enter to continue or `S` to
+start fresh (`-Fresh` on the command line). Incomplete ISO files trigger a fresh build. Before compilation, the
+console shows the play folder, compiler workload and HD texture source. During the six build steps, the activity
+indicator keeps moving while a tool runs. The builder counts completed compiler output on disk, so progress can
+advance while the compiler is quiet. Each completed stage shows its duration. The live line shows elapsed time and
+displays the longest-running tracked filename as soon as the compiler reports it. Set `NO_COLOR=1` to turn off colors or use `-Plain`
+for motion-free updates. Redirected output gets an initial status and periodic plain-text updates. The full tool log
+goes to `build/game-output.log` by default, and a short excerpt appears on failure. On an unconfigured build folder,
+the builder passes `-NoWarnings` (CMake `DRAKAN_COMPILER_WARNINGS=OFF`, `/W0` instead of `/W4`; not
 applied to a configured tree because the flag change would recompile everything). The console is logged to
 `build-log.txt`. The result is `dist/DrakanPC` in the install folder, with the `scripts/launchers` `Play*.cmd` files.
 The 106 PC Settings help pictures (`scripts/buildtool/kit/art/settings`, about 100 MB, listed in `settings.sha256` which the repository guard reads) are
@@ -199,6 +197,12 @@ so. Later builds skip the pictures already made.
 `Build-Drakan.cmd -CheckOnly` stops after the checks and installs nothing. The built game is derived from the disc and
 is not for sharing; only the setup/kit is.
 
+The Windows build console supports English, German, French, Italian and Spanish. Setup passes its selected language
+to the first build. The ZIP builder follows your Windows display language, with English as the fallback. Use
+`Build-Drakan.cmd -Language de` to choose explicitly (codes `en`, `de`, `fr`, `it`, `es`) or `-Language auto` to
+return to the Windows default. The builder remembers this choice for rebuilds. The game's language is set separately.
+Tool diagnostics and the project's custom Setup pages may still appear in English.
+
 ### Game options page
 
 The setup's "Game options" page asks whether to start with the modernised menus (`drakan.ini title_menu = modern`, else
@@ -213,9 +217,14 @@ a plain "Rebuild Drakan" does not pass them, so it never overwrites the player's
 
 Both are made on the player's PC from files the player owns (`scripts/buildtool/extras.py`, standard library only, so it
 runs under the kit's embeddable Python; nothing is uploaded or committed). The setup has an "Order of the Flame" page
-(`/OOTF=<path>`), a page of its own each for NVIDIA DLSS and for HD textures (`/HD=1`), and one for the other options
-(browser build, low priority, start when done, VU1 blocks); `Build-Drakan.ps1` takes `-OotfSource <path|none>`, `-HdTextures
-on|off` and `-HdGpu <n>`, asks once on an interactive first run and remembers the answers in `build/build-options.json`.
+(`/OOTF=<path>`), separate pages for NVIDIA DLSS and HD texture generation (`/HD=1`), and one for the other options
+(browser build, low priority, start when done, VU1 blocks). The builder asks about Order of the Flame on its first
+interactive run and remembers the answer and the HD generation choice in `build/build-options.json`.
+
+* **Reuse HD textures** (default, `-HdTextures auto`). The builder looks in `local/textures` in the builder folder,
+  the selected play folder's `textures`, then `dist/DrakanPC/textures`. Pass `-TextureDirectory <folder>` to choose an
+  existing pack explicitly. A fresh install uses the original textures when no pack is available. The repo and
+  release packages exclude these disc-derived textures. The legacy `-HdTextures off` also skips generation.
 
 * **Drakan: Order of the Flame** (`-OotfSource`): an install folder (`Dragon.rrc` beside a world folder, found one level
   down too), a copy of the disc (`SETUP/DATA1.CAB`), a disc image (`.mdx` / `.iso`, or a `.cue` with its `.bin` tracks; the raw 2352-byte data track is
@@ -416,8 +425,8 @@ then `upscale` (see `docs/reference/hd-textures.md`, "Regenerate"). The file nam
 and the decode are deterministic; the Real-ESRGAN pixels depend on the GPU and driver, so a regenerated
 pack matches the old one by name but not necessarily bit for bit.
 
-Linux and browser deployment reuse the same optional HD pack: the builder checks
-`local/textures`, then the existing `dist/DrakanPC/textures`. An explicit
+Windows, Linux and browser deployment reuse an optional local HD pack. The builder checks `local/textures`, followed
+by the selected play folder's `textures` and then `dist/DrakanPC/textures`. An explicit
 `-TextureDirectory <folder>` overrides that source (`--texture-dir` for
 `Build-Drakan.sh`). Only hash-named PNG/DDS images and alias/exclusion metadata
 are staged for native play; existing player files are preserved. The browser
