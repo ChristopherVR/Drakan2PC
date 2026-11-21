@@ -240,80 +240,56 @@ if(NOT PS2X_ENABLE_FFMPEG)
     message(STATUS "FFmpeg disabled; MPEG video decode falls back to stub frames")
     add_library(ffmpeg INTERFACE)
 elseif(WIN32)
-    include(ExternalProject)
-
-    set(FFMPEG_PREBUILT_TAG "n7.1-241205")
-    # FFMPEG_PREBUILT_URL may point at a local copy of the same archive (the offline builder kit passes one).
-    if(NOT FFMPEG_PREBUILT_URL)
-        set(FFMPEG_PREBUILT_URL
-            "https://github.com/System233/ffmpeg-msvc-prebuilt/releases/download/${FFMPEG_PREBUILT_TAG}/ffmpeg-${FFMPEG_PREBUILT_TAG}-lgpl-amd64-shared.zip")
+    if(NOT FFMPEG_PREBUILT_DIR AND NOT FFMPEG_PREBUILT_URL AND EXISTS "${DRAKAN_ROOT_DIR}/deps/ffmpeg/bin/avcodec.lib")
+        set(FFMPEG_PREBUILT_DIR "${DRAKAN_ROOT_DIR}/deps/ffmpeg")
     endif()
-
-    set(FFMPEG_PREFIX_DIR "${CMAKE_BINARY_DIR}/ThirdParty/ffmpeg-prefix")
-    set(FFMPEG_SOURCE_DIR "${FFMPEG_PREFIX_DIR}/src/ffmpeg_external")
+    if(FFMPEG_PREBUILT_DIR)
+        set(FFMPEG_SOURCE_DIR "${FFMPEG_PREBUILT_DIR}")
+    else()
+        set(FFMPEG_PREFIX_DIR "${CMAKE_BINARY_DIR}/ThirdParty/ffmpeg-prefix")
+        set(FFMPEG_SOURCE_DIR "${FFMPEG_PREFIX_DIR}/src/ffmpeg_external")
+    endif()
     set(FFMPEG_INCLUDE_DIR "${FFMPEG_SOURCE_DIR}/include")
     set(FFMPEG_LIB_DIR "${FFMPEG_SOURCE_DIR}/bin")
     set(FFMPEG_BIN_DIR "${FFMPEG_SOURCE_DIR}/bin")
 
-    ExternalProject_Add(ffmpeg_external
-        URL "${FFMPEG_PREBUILT_URL}"
-        URL_HASH SHA256=b985887dbca8c0a9a4c47f9d2bac7ec3ab994335b1b7fe7000bdb1dcd772ac68
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-        PREFIX "${FFMPEG_PREFIX_DIR}"
-        CONFIGURE_COMMAND ""
-        BUILD_COMMAND ""
-        INSTALL_COMMAND ""
-        BUILD_BYPRODUCTS
-        "${FFMPEG_LIB_DIR}/avcodec.lib"
-        "${FFMPEG_LIB_DIR}/avformat.lib"
-        "${FFMPEG_LIB_DIR}/avutil.lib"
-        "${FFMPEG_LIB_DIR}/swresample.lib"
-        "${FFMPEG_LIB_DIR}/swscale.lib"
-    )
-
-    # Link against the import libraries shipped with the Windows DLLs.
-    add_library(ffmpeg_avcodec STATIC IMPORTED GLOBAL)
-    set_target_properties(ffmpeg_avcodec PROPERTIES
-        IMPORTED_LOCATION "${FFMPEG_LIB_DIR}/avcodec.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
-    )
-    add_dependencies(ffmpeg_avcodec ffmpeg_external)
-
-    add_library(ffmpeg_avformat STATIC IMPORTED GLOBAL)
-    set_target_properties(ffmpeg_avformat PROPERTIES
-        IMPORTED_LOCATION "${FFMPEG_LIB_DIR}/avformat.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
-    )
-    add_dependencies(ffmpeg_avformat ffmpeg_external)
-
-    add_library(ffmpeg_avutil STATIC IMPORTED GLOBAL)
-    set_target_properties(ffmpeg_avutil PROPERTIES
-        IMPORTED_LOCATION "${FFMPEG_LIB_DIR}/avutil.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
-    )
-    add_dependencies(ffmpeg_avutil ffmpeg_external)
-
-    add_library(ffmpeg_swresample STATIC IMPORTED GLOBAL)
-    set_target_properties(ffmpeg_swresample PROPERTIES
-        IMPORTED_LOCATION "${FFMPEG_LIB_DIR}/swresample.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
-    )
-    add_dependencies(ffmpeg_swresample ffmpeg_external)
-
-    add_library(ffmpeg_swscale STATIC IMPORTED GLOBAL)
-    set_target_properties(ffmpeg_swscale PROPERTIES
-        IMPORTED_LOCATION "${FFMPEG_LIB_DIR}/swscale.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
-    )
-    add_dependencies(ffmpeg_swscale ffmpeg_external)
+    set(FFMPEG_LIBRARIES avcodec avformat avutil swresample swscale)
+    if(NOT FFMPEG_PREBUILT_DIR)
+        include(ExternalProject)
+        set(FFMPEG_PREBUILT_TAG "n7.1-241205")
+        if(NOT FFMPEG_PREBUILT_URL)
+            set(FFMPEG_PREBUILT_URL
+                "https://github.com/System233/ffmpeg-msvc-prebuilt/releases/download/${FFMPEG_PREBUILT_TAG}/ffmpeg-${FFMPEG_PREBUILT_TAG}-lgpl-amd64-shared.zip")
+        endif()
+        set(FFMPEG_BYPRODUCTS "")
+        foreach(name IN LISTS FFMPEG_LIBRARIES)
+            list(APPEND FFMPEG_BYPRODUCTS "${FFMPEG_LIB_DIR}/${name}.lib")
+        endforeach()
+        ExternalProject_Add(ffmpeg_external
+            URL "${FFMPEG_PREBUILT_URL}"
+            URL_HASH SHA256=b985887dbca8c0a9a4c47f9d2bac7ec3ab994335b1b7fe7000bdb1dcd772ac68
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+            PREFIX "${FFMPEG_PREFIX_DIR}"
+            CONFIGURE_COMMAND ""
+            BUILD_COMMAND ""
+            INSTALL_COMMAND ""
+            BUILD_BYPRODUCTS ${FFMPEG_BYPRODUCTS}
+        )
+    endif()
 
     add_library(ffmpeg INTERFACE)
+    foreach(name IN LISTS FFMPEG_LIBRARIES)
+        add_library(ffmpeg_${name} STATIC IMPORTED GLOBAL)
+        set_target_properties(ffmpeg_${name} PROPERTIES
+            IMPORTED_LOCATION "${FFMPEG_LIB_DIR}/${name}.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIR}"
+        )
+        if(TARGET ffmpeg_external)
+            add_dependencies(ffmpeg_${name} ffmpeg_external)
+        endif()
+        target_link_libraries(ffmpeg INTERFACE ffmpeg_${name})
+    endforeach()
     target_link_libraries(ffmpeg INTERFACE
-        ffmpeg_avcodec
-        ffmpeg_avformat
-        ffmpeg_avutil
-        ffmpeg_swresample
-        ffmpeg_swscale
         bcrypt
         secur32
         ws2_32

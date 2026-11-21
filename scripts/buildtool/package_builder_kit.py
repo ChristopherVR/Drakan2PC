@@ -27,25 +27,161 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 KIT = HERE / "kit"
-# Developer-only material the build never reads.
-EXCLUDED_PREFIXES = ("docs/journal/", "scripts/archive/", ".github/", ".githooks/", ".claude/")
-EXCLUDED_FILES = {"AGENTS.md", "CLAUDE.md"}
-# The player build only runs the PowerShell under scripts/buildtool/. The other .ps1 files are developer harnesses
-# (hidden game runs, profilers, test runners); left out because antivirus heuristics score them in a downloaded kit.
-BUILDER_POWERSHELL = "scripts/buildtool/"
+INSTALLER_LOCK = "scripts/buildtool/kit/installer.lock.json"
+# The Windows and browser builds, optional extras, and bundled recompiler share this source payload.
+BUILDER_DIRECTORIES = (
+    "cmake/",
+    "configs/regions/",
+    "editor/packages/editor-core/schema/",
+    "editor/packages/editor-core/src/",
+    "editor/packages/formats/src/",
+    "licenses/",
+    "ps2recomp/ps2xIOP/include/",
+    "ps2recomp/ps2xIOP/src/",
+    "ps2recomp/ps2xRecomp/include/",
+    "ps2recomp/ps2xRecomp/src/",
+    "ps2recomp/ps2xRuntime/cmake/",
+    "ps2recomp/ps2xRuntime/include/",
+    "ps2recomp/ps2xRuntime/src/",
+    "runtime/",
+    "scripts/buildtool/kit/art/maps/",
+    "scripts/buildtool/kit/art/settings/",
+    "scripts/buildtool/kit/models/",
+    "scripts/launchers/",
+    "third_party/fonts/",
+    "third_party/imgui/",
+)
+BUILDER_FILES = {
+    "BUILDING.md",
+    "CMakeLists.txt",
+    "CMakePresets.json",
+    "LICENSE",
+    "LICENSES.md",
+    "README.md",
+    "THIRD_PARTY.md",
+    "analysis/functions.csv",
+    "analysis/jumptables.csv",
+    "analysis/regions/usa/functions.csv",
+    "analysis/regions/usa/jumptables.csv",
+    *(
+        "analysis/scripts/" + name
+        for name in (
+            "character_motion.py",
+            "character_motion_retarget.ts",
+            "character_previews.py",
+            "coop_character_roster.py",
+            "hd_pack.py",
+            "iop_mangle.py",
+            "iop_srsc.py",
+            "lvl_dump.py",
+            "lvl_objects.py",
+            "material_maps.py",
+            "odb_fields.py",
+            "ootf_cab.py",
+            "ootf_hd_pack.py",
+            "ootf_ps2_data.py",
+            "ootf_subtitles.py",
+            "title_cover.py",
+            "txd_decode.py",
+            "ui_layout_dump.py",
+            "xdb_dump.py",
+        )
+    ),
+    "configs/drakan-usa.toml",
+    "configs/drakan.toml",
+    "configs/mp_maps.ini",
+    "docs/guides/saves.md",
+    "docs/reference/level-format.md",
+    "docs/reference/regions.md",
+    "editor/package.json",
+    "editor/packages/editor-core/package.json",
+    "editor/packages/formats/LICENSE",
+    "editor/packages/formats/package.json",
+    "editor/scripts/ootf-convert.ts",
+    "editor/scripts/ootf-speech.ts",
+    "ps2recomp/LICENSE",
+    "ps2recomp/ps2xIOP/CMakeLists.txt",
+    "ps2recomp/ps2xRecomp/CMakeLists.txt",
+    "ps2recomp/ps2xRuntime/CMakeLists.txt",
+    "runtime/fmv/README.md",
+    *(
+        "scripts/buildtool/" + name
+        for name in (
+            "Build-Affinity.ps1",
+            "Build-Drakan.ps1",
+            "Build-Drakan.sh",
+            "Build-Job.ps1",
+            "Build-LocalGame.ps1",
+            "Build-Policy.ps1",
+            "Build-Progress.ps1",
+            "Build-Textures.ps1",
+            "apply_defaults.py",
+            "bootstrap_linux.py",
+            "build-messages.json",
+            "build_tool.py",
+            "dlss.lock.json",
+            "extras.py",
+            "fetch_dlss_sdk.py",
+            "generate_runtime_profile.py",
+            "install_ootf_save_migrations.py",
+            "install_private_mods.py",
+            "kit/art/d2-cover.png",
+            "kit/art/ootf-cover.png",
+            "kit/subtitles/english.json",
+            "migrate_saves.py",
+            "prepare_iso.py",
+            "prepare_launch.py",
+            "prepare_web_deps.py",
+            "regions.json",
+            "serve_web.py",
+            "stage_texture_pack.py",
+            "toolchain.lock.json",
+            "web-toolchain.lock.json",
+        )
+    ),
+    *(
+        "scripts/harness/" + name
+        for name in (
+            "dual_wield_check.py",
+            "map_previews.py",
+            "netplay_two_instances.py",
+            "pack_map_previews.py",
+            "play_run.py",
+            "setting_shots.py",
+        )
+    ),
+    "scripts/prepare_local_runtime.py",
+    "third_party/wgpu-native/LICENSE.APACHE",
+    "third_party/wgpu-native/LICENSE.MIT",
+    INSTALLER_LOCK,
+}
+DEVELOPER_FILES = {
+    "runtime/vu1ref/recorder_hook.txt",
+    "runtime/vu1ref/vu1ref_dumptest.cpp",
+    "runtime/vu1ref/vu1ref_replay.cpp",
+    "runtime/vu1ref/vu1ref_ringscan.cpp",
+    "third_party/imgui/fonts/binary_to_compressed_c.cpp",
+}
 
 
 def excluded(name):
     """True for repository files the builder kit leaves out."""
-    if name.startswith(EXCLUDED_PREFIXES) or name in EXCLUDED_FILES:
+    if name in BUILDER_FILES:
+        return False
+    if not name.startswith(BUILDER_DIRECTORIES) or name in DEVELOPER_FILES:
         return True
-    return name.endswith(".ps1") and not name.startswith(BUILDER_POWERSHELL)
+    if (
+        name.startswith(("runtime/web/pages/", "runtime/fmv/tools/"))
+        or "/tests/" in name
+        or name.endswith("/README.md")
+    ):
+        return True
+    return any(part.startswith(".") for part in name.split("/"))
 
 
 # Files placed at the kit root, next to BUILDING.md.
 KIT_ROOT_FILES = {"Build-Drakan.cmd": KIT / "Build-Drakan.cmd", "README.txt": KIT / "README.txt"}
 INSTALLER_ROOT_FILES = {"SETUP-INFO.txt": KIT / "SETUP-INFO.txt"}
-ICON = "ps2recomp/ps2xRuntime/src/res/drakan.ico"
 # The builders whose Python scripts the installer smoke test runs, and the Node.js script step 6 runs.
 BUILDERS = ("scripts/buildtool/Build-LocalGame.ps1", "scripts/buildtool/Build-Drakan.ps1")
 RETARGET = "analysis/scripts/character_motion_retarget.ts"
@@ -114,7 +250,7 @@ def kit_entries(commit):
             raise RuntimeError(f"{name} already exists at the repository root")
         entries[name] = source.read_bytes()
     entries["KIT-VERSION.txt"] = f"commit {commit}\n".encode()
-    for required in ("CMakeLists.txt", "configs/drakan.toml", "scripts/buildtool/Build-Drakan.ps1"):
+    for required in ("CMakeLists.txt", "configs/drakan.toml", "scripts/buildtool/Build-Drakan.ps1", INSTALLER_LOCK):
         if required not in entries:
             raise RuntimeError(f"{commit[:12]} lacks {required}; commit the builder kit first")
     return entries
@@ -179,13 +315,23 @@ def build_compiler(stage, commit, work_root):
     return Path(json.loads(result.read_text(encoding="utf-8"))["executable"])
 
 
-def extract_tool(archive_path, target):
-    """Unpack a portable tool; a zip with a single top-level folder (Node.js) is unpacked without that folder."""
+def extract_tool(archive_path, target, *, installer_tool=None):
+    """Unpack a portable tool, dropping a single wrapper folder such as Node.js uses."""
     with zipfile.ZipFile(archive_path) as archive:
-        archive.extractall(target)
-    children = list(target.iterdir())
-    if len(children) == 1 and children[0].is_dir():
-        inner = children[0]
+        members = [member for member in archive.infolist() if not member.is_dir()]
+        roots = {member.filename.partition("/")[:2] for member in members}
+        root, slash = next(iter(roots)) if len(roots) == 1 else ("", "")
+        wrapper = root + slash if slash else ""
+        archive.extractall(
+            target,
+            [
+                member
+                for member in members
+                if installer_tool is None or installer_tool_file(installer_tool, member.filename.removeprefix(wrapper))
+            ],
+        )
+    if wrapper:
+        inner = target / root
         for child in inner.iterdir():
             child.rename(target / child.name)
         inner.rmdir()
@@ -231,12 +377,12 @@ def smoke_test(stage, tools=None, node=True):
     python = tools / "python/python.exe"
     failures = []
     for script in builder_scripts(stage):
-        result = subprocess.run([python, script, "--help"], capture_output=True, text=True, cwd=stage)
+        result = subprocess.run([python, "-B", script, "--help"], capture_output=True, text=True, cwd=stage)
         if result.returncode != 0:
             failures.append(f"{script.relative_to(stage).as_posix()}: {first_error(result.stderr)}")
     # The optional extras (Order of the Flame, HD textures) only use the standard library; their time estimate must run.
     result = subprocess.run(
-        [python, stage / EXTRAS, "estimate", "--ootf", "--hd", "--gpu", "NVIDIA GeForce RTX 4070"],
+        [python, "-B", stage / EXTRAS, "estimate", "--ootf", "--hd", "--gpu", "NVIDIA GeForce RTX 4070"],
         capture_output=True,
         text=True,
         cwd=stage,
@@ -278,6 +424,24 @@ def write_stage(entries, stage):
         target.write_bytes(data)
 
 
+def ffmpeg_files(spec, cache):
+    archive_path = download(spec, cache)
+    if "kit_dlls" not in spec:
+        # Older snapshots still expect the original archive.
+        return {f"deps/{archive_path.name}": archive_path}
+    libraries = ("avcodec", "avformat", "avutil", "swresample", "swscale")
+    binaries = {f"bin/{name}.lib" for name in libraries} | {f"bin/{name}" for name in spec["kit_dlls"]}
+    headers = tuple(f"include/lib{name}/" for name in libraries)
+    target = cache / archive_path.stem
+    with zipfile.ZipFile(archive_path) as archive:
+        names = {member.filename for member in archive.infolist() if not member.is_dir()}
+        if missing := binaries - names:
+            raise RuntimeError(f"{archive_path.name} lacks {', '.join(sorted(missing))}")
+        kept = binaries | {name for name in names if name.startswith((*headers, "licenses/"))}
+        archive.extractall(target, sorted(kept))
+    return {f"deps/ffmpeg/{name}": target / name for name in kept}
+
+
 def prebuilt_files(stage, commit, work_root, lock):
     """What lets either kit build without Git, as kit path -> file: ps2_recomp.exe built from the staged snapshot
     (Build-LocalGame.ps1 uses the compiler next to it instead of building one) and the raylib source and FFmpeg prebuilt
@@ -288,14 +452,24 @@ def prebuilt_files(stage, commit, work_root, lock):
     raylib = fetch_raylib(lock["raylib"], cache)
     for path in sorted(raylib.rglob("*")):
         relative = path.relative_to(raylib)
-        if path.is_file() and not {".git", "examples"} & set(relative.parts):
+        if relative.parts[0] not in {
+            "src",
+            "cmake",
+            "CMakeLists.txt",
+            "CMakeOptions.txt",
+            "LICENSE",
+            "README.md",
+            "raylib.pc.in",
+        }:
+            continue
+        if path.is_file() and not any(part.startswith(".") for part in relative.parts):
             files[f"deps/raylib/{relative.as_posix()}"] = path
-    files["deps/" + lock["ffmpeg"]["url"].rsplit("/", 1)[1]] = download(lock["ffmpeg"], cache)
+    files.update(ffmpeg_files(lock["ffmpeg"], cache))
     return files
 
 
 def build_zip(entries, commit, output_directory, name):
-    lock = json.loads((KIT / "installer.lock.json").read_text(encoding="utf-8"))
+    lock = json.loads(entries[INSTALLER_LOCK])
     work_root = output_directory / "work"
     stage = work_root / "zip-stage"
     write_stage(entries, stage)
@@ -309,20 +483,32 @@ def build_zip(entries, commit, output_directory, name):
     return output
 
 
+def installer_tool_file(tool, name):
+    if tool == "node":
+        # The converter imports pinned dependencies itself and runs TypeScript directly with Node.
+        return name in {"node.exe", "LICENSE"}
+    if tool == "python":
+        return name != "pythonw.exe"
+    # PowerShell's root XML files document its .NET API. Its deployment scripts configure the host rather than run
+    # the builder. Keep modules, reference assemblies (Add-Type), localized resources and notices.
+    if "/" not in name:
+        return not name.endswith((".xml", ".ps1", ".adml", ".admx"))
+    return name != "preview/pwsh-preview.cmd"
+
+
 def build_installer(entries, commit, output_directory, iscc):
-    lock = json.loads((KIT / "installer.lock.json").read_text(encoding="utf-8"))
+    lock = json.loads(entries[INSTALLER_LOCK])
     work_root = output_directory / "work"
     cache = work_root / "cache"
     stage = work_root / "stage"
     write_stage(entries, stage)
     for name, source in INSTALLER_ROOT_FILES.items():
         shutil.copyfile(source, stage / name)
-    shutil.copyfile(stage / ICON, stage / "drakan.ico")
     for path, source in prebuilt_files(stage, commit, work_root, lock).items():
         (stage / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, stage / path)
     for tool in ("python", "pwsh", "node"):
-        extract_tool(download(lock[tool], cache), stage / "tools" / tool)
+        extract_tool(download(lock[tool], cache), stage / "tools" / tool, installer_tool=tool)
     smoke_test(stage)
     version = f"1.0.{git('rev-list', '--count', commit).decode().strip()}"
     name = f"DrakanPC-Setup-{commit[:12]}"

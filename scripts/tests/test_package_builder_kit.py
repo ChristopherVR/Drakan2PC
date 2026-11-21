@@ -19,18 +19,27 @@ class BuilderKitTests(unittest.TestCase):
     def test_developer_material_is_left_out(self):
         entries = [
             ("BUILDING.md", b"build"),
+            (".clang-format", b"format"),
+            (".editorconfig", b"editor"),
+            ("runtime/web/.gitignore", b"ignore"),
             ("docs/journal/2026-10-24/note.md", b"note"),
-            ("docs/reference/hd-textures.md", b"ref"),
+            ("docs/reference/regions.md", b"ref"),
             (".github/workflows/build.yml", b"ci"),
             ("CLAUDE.md", b"agents"),
+            ("editor/packages/app/src/main.ts", b"editor app"),
+            ("editor/packages/formats/test/formats.test.ts", b"test"),
+            ("runtime/gs/tests/gsr_test_synthetic.cpp", b"test"),
+            ("scripts/buildtool/Scan-ReleaseDefender.ps1", b"release"),
+            ("scripts/buildtool/kit/DrakanPC-Setup.iss", b"installer recipe"),
+            ("scripts/buildtool/kit/models-draft/model.json", b"draft model"),
         ]
         kept = kit.select(entries, kit.load_guard())
-        self.assertEqual(sorted(kept), ["BUILDING.md", "docs/reference/hd-textures.md"])
+        self.assertEqual(sorted(kept), ["BUILDING.md", "docs/reference/regions.md"])
 
     def test_game_data_is_refused(self):
         for name, data in [
             ("ps2recomp/ps2xRuntime/src/lib/vu/aot/ps2_vu1_image.inc", b"x"),
-            ("analysis/SCES_500.06", b"\x7fELF"),
+            ("analysis/functions.csv", b"\x7fELF"),
             ("runtime/gs/src/blob.cpp", b"MZ\x90\x00"),
         ]:
             with self.subTest(name=name), self.assertRaises(RuntimeError):
@@ -59,31 +68,40 @@ class BuilderKitTests(unittest.TestCase):
             compiler = temp / "ps2_recomp.exe"
             compiler.write_bytes(b"MZ")
             raylib = temp / "raylib"
-            for name in ("src/raylib.h", "examples/core.c", ".git/HEAD", "CMakeLists.txt"):
+            for name in (
+                "src/raylib.h",
+                "src/.gitignore",
+                "examples/core.c",
+                "projects/Makefile",
+                ".git/HEAD",
+                "CMakeLists.txt",
+                "LICENSE",
+            ):
                 (raylib / name).parent.mkdir(parents=True, exist_ok=True)
                 (raylib / name).write_bytes(b"x")
             ffmpeg = temp / "ffmpeg-win64.zip"
             ffmpeg.write_bytes(b"PK")
             lock = {"raylib": {"url": "u", "commit": "c"}, "ffmpeg": {"url": "https://x/ffmpeg-win64.zip"}}
-            (temp / "installer.lock.json").write_text(json.dumps(lock), encoding="utf-8")
+            entries = {"Build-Drakan.cmd": b"@echo off", kit.INSTALLER_LOCK: json.dumps(lock).encode()}
             out = temp / "out"
             out.mkdir()
             with (
                 mock.patch.object(kit, "build_compiler", return_value=compiler),
                 mock.patch.object(kit, "fetch_raylib", return_value=raylib),
                 mock.patch.object(kit, "download", return_value=ffmpeg),
-                mock.patch.object(kit, "KIT", temp),
             ):
-                path = kit.build_zip({"Build-Drakan.cmd": b"@echo off"}, "0123456789abcdef", out, "K")
+                path = kit.build_zip(entries, "0123456789abcdef", out, "K")
             with zipfile.ZipFile(path) as archive:
                 names = set(archive.namelist())
             self.assertEqual(
                 names,
                 {
                     "K/Build-Drakan.cmd",
+                    f"K/{kit.INSTALLER_LOCK}",
                     "K/scripts/buildtool/ps2_recomp.exe",
                     "K/deps/raylib/src/raylib.h",
                     "K/deps/raylib/CMakeLists.txt",
+                    "K/deps/raylib/LICENSE",
                     "K/deps/ffmpeg-win64.zip",
                 },
             )
@@ -91,6 +109,26 @@ class BuilderKitTests(unittest.TestCase):
             text = (ROOT / "scripts/buildtool/Build-Drakan.ps1").read_text(encoding="utf-8")
             self.assertIn("Join-Path $PSScriptRoot 'ps2_recomp.exe'", text)
             self.assertIn("Join-Path $RepoRoot 'deps/raylib'", text)
+
+    def test_bundled_ffmpeg_uses_only_headers_import_libraries_and_needed_dlls(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Path(temp)
+            source = cache / "ffmpeg.zip"
+            included = {
+                *(f"bin/{name}.lib" for name in ("avcodec", "avformat", "avutil", "swresample", "swscale")),
+                "bin/avcodec-61.dll",
+                "bin/zlib1.dll",
+                "include/libavcodec/avcodec.h",
+                "licenses/LICENSE.txt",
+            }
+            with zipfile.ZipFile(source, "w") as archive:
+                for name in (*included, "bin/ffmpeg.exe", "bin/avfilter-10.dll", "lib/vpxmt.lib", "share/man/ffmpeg.1"):
+                    archive.writestr(name, name.encode())
+            with mock.patch.object(kit, "download", return_value=source):
+                payload = kit.ffmpeg_files({"kit_dlls": ["avcodec-61.dll", "zlib1.dll"]}, cache)
+            self.assertEqual(set(payload), {f"deps/ffmpeg/{name}" for name in included})
+            for path, file in payload.items():
+                self.assertEqual(file.read_bytes(), path.removeprefix("deps/ffmpeg/").encode())
 
     def test_root_files_exist(self):
         for source in [
@@ -100,7 +138,6 @@ class BuilderKitTests(unittest.TestCase):
         ]:
             self.assertTrue(source.is_file(), source)
         self.assertIn(b"\r\n", kit.KIT_ROOT_FILES["Build-Drakan.cmd"].read_bytes())
-        self.assertTrue((ROOT / kit.ICON).is_file())
 
     def test_tool_zip_with_one_folder_is_flattened(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -118,12 +155,47 @@ class BuilderKitTests(unittest.TestCase):
         names = {path.relative_to(ROOT).as_posix() for path in kit.builder_scripts(ROOT)}
         for name in ("scripts/buildtool/prepare_iso.py", "analysis/scripts/character_motion.py"):
             self.assertIn(name, names)
+        self.assertEqual([name for name in sorted(names) if kit.excluded(name)], [])
+
+    def test_installer_tool_payload(self):
+        for tool, prefix, keep, omit in (
+            ("node", "node-v1-win-x64/", ("node.exe", "LICENSE"), ("npm.cmd", "node_modules/npm/package.json")),
+            ("python", "", ("python.exe", "python312._pth", "LICENSE.txt"), ("pythonw.exe",)),
+            (
+                "pwsh",
+                "",
+                ("pwsh.exe", "ref/System.Runtime.dll", "Modules/Microsoft.PowerShell.Management/test.ps1"),
+                ("System.Management.Automation.xml", "Install-PowerShellRemoting.ps1", "preview/pwsh-preview.cmd"),
+            ),
+        ):
+            with self.subTest(tool=tool), tempfile.TemporaryDirectory() as temp:
+                archive_path = Path(temp) / "tool.zip"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    for name in (*keep, *omit):
+                        archive.writestr(prefix + name, b"x")
+                target = Path(temp) / "out"
+                kit.extract_tool(archive_path, target, installer_tool=tool)
+                files = {file.relative_to(target).as_posix() for file in target.rglob("*") if file.is_file()}
+                self.assertEqual(files, set(keep))
 
     @unittest.skipUnless((ROOT / "editor/packages/formats/.git").exists(), "formats submodule not checked out")
-    def test_snapshot_includes_submodule_sources(self):
+    def test_payload_includes_optional_build_inputs(self):
         # character_motion_retarget.ts imports these at build time; git archive alone leaves them out.
-        names = {name for name, _ in kit.snapshot("HEAD")}
-        for name in ("analysis/scripts/character_motion_retarget.ts", "editor/packages/formats/src/ootfanim.ts"):
+        names = kit.kit_entries("HEAD")
+        for name in (
+            "analysis/regions/usa/functions.csv",
+            "analysis/scripts/character_motion_retarget.ts",
+            "analysis/scripts/hd_pack.py",
+            "analysis/scripts/ootf_subtitles.py",
+            "editor/packages/formats/src/ootfanim.ts",
+            "editor/packages/editor-core/schema/drakan-content.schema.json",
+            "editor/scripts/ootf-convert.ts",
+            "editor/scripts/ootf-speech.ts",
+            "ps2recomp/ps2xRuntime/src/res/drakan.ico",
+            "runtime/web/index.html",
+            "scripts/buildtool/Build-Drakan.sh",
+            "scripts/buildtool/kit/subtitles/english.json",
+        ):
             self.assertIn(name, names)
 
     def test_installer_inputs_are_pinned(self):

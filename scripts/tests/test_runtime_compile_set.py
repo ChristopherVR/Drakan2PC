@@ -75,7 +75,18 @@ class RuntimeCompileSetTests(unittest.TestCase):
         kit = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(kit)
         needed = [
-            *tracked(f"{RUNTIME}/src/*", f"{RUNTIME}/include/*", "runtime/*", "cmake/*"),
+            *tracked(
+                f"{RUNTIME}/src/*",
+                f"{RUNTIME}/include/*",
+                "runtime/*/CMakeLists.txt",
+                "runtime/*/src/*",
+                "runtime/*/include/*",
+                "runtime/net/server/*",
+                "runtime/vu1ref/vu1ref.*",
+                "runtime/web/*",
+                "cmake/*",
+                ":!:runtime/web/pages/*",
+            ),
             "CMakeLists.txt",
             "CMakePresets.json",
             f"{RUNTIME}/CMakeLists.txt",

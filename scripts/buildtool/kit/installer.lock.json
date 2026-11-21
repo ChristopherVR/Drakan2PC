@@ -15,7 +15,13 @@
   },
   "ffmpeg": {
     "url": "https://github.com/System233/ffmpeg-msvc-prebuilt/releases/download/n7.1-241205/ffmpeg-n7.1-241205-lgpl-amd64-shared.zip",
-    "sha256": "b985887dbca8c0a9a4c47f9d2bac7ec3ab994335b1b7fe7000bdb1dcd772ac68"
+    "sha256": "b985887dbca8c0a9a4c47f9d2bac7ec3ab994335b1b7fe7000bdb1dcd772ac68",
+    "kit_dlls": [
+      "avcodec-61.dll", "avformat-61.dll", "avutil-59.dll", "swresample-5.dll", "swscale-8.dll",
+      "brotlicommon.dll", "brotlidec.dll", "brotlienc.dll", "jxl.dll", "jxl_cms.dll", "jxl_threads.dll",
+      "libsharpyuv.dll", "libwebp.dll", "libwebpmux.dll", "zlib1.dll"
+    ],
+    "comment": "The five linked FFmpeg DLLs and the transitive DLL imports found with dumpbin /dependents."
   },
   "raylib": {
     "url": "https://github.com/raysan5/raylib.git",

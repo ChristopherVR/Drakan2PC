@@ -446,13 +446,19 @@ if (-not $DependencyDirectory -and (Test-Path -LiteralPath (Join-Path $RepoRoot 
 }
 if ($DependencyDirectory) {
     $DependencyDirectory = (Resolve-Path -LiteralPath $DependencyDirectory).Path
+    $ffmpegDirectory = Join-Path $DependencyDirectory 'ffmpeg'
+    $ffmpegBundled = Test-Path -LiteralPath (Join-Path $ffmpegDirectory 'bin/avcodec.lib') -PathType Leaf
     $ffmpegArchive = Get-ChildItem -LiteralPath $DependencyDirectory -Filter 'ffmpeg-*-lgpl-amd64-shared.zip' | Select-Object -First 1
-    if (($windowsHost -and -not $ffmpegArchive) -or -not (Test-Path -LiteralPath (Join-Path $DependencyDirectory 'raylib/CMakeLists.txt'))) {
-        throw "$DependencyDirectory must hold raylib/ and the FFmpeg prebuilt zip"
+    if (($windowsHost -and -not ($ffmpegBundled -or $ffmpegArchive)) -or -not (Test-Path -LiteralPath (Join-Path $DependencyDirectory 'raylib/CMakeLists.txt'))) {
+        throw "$DependencyDirectory must hold raylib/ and the prebuilt FFmpeg folder or archive"
     }
     Write-Detail "Offline dependencies: $DependencyDirectory"
     $argsList += "-DFETCHCONTENT_SOURCE_DIR_RAYLIB=$((Join-Path $DependencyDirectory 'raylib').Replace('\', '/'))"
-    if ($windowsHost) { $argsList += "-DFFMPEG_PREBUILT_URL=$($ffmpegArchive.FullName.Replace('\', '/'))" }
+    if ($windowsHost -and $ffmpegBundled) {
+        $argsList += "-DFFMPEG_PREBUILT_DIR=$($ffmpegDirectory.Replace('\', '/'))", '-DFFMPEG_PREBUILT_URL='
+    } elseif ($windowsHost) {
+        $argsList += '-DFFMPEG_PREBUILT_DIR=', "-DFFMPEG_PREBUILT_URL=$($ffmpegArchive.FullName.Replace('\', '/'))"
+    }
 }
 Invoke-Checked $cmake $argsList
 # Sources the compile step counts against: the C/C++ files of ps2EntryRunner and the projects it references (raylib's

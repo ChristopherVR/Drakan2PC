@@ -52,8 +52,8 @@ jobs:
       - name: Build the zip kit
         run: python scripts/buildtool/package_builder_kit.py --output-directory build/release
       # Gate: the Setup builds the game on the player's PC from this tree, so a tree whose runtime does not compile
-      # must never become a release. Compile the runtime sources from the packaged kit (a git archive of the tagged
-      # commit, exactly what the player gets) in a clean directory. Compile only: no disc, no recompiler output.
+      # must never become a release. Compile the runtime sources with the dependencies in the player's kit.
+      # Compile only: no disc or recompiler output.
       - name: Gate - the packaged kit's game runtime sources compile
         shell: pwsh
         run: |
@@ -66,7 +66,7 @@ jobs:
           $kit = (Get-ChildItem build/kit-verify -Directory | Where-Object { Test-Path "$($_.FullName)/CMakePresets.json" } | Select-Object -First 1).FullName
           if (-not $kit) { throw 'the kit zip has no CMakePresets.json' }
           Push-Location $kit
-          cmake --preset runtime-check
+          cmake --preset runtime-check "-DFETCHCONTENT_SOURCE_DIR_RAYLIB=$kit/deps/raylib"
           cmake --build --preset runtime-check --parallel 4
           Pop-Location
       - name: Stage release files

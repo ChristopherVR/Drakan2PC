@@ -15,6 +15,7 @@
 #ifndef OutputName
   #define OutputName "DrakanPC-Setup"
 #endif
+#define AppIcon "ps2recomp\ps2xRuntime\src\res\drakan.ico"
 
 [Setup]
 AppId={{69932327-BBAB-42A2-AA60-D15FFF9D83E6}
@@ -31,8 +32,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir={#OutputDir}
 OutputBaseFilename={#OutputName}
-SetupIconFile={#StageDir}\drakan.ico
-UninstallDisplayIcon={app}\drakan.ico
+SetupIconFile={#StageDir}\{#AppIcon}
+UninstallDisplayIcon={app}\{#AppIcon}
 InfoBeforeFile={#StageDir}\SETUP-INFO.txt
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -41,11 +42,11 @@ WizardStyle=modern
 ExtraDiskSpaceRequired=2147483648
 
 [Files]
-Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "\SETUP-INFO.txt"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\drakan.ico"
-Name: "{autodesktop}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\drakan.ico"; Tasks: desktopicon
+Name: "{autoprograms}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\{#AppIcon}"
+Name: "{autodesktop}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\{#AppIcon}"; Tasks: desktopicon
 Name: "{autoprograms}\Rebuild Drakan"; Filename: "{app}\Build-Drakan.cmd"; WorkingDir: "{app}"
 Name: "{autoprograms}\Drakan play folder"; Filename: "{code:GetPlayDir}"
 

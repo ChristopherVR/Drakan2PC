@@ -127,14 +127,15 @@ python scripts/buildtool/package_builder_kit.py --installer  # -> build/builder-
 python scripts/buildtool/package_builder_kit.py              # -> build/builder-kit/DrakanPC-Builder-<commit>.zip
 ```
 
-Both package the committed tree at `HEAD` (`--revision` for another; uncommitted changes are left out) minus
-developer-only material (`docs/journal`, `scripts/archive`, CI, agent notes). Every file passes
-`repository_guard.reason`, so neither holds an ISO, ELF, generated C++ or VU image. The root gets `Build-Drakan.cmd`
-and `README.txt` from `scripts/buildtool/kit/`, plus `KIT-VERSION.txt` with the commit. Both also carry
-`ps2_recomp.exe` built from the same snapshot (`scripts/buildtool/`, so `Build-LocalGame.ps1` skips the Git-based
-compiler build) and raylib plus the FFmpeg prebuilt zip (`deps/`, picked up by `Build-LocalGame.ps1
--DependencyDirectory`, default `<repo>/deps`), so neither build needs Git (`Build-Drakan.ps1` skips its Git check when
-both are present). The zip uses the player's own PowerShell 7, Python 3.11+ and Node.js 22.18+. On its first
+Both select player build files from the committed tree at `HEAD`. Pass `--revision` to package another commit.
+The allowlist in `package_builder_kit.py` covers the build scripts, sources, runtime assets, and licence notices.
+Each selected repository file passes `repository_guard.reason`. The kit root gets `Build-Drakan.cmd`,
+`README.txt`, and `KIT-VERSION.txt`.
+
+Both kits carry `ps2_recomp.exe` built from that snapshot. `Build-LocalGame.ps1` uses the pinned raylib sources
+and the required FFmpeg headers, import libraries, and DLLs under `deps/`. The Windows build can run without Git
+when these files are bundled. `-DependencyDirectory` also accepts the original FFmpeg archive for existing local
+builds. The zip uses the player's own PowerShell 7, Python 3.11+ and Node.js 22.18+. On its first
 interactive run `Build-Drakan.ps1` asks where the game goes (`-DistDirectory`, default `dist\DrakanPC` next to the
 builder, remembered in `build/build-options.json`); the build files stay in `build/` next to the builder unless
 `-WorkDir` is given.
@@ -145,9 +146,9 @@ runner (`.github/workflows/release.yml`) and publishes `DrakanPC-Setup.exe`, `Dr
 
 The setup (for non-technical players) additionally bundles everything that would otherwise be a prerequisite, pinned
 by SHA-256/commit in `scripts/buildtool/kit/installer.lock.json`: portable PowerShell 7 (`tools/pwsh`), the Python
-embeddable package (`tools/python`) and Node.js (`tools/node`), next to the prebuilt compiler and `deps/` both kits
-carry. Packaging needs Git, network access and Inno
-Setup 6 (`winget install JRSoftware.InnoSetup`; script `scripts/buildtool/kit/DrakanPC-Setup.iss`); downloads are
+embeddable package (`tools/python`) and the Node.js runtime and licence (`tools/node`).
+Packaging needs Git, network access and Inno Setup 6 (`winget install JRSoftware.InnoSetup`).
+The installer script is `scripts/buildtool/kit/DrakanPC-Setup.iss`. Downloads are
 cached in `build/builder-kit/work/cache`. The setup installs per user (default `%LOCALAPPDATA%\DrakanPC`, no admin),
 asks for the ISO and a play folder (default `dist\DrakanPC` in the install folder; `/PLAYDIR=` on the command line,
 remembered for reinstalls), creates Start menu/desktop shortcuts to its `drakan.exe` and a "Rebuild Drakan" entry,
