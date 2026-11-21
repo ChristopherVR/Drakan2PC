@@ -46,7 +46,11 @@ In menus, use the mouse or arrows/WASD to select, **Enter / Space** to confirm a
 
 Open **F1 → Key Bindings** to change actions, and the mouse settings for sensitivity and inversion. Choosing a key that already has an action asks first: **Replace** moves the key to the new action (the old one loses it), **Use for both** makes one key send both, **Cancel** keeps everything. Windows bindings are stored in `drakan_input.ini` next to the executable. Close the game before editing the file by hand.
 
-The Windows controller path uses XInput and maps the original DualShock layout onto the controller. Controller and keyboard prompts can be selected in PC Settings.
+## Playing with a controller
+
+Open **PC Settings → Controls** to see the active controller buttons for Rynn and Arokh. The original **Options → Controls** menu offers three button schemes and the vertical look inversion setting.
+
+Under **PC Settings → Controls → Gamepad**, **On-foot stick layout** defaults to **Automatic**. In Order of the Flame, the left stick moves and strafes while the right stick turns Rynn and looks up or down. Choose **Twin-stick** to use that layout in The Ancients' Gates too, or **Native** to use the selected original scheme on foot. Mounted controls follow the original scheme.
 
 ## Riding Arokh
 

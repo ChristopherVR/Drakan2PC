@@ -1143,10 +1143,26 @@ static void testControlsV2() {
         m.beginFrame(pad);
         m.beforePadMgrUpdate(g, false, true);
         CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
+        g.write32(REC, 0); // releasing native L2 restores just the left stick during the update
+        g.writeF(REC + 8, 0.8f);
+        m.afterPadMgrUpdate(g);
+        CHECK(g.read32(REC) == 0 && g.read32(rx) == 5);
+        m.beforePadMgrUpdate(g, false, true);
+        CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
         g.writeF(rx + 8, 0.7f); // the guest switches to scheme C during the update
         m.afterPadMgrUpdate(g);
         CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
         NEAR(g.readF(rx + 8), 0.7, 1e-6);
+        g.write32(rx, 3); // native L2 temporarily replaces the turn axis in scheme C
+        g.writeF(rx + 8, 1.0f);
+        g.write32(rx + 12, 1);
+        g.writeF(rx + 20, -0.7f); // the native inversion applies only to vertical look
+        m.beforePadMgrUpdate(g, false, true);
+        CHECK(g.read32(REC) == 3 && g.read32(rx) == 0);
+        NEAR(g.readF(rx + 8), 0.7, 1e-6);
+        m.afterPadMgrUpdate(g);
+        CHECK(g.read32(REC) == 3 && g.read32(rx) == 3);
+        NEAR(g.readF(rx + 20), -0.7, 1e-6);
     }
     // capture: cut scenes / loading (menu layer without a menu context) keep the mouse captured; a game menu or the
     // overlay release it

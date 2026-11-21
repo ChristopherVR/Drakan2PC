@@ -19,8 +19,10 @@ the game's controller scheme. The same choice is saved in `drakan_input.ini` as 
 twin_stick`.
 
 Twin-stick takes the horizontal turn sensitivity from the native turn axis and uses **Camera follow** to carry the
-view with Rynn as she turns. Vertical look uses the game's controller inversion setting. Menus, spell gestures and
-mounted play use the native stick mapping.
+view with Rynn as she turns. Vertical look uses the game's controller inversion setting. The native Next Target/Strafe
+command can rewrite just the turn stick during a pad update. The scoped twin-stick mapping restores the untouched
+entry after the update so a combat transition cannot leave both sticks turning Rynn. Menus, spell gestures and mounted
+play use the native stick mapping.
 
 ## Arokh on mouse and keyboard (2026-11-16)
 

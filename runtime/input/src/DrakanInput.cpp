@@ -1065,13 +1065,15 @@ void InputModule::restorePadMapping(IGuest& g) {
     const auto unchanged = [&](const ScopedStickMapping& entry) {
         return StickMapping{g.read32(entry.record), g.read32(entry.record + 8)} == entry.applied;
     };
-    // The native options code can replace both mappings in the same update.
-    if (unchanged(padMapping_[0]) && unchanged(padMapping_[1])) {
+    // An options change can reinstall both records, including a left stick identical to our override.
+    // An aim command can change just the left stick. Restore the unchanged right stick in that case.
+    if (unchanged(padMapping_[1]))
         for (const auto& entry : padMapping_) {
+            if (!unchanged(entry))
+                continue;
             g.write32(entry.record, entry.native.axis);
             g.write32(entry.record + 8, entry.native.scale);
         }
-    }
     padMapping_[0].record = 0;
 }
 
@@ -1165,9 +1167,13 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon, bool orderOfTheFlam
         const StickMapping rx{g.read32(right), g.read32(right + 8)};
         if (lx.axis == 3 && rx.axis == 0) {
             padTwinStickActive_ = true; // Native scheme C already has these axes.
-        } else if (lx.axis == 0 && rx.axis == 5) {
+        } else if ((lx.axis == 0 || lx.axis == 3) && (rx.axis == 0 || rx.axis == 3 || rx.axis == 5)) {
             const StickMapping strafe{3, std::bit_cast<uint32_t>(1.0f)};
-            const StickMapping turn{0, lx.scale};
+            // Native aim can temporarily move the turn stick onto axis 3. Both look axes use the same
+            // sensitivity, with the vertical sign set by the native inversion option.
+            const uint32_t pitchScale = std::bit_cast<uint32_t>(std::abs(g.readF(right + 20)));
+            const uint32_t turnScale = lx.axis == 0 ? lx.scale : (rx.axis == 0 ? rx.scale : pitchScale);
+            const StickMapping turn{0, turnScale};
             padMapping_[0] = {rec, lx, strafe};
             padMapping_[1] = {right, rx, turn};
             g.write32(rec, strafe.axis);
