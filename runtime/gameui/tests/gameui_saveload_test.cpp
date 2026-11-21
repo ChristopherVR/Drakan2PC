@@ -692,6 +692,90 @@ bool titleFocused(const TitleScreen& s, TitleRow r) {
     return s.focus() == TargetId{TargetKind::TitleRow, static_cast<int>(r)};
 }
 
+void testTitleUpdateNotice() {
+    TitleScreen screen;
+    screen.open();
+    TitleState state = titleState();
+    auto frame = screen.frame(state, {}, kVp);
+    CHECK(!hasText(frame.draw, "View changes"));
+
+    state.updateVersion = "v0.1.32";
+    frame = screen.frame(state, {}, kVp);
+    CHECK(hasText(frame.draw, "Update available (v0.1.32)"));
+    CHECK(hasText(frame.draw, "View changes") && hasText(frame.draw, "Dismiss"));
+    CHECK(titleFocused(screen, TitleRow::Continue));
+
+    UiInput gamepad = keys({UiKey::Right, UiKey::Confirm});
+    gamepad.device = InputDevice::Gamepad;
+    frame = screen.frame(state, gamepad, kVp);
+    CHECK(frame.updateAction == TitleUpdateAction::ViewChanges && frame.actions.empty());
+    frame = screen.frame(state, gamepad, kVp);
+    CHECK(frame.updateAction == TitleUpdateAction::Dismiss && frame.actions.empty());
+
+    // The host clears the offer after dismissal. Focus falls back to a normal title row.
+    state.updateVersion.clear();
+    frame = screen.frame(state, {}, kVp);
+    CHECK(!hasText(frame.draw, "Dismiss") && titleFocused(screen, TitleRow::Continue));
+
+    state.updateVersion = "v0.1.33";
+    for (const Viewport& view : kAspects) {
+        frame = screen.frame(state, {}, view);
+        for (const HitTarget& target : screen.targets()) {
+            if (target.id.kind != TargetKind::TitleUpdate ||
+                target.id.index != static_cast<int>(TitleUpdateAction::Dismiss))
+                continue;
+            const Rect button = target.rect;
+            CHECK(inside(button, {view.x, view.y, view.w, view.h}));
+            frame = screen.frame(state, pointer(button.cx(), button.cy(), true), view);
+            break;
+        }
+        CHECK(frame.updateAction == TitleUpdateAction::Dismiss);
+    }
+
+    screen.close();
+    screen.open();
+    state.offerGames = true;
+    frame = screen.frame(state, {}, kVp);
+    CHECK(screen.page() == TitlePage::GameChoice && !hasText(frame.draw, "View changes"));
+}
+
+void testTitleDownloadAndRebuild() {
+    TitleScreen screen;
+    screen.open();
+    TitleState state = titleState();
+    state.updateVersion = "v0.1.32";
+    auto frame = screen.frame(state, {}, kVp);
+    CHECK(!hasText(frame.draw, "Download and rebuild"));
+
+    state.updateInstall = TitleUpdateInstall::Available;
+    frame = screen.frame(state, keys({UiKey::Down, UiKey::Down}), kVp);
+    CHECK(hasText(frame.draw, "Download and rebuild"));
+    CHECK(titleFocused(screen, TitleRow::NewGame));
+    UiInput gamepad = keys({UiKey::Right, UiKey::Confirm});
+    gamepad.device = InputDevice::Gamepad;
+    frame = screen.frame(state, gamepad, kVp);
+    CHECK(frame.updateAction == TitleUpdateAction::DownloadAndRebuild);
+
+    const auto download = std::find_if(screen.targets().begin(), screen.targets().end(), [](const HitTarget& target) {
+        return target.id == TargetId{TargetKind::TitleUpdate, static_cast<int>(TitleUpdateAction::DownloadAndRebuild)};
+    });
+    CHECK(download != screen.targets().end());
+    if (download == screen.targets().end())
+        return;
+    const UiInput click = pointer(download->rect.cx(), download->rect.cy(), true);
+    frame = screen.frame(state, click, kVp);
+    CHECK(frame.updateAction == TitleUpdateAction::DownloadAndRebuild && frame.actions.empty());
+
+    state.updateInstall = TitleUpdateInstall::Downloading;
+    frame = screen.frame(state, click, kVp);
+    CHECK(!frame.updateAction && hasText(frame.draw, "Downloading update..."));
+
+    state.updateInstall = TitleUpdateInstall::Failed;
+    frame = screen.frame(state, click, kVp);
+    CHECK(hasText(frame.draw, "Could not start the update. Try again."));
+    CHECK(frame.updateAction == TitleUpdateAction::DownloadAndRebuild);
+}
+
 void testTitleRows() {
     TitleScreen scr;
     scr.open();
@@ -1469,6 +1553,8 @@ int main() {
     testMouse();
     testSaveLoadAspects();
     testQueue();
+    testTitleUpdateNotice();
+    testTitleDownloadAndRebuild();
     testTitleRows();
     testTitleActions();
     testTitleGameChoice();

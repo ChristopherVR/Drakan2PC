@@ -52,6 +52,22 @@ class BuilderKitTests(unittest.TestCase):
             with zipfile.ZipFile(path) as archive:
                 self.assertEqual(archive.namelist(), ["DrakanPC-Builder/Build-Drakan.cmd", "DrakanPC-Builder/a/b.txt"])
 
+    def test_only_versioned_kits_carry_a_release_tag(self):
+        sources = [
+            (name, b"") for name in ("CMakeLists.txt", "configs/drakan.toml", kit.BUILDERS[1], kit.INSTALLER_LOCK)
+        ]
+        with mock.patch.object(kit, "snapshot", return_value=sources):
+            unversioned = kit.kit_entries("abc")
+            released = kit.kit_entries("abc", release_tag="v0.1.32")
+        self.assertEqual(unversioned["DrakanPC-release.txt"], b"")
+        self.assertEqual(released["DrakanPC-release.txt"], b"v0.1.32\n")
+        self.assertEqual(released["KIT-VERSION.txt"], unversioned["KIT-VERSION.txt"])
+
+    def test_prerelease_and_malformed_tags_are_rejected(self):
+        for tag in ("v0.1.32-rc.1", "v00.1.32", "v0.1.32\n", "0.1.32", ""):
+            with self.subTest(tag=tag), self.assertRaisesRegex(ValueError, "stable vX.Y.Z"):
+                kit.kit_entries("abc", release_tag=tag)
+
     def test_zip_streams_files_from_disk(self):
         with tempfile.TemporaryDirectory() as temp:
             big = Path(temp) / "ps2_recomp.exe"

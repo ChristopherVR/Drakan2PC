@@ -10,6 +10,9 @@ param(
     [string]$ToolWorkDir,
     # Playable folder, cleaned and refilled from the fresh build on every run (default <repo>/dist/DrakanPC).
     [string]$DistDirectory,
+    # Stage a native release rebuild beside the existing play folder and publish it as a unit.
+    [switch]$TransactionalUpdate,
+    [string]$ExpectedInstalledRelease,
     # Explicit private mod pack source to install; existing mods survive ordinary rebuilds.
     [string]$ModDirectory,
     # Optional local catalog of verified migrations for the installed Order of the Flame pack.
@@ -70,6 +73,7 @@ $windowsHost = [OperatingSystem]::IsWindows()
 . (Join-Path $PSScriptRoot 'Build-Progress.ps1')
 Initialize-BuildConsole $Language -Plain:$Plain
 . (Join-Path $PSScriptRoot 'Build-Textures.ps1')
+. (Join-Path $PSScriptRoot 'Build-Recovery.ps1')
 . (Join-Path $PSScriptRoot 'Build-Job.ps1')
 [void](Enter-BuildJob) # no-op when Build-Drakan.ps1 already did
 if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
@@ -83,6 +87,10 @@ if ($CpuAffinity -and -not $PSBoundParameters.ContainsKey('CompilerProcesses')) 
 }
 if ($TargetPlatform -eq 'native') { $TargetPlatform = if ($windowsHost) { 'windows' } else { 'linux' } }
 $webBuild = $TargetPlatform -eq 'web'
+if ($TransactionalUpdate -and ($webBuild -or -not $DistDirectory -or $NoDist -or $PrepareOnly -or $GenerateOnly -or
+    $SourceOnly -or ($windowsHost -and -not $Incremental))) {
+    throw 'A transactional update needs a native build and an explicit play folder. Windows updates reuse a prepared build.'
+}
 if ($OotfSaveMigrations) {
     if ($webBuild -or $NoDist -or $PrepareOnly -or $GenerateOnly -or $SourceOnly) {
         throw '-OotfSaveMigrations requires a native play folder deployment.'
@@ -135,6 +143,13 @@ try {
     throw "Another build owns $WorkDir. Wait for it to finish before rebuilding this tree."
 }
 $affinityState = $null
+$playLock = $null
+$playUpdate = $null
+$updateGuard = $null
+$updateStarted = $false
+$updatePublished = $false
+$previousElf = $null
+$configuredTextureDirectory = $TextureDirectory
 try {
 $affinityState = Enter-BuildAffinity $CpuAffinity
 
@@ -360,6 +375,46 @@ if (-not $regionProfile) { throw "Unknown disc region '$gameRegion' in $WorkDir/
 $bootElf = Join-Path $WorkDir $regionProfile.boot
 Write-Detail "Disc: $($regionProfile.label)$(if ($regionProfile.status -ne 'validated') { " ($($regionProfile.status): docs/reference/regions.md)" })"
 if ($PrepareOnly) { Complete-BuildStep; return }
+if (-not ($NoDist -or $GenerateOnly -or $SourceOnly)) {
+    # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
+    $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }
+    if (-not $DistDirectory) { $DistDirectory = Join-Path $RepoRoot "dist/DrakanPC$regionSuffix$platformSuffix" }
+    $DistDirectory = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($DistDirectory))
+    $separator = [IO.Path]::DirectorySeparatorChar
+    $comparison = [StringComparison]::OrdinalIgnoreCase
+    if ($DistDirectory -eq $WorkDir -or $DistDirectory.StartsWith($WorkDir + $separator, $comparison)) {
+        throw 'DistDirectory must be outside WorkDir.'
+    }
+    if ($DistDirectory -eq [IO.Path]::GetPathRoot($DistDirectory) -or $DistDirectory -eq $RepoRoot) {
+        throw 'DistDirectory cannot be a filesystem root or the source checkout.'
+    }
+    if (-not $webBuild) {
+        $playLock = Enter-BuildPlayLock $DistDirectory
+        $playUpdate = Get-BuildPlayUpdate $DistDirectory $gameName
+        Restore-BuildPlayUpdate $playUpdate
+        if ($TransactionalUpdate) {
+            $playPrefix = $DistDirectory + $separator
+            foreach ($source in $IsoPath,$WorkDir,$RepoRoot) {
+                if ($source.StartsWith($playPrefix, $comparison)) {
+                    throw 'Automatic rebuild requires the ISO and builder files to be outside the play folder.'
+                }
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $DistDirectory $gameName) -PathType Leaf)) {
+                throw "Could not find the installed game in $DistDirectory."
+            }
+            if ($ExpectedInstalledRelease) {
+                $installed = Get-Content -LiteralPath (Join-Path $DistDirectory 'DrakanPC-release.txt') -Raw
+                if ($installed.Trim() -cne $ExpectedInstalledRelease) {
+                    throw 'The installed release changed while downloading this update.'
+                }
+            }
+            if ($TargetPlatform -eq 'linux') {
+                $previousElf = (Get-Content -LiteralPath (Join-Path $DistDirectory 'drakan-update.json') -Raw |
+                    ConvertFrom-Json).elf
+            }
+        }
+    }
+}
 # Everything the generated C++ depends on: the recompiler sources, its pinned deps, the config and metadata.
 function Get-RecompileStamp {
     $inputs = @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'ps2recomp/ps2xRecomp') -Recurse -File)
@@ -543,16 +598,6 @@ if ($gameRegion -eq 'pal') {
             '--background-out',(Join-Path $gameOutput 'previews/background-d2.png'))
     }
 if (-not $NoDist) {
-    # A non-PAL build gets its own play folder so it never replaces the PAL one (dist/DrakanPC-usa).
-    $regionSuffix = if ($gameRegion -eq 'pal') { '' } else { "-$gameRegion" }
-    if (-not $DistDirectory) { $DistDirectory = Join-Path $RepoRoot "dist/DrakanPC$regionSuffix$platformSuffix" }
-    $DistDirectory = [IO.Path]::GetFullPath($DistDirectory)
-    if ($DistDirectory -eq $WorkDir -or $DistDirectory.StartsWith($WorkDir + [IO.Path]::DirectorySeparatorChar)) {
-        throw 'DistDirectory must be outside WorkDir.'
-    }
-    if ($DistDirectory -eq [IO.Path]::GetPathRoot($DistDirectory) -or $DistDirectory -eq $RepoRoot) {
-        throw 'DistDirectory cannot be a filesystem root or the source checkout.'
-    }
     # Saves, user settings and hand-staged assets survive the clean; everything else is a build product or stale.
     $keep = 'mc0','mc1','mc0_*','mc1_*','saves','save-backups','save-migrations','mods','textures','previews','movies','subtitles','nr','ngx_data','*.ini','Play*.cmd','Play*.sh','PLAY.txt'
     $textureSource = Find-BuildTextureDirectory $RepoRoot $DistDirectory $TextureDirectory
@@ -561,6 +606,14 @@ if (-not $NoDist) {
         $firstPart = ($relative -split '[/\\]')[0]
         if (-not [IO.Path]::IsPathRooted($relative) -and $firstPart -ne '..' -and -not ($keep | Where-Object { $firstPart -like $_ })) {
             throw (Get-BuildText 'hd_unsafe')
+        }
+    }
+    if ($TransactionalUpdate) {
+        $updateStarted = $true
+        $updateGuard = Start-BuildPlayUpdate $playUpdate $keep
+        $DistDirectory = $playUpdate.Stage
+        if ($textureSource -and -not [IO.Path]::IsPathRooted($relative) -and $firstPart -ne '..') {
+            $textureSource = Join-Path $DistDirectory $relative
         }
     }
     New-Item -ItemType Directory -Force -Path $DistDirectory | Out-Null
@@ -713,8 +766,14 @@ if ($webBuild) {
     return
 }
 Write-Stage (Get-BuildText 'launch_write')
+$releaseMarker = if (-not $NoDist) {
+    Get-Item -LiteralPath (Join-Path $RepoRoot 'DrakanPC-release.txt') -ErrorAction SilentlyContinue
+}
+$versionedDeployment = $releaseMarker -is [IO.FileInfo] -and $releaseMarker.Length -gt 0
 $launchArgs = @((Join-Path $PSScriptRoot 'prepare_launch.py'),'--repo-root',$RepoRoot,
     '--output-directory',$gameOutput,'--iso',$IsoPath,'--elf',$bootElf)
+if ($previousElf) { $launchArgs += @('--relocate-elf-from', $previousElf) }
+if ($TargetPlatform -eq 'linux' -and $versionedDeployment) { $launchArgs += '--modern-title' }
 Invoke-Checked $Python $launchArgs
 if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and -not $NoMapPictures) {
     # The tracked PC Settings pictures (kit/art/settings/<row key>/<value>.png) are copied in the same way (the guided build
@@ -780,6 +839,27 @@ if ($windowsHost -and $gameRegion -eq 'pal' -and -not $NoDist -and $SettingPictu
         if ($Progress) { Write-Detail $message } else { Write-Warning $message }
     }
 }
+if ($versionedDeployment) {
+    # Stamp the playable build only after deployment. The play folder clean already removed the previous stamp.
+    $pendingMarker = Join-Path $DistDirectory 'DrakanPC-release.txt.tmp'
+    Copy-Item -LiteralPath $releaseMarker.FullName -Destination $pendingMarker
+    Move-Item -LiteralPath $pendingMarker -Destination (Join-Path $DistDirectory 'DrakanPC-release.txt')
+    if ($TargetPlatform -eq 'linux') {
+        $updateHelper = Join-Path $PSScriptRoot 'drakan_update_linux.py'
+        Copy-Item -LiteralPath $updateHelper -Destination (Join-Path $DistDirectory 'drakan-update.py')
+        @{
+            iso = $IsoPath; elf = $bootElf; jobs = $Jobs
+            texture_dir = $configuredTextureDirectory
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $DistDirectory 'drakan-update.json') -Encoding utf8NoBOM
+    }
+}
+if ($TransactionalUpdate) {
+    Publish-BuildPlayUpdate $playUpdate $updateGuard
+    $updateStarted = $false
+    $updatePublished = $true
+    $DistDirectory = $gameOutput = $playUpdate.Play
+    $gameExe = Join-Path $gameOutput $gameName
+}
 $quotedExe = $gameExe.Replace("'", "''")
 $quotedOutput = $gameOutput.Replace("'", "''")
 Write-Detail "Private executable: $gameExe"
@@ -790,8 +870,28 @@ Write-BuildState $WorkDir @{ status = 'done'; finished = (Get-Date).ToString('s'
 Complete-BuildStep
 
 } catch {
-    Write-BuildState $WorkDir @{ status = 'failed'; error = "$_" }
+    $failure = $_
+    if ($updatePublished) {
+        Write-Warning "The new game is playable. Could not finish recording the rebuild: $failure"
+        return
+    }
+    if ($updateStarted) {
+        if ($updateGuard) { $updateGuard.Dispose() }
+        try { Restore-BuildPlayUpdate $playUpdate }
+        catch {
+            $message = "$failure Recovery could not finish: $($_.Exception.Message). Check $($playUpdate.Journal) before retrying."
+            Write-BuildState $WorkDir @{ status = 'failed'; error = $message }
+            throw $message
+        }
+    }
+    Write-BuildState $WorkDir @{ status = 'failed'; error = "$failure" }
     throw
 } finally {
-    try { Exit-BuildAffinity $affinityState } finally { $buildWriterLock.Dispose() }
+    try {
+        if ($playLock) {
+            try { $playLock.ReleaseMutex() } finally { $playLock.Dispose() }
+        }
+    } finally {
+        try { Exit-BuildAffinity $affinityState } finally { $buildWriterLock.Dispose() }
+    }
 }

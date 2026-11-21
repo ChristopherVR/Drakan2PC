@@ -31,7 +31,13 @@ You need your own **PAL SCES-500.06** release as a plain `.iso`. The USA release
 
 The Linux player uses the same WebGPU renderer as Windows, including the portable temporal AA and compute ray tracing. DLSS and hardware (DXR) ray tracing are Windows Direct3D 11 only. Performance varies by scene, GPU and CPU; see [Platforms & portability](../reference/portability.md).
 
-## Get the source
+## Get the builder
+
+Download and extract **DrakanPC-Builder.zip** from a [Drakan PC release](https://github.com/ChristopherVR/Drakan2PC/releases/latest).
+Use the extracted directory for the build commands below. Release ZIP installs can check for and install updates from
+the game. A Git checkout is useful for development and manual builds.
+
+### Build from a Git checkout
 
 Install Git if your system does not already have it. On Debian/Ubuntu:
 
@@ -52,7 +58,10 @@ Run this from the repository root, replacing the path with your own disc image:
 bash scripts/buildtool/Build-Drakan.sh "/path/to/Drakan.iso"
 ```
 
-The bootstrap checks for the compiler, CMake, Ninja, Python, PowerShell and runtime dependencies. On Debian/Ubuntu it installs missing public packages through `apt-get`, including the audio, graphics and FFmpeg development libraries. It downloads pinned Python/PowerShell tools when required.
+The bootstrap checks for the compiler, CMake, Ninja, Python, PowerShell, Node.js and runtime dependencies. On Debian/Ubuntu it installs missing public packages through `apt-get`, including the audio, graphics and FFmpeg development libraries. It downloads checksum-pinned Python, PowerShell and Node.js tools when required.
+
+When run from a release ZIP, the builder checks its own version against GitHub and shows the release page if a newer
+builder is available. The local build continues.
 
 It validates the disc, prepares the generated game code, compiles the Linux runtime and stages the playable installation at `dist/DrakanPC-linux`. The default work directory is `build/final-game`. Allow substantial time for the first compilation and leave the terminal open until it finishes.
 
@@ -85,6 +94,15 @@ bash scripts/buildtool/Build-Drakan.sh "/path/to/Drakan.iso"
 ```
 
 Native Linux saves live in the deployed `mc0` folder, with `mc1` used if present. Back up the card folders and INI files with the game closed before updating or moving your installation. See [Saves & updates](saves.md).
+
+## Update the Linux game
+
+When a newer release is available, the modern title screen offers **View changes** and **Download and rebuild**.
+The updater checks the GitHub ZIP against the release checksum and rebuilds from the disc image used for the original
+build. Keep the ISO drive connected and leave room for a temporary build. The first update creates a managed build
+folder, which later updates can reuse. The current game stays available if the rebuild fails. Its saves and settings
+carry over when the replacement is ready. The build log is next to the play folder, at `dist/DrakanPC-linux.update.log`
+with the default layout. Set `check_for_updates = 0` under `[general]` in `drakan.ini` to turn off update checks.
 
 To use an existing optional texture pack, supply its location:
 

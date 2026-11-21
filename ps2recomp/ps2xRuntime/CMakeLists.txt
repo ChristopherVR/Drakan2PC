@@ -448,12 +448,13 @@ endif()
 # Keep platform services out of the common source list. Linux uses /proc/self/exe;
 # the Windows implementation retains DPI/restart handling unchanged.
 if(WIN32)
-    target_sources(ps2_runtime PRIVATE src/lib/drakan_config_win.cpp)
-    target_link_libraries(ps2_runtime PRIVATE shell32 ole32)
+    target_sources(ps2_runtime PRIVATE src/lib/drakan_config_win.cpp src/lib/drakan_update_win.cpp
+                                       src/lib/drakan_update_installer_win.cpp)
+    target_link_libraries(ps2_runtime PRIVATE shell32 ole32 winhttp advapi32 bcrypt version uuid)
 else()
     target_sources(ps2_runtime PRIVATE src/lib/drakan_config_posix.cpp)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        target_sources(ps2_runtime PRIVATE src/lib/drakan_issue_linux.cpp)
+        target_sources(ps2_runtime PRIVATE src/lib/drakan_issue_linux.cpp src/lib/drakan_update_linux.cpp)
     endif()
 endif()
 if(NOT TARGET drakan::gs)

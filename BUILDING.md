@@ -495,6 +495,9 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
 - **New game release**: push a `v*` tag (or run Release with a tag). `release.yml` publishes the game files, marks the
   release Latest, then calls `editor-release.yml` for the same tag, so the release gets editor builds of the same commit.
   If the editor job fails, re-run just that job; the game files are already published.
+- **In-game updates**: the release job publishes `SHA256SUMS.txt` with the Windows Setup and builder ZIP. The desktop
+  updater uses the tagged GitHub release over HTTPS and checks the selected package against its SHA-256. Windows
+  upgrades reuse Setup and Linux upgrades reuse the builder ZIP. Both compile the game locally from the player's ISO.
 - **Release gate**: before publishing, `release.yml` unpacks the `DrakanPC-Builder` zip it just built (a `git archive` of the
   tagged commit, so no uncommitted edit can be in it) and compiles the runtime sources with the `runtime-check` preset.
   A tree that does not compile therefore never becomes a Setup. `pre-push` (`repository_guard.py`) also refuses a push
@@ -534,7 +537,7 @@ assets `DrakanEditor-Setup.exe`, `DrakanEditor-Portable.zip`, `DrakanSaveEditor-
 ## Linux and browser ISO builds
 
 The Linux bootstrap accepts the same verified PAL ISO as Windows. It installs missing public
-Debian/Ubuntu build dependencies, downloads checksum-pinned Python/PowerShell when needed, and calls
+Debian/Ubuntu build dependencies, downloads checksum-pinned Python, PowerShell and Node.js when needed, and calls
 `Build-LocalGame.ps1`. No ELF, VU image, BIOS or separately extracted game assets are required.
 The current native target is **x86-64 Linux**; Ubuntu 22.04 or newer is the local validation environment.
 An initial build requires network access, several GB of disk space and substantial compilation time.

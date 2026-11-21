@@ -80,6 +80,8 @@
 #include <emscripten.h>
 #endif
 #if defined(_WIN32)
+#include "drakan_update.h"
+#include "drakan_update_installer_win.h"
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -88,6 +90,9 @@
 #endif
 #include <windows.h>
 #else
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+#include "drakan_update_linux.h"
+#endif
 #include <fstream>
 #include <sys/types.h>
 #include <unistd.h>
@@ -2416,6 +2421,40 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     tu.renderer.setGamepadPrompts(tu.device == gameui::InputDevice::Gamepad);
     if (visible && ui.screen.isOpen()) {
         gameui::TitleState st = sh.titleState();
+#if defined(_WIN32)
+        if (!background && !st.classicGameChoice && ui.screen.page() == gameui::TitlePage::Main) {
+            using drakan_update_installer::State;
+            const State installer = drakan_update_installer::poll();
+            if (installer == State::Launched) {
+                drakan_win::requestClose();
+                return;
+            }
+            st.updateVersion = drakan_update::availableVersion();
+            if (!st.updateVersion.empty() && drakan_update_installer::eligible()) {
+                st.updateInstall = gameui::TitleUpdateInstall::Available;
+                if (installer == State::Downloading)
+                    st.updateInstall = gameui::TitleUpdateInstall::Downloading;
+                else if (installer == State::Failed)
+                    st.updateInstall = gameui::TitleUpdateInstall::Failed;
+            }
+        }
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+        if (!background && !st.classicGameChoice && ui.screen.page() == gameui::TitlePage::Main) {
+            using drakan_update_linux::Install;
+            const auto notice = drakan_update_linux::poll();
+            if (notice.install == Install::Ready) {
+                drakan_win::requestClose();
+                return;
+            }
+            st.updateVersion = notice.version;
+            if (notice.install == Install::Available)
+                st.updateInstall = gameui::TitleUpdateInstall::Available;
+            else if (notice.install == Install::Downloading)
+                st.updateInstall = gameui::TitleUpdateInstall::Downloading;
+            else if (notice.install == Install::Failed)
+                st.updateInstall = gameui::TitleUpdateInstall::Failed;
+        }
+#endif
         // A game's cover: previews/campaign-<id>.png (a mod pack's campaign, or a pack / the player replacing the
         // cover of "d2" = The Ancients' Gates, "ootf" = Order of the Flame), else previews/game-<id>.png (the logo
         // picture the player drops in for a built-in game). Nothing from the disc is stored in the repository.
@@ -2480,6 +2519,21 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.capturedKey = take && capture ? g_capturedKey : std::string();
         const bool noticeBefore = ui.screen.page() == gameui::TitlePage::ModsNotice;
         gameui::TitleFrameOutput out = ui.screen.frame(st, in, vp);
+#if defined(_WIN32)
+        if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
+            drakan_update::viewChanges();
+        else if (out.updateAction == gameui::TitleUpdateAction::Dismiss)
+            drakan_update::dismiss();
+        else if (out.updateAction == gameui::TitleUpdateAction::DownloadAndRebuild)
+            drakan_update_installer::start(st.updateVersion);
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+        if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
+            drakan_update_linux::viewChanges();
+        else if (out.updateAction == gameui::TitleUpdateAction::Dismiss)
+            drakan_update_linux::dismiss();
+        else if (out.updateAction == gameui::TitleUpdateAction::DownloadAndRebuild)
+            drakan_update_linux::start();
+#endif
         if (noticeBefore && ui.screen.page() != gameui::TitlePage::ModsNotice)
             g_modsNoticeDone = true; // answered or closed (Esc: asked again on the next start, mods.ini keeps `new`)
         if (ui.screen.page() == gameui::TitlePage::Multiplayer)

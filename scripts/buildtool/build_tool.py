@@ -21,9 +21,9 @@ SOURCE = ROOT  # single CMake root; the compiler itself is ps2recomp/ps2xRecomp
 LOCK = HERE / "toolchain.lock.json"
 
 
-def run(args, cwd=None):
+def run(args, cwd=None, *, env=None):
     print("+ " + subprocess.list2cmdline([str(a) for a in args]), flush=True)
-    subprocess.run([str(a) for a in args], cwd=cwd, check=True)
+    subprocess.run([str(a) for a in args], cwd=cwd, env=env, check=True)
 
 
 def output(args, cwd=None):
@@ -108,7 +108,9 @@ def main():
     config += [
         f"-DFETCHCONTENT_SOURCE_DIR_{name.upper()}={(work / 'deps' / name).as_posix()}" for name in lock["dependencies"]
     ]
-    run(config)
+    # The Linux game build uses Clang, but the recompiler's pinned toml11 needs GCC on Ubuntu 22.04.
+    compiler_env = os.environ | {"CC": "gcc", "CXX": "g++"} if sys.platform == "linux" else None
+    run(config, env=compiler_env)
     run([cmake, "--build", work / "cmake", "--config", "Release", "--target", "ps2_recomp", "--parallel", args.jobs])
     executable = work / "cmake/bin" / ("Release/ps2_recomp.exe" if os.name == "nt" else "ps2_recomp")
     if not executable.is_file():

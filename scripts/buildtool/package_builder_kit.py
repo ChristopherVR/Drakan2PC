@@ -28,6 +28,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 KIT = HERE / "kit"
 INSTALLER_LOCK = "scripts/buildtool/kit/installer.lock.json"
+RELEASE_MARKER = "DrakanPC-release.txt"
+RELEASE_TAG = re.compile(r"v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 # The Windows and browser builds, optional extras, and bundled recompiler share this source payload.
 BUILDER_DIRECTORIES = (
     "cmake/",
@@ -114,9 +116,11 @@ BUILDER_FILES = {
             "Build-LocalGame.ps1",
             "Build-Policy.ps1",
             "Build-Progress.ps1",
+            "Build-Recovery.ps1",
             "Build-Textures.ps1",
             "apply_defaults.py",
             "bootstrap_linux.py",
+            "drakan_update_linux.py",
             "build-messages.json",
             "build_tool.py",
             "dlss.lock.json",
@@ -243,13 +247,17 @@ def select(entries, guard):
     return kept
 
 
-def kit_entries(commit):
+def kit_entries(commit, *, release_tag=None):
+    if release_tag is not None and not RELEASE_TAG.fullmatch(release_tag):
+        raise ValueError("Release tag must be a stable vX.Y.Z version")
     entries = select(snapshot(commit), load_guard())
     for name, source in KIT_ROOT_FILES.items():
         if name in entries:
             raise RuntimeError(f"{name} already exists at the repository root")
         entries[name] = source.read_bytes()
     entries["KIT-VERSION.txt"] = f"commit {commit}\n".encode()
+    # An unversioned kit clears any release tag left by a previous install over the same builder folder.
+    entries[RELEASE_MARKER] = f"{release_tag}\n".encode("ascii") if release_tag else b""
     for required in ("CMakeLists.txt", "configs/drakan.toml", "scripts/buildtool/Build-Drakan.ps1", INSTALLER_LOCK):
         if required not in entries:
             raise RuntimeError(f"{commit[:12]} lacks {required}; commit the builder kit first")
@@ -496,7 +504,7 @@ def installer_tool_file(tool, name):
     return name != "preview/pwsh-preview.cmd"
 
 
-def build_installer(entries, commit, output_directory, iscc):
+def build_installer(entries, commit, output_directory, iscc, *, release_tag=None):
     lock = json.loads(entries[INSTALLER_LOCK])
     work_root = output_directory / "work"
     cache = work_root / "cache"
@@ -520,6 +528,7 @@ def build_installer(entries, commit, output_directory, iscc):
             f"/DAppVersion={version}",
             f"/DOutputDir={output_directory}",
             f"/DOutputName={name}",
+            *([f"/DReleaseTag={release_tag}", f"/DReleaseProductVersion={release_tag[1:]}.0"] if release_tag else []),
             KIT / "DrakanPC-Setup.iss",
         ]
     )
@@ -529,6 +538,7 @@ def build_installer(entries, commit, output_directory, iscc):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", default="HEAD", help="Git revision to package (default HEAD)")
+    parser.add_argument("--release-tag", help="public stable vX.Y.Z tag for the running game's update check")
     parser.add_argument("--output-directory", type=Path, default=REPO / "build/builder-kit")
     parser.add_argument("--name", default="DrakanPC-Builder", help="top-level folder inside the zip")
     parser.add_argument("--installer", action="store_true", help="build DrakanPC-Setup.exe instead of the zip")
@@ -540,17 +550,28 @@ def main():
         help="only unpack the pinned embeddable Python and Node.js into DIR (for scripts/tests/test_kit_tools.py)",
     )
     args = parser.parse_args()
+    if args.installer and args.release_tag:
+        if not RELEASE_TAG.fullmatch(args.release_tag) or any(
+            len(part) > 5 or int(part) > 65535 for part in args.release_tag[1:].split(".")
+        ):
+            parser.error("a versioned installer needs a stable release tag with each version component at most 65535")
     if args.fetch_tools:
         print(f"Kit tools: {fetch_tools(args.fetch_tools.resolve())}")
         return
     commit = git("rev-parse", "--verify", f"{args.revision}^{{commit}}").decode().strip()
     if args.revision == "HEAD" and git("status", "--porcelain", "--untracked-files=no").strip():
         print("Note: the working tree has uncommitted changes; the package contains the committed HEAD only.")
-    entries = kit_entries(commit)
+    entries = kit_entries(commit, release_tag=args.release_tag)
     output_directory = args.output_directory.resolve()
     output_directory.mkdir(parents=True, exist_ok=True)
     if args.installer:
-        output = build_installer(entries, commit, output_directory, find_iscc(args.iscc))
+        output = build_installer(
+            entries,
+            commit,
+            output_directory,
+            find_iscc(args.iscc),
+            release_tag=args.release_tag,
+        )
     else:
         output = build_zip(entries, commit, output_directory, args.name)
     digest = sha256(output)

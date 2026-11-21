@@ -25,6 +25,39 @@ float colCentreY() {
     return skinNumber("title_centre_y", 650);
 }
 constexpr float kMargin = 96, kFooterY = 1012, kHintH = 44, kHintGlyph = 40, kHintGap = 36;
+constexpr Rect kUpdatePanel{1304, 340, 520, 172};
+constexpr float kUpdatePad = 28, kUpdateGap = 12, kUpdateRowH = 56, kUpdateRowStep = 70;
+constexpr float kUpdateX = kUpdatePanel.x + kUpdatePad, kUpdateY = kUpdatePanel.y + 90;
+constexpr float kUpdateInnerW = kUpdatePanel.w - 2 * kUpdatePad, kDismissW = 180;
+struct UpdateButton {
+    TitleUpdateAction action;
+    Rect rect;
+    const char* label;
+};
+constexpr UpdateButton kUpdateButtons[] = {
+    {TitleUpdateAction::ViewChanges,
+     {kUpdateX, kUpdateY, kUpdateInnerW - kDismissW - kUpdateGap, kUpdateRowH},
+     "View changes"},
+    {TitleUpdateAction::Dismiss,
+     {kUpdateX + kUpdateInnerW - kDismissW, kUpdateY, kDismissW, kUpdateRowH},
+     "Dismiss"},
+    {TitleUpdateAction::DownloadAndRebuild, {kUpdateX, kUpdateY, kUpdateInnerW, kUpdateRowH}, "Download and rebuild"},
+};
+
+bool updateButtonVisible(TitleUpdateAction action, TitleUpdateInstall install) {
+    return action != TitleUpdateAction::DownloadAndRebuild || install != TitleUpdateInstall::Unavailable;
+}
+
+bool updateButtonEnabled(TitleUpdateAction action, TitleUpdateInstall install) {
+    return action == TitleUpdateAction::ViewChanges || install != TitleUpdateInstall::Downloading;
+}
+
+Rect updateButtonRect(const UpdateButton& button, TitleUpdateInstall install) {
+    Rect rect = button.rect;
+    if (install != TitleUpdateInstall::Unavailable && button.action != TitleUpdateAction::DownloadAndRebuild)
+        rect.y += kUpdateRowStep;
+    return rect;
+}
 
 PauseConfig optionsConfig(const TitleConfig& c) {
     PauseConfig p;
@@ -476,6 +509,15 @@ void TitleScreen::buildTargets(const TitleState& st) {
                             en,
                             en});
     }
+    if (page_ == TitlePage::Main && !classic_ && !loading_ && !st.updateVersion.empty()) {
+        for (const UpdateButton& button : kUpdateButtons) {
+            if (!updateButtonVisible(button.action, st.updateInstall))
+                continue;
+            const bool enabled = updateButtonEnabled(button.action, st.updateInstall);
+            targets_.push_back({{TargetKind::TitleUpdate, static_cast<int>(button.action)},
+                                lf_.map(updateButtonRect(button, st.updateInstall)), enabled, enabled});
+        }
+    }
 }
 
 void TitleScreen::ensureFocus(const TitleState& st) {
@@ -684,18 +726,28 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
         back(out);
         return;
     }
+    const auto select = [&](const TargetId& id) {
+        if (id.kind == TargetKind::TitleRow || id.kind == TargetKind::CardButton) {
+            activate(static_cast<TitleRow>(id.index), st, out);
+        } else if (id.kind == TargetKind::TitleUpdate) {
+            out.updateAction = static_cast<TitleUpdateAction>(id.index);
+            out.sound = UiSound::Confirm;
+        }
+    };
     if (in.leftClick && hover_.kind != TargetKind::None) {
         const HitTarget* t = findTarget(hover_);
         if (t && t->enabled) {
-            if (hover_.kind == TargetKind::TitleRow || hover_.kind == TargetKind::CardButton) {
-                focus_ = hover_;
-                activate(static_cast<TitleRow>(hover_.index), st, out);
-            } else if (hover_.kind == TargetKind::Hint) {
+            if (hover_.kind == TargetKind::Hint) {
                 if (static_cast<Prompt>(hover_.index) == Prompt::Back)
                     back(out);
-                else if (focus_.kind == TargetKind::TitleRow || focus_.kind == TargetKind::CardButton)
-                    activate(static_cast<TitleRow>(focus_.index), st, out);
+                else
+                    select(focus_);
+            } else {
+                focus_ = hover_;
+                select(focus_);
             }
+            if (out.updateAction)
+                return;
         }
     }
     std::vector<UiKey> keys = in.keys;
@@ -706,8 +758,13 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
             page_ == TitlePage::Multiplayer)
             break;
         const TitlePage before = page_;
-        int dy = 0;
+        int dx = 0, dy = 0;
         switch (k) {
+            case UiKey::Left:
+            case UiKey::Right:
+                if (page_ == TitlePage::Main && !st.updateVersion.empty())
+                    dx = k == UiKey::Left ? -1 : 1;
+                break;
             case UiKey::Up:
                 dy = -1;
                 break;
@@ -715,8 +772,9 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
                 dy = 1;
                 break;
             case UiKey::Confirm:
-                if (focus_.kind == TargetKind::TitleRow || focus_.kind == TargetKind::CardButton)
-                    activate(static_cast<TitleRow>(focus_.index), st, out);
+                select(focus_);
+                if (out.updateAction)
+                    return;
                 break;
             case UiKey::Back:
             case UiKey::Close:
@@ -730,7 +788,7 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
             ensureFocus(st);
             continue;
         }
-        if (dy == 0)
+        if (dx == 0 && dy == 0)
             continue;
         if (page_ == TitlePage::GameChoice) { // by index: the list scrolls past its visible rows
             const int n = gameCount(st);
@@ -739,12 +797,19 @@ void TitleScreen::applyInput(const TitleState& st, const UiInput& in, TitleFrame
             buildTargets(st);
             continue;
         }
+        if (dx > 0 && focus_.kind == TargetKind::TitleRow) {
+            const TargetId download{TargetKind::TitleUpdate, static_cast<int>(TitleUpdateAction::DownloadAndRebuild)};
+            if (const HitTarget* target = findTarget(download); target && target->navigable) {
+                focus_ = download;
+                continue;
+            }
+        }
         const HitTarget* cur = findTarget(focus_);
         if (!cur) {
             ensureFocus(st);
             continue;
         }
-        const int next = InventoryScreen::pickDirectional(targets_, cur->rect, 0, dy);
+        const int next = InventoryScreen::pickDirectional(targets_, cur->rect, dx, dy);
         if (next >= 0)
             focus_ = targets_[static_cast<size_t>(next)].id;
     }
@@ -1113,6 +1178,34 @@ void TitleScreen::draw(const TitleState& st, DrawList& d) const {
                                      : std::string();
         const std::string line = game.empty() ? st.footer : st.footer.empty() ? game : game + "   " + st.footer;
         p.text(d, {kMargin, kFooterY, 700, kHintH}, line, FontRole::Small, th.textMuted);
+    }
+
+    if (page_ == TitlePage::Main && !st.updateVersion.empty()) {
+        Rect updatePanel = kUpdatePanel;
+        if (st.updateInstall != TitleUpdateInstall::Unavailable)
+            updatePanel.h += kUpdateRowStep + 54;
+        d.panel(p.map(updatePanel), PanelStyle::Main, withAlpha(th.panel, 238));
+        const Rect title{kUpdateX, kUpdatePanel.y + 20, kUpdateInnerW, 46};
+        p.fittedText(d, title, menuFormat("Update available ({0})", {st.updateVersion}), FontRole::Heading, th.heading,
+                     TextAlign::Center);
+        p.rule(d, kUpdateX, kUpdateY - 12, kUpdateInnerW);
+        for (const UpdateButton& button : kUpdateButtons) {
+            if (!updateButtonVisible(button.action, st.updateInstall))
+                continue;
+            const TargetId id{TargetKind::TitleUpdate, static_cast<int>(button.action)};
+            p.button(d, updateButtonRect(button, st.updateInstall), menuText(button.label), focus_ == id, hover_ == id,
+                     updateButtonEnabled(button.action, st.updateInstall), TextAlign::Center);
+        }
+        const Rect detail{kUpdateX, kUpdateY + 2 * kUpdateRowStep, kUpdateInnerW, 40};
+        if (st.updateInstall == TitleUpdateInstall::Available)
+            p.fittedText(d, detail, menuText("Closes Drakan and rebuilds locally."), FontRole::Body, th.text,
+                         TextAlign::Center);
+        else if (st.updateInstall == TitleUpdateInstall::Downloading)
+            p.fittedText(d, detail, menuText("Downloading update..."), FontRole::Body, th.text,
+                         TextAlign::Center);
+        else if (st.updateInstall == TitleUpdateInstall::Failed)
+            p.fittedText(d, detail, menuText("Could not start the update. Try again."), FontRole::Body, th.text,
+                         TextAlign::Center);
     }
 
     if (!card) { // why an enabled campaign is not on the game card, packs that could not be read or are missing

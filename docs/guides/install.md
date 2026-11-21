@@ -54,6 +54,23 @@ Read [PC enhancements](enhancements.md) for the PS2 comparison, then [Controls &
 
 ## Interrupted build or update
 
+Packaged Windows builds with the modern title menu check GitHub for a newer release in the background. **View
+changes** opens the release notes in your browser. **Dismiss** hides that version. Set `check_for_updates = 0`
+under `[general]` in `drakan.ini` to turn the check off.
+
+If you installed with Windows Setup from a release that includes the updater, choose **Download and rebuild**.
+Drakan checks the download against the release checksum. Windows may ask for approval before opening the unsigned
+installer. The title screen stays responsive until Setup starts, then Drakan closes and rebuilds from your remembered
+disc image. Keep the drive with your `.iso`
+connected. The rebuild needs temporary free space on the play folder's drive for a second copy of the game and
+its assets. Your saves, settings, mods, and textures carry over. If the rebuild fails, open the game from its usual
+shortcut and retry the update from the title screen. If an interruption leaves the shortcut unavailable, run **Rebuild
+Drakan** from Start to recover the play folder. To update a builder ZIP installation, get a newer ZIP from the release
+page and rebuild from your disc image.
+
+When you start **Rebuild Drakan** from a release package, the builder checks its own version against GitHub. It
+shows the release page when a newer builder is available and continues the local build.
+
 Use **Rebuild Drakan** in the Start menu. It first shows where the last build stopped and checks each finished step's files on disk, for example:
 
 ```text

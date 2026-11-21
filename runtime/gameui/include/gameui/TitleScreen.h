@@ -94,6 +94,8 @@ private:
     uint32_t nextId_ = 1;
 };
 
+enum class TitleUpdateInstall : uint8_t { Unavailable, Available, Downloading, Failed };
+
 struct TitleState {
     bool canLoad = true;          // Load Game enabled (native 0x2302 enabled: 37e810(0) == 1, a save exists)
     int continueSlot = 0;         // the newest save's slot number; 0 = no Continue row
@@ -151,6 +153,8 @@ struct TitleState {
     // "Connection to the server lost"; empty: none). The glue clears it after a while or once the Multiplayer page
     // opens.
     std::string connectionNote;
+    std::string updateVersion; // empty when there is no undismissed release to offer
+    TitleUpdateInstall updateInstall = TitleUpdateInstall::Unavailable;
 };
 
 enum class TitlePage : uint8_t {
@@ -183,6 +187,8 @@ struct TitleConfig {
     bool unifiedOptions = false;
 };
 
+enum class TitleUpdateAction : uint8_t { ViewChanges, Dismiss, DownloadAndRebuild };
+
 struct TitleFrameOutput {
     DrawList draw;
     UiSound sound = UiSound::None;
@@ -190,6 +196,7 @@ struct TitleFrameOutput {
     std::vector<PauseAction> optionActions; // Options pages: to push into a PauseActionQueue (README mapping)
     std::vector<SettingsAction> settings;   // pcSettingsPages: edits to apply (dsettings::ModernSettings::apply)
     std::vector<mp::MpAction> mpActions;    // Multiplayer page: what to do with the network layer
+    std::optional<TitleUpdateAction> updateAction;
 };
 
 class TitleScreen {

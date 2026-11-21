@@ -47,10 +47,12 @@ jobs:
           "ISCC=$iscc" >> $env:GITHUB_ENV
       - name: Repository audit
         run: python scripts/repository_guard.py
-      - name: Build the installer
-        run: python scripts/buildtool/package_builder_kit.py --installer --iscc "$env:ISCC" --output-directory build/release
+      - name: Build Windows Setup
+        run: >-
+          python scripts/buildtool/package_builder_kit.py --installer --iscc "$env:ISCC"
+          --release-tag "$env:TAG" --output-directory build/release
       - name: Build the zip kit
-        run: python scripts/buildtool/package_builder_kit.py --output-directory build/release
+        run: python scripts/buildtool/package_builder_kit.py --release-tag "$env:TAG" --output-directory build/release
       # Gate: the Setup builds the game on the player's PC from this tree, so a tree whose runtime does not compile
       # must never become a release. Compile the runtime sources with the dependencies in the player's kit.
       # Compile only: no disc or recompiler output.

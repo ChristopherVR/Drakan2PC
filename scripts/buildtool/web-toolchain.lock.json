@@ -13,6 +13,10 @@
     "uv_version": "0.13.5",
     "uv_sha256": "f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f"
   },
+  "node": {
+    "version": "24.22.1",
+    "sha256": "6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6"
+  },
   "powershell": {
     "version": "7.6.8",
     "sha256": "59112e38ad83350e4f6dc0195953c66b5926792f300ca2e7691b8242e7a16e7f"

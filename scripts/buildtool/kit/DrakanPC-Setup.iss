@@ -15,6 +15,10 @@
 #ifndef OutputName
   #define OutputName "DrakanPC-Setup"
 #endif
+#ifndef ReleaseTag
+  #define ReleaseTag ""
+#endif
+#define SetupRegistration "Software\DrakanPC\Setup"
 #define AppIcon "ps2recomp\ps2xRuntime\src\res\drakan.ico"
 
 [Setup]
@@ -22,11 +26,17 @@ AppId={{69932327-BBAB-42A2-AA60-D15FFF9D83E6}
 AppName=Drakan: The Ancients' Gates (PC builder)
 AppVersion={#AppVersion}
 AppVerName=Drakan: The Ancients' Gates PC builder {#AppVersion}
+#if ReleaseTag != ""
+VersionInfoProductName=Drakan PC Builder
+VersionInfoProductTextVersion={#ReleaseTag}
+VersionInfoProductVersion={#ReleaseProductVersion}
+#endif
 DefaultDirName={localappdata}\DrakanPC
 ; Always offer the builder folder, also on a reinstall (Inno hides it then by default).
 DisableDirPage=no
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+SetupMutex=DrakanPC-Setup
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -58,6 +68,14 @@ es.BuildNow=Compilar el juego ahora (una o dos horas). El juego puede abrirse br
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "\SETUP-INFO.txt"; Flags: recursesubdirs ignoreversion
 
+[Registry]
+#if ReleaseTag != ""
+Root: HKCU64; Subkey: "{#SetupRegistration}"; ValueType: string; ValueName: "BuilderDir"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKCU64; Subkey: "{#SetupRegistration}"; ValueType: string; ValueName: "PlayDir"; ValueData: "{code:GetPlayDir}"; Flags: uninsdeletevalue uninsdeletekeyifempty
+#else
+Root: HKCU64; Subkey: "{#SetupRegistration}"; ValueType: none; Flags: deletekey
+#endif
+
 [Icons]
 Name: "{autoprograms}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\{#AppIcon}"
 Name: "{autodesktop}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\{#AppIcon}"; Tasks: desktopicon
@@ -84,7 +102,23 @@ Type: dirifempty; Name: "{app}\ps2recomp\ps2xRuntime"
 Type: dirifempty; Name: "{app}\ps2recomp"
 
 [Code]
+const
+  SetupRegistration = '{#SetupRegistration}';
+  SetupRelease = '{#ReleaseTag}';
+  Synchronize = $00100000;
+  InvalidProcessId = 87;
+  WaitSignaled = 0;
+  GameExitTimeoutMs = 60000;
+  GenericReadWrite = $C0000000;
+  OpenAlways = 4;
+  NormalFile = $80;
+
 var
+  UpdateMode: Boolean;
+  UpdateBuilderDir: String;
+  UpdatePlayDir: String;
+  BuildLockHandle: THandle;
+  UpdateExitCode: Integer;
   IsoPage: TInputFileWizardPage;
   PlayPage: TInputDirWizardPage;
   OotfPage: TWizardPage;
@@ -96,6 +130,101 @@ var
   OptionsPage: TInputOptionWizardPage;
   OotfRejected: Boolean;
   CpuPage: TInputQueryWizardPage;
+
+function OpenGameProcess(Access, InheritHandle, ProcessId: Cardinal): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForGameProcess(Handle: THandle; Milliseconds: Cardinal): Cardinal;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseKernelHandle(Handle: THandle): Cardinal;
+  external 'CloseHandle@kernel32.dll stdcall';
+function OpenBuildLock(const Name: String; Access, Share: Cardinal; Security: THandle;
+  Creation, Flags: Cardinal; Template: THandle): THandle;
+  external 'CreateFileW@kernel32.dll stdcall';
+
+function SameDirectory(Left, Right: String): Boolean;
+begin
+  Result := (Left <> '') and (Right <> '') and
+    SameText(RemoveBackslashUnlessRoot(ExpandFileName(Left)), RemoveBackslashUnlessRoot(ExpandFileName(Right)));
+end;
+
+function WaitForGameExit: Boolean;
+var
+  Pid: Int64;
+  Process: THandle;
+begin
+  Result := False;
+  Pid := StrToInt64Def(ExpandConstant('{param:DRAKANWAITPID|}'), 0);
+  if (Pid <= 0) or (Pid > $FFFFFFFF) then
+    Exit;
+  Process := OpenGameProcess(Synchronize, 0, Cardinal(Pid));
+  if Process = 0 then begin
+    Result := DLLGetLastError = InvalidProcessId;
+    Exit;
+  end;
+  try
+    Result := WaitForGameProcess(Process, GameExitTimeoutMs) = WaitSignaled;
+  finally
+    CloseKernelHandle(Process);
+  end;
+end;
+
+procedure ReleaseBuildLock;
+begin
+  if BuildLockHandle <> 0 then begin
+    CloseKernelHandle(BuildLockHandle);
+    BuildLockHandle := 0;
+  end;
+end;
+
+function InitializeSetup: Boolean;
+var
+  BuildDir: String;
+begin
+  UpdateMode := ExpandConstant('{param:DRAKANUPDATE|}') = '1';
+  Result := True;
+  if not UpdateMode then
+    Exit;
+  Result := False;
+  if (SetupRelease = '') or
+     not RegQueryStringValue(HKCU64, SetupRegistration, 'BuilderDir', UpdateBuilderDir) or
+     not RegQueryStringValue(HKCU64, SetupRegistration, 'PlayDir', UpdatePlayDir) or
+     not SameDirectory(UpdateBuilderDir, ExpandConstant('{param:DIR|}')) or
+     not SameDirectory(UpdatePlayDir, ExpandConstant('{param:PLAYDIR|}')) or
+     not FileExists(AddBackslash(UpdatePlayDir) + 'drakan.exe') then begin
+    SuppressibleMsgBox('This update does not match an existing Drakan PC Setup installation.', mbError, MB_OK, IDOK);
+    Exit;
+  end;
+  if not WaitForGameExit then begin
+    SuppressibleMsgBox('Drakan did not close. Close the game before retrying the update.', mbError, MB_OK, IDOK);
+    Exit;
+  end;
+
+  BuildDir := AddBackslash(UpdateBuilderDir) + 'build\';
+  if not FileExists(BuildDir + 'iso-path.txt') then begin
+    SuppressibleMsgBox('The builder has no saved disc path. Run Rebuild Drakan to choose your disc image, then retry.',
+      mbError, MB_OK, IDOK);
+    Exit;
+  end;
+  // Build-LocalGame.ps1 uses the same file while compiling or writing this installation's play folder.
+  BuildLockHandle := OpenBuildLock(BuildDir + 'game.build.lock', GenericReadWrite, 0, 0, OpenAlways, NormalFile, 0);
+  if BuildLockHandle = THandle(-1) then begin
+    BuildLockHandle := 0;
+    SuppressibleMsgBox('Drakan Setup could not lock the builder. Close any running build and retry the update.',
+      mbError, MB_OK, IDOK);
+    Exit;
+  end;
+  Result := True;
+end;
+
+procedure DeinitializeSetup;
+begin
+  ReleaseBuildLock;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := UpdateExitCode;
+end;
 
 procedure OotfBrowseFolder(Sender: TObject);
 var
@@ -289,6 +418,8 @@ end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
 begin
+  if UpdateMode then
+    Exit;
   if SubtitlePage.Values[1] then
     SetPreviousData(PreviousDataKey, 'OotfSubtitles', 'generate')
   else
@@ -337,7 +468,15 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (PageID = SubtitlePage.ID) and (Trim(OotfEdit.Text) = '');
+  Result := UpdateMode or ((PageID = SubtitlePage.ID) and (Trim(OotfEdit.Text) = ''));
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if UpdateMode and
+    (not SameDirectory(UpdateBuilderDir, WizardDirValue) or not SameDirectory(UpdatePlayDir, GetPlayDir(''))) then
+    Result := 'The builder and play folders must match the installed copy for an update.';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -349,7 +488,9 @@ var
   Nonzero: Boolean;
 begin
   Result := True;
-  // A silent install never starts the build (skipifsilent), so it does not need an ISO.
+  if UpdateMode then
+    Exit;
+  // A regular silent install never starts the build (skipifsilent), so it does not need an ISO.
   if (CurPageID = IsoPage.ID) and not (WizardSilent and (IsoPage.Values[0] = '')) then begin
     if not FileExists(IsoPage.Values[0]) then begin
       MsgBox('Choose your disc image (.iso) to continue.', mbError, MB_OK);
@@ -407,8 +548,28 @@ var
   Output: AnsiString;
   Code: Integer;
 begin
+  if (CurStep = ssPostInstall) and UpdateMode then begin
+    WizardForm.StatusLabel.Caption := 'Rebuilding Drakan from your disc image...';
+    ReleaseBuildLock;
+    if not Exec(
+      ExpandConstant('{app}\tools\pwsh\pwsh.exe'),
+      '-NoProfile -ExecutionPolicy Bypass -File "' +
+        ExpandConstant('{app}\scripts\buildtool\Build-Drakan.ps1') +
+        '" -TransactionalUpdate -DistDirectory "' + UpdatePlayDir + '"',
+      UpdateBuilderDir, SW_SHOWNORMAL, ewWaitUntilTerminated, Code) then
+      Code := 1;
+    if Code <> 0 then begin
+      UpdateExitCode := 20;
+      SuppressibleMsgBox(
+        'The rebuild did not finish. Open Drakan to continue playing. If the game shortcut does not open, ' +
+        'run Rebuild Drakan from Start to recover it.' + #13#10#13#10 +
+        'Build log: ' + AddBackslash(UpdateBuilderDir) + 'build-log.txt', mbError, MB_OK, IDOK);
+    end;
+    Exit;
+  end;
+
   // The files are installed, so the builder's own checker can read the choice (a zip's contents, a disc's cabinet).
-  // A choice that does not work is left out of the build instead of stopping it. Silent installs build nothing.
+  // A choice that does not work is left out of the build instead of stopping it. Regular silent installs build nothing.
   if (CurStep = ssPostInstall) and (Trim(OotfEdit.Text) <> '') and not WizardSilent then begin
     WizardForm.StatusLabel.Caption := 'Checking your Drakan: Order of the Flame files...';
     Log := ExpandConstant('{tmp}\ootf-check.txt');

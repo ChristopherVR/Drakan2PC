@@ -16,6 +16,8 @@ param(
     # Play folder: where drakan.exe and your saves go (default dist\DrakanPC next to this builder). Remembered in
     # build/build-options.json, so "Rebuild Drakan" keeps using it; 'default' goes back to dist\DrakanPC.
     [string]$DistDirectory,
+    # Setup's update entry, using the remembered disc and the existing prepared build.
+    [switch]$TransactionalUpdate,
     # Build without the optional NVIDIA features even when an SDK is present.
     [switch]$NoNvidia,
     # Accept the NVIDIA RTX SDKs licence and download NVIDIA's DLSS SDK (NVIDIA RTX GPUs only). Asked for when omitted
@@ -70,6 +72,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Build-Policy.ps1')
 . (Join-Path $PSScriptRoot 'Build-Progress.ps1')
 . (Join-Path $PSScriptRoot 'Build-Textures.ps1')
+. (Join-Path $PSScriptRoot 'Build-Recovery.ps1')
 . (Join-Path $PSScriptRoot 'Build-Job.ps1')
 # Everything the build starts (cmake, MSBuild, the compilers, the game for the pictures) ends with this window.
 [void](Enter-BuildJob)
@@ -88,6 +91,55 @@ $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
 }
 $languagePreference = if ($Language) { $Language } else { $saved.language }
 Initialize-BuildConsole $languagePreference -Plain:$Plain
+
+function Show-BuilderRelease {
+    $marker = Join-Path $RepoRoot 'DrakanPC-release.txt'
+    if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { return }
+    $component = '(?:0|[1-9][0-9]{0,9})'
+    $tagPattern = "\Av$component\.$component\.$component\z"
+    try { $installed = (Get-Content -LiteralPath $marker -Raw -Encoding ascii).Trim() }
+    catch { return }
+    if ($installed -cnotmatch $tagPattern) { return }
+
+    $releases = 'https://github.com/ChristopherVR/Drakan2PC/releases'
+    $tagPrefix = "$releases/tag/"
+    $handler = [Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $client = [Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds(3)
+    $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Head, "$releases/latest")
+    $request.Headers.UserAgent.ParseAdd('DrakanPC')
+    $response = $null
+    $latest = $null
+    try {
+        $response = $client.SendAsync($request, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        $location = $response.Headers.Location
+        if ($response.StatusCode -eq [Net.HttpStatusCode]::Found -and
+            $location -and $location.OriginalString.StartsWith($tagPrefix, [StringComparison]::Ordinal)) {
+            $candidate = $location.OriginalString.Substring($tagPrefix.Length)
+            if ($candidate -cmatch $tagPattern) { $latest = $candidate }
+        }
+    } catch {
+        # The release server is optional when building from a local disc.
+    } finally {
+        if ($response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+    }
+
+    $state = 'offline'
+    if ($latest) {
+        [long[]]$localVersion = $installed.Substring(1).Split('.')
+        [long[]]$publishedVersion = $latest.Substring(1).Split('.')
+        $state = 'current'
+        for ($i = 0; $i -lt $localVersion.Length; $i++) {
+            if ($localVersion[$i] -lt $publishedVersion[$i]) { $state = 'behind'; break }
+            if ($localVersion[$i] -gt $publishedVersion[$i]) { $state = 'ahead'; break }
+        }
+    }
+    Write-BuildValue (Get-BuildText 'builder_release') (Get-BuildText "builder_release_$state" @(
+        $installed, $latest, "$tagPrefix$latest"))
+}
 
 # Optional extras (scripts/buildtool/extras.py): what they cost on this PC, printed before anything long starts.
 function Get-GpuNames {
@@ -174,6 +226,9 @@ try {
     else { Write-Host ('  ' + (Get-BuildText 'build_mode')) }
     Write-BuildHeading (Get-BuildText 'system_check')
     if ($env:OS -ne 'Windows_NT') { throw (Get-BuildText 'windows_only') }
+    if ($TransactionalUpdate -and (-not $DistDirectory -or $DistDirectory -eq 'default' -or $Fresh -or $CheckOnly)) {
+        throw 'Automatic rebuild needs the registered play folder and the existing prepared build.'
+    }
 
     # Python 3.11+: the bundled copy first, then the first interpreter on PATH that is new enough.
     $python = $null
@@ -188,6 +243,7 @@ try {
         }
     }
     if (-not $python) { $problems.Add((Get-BuildText 'python_required')) }
+    if (-not $TransactionalUpdate) { Show-BuilderRelease }
 
     # Node.js 22.18+ or 23.6+ (TypeScript type stripping on by default) makes the multiplayer character motions in the
     # last step: the bundled copy first, then one on PATH. character_motion.py finds it on PATH. No TypeScript flag is
@@ -277,9 +333,20 @@ try {
         }
     }
     $playShown = if ($DistDirectory) { $DistDirectory } else { Join-Path $RepoRoot 'dist\DrakanPC' }
+    $playShown = [IO.Path]::TrimEndingDirectorySeparator($playShown)
     $playDrive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($playShown))
     if (-not $playDrive.IsReady) {
         throw (Get-BuildText 'play_unavailable' @($playShown))
+    }
+    if (-not $CheckOnly) {
+        $update = Get-BuildPlayUpdate $playShown
+        if (Get-Item -LiteralPath $update.Journal -Force -ErrorAction SilentlyContinue) {
+            $playLock = Enter-BuildPlayLock $playShown
+            try { Restore-BuildPlayUpdate $update }
+            finally {
+                try { $playLock.ReleaseMutex() } finally { $playLock.Dispose() }
+            }
+        }
     }
     Write-BuildValue (Get-BuildText 'play_folder') $playShown
     if ($playDrive.Name -ne $drive.Name) {
@@ -298,7 +365,7 @@ try {
         $options | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
     }
     if ($extrasKnown -or $PSBoundParameters.ContainsKey('OotfSource')) { $extrasKnown = $true }
-    & $saveOptions
+    if (-not $TransactionalUpdate) { & $saveOptions }
 
     $logicalCores = [Environment]::ProcessorCount
     # The compilers only run on the mask's processors, so size the build for those, not for the whole CPU.
@@ -323,9 +390,13 @@ try {
         $previous = (Get-Content -LiteralPath $rememberedIso -Raw).Trim()
         if (Test-Path -LiteralPath $previous -PathType Leaf) {
             Write-BuildValue (Get-BuildText 'previous_disc') $previous
-            $answer = Read-Host (Get-BuildText 'use_disc')
-            if ($answer -notmatch '^\s*n') { $IsoPath = $previous }
+            if ($TransactionalUpdate -or (Read-Host (Get-BuildText 'use_disc')) -notmatch '^\s*n') {
+                $IsoPath = $previous
+            }
         }
+    }
+    if ($TransactionalUpdate -and -not $IsoPath) {
+        throw 'The saved disc image could not be found. Open Rebuild Drakan to choose the ISO again.'
     }
     if (-not $IsoPath) {
         try {
@@ -343,11 +414,12 @@ try {
     $IsoPath = (Resolve-Path -LiteralPath $IsoPath).Path
     Write-BuildValue (Get-BuildText 'disc') $IsoPath
     New-Item -ItemType Directory -Force -Path (Split-Path $rememberedIso) | Out-Null
-    Set-Content -LiteralPath $rememberedIso -Value $IsoPath -NoNewline
+    if (-not $TransactionalUpdate) { Set-Content -LiteralPath $rememberedIso -Value $IsoPath -NoNewline }
 
     # NVIDIA DLSS is opt-in: the SDK is downloaded from NVIDIA only after its licence is accepted.
     $dlssSdk = Join-Path $RepoRoot 'tools/dlss/dlss_sdk/include/nvsdk_ngx.h'
-    if (-not $CheckOnly -and -not $NoNvidia -and -not $EnableDlss -and -not (Test-Path -LiteralPath $dlssSdk -PathType Leaf)) {
+    if (-not ($CheckOnly -or $TransactionalUpdate -or $NoNvidia -or $EnableDlss) -and
+        -not (Test-Path -LiteralPath $dlssSdk -PathType Leaf)) {
         $nvidiaGpu = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
             Where-Object { $_.PNPDeviceID -match 'VEN_10DE' }).Count -gt 0
         if ($nvidiaGpu -and [Environment]::UserInteractive) {
@@ -362,7 +434,7 @@ try {
 
     # Ask for the optional campaign once, then remember the answer.
     $extras = Join-Path $PSScriptRoot 'extras.py'
-    $interactive = [Environment]::UserInteractive -and -not $CheckOnly
+    $interactive = [Environment]::UserInteractive -and -not ($CheckOnly -or $TransactionalUpdate)
     $extraNotes = [Collections.Generic.List[string]]::new()
     if (-not $extrasKnown -and -not $OotfSource -and $interactive) {
         Write-BuildHeading (Get-BuildText 'ootf_optional')
@@ -375,7 +447,7 @@ try {
         }
         $extrasKnown = $true
     }
-    & $saveOptions
+    if (-not $TransactionalUpdate) { & $saveOptions }
     if ($OotfSource) {
         # Checked before anything long starts. A source that does not work (moved disc, wrong file, damaged zip) only leaves
         # Order of the Flame out of this run; it never stops the game build, and the remembered choice is kept.
@@ -398,6 +470,7 @@ try {
     $DistDirectory = $playShown
     $buildArgs.DistDirectory = $DistDirectory
     if ($textureSource) { $buildArgs.TextureDirectory = $textureSource }
+    if ($TransactionalUpdate) { $buildArgs.TransactionalUpdate = $true }
     if ($NoNvidia) { $buildArgs.NoNvidia = $true }
     elseif ($EnableDlss) { $buildArgs.AcceptNvidiaDlssLicense = $true }
     $prepared = Join-Path $WorkDir 'local-input.json'
@@ -440,13 +513,16 @@ try {
             $from = if ($resumeAt) { $resumeAt[0] } else { [pscustomobject]@{ Step = 6; Title = $DrakanBuildSteps[5] } }
             Write-BuildValue (Get-BuildText 'resume_at') "[$($from.Step)/$($DrakanBuildSteps.Count)] $(Get-BuildText "step_$($from.Step)")"
             if ($from.Detail) { Write-BuildValue (Get-BuildText 'on_disk') $from.Detail }
-            if ([Environment]::UserInteractive -and -not $CheckOnly) {
+            if ($interactive) {
                 $answer = Read-Host (Get-BuildText 'resume_prompt')
                 if ($answer -match '^\s*s') { $Fresh = $true }
             }
         }
     }
     $usingCache = (Test-Path -LiteralPath $prepared -PathType Leaf) -and -not $Fresh
+    if ($TransactionalUpdate -and -not $usingCache) {
+        throw 'The previous build needs repair. Open Rebuild Drakan to review it before trying the update again.'
+    }
     Write-BuildHeading (Get-BuildText 'plan')
     Write-BuildValue (Get-BuildText 'windows_game') $(if ($usingCache) { (Get-BuildText 'reuse_build') } else { (Get-BuildText 'full_build') })
     $affinityText = if ($CpuAffinity) { Get-BuildText 'cpu_mask' @($CpuAffinity) } else { '' }
@@ -468,10 +544,12 @@ try {
         Write-Host ('  ' + (Get-BuildText 'iso_found'))
         return
     }
-    if ($OotfSource -or $HdTextures -eq 'on') {
-        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource ($HdTextures -eq 'on')
+    $generateHd = $HdTextures -eq 'on' -and -not $TransactionalUpdate
+    if ($OotfSource -or $generateHd) {
+        Show-ExtrasEstimate $python $extras ([bool]$OotfSource) $OotfSource $generateHd
     }
     if (-not $vs) {
+        if ($TransactionalUpdate) { throw (Get-BuildText 'cpp_not_found') }
         Write-BuildHeading (Get-BuildText 'cpp_install')
         Install-BuildTools
         $vs = Find-VisualStudio
@@ -538,7 +616,7 @@ try {
         }
     }
     $play = $DistDirectory
-    if ($HdTextures -eq 'on') {
+    if ($generateHd) {
         Write-BuildHeading (Get-BuildText 'hd_start')
         Write-Host ('  ' + (Get-BuildText 'hd_resume'))
         $hdArgs = @($extras, 'hd', '--iso', $IsoPath, '--play', $play, '--work', (Join-Path $RepoRoot 'build/hdpack'))

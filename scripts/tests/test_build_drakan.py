@@ -80,6 +80,86 @@ class BuilderLanguageTests(unittest.TestCase):
                     self.assertEqual(fields(translation), fields(messages["en"]))
 
 
+@unittest.skipUnless(PWSH and WINDOWS, "Windows PowerShell 7 is required for play folder recovery")
+class BuildRecoveryTests(unittest.TestCase):
+    def run_rebuild(self, action, before_start=""):
+        with tempfile.TemporaryDirectory() as temp:
+            play = Path(temp) / "My Drakan play folder"
+            play.mkdir()
+            (play / "drakan.exe").write_text("previous game", encoding="utf-8")
+            (play / "drakan.ini").write_text("settings", encoding="utf-8")
+            (play / "mc0").mkdir()
+            (play / "mc0" / "slot").write_text("saved game", encoding="utf-8")
+            result = pwsh(
+                f"""
+                . {quote(BUILDTOOL / "Build-Recovery.ps1")}
+                $update = Get-BuildPlayUpdate {quote(play)}
+                $lock = Enter-BuildPlayLock $update.Play
+                try {{
+                    {before_start}
+                    $guard = Start-BuildPlayUpdate $update @('*.ini', 'mc0')
+                    try {{
+                        [IO.File]::WriteAllText((Join-Path $update.Stage 'drakan.exe'), 'rebuilt game')
+                        [IO.File]::WriteAllText((Join-Path $update.Stage 'DrakanPC-release.txt'), 'v0.2.1')
+                        {action}
+                    }} finally {{ $guard.Dispose() }}
+                }} finally {{
+                    $lock.ReleaseMutex()
+                    $lock.Dispose()
+                }}
+                """
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((play / "drakan.ini").read_text(encoding="utf-8"), "settings")
+            self.assertEqual((play / "mc0" / "slot").read_text(encoding="utf-8"), "saved game")
+            self.assertFalse((play.parent / f"{play.name}.drakan-rebuild").exists())
+            return (play / "drakan.exe").read_text(encoding="utf-8")
+
+    def test_success_publishes_the_new_game_and_keeps_player_files(self):
+        self.assertEqual(self.run_rebuild("Publish-BuildPlayUpdate $update $guard"), "rebuilt game")
+
+    def test_discarding_an_incomplete_stage_leaves_the_previous_play_folder(self):
+        game = self.run_rebuild(
+            """
+            $guard.Dispose()
+            Restore-BuildPlayUpdate $update
+            """
+        )
+        self.assertEqual(game, "previous game")
+
+    def test_failed_second_rename_restores_the_previous_play_folder(self):
+        game = self.run_rebuild(
+            """
+            $newExe = Join-Path $update.Stage 'drakan.exe'
+            $busy = [IO.File]::Open($newExe, 'Open', 'ReadWrite', 'None')
+            try { Publish-BuildPlayUpdate $update $guard; throw 'Promotion should fail' }
+            catch {
+                if (-not (Test-Path -LiteralPath $update.Previous -PathType Container)) { throw }
+            } finally { $busy.Dispose() }
+            Restore-BuildPlayUpdate $update
+            """
+        )
+        self.assertEqual(game, "previous game")
+
+    def test_resume_restores_the_previous_play_folder_after_an_interrupted_rename(self):
+        game = self.run_rebuild(
+            """
+            $guard.Dispose()
+            [IO.Directory]::Move($update.Play, $update.Previous)
+            Restore-BuildPlayUpdate $update
+            Restore-BuildPlayUpdate $update
+            """
+        )
+        self.assertEqual(game, "previous game")
+
+    def test_an_empty_journal_does_not_block_the_next_update(self):
+        game = self.run_rebuild(
+            "Publish-BuildPlayUpdate $update $guard",
+            "[void][IO.Directory]::CreateDirectory($update.Journal); Restore-BuildPlayUpdate $update",
+        )
+        self.assertEqual(game, "rebuilt game")
+
+
 STUB = r"""
 param([string]$IsoPath, [string]$WorkDir, [int]$Jobs, [int]$CompilerProcesses, [switch]$Incremental)
 $calls = Join-Path $PSScriptRoot 'calls.jsonl'

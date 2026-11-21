@@ -226,6 +226,7 @@ variable exists it wins over the `drakan.ini` value of `[section] key`. `DRAKAN_
 | `DRAKAN_LANG` | `[general] language` | `english` |
 | `DRAKAN_NATIVE_FONT_ATLAS` | `[general] native_font_atlas` | on |
 | `DRAKAN_QUIT_EXITS` / `DRAKAN_TITLE_QUIT` | `[general] quit_exits` / `title_quit` | on / on |
+| `DRAKAN_CHECK_FOR_UPDATES` | `[general] check_for_updates` (check GitHub for new releases from the modern Windows and Linux title menus in packaged builds) | on |
 | `DRAKAN_SAVE_PAGES` | `[general] save_pages` (1..8) | 4 |
 | `DRAKAN_SAVE_PACK_CHECK` | `[general] save_pack_check`: 0 = load saves made with another build of a mod pack anyway (modding.md "Saves and pack builds") | 1 |
 | `DRAKAN_QUICKSAVE_IN_LOAD` | `[general] quicksave_in_load`: Load Game lists the quicksave (Slot33) as a page after the manual pages and the title's Continue considers it (`save-slots.md`); 0 = hidden as in v0.1.17 and earlier | on |

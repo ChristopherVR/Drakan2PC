@@ -56,6 +56,7 @@ enum class TargetKind : uint8_t {
     PageStep,   // index = -1 / +1: the slot page arrows (mouse only)
     CardButton, // index = the confirm card's button (SaveLoadScreen: SaveCardButton, TitleScreen: TitleRow)
     TitleRow,   // index = TitleRow (TitleScreen)
+    TitleUpdate,
 };
 struct TargetId {
     TargetKind kind = TargetKind::None;

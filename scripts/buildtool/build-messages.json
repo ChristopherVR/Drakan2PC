@@ -62,6 +62,41 @@
     "fr": "Créer le jeu Windows à partir de votre image disque",
     "it": "Crea il gioco per Windows dalla tua immagine disco"
   },
+  "builder_release": {
+    "de": "Build-Programm",
+    "en": "Builder release",
+    "es": "Versión del compilador",
+    "fr": "Version de l’outil",
+    "it": "Versione dello strumento"
+  },
+  "builder_release_ahead": {
+    "de": "{0} ist neuer als die veröffentlichte Version {1}.",
+    "en": "{0} is newer than the published release {1}.",
+    "es": "{0} es posterior a la versión publicada {1}.",
+    "fr": "{0} est plus récente que la version publiée {1}.",
+    "it": "{0} è più recente della versione pubblicata {1}."
+  },
+  "builder_release_behind": {
+    "de": "Installiert: {0}. Version {1} ist verfügbar unter {2}",
+    "en": "Using {0}. Get version {1} at {2}",
+    "es": "Estás usando {0}. Descarga la versión {1} en {2}",
+    "fr": "Version utilisée : {0}. Téléchargez la version {1} sur {2}",
+    "it": "Versione in uso: {0}. Scarica la versione {1} da {2}"
+  },
+  "builder_release_current": {
+    "de": "{0} ist die aktuelle Version.",
+    "en": "{0} is the latest release.",
+    "es": "{0} es la versión más reciente.",
+    "fr": "{0} est la dernière version.",
+    "it": "{0} è la versione più recente."
+  },
+  "builder_release_offline": {
+    "de": "Update-Prüfung nicht möglich. Der Build läuft mit {0} weiter.",
+    "en": "Could not check for updates. Continuing with {0}.",
+    "es": "No se pudieron comprobar las actualizaciones. Se sigue con {0}.",
+    "fr": "Impossible de vérifier les mises à jour. Poursuite avec {0}.",
+    "it": "Impossibile verificare gli aggiornamenti. Si continua con {0}."
+  },
   "bundled": {
     "de": "Im Installationspaket enthalten",
     "en": "Bundled with the builder",

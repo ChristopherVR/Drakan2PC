@@ -102,6 +102,9 @@ const Entry kEntries[] = {
     {"general", "title_quit", "1",
      "1 = the title menu gets a Quit entry below Credits (asks for confirmation, then closes the game); 0 = the "
      "original four entries (env DRAKAN_TITLE_QUIT)"},
+    {"general", "check_for_updates", "1",
+     "1 = the modern Windows and Linux title menus check GitHub for a newer Drakan PC release; 0 = off "
+     "(env DRAKAN_CHECK_FOR_UPDATES)"},
     {"general", "settings_ui_scale", "auto", "size of the F1 settings menu: auto (by window height) or 0.75 .. 2.5"},
     {"general", "dual_wield", "0",
      "1 = using a second one-handed weapon while Rynn holds one puts it in her left hand (instead of a shield); her "
