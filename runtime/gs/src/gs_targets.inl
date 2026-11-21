@@ -435,7 +435,8 @@ void GSR_IMPL::trimDirtyRows(RT& rt) {
 
 // A 32-bit texture whose memory overlaps a dirty 32-bit render target at another base (the HUD atlas aliases the
 // target the orb liquid is rendered into). Reading the target back is a full GPU sync per frame; both store raw GS
-// words, so the target's blocks are copied into the texture on the GPU instead.
+// words, so the target's blocks are copied into the texture on the GPU instead. Blocks already mirrored by a host
+// upload can use the ordinary texture path, including authored replacements.
 RT* GSR_IMPL::aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::pair<uint32_t, uint32_t>>& spans) {
     if (psm != PSM_CT32 || mxl != 0 || (scale > 1 && !nativeReadbackEnabled))
         return nullptr;
@@ -446,7 +447,7 @@ RT* GSR_IMPL::aliasedTarget(uint32_t psm, uint32_t mxl, const std::vector<std::p
         uint32_t lo, hi;
         rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
         for (const auto& sp : spans) {
-            if (hi < sp.first || lo > sp.second)
+            if (hi < sp.first || lo > sp.second || blocksAreClean(*r, sp.first, sp.second))
                 continue;
             if (found || r->psm != PSM_CT32 || r->wstate == 1) {
                 return nullptr;

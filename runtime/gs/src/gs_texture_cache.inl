@@ -1253,22 +1253,10 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
     e.spans = std::move(spans);
     { // Explicit runtime atlases also apply when automatic upscaling is off.
         CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureUpscale);
-        // The game streams some UI atlases through a scratch target's memory every frame (the inventory icon atlas
-        // at tbp 0x3e7f). The upload reaches memory too, so an exact authored hash of the decoded blocks (a
-        // runtime atlas or a pack image) identifies the texture; render output never matches one.
-        bool authored = false;
-        if (aliased) {
-            if (!decodedHashValid) {
-                decodedHash = texup::hashContent(levels[0].data(), W, H);
-                decodedHashValid = true;
-            }
-            authored =
-                runtimeTexture(decodedHash) || (texReplace && replIndex.count(decodedHash) &&
-                                                !excluded.count(decodedHash) && !isTextureHashExcluded(decodedHash));
-        }
-        if ((!aliased || authored) &&
-            !(paletteOnly && !hlHit &&
-              setupPaletteHd(e, paletteIndices, paletteIndexHash, levels[0], W, H, mxl, s, uiHint)))
+        // The decoded RAM pixels omit GPU writes that were copied into e.tex. A pack or generated atlas identified
+        // by those RAM pixels could erase the live contents, such as the HUD liquid.
+        if (!aliased && !(paletteOnly && !hlHit &&
+                          setupPaletteHd(e, paletteIndices, paletteIndexHash, levels[0], W, H, mxl, s, uiHint)))
             setupUpscale(e, levels[0], W, H, mxl, s, uiHint, volatileSlot, decodedHashValid ? &decodedHash : nullptr);
     }
     out.srv = e.tex.get();
