@@ -299,6 +299,8 @@ std::string GSR_BACKEND::upscaleStatus() const {
 void GSR_BACKEND::noteSceneGeometry(const SceneGeometry& geometry) {
     auto& s = *m_impl;
     s.drainSurfaces();
+    if (s.residentScene.updateHeights(geometry))
+        return;
     if (s.residentScene.identity != geometry.identity) {
         // The scene camera arrives before resident geometry. Invalidate previous-level history without clearing
         // that newly published current camera (upscaleCut() also clears it).

@@ -3,6 +3,7 @@
 #ifdef GSR_HAVE_DXR_WATER
 #include "ray_water_bytecode.h"
 #include "ray_cached_compose_bytecode.h"
+#include "ray_dry_compose_bytecode.h"
 #include "ray_sky_bytecode.h"
 #include "ray_transport_bytecode.h"
 #include "nr_interop.h"
@@ -37,6 +38,9 @@
 using Microsoft::WRL::ComPtr;
 namespace gsr::surface {
 namespace {
+constexpr uint32_t kLevelSurfaceMask = 32, kValidatedLevelSurfaceMask = 64;
+constexpr uint32_t kValidatedTerrainMasks = kDirectShadowMask | kValidatedGeometryMask | kValidatedLevelSurfaceMask;
+
 void check(HRESULT h, const char* message) {
     if (FAILED(h)) {
         char b[256];
@@ -112,6 +116,7 @@ struct RayWater::Impl {
         uint32_t timedWidth = 0, timedHeight = 0, timedEffects = 0;
         uint32_t timedRejectedTriangles = 0;
         bool timedCachedCompose = false;
+        bool timedDryCompose = false;
     };
     struct TextureUpload {
         uint32_t slot = 0;
@@ -459,7 +464,7 @@ struct RayWater::Impl {
     std::array<Frame, kFrames> frames;
     unsigned frameIndex = 0;
     ComPtr<ID3D12RootSignature> root;
-    ComPtr<ID3D12PipelineState> pipeline, skyPipeline, transportPipeline;
+    ComPtr<ID3D12PipelineState> pipeline, dryComposePipeline, skyPipeline, transportPipeline;
     bool cachedCompose = false;
     ComPtr<ID3D12Resource> materials, scratch, blas[3], tlas, sky;
     uint64_t skyLevel = UINT64_MAX;
@@ -583,13 +588,13 @@ struct RayWater::Impl {
         std::fprintf(stderr,
                      "[ray-gpu] pass=%llu size=%ux%u effects=%u build=%.4fms sky=%.4fms transport=%.4fms "
                      "compose=%.4fms total=%.4fms upload_bytes=%llu dynamic_bytes=%llu dynamic_total=%llu "
-                     "rejected_frame_triangles=%u cached_compose=%u\n",
+                     "rejected_frame_triangles=%u cached_compose=%u dry_compose=%u\n",
                      static_cast<unsigned long long>(f.timedPass), f.timedWidth, f.timedHeight, f.timedEffects,
                      elapsed(0, 1), elapsed(1, 2), elapsed(2, 3), elapsed(3, 4), elapsed(0, 4),
                      static_cast<unsigned long long>(f.timedUploadBytes),
                      static_cast<unsigned long long>(f.timedDynamicBytes),
                      static_cast<unsigned long long>(f.timedDynamicTotal), f.timedRejectedTriangles,
-                     unsigned(f.timedCachedCompose));
+                     unsigned(f.timedCachedCompose), unsigned(f.timedDryCompose));
         const D3D12_RANGE written{0, 0};
         f.timestampReadback->Unmap(0, &written);
         f.timedPass = 0;
@@ -800,6 +805,11 @@ RayWater::RayWater(ID3D11Device* d11, ID3D11DeviceContext*) : impl(std::make_uni
         if (!s.cachedCompose) {
             pd.CS = {g_rayWater, sizeof(g_rayWater)};
             check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.pipeline)), "DXR water pipeline");
+        } else {
+            pd.CS = {g_rayDryCompose, sizeof(g_rayDryCompose)};
+            const HRESULT hr = s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.dryComposePipeline));
+            if (FAILED(hr))
+                logLine("DXR dry composition pipeline unavailable (0x%08lx)", static_cast<unsigned long>(hr));
         }
         pd.CS = {g_raySky, sizeof(g_raySky)};
         check(s.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&s.skyPipeline)), "DXR sky reduction pipeline");
@@ -1950,6 +1960,7 @@ void RayWater::Impl::execute(Job& job) {
         auto& instances = cpuCache ? s.cpuInstances : temporaryInstances;
         instances.clear();
         instances.reserve(6 + (models ? models->instances.size() : 0));
+        const auto frameTerrainMasks = kLevelSurfaceMask | (validatedFrame ? kValidatedTerrainMasks : 0u);
         {
             // Static world first (translated from its base to the camera), then this frame's triangles.
             const auto translate = sub(s.staticBase, origin);
@@ -1962,7 +1973,7 @@ void RayWater::Impl::execute(Job& job) {
                     i.Transform[1][3] = translate.y;
                     i.Transform[2][3] = translate.z;
                     i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = (1u << g) | (g == 0 ? kDirectShadowMask | kValidatedGeometryMask : 0u);
+                    i.InstanceMask = (1u << g) | (g == 0 ? kLevelSurfaceMask | kValidatedTerrainMasks : 0u);
                     if (g == 0 && nativeOpaque)
                         i.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
                     i.AccelerationStructure = s.staticBlas[g]->GetGPUVirtualAddress();
@@ -1976,8 +1987,7 @@ void RayWater::Impl::execute(Job& job) {
                     D3D12_RAYTRACING_INSTANCE_DESC i{};
                     i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
                     i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask =
-                        (1u << g) | (g == 0 && validatedFrame ? kDirectShadowMask | kValidatedGeometryMask : 0u);
+                    i.InstanceMask = (1u << g) | (g == 0 ? frameTerrainMasks : 0u);
                     i.AccelerationStructure = s.blas[g]->GetGPUVirtualAddress();
                     instances.push_back(i);
                 }
@@ -2098,7 +2108,7 @@ void RayWater::Impl::execute(Job& job) {
             D3D12_RAYTRACING_INSTANCE_DESC i{};
             i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
             i.InstanceID = (31u << 19) | gpuBase;
-            i.InstanceMask = 1u | (validatedFrame ? kDirectShadowMask | kValidatedGeometryMask : 0u);
+            i.InstanceMask = 1u | frameTerrainMasks;
             i.AccelerationStructure = s.gpuBlas->GetGPUVirtualAddress();
             instances.push_back(i);
         }
@@ -2200,7 +2210,11 @@ void RayWater::Impl::execute(Job& job) {
             s.barrier(frame.transportGuide.Get());
         }
         timestamp(3);
-        s.list->SetPipelineState(s.pipeline.Get());
+        // Match waterSurface's coverage guard so the smaller shader only runs where a water hit is impossible.
+        const uint32_t waterFlags = params.effects[3];
+        const bool noWaterSurface = !(waterFlags & 3u) || ((waterFlags & 4u) && !(waterFlags & 2u));
+        const bool useDryCompose = s.dryComposePipeline && transportEnabled && !job.coverageDebug && noWaterSurface;
+        s.list->SetPipelineState(useDryCompose ? s.dryComposePipeline.Get() : s.pipeline.Get());
         s.list->Dispatch((d.Width + 7) / 8, (d.Height + 7) / 8, 1);
         timestamp(4);
         if (gpuTiming)
@@ -2222,6 +2236,7 @@ void RayWater::Impl::execute(Job& job) {
             frame.timedEffects = params.effects[3] | (nativeOpaque ? 1u << 17 : 0u);
             frame.timedRejectedTriangles = validatedFrame ? 0 : counts[0];
             frame.timedCachedCompose = transportEnabled && s.cachedCompose;
+            frame.timedDryCompose = useDryCompose;
             frame.timedUploadBytes = stagingBytes;
             frame.timedDynamicBytes = 0;
             for (const auto& [first, end] : dynamicDirty)

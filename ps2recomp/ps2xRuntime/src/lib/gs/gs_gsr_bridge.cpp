@@ -555,14 +555,16 @@ void GsrBridge::Impl::execute(uint32_t type, const uint8_t* p, uint32_t size) {
             break;
         }
         case RecGeometry: {
-            if (size < 16 || (size - 16) % sizeof(gsr::SceneTriangle))
+            if (size < 24 || (size - 24) % sizeof(gsr::SceneTriangle))
                 break;
             gsr::SceneGeometry geometry;
             std::memcpy(&geometry.identity, p, 8);
             std::memcpy(&geometry.layers, p + 8, 4);
             std::memcpy(&geometry.waterLayers, p + 12, 4);
-            geometry.triangles.resize((size - 16) / sizeof(gsr::SceneTriangle));
-            std::memcpy(geometry.triangles.data(), p + 16, size - 16);
+            std::memcpy(&geometry.topology, p + 16, 8);
+            geometry.triangles.resize((size - 24) / sizeof(gsr::SceneTriangle));
+            if (!geometry.triangles.empty())
+                std::memcpy(geometry.triangles.data(), p + 24, size - 24);
             gs->noteSceneGeometry(geometry);
             break;
         }
@@ -1669,7 +1671,7 @@ void GsrBridge::noteSceneGeometry(const gsr::SceneGeometry& geometry) {
         return;
     }
     std::unique_lock<std::mutex> lock = s.lockProducer();
-    const uint32_t size = 16 + uint32_t(geometry.triangles.size() * sizeof(gsr::SceneTriangle));
+    const uint32_t size = 24 + uint32_t(geometry.triangles.size() * sizeof(gsr::SceneTriangle));
     s.enqueueBegin(lock, size + 8);
     Impl::put(s.pending, uint32_t(Impl::RecGeometry));
     Impl::put(s.pending, size);
@@ -1677,9 +1679,11 @@ void GsrBridge::noteSceneGeometry(const gsr::SceneGeometry& geometry) {
     s.pending.insert(s.pending.end(), identity, identity + 8);
     Impl::put(s.pending, geometry.layers);
     Impl::put(s.pending, geometry.waterLayers);
+    const auto* topology = reinterpret_cast<const uint8_t*>(&geometry.topology);
+    s.pending.insert(s.pending.end(), topology, topology + 8);
     const auto* data = reinterpret_cast<const uint8_t*>(geometry.triangles.data());
-    if (size > 16)
-        s.pending.insert(s.pending.end(), data, data + size - 16);
+    if (size > 24)
+        s.pending.insert(s.pending.end(), data, data + size - 24);
     const bool wake = s.workerWaiting;
     lock.unlock();
     if (wake)

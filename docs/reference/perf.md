@@ -936,3 +936,38 @@ At 4K DLSS Quality, Volcanic improved in all five pairs. Ruined Village
 and Grotto gained about 1–1.5 FPS in median throughput. Rift World's
 tunnel was primarily limited by the game thread in the profile.
 [Profiles and five-level retest](../journal/2026-11-20/ootf-4k-gpu.md).
+
+## DXR composition without water receivers (2026-11-21)
+
+At 4K DLSS Quality in Rift World with Dota 2 sharing the GPU, pooled
+world FPS rose from 61.89 to 63.93 across eleven frame-time pairs.
+Composition's median paired saving was 0.43 ms across three separate
+GPU-timed pairs. The pre-DLSS color output matched bit for bit on
+11 same-frame comparisons. [Benchmark and validation](../journal/2026-11-21/rift-dxr-composition.md)
+
+## Rift World animated terrain stutters (2026-11-21)
+
+Updating animated terrain heights in place removed the recurring render-worker
+spikes from full terrain refreshes. With Dota 2 open at 4K DLSS Quality, the
+benchmark recorded 18 presentation intervals over 33 ms before the change and
+zero after, across approximately 106 seconds per build. Pooled world FPS went
+from 68.84 to 67.07. [Trace and benchmark details](../journal/2026-11-21/rift-world-animated-terrain-stutters.md)
+
+## Rift World frame rate after the terrain fix (2026-11-21)
+
+The profiled terrain-fix build finished a larger share of ray passes per
+world frame. A follow-up DXR optimization eliminated redundant composition
+work and matched every sampled pre-DLSS pixel. With Dota 2 open, pooled world
+FPS was effectively flat in the paired test at 99.14 versus 98.87. Both shader
+versions recorded zero presentation gaps over 33 ms. Dota 2 restarted and
+used less of the GPU than in the earlier benchmark, leaving recovery at the
+earlier load unverified. [Profiles and benchmark](../journal/2026-11-21/rift-world-fps-recovery.md)
+
+## Rift World normal preparation and presentation (2026-11-21)
+
+The ray pass reuses a weighted normal for welded groups whose faces all pass
+the smoothing angle test. Direct3D 11 also uses a point sample for an image
+that already matches its viewport. The 4K DLSS Quality comparison with Dota 2
+open pooled 100.16 FPS before and 100.88 FPS after across seven pairs. Both
+variants recorded zero presentation gaps over 33 ms. Same-frame 4K output
+matched byte for byte. [Profile and benchmark details](../journal/2026-11-21/rift-world-ray-geometry-preparation.md)

@@ -346,10 +346,25 @@ int main(int argc, char** argv) {
     }
     put(0x700050, 0x420000u); // transient native lighting flag must not retire geometry/materials
     auto reused = drakan_scene_geometry::capture(ram.data(), uint32_t(ram.size()), scene.identity);
-    assert(reused.identity == scene.identity && reused.triangles.empty());
+    assert(reused.identity == scene.identity && reused.topology == scene.topology && reused.triangles.empty());
+    const auto held = resident.projectedShared();
+    const auto geometryVersion = resident.geometryVersion;
+    assert(resident.match(ground, false) == 0); // build the lookup before changing the heights
+    put(0x720000, uint16_t(32800));
+    const auto raised = drakan_scene_geometry::capture(ram.data(), uint32_t(ram.size()), scene.identity);
+    assert(raised.identity != scene.identity && raised.topology == scene.topology);
+    assert(resident.updateHeights(raised) && resident.geometryVersion == geometryVersion + 1);
+    const auto raisedProjection = resident.projectedShared();
+    assert(held->at(0).p[0].y == 1000 && raisedProjection->at(0).p[0].y == 1064);
+    assert(raisedProjection->at(0).texture == held->at(0).texture);
+    assert(std::memcmp(raisedProjection->at(0).uv, held->at(0).uv, sizeof ground.uv) == 0);
+    assert(resident.match(ground, false) < 0);
+    assert(resident.match(raisedProjection->at(0), false) == 0);
+    put(0x720000, uint16_t(32768));
     put(0x710000, uint16_t(0xf1)); // both triangle halves are native holes
     auto hole = drakan_scene_geometry::capture(ram.data(), uint32_t(ram.size()), scene.identity);
-    assert(hole.identity != scene.identity && hole.triangles.size() == 2);
+    assert(hole.identity != scene.identity && hole.topology != scene.topology && hole.triangles.size() == 2);
+    assert(!resident.updateHeights(hole));
     put(0x710010, uint16_t(0x41)); // partially flagged native water strip still owns both halves
     assert(drakan_scene_geometry::capture(ram.data(), uint32_t(ram.size())).triangles.size() == 2);
     put(0x700028, 0xfffffff0u); // malformed pointers fail closed

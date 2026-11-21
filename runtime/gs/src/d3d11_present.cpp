@@ -184,27 +184,24 @@ inline bool drawWindowImage(D3D11Backend::Impl& s, ID3D11RenderTargetView* windo
     auto& ctx = s.ctx;
     const float black[4] = {0, 0, 0, 1};
     s.gpuPasses.mark(gpupass::Pass::PresentBlit);
-    ctx->ClearRenderTargetView(window, black);
-    struct PC {
-        float a[4];
-        uint32_t m[4];
-    } pc{};
     // A latched window-sized image (renderViewImage) is shown one to one; a window resized since is scaled again.
     const bool showView = s.latchedView && s.viewSrv && s.viewTexW == (uint32_t)vw && s.viewTexH == (uint32_t)vh &&
                           s.cfg.deinterlace == 0 && !s.compareReady;
-    pc.a[0] = (float)(showView ? s.viewTexW : s.dispW);
-    pc.a[1] = (float)(showView ? s.viewTexH : s.dispH);
-    pc.a[2] = vw;
-    pc.a[3] = vh;
-    pc.m[0] = s.cfg.deinterlace;
-    pc.m[1] = s.latchedField;
-    pc.m[2] = s.cfg.sharpPresent ? 1u : 0u;
-    pc.m[3] = s.latchedScale;
-    D3D11_MAPPED_SUBRESOURCE ms{};
-    if (FAILED(s.map(s.cbPresent.Get(), D3D11_MAP_WRITE_DISCARD, ms, "present constants")))
-        return false; // a removed device: no Present (d3d11_device_loss.cpp)
-    std::memcpy(ms.pData, &pc, sizeof(pc));
-    ctx->Unmap(s.cbPresent.Get(), 0);
+    if (!showView || vx != 0 || vy != 0 || vw != static_cast<float>(s.swapW) || vh != static_cast<float>(s.swapH))
+        ctx->ClearRenderTargetView(window, black);
+    if (!showView) {
+        struct PC {
+            float a[4];
+            uint32_t m[4];
+        } pc{{static_cast<float>(s.dispW), static_cast<float>(s.dispH), vw, vh},
+             {s.cfg.deinterlace, s.latchedField, s.cfg.sharpPresent ? 1u : 0u, s.latchedScale}};
+        D3D11_MAPPED_SUBRESOURCE ms{};
+        if (FAILED(s.map(s.cbPresent.Get(), D3D11_MAP_WRITE_DISCARD, ms, "present constants")))
+            return false;
+        std::memcpy(ms.pData, &pc, sizeof(pc));
+        ctx->Unmap(s.cbPresent.Get(), 0);
+        ctx->PSSetConstantBuffers(2, 1, s.cbPresent.GetAddressOf());
+    }
     ctx->OMSetRenderTargets(1, &window, nullptr);
     D3D11_VIEWPORT vp{vx, vy, vw, vh, 0, 1};
     ctx->RSSetViewports(1, &vp);
@@ -214,8 +211,8 @@ inline bool drawWindowImage(D3D11Backend::Impl& s, ID3D11RenderTargetView* windo
     ctx->IASetInputLayout(nullptr);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     ctx->VSSetShader(s.vsFull.Get(), nullptr, 0);
-    ctx->PSSetShader(s.psPresent.Get(), nullptr, 0);
-    ctx->PSSetConstantBuffers(2, 1, s.cbPresent.GetAddressOf());
+    // renderViewImage wrote opaque pixels at the destination size, so each pixel uses one point sample.
+    ctx->PSSetShader(showView ? s.psCopyRGBA.Get() : s.psPresent.Get(), nullptr, 0);
     ID3D11ShaderResourceView* sv = showView ? s.viewSrv.Get() : s.dispSrv.Get();
     ctx->PSSetShaderResources(0, 1, &sv);
     ID3D11SamplerState* smps[2] = {s.smpPt.Get(), s.smpLin.Get()};

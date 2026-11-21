@@ -55,6 +55,7 @@ class ResidentScene {
         bool nativeGrid[2]{};
     };
     mutable std::vector<MatchEntry> matchEntries;
+    mutable std::vector<uint32_t> matchSlots;
     mutable std::unordered_map<int64_t, CellRange> matchCells;
     // Consecutive draw triangles mostly fall into one cell: remember the last lookup.
     mutable int64_t lastCell = 0;
@@ -115,6 +116,7 @@ class ResidentScene {
             return;
         matchEntries.clear();
         matchEntries.reserve(triangles.size());
+        matchSlots.assign(triangles.size(), ~0u);
         matchCells.clear();
         matchCells.reserve(cells.size());
         lastValid = false;
@@ -135,6 +137,7 @@ class ResidentScene {
                     if (std::abs(det) < 1 || len < 1)
                         continue;
                     nativeGrid &= std::abs(det) == kCellSize * kCellSize;
+                    matchSlots[index] = uint32_t(matchEntries.size());
                     matchEntries.push_back({tri.p[0].x, tri.p[0].y, tri.p[0].z, ax, az, bx, bz, det, 1.f / det,
                                             normal.x, normal.y, normal.z, len, index});
                 }
@@ -187,9 +190,52 @@ public:
     uint64_t identity = 0;
     std::vector<Triangle> triangles;
     uint32_t waterCount = 0, layerCount = 0;
-    uint64_t geometryVersion = 0; // positions change only through replace()
+    uint64_t geometryVersion = 0;
+    bool updateHeights(const SceneGeometry& input) {
+        if (!input.topology || topology != input.topology || input.triangles.size() != triangles.size())
+            return false;
+        // Same layer storage and XZ triangles. UV projections and cell membership remain valid as terrain moves in Y.
+        identity = input.identity;
+        bool positionsChanged = false;
+        const bool matchCurrent = matchMode == mathMode();
+        for (uint32_t i = 0; i < triangles.size(); ++i) {
+            const auto& src = input.triangles[i];
+            auto& tri = triangles[i];
+            bool moved = false;
+            for (unsigned j = 0; j < 3; ++j) {
+                moved |= tri.p[j].y != src.position[j][1];
+                tri.p[j].y = src.position[j][1];
+            }
+            if (!moved && std::memcmp(tri.lighting, src.color, sizeof src.color) == 0)
+                continue;
+            std::memcpy(tri.lighting, src.color, sizeof src.color);
+            triangleChanged[i] = projectedVersion + 1;
+            logChange(i);
+            projectionDirty = true;
+            if (!moved)
+                continue;
+            positionsChanged = true;
+            if (matchCurrent && matchSlots[i] != ~0u) {
+                auto& entry = matchEntries[matchSlots[i]];
+                const auto normal = cross(sub(tri.p[1], tri.p[0]), sub(tri.p[2], tri.p[0]));
+                entry.y0 = tri.p[0].y;
+                entry.nx = normal.x;
+                entry.ny = normal.y;
+                entry.nz = normal.z;
+                entry.length = length(normal);
+            }
+        }
+        if (positionsChanged) {
+            ++geometryVersion;
+            if (!matchCurrent)
+                matchMode = ~0u;
+        }
+        return true;
+    }
+
     void replace(const SceneGeometry& input) {
         identity = input.identity;
+        topology = input.topology;
         ++geometryVersion;
         layerCount = input.layers;
         waterCount = 0;
@@ -205,6 +251,7 @@ public:
         changeLog.clear();
         spares.clear();
         matchEntries.clear();
+        matchSlots.clear();
         matchCells.clear();
         lastValid = false;
         projected.reset(); // holders keep the previous level's triangles
@@ -237,6 +284,11 @@ public:
         }
         cellMaterialSlots.assign(triangles.size(), kNoCellMaterial);
     }
+
+private:
+    uint64_t topology = 0;
+
+public:
     // Index of the first resident triangle (insertion order) in the draw centroid's cell with this water flag whose
     // xz projection contains the centroid (1% barycentric tolerance) and whose plane holds all three draw vertices
     // within 32 units; -1 when there is none.

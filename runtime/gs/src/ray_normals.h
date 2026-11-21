@@ -139,6 +139,30 @@ void smoothNormals(size_t triangles, Corners corners, const CornerWelds& welds, 
     }
     uint32_t first = 0;
     for (const uint32_t end : welds.ends) {
+        if (end - first >= 4) {
+            // A cone narrower than 30 degrees guarantees that every pair passes the 60 degree test.
+            // Keep the original addition order so these corners receive the same normal bit for bit.
+            const Point axis = unit[welds.corners[first] / 3];
+            Point sum{};
+            uint32_t corner = first;
+            for (; corner < end; ++corner) {
+                const auto face = welds.corners[corner] / 3;
+                const Point n = unit[face];
+                if (axis.x * n.x + axis.y * n.y + axis.z * n.z < .867f)
+                    break;
+                sum = {sum.x + area[face].x, sum.y + area[face].y, sum.z + area[face].z};
+            }
+            if (corner == end) {
+                const float len = length(sum);
+                if (len > 0 && std::isfinite(len)) {
+                    const Point normal{sum.x / len, sum.y / len, sum.z / len};
+                    for (uint32_t a = first; a < end; ++a)
+                        out[welds.corners[a]] = normal;
+                    first = end;
+                    continue;
+                }
+            }
+        }
         for (uint32_t a = first; a < end; ++a) {
             const Point own = unit[welds.corners[a] / 3];
             Point sum{};

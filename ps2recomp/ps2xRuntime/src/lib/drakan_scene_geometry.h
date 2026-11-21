@@ -50,15 +50,14 @@ inline gsr::SceneGeometry capture(const uint8_t* ram, uint32_t bytes, uint64_t p
     const uint32_t base = rd(0x4dc118), count = rd(0x4dc120);
     if (!count || count > 4096 || !span(base, uint64_t(count) * 0x164))
         return out;
+    uint64_t topology = layoutIdentity(ram, bytes);
     uint64_t hash = 14695981039346656037ull;
-    auto mix = [&](const void* p, size_t n) {
+    const auto mix = [](uint64_t& key, const void* p, size_t n) {
         for (size_t i = 0; i < n; ++i) {
-            hash ^= static_cast<const uint8_t*>(p)[i];
-            hash *= 1099511628211ull;
+            key ^= static_cast<const uint8_t*>(p)[i];
+            key *= 1099511628211ull;
         }
     };
-    mix(&base, 4);
-    mix(&count, 4);
     std::vector<uint32_t> accepted;
     uint64_t triangleCount = 0;
     for (uint32_t layer = 0; layer < count; ++layer) {
@@ -77,19 +76,16 @@ inline gsr::SceneGeometry capture(const uint8_t* ram, uint32_t bytes, uint64_t p
         if (triangleCount + uint64_t(w) * h * 2 > 450000)
             break;
         triangleCount += uint64_t(w) * h * 2;
-        const uint32_t layoutFlags = flags & 0x1c00001;
-        mix(origin, sizeof origin);
-        mix(&layoutFlags, 4);
-        mix(&type, 4);
-        mix(&w, 4);
-        mix(&h, 4);
-        mix(ram + heights, heightCount * 2);
-        mix(ram + quads, size_t(w) * h * 4);
+        mix(topology, &layer, sizeof layer);
+        mix(topology, ram + quads, size_t(w) * h * 4);
+        mix(hash, ram + heights, heightCount * 2);
         ++out.layers;
         out.waterLayers += type == 2;
         accepted.push_back(layer);
     }
+    mix(hash, &topology, sizeof topology);
     out.identity = hash;
+    out.topology = topology;
     if (previous == hash)
         return out;
     out.triangles.reserve(size_t(triangleCount));
@@ -146,7 +142,6 @@ inline gsr::SceneGeometry capture(const uint8_t* ram, uint32_t bytes, uint64_t p
                     out.triangles.push_back(t);
             }
     }
-    out.identity = hash;
     return out;
 }
 } // namespace drakan_scene_geometry

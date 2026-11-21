@@ -131,6 +131,7 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
         } timed{profile};
         shadowFrame.begin(nullptr);
         static uint64_t identity = 0;
+        static uint64_t topology = 0;
         static uint64_t layout = 0;
         static unsigned checks = 0;
         static bool wasOn = false;
@@ -156,6 +157,7 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                         geometry = drakan_scene_geometry::capture(runtime.memory().getRDRAM(),
                                                                   runtime.memory().guestRamInUse());
                     identity = geometry.identity;
+                    topology = geometry.topology;
                     std::fprintf(stderr, "[resident-scene] identity=%llx layers=%u waterLayers=%u triangles=%zu\n",
                                  (unsigned long long)identity, geometry.layers, geometry.waterLayers,
                                  geometry.triangles.size());
@@ -172,9 +174,9 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                     return true;
                 }();
                 static uint64_t assetLevel = ~0ull;
-                if (assetLevel != identity) {
+                if (assetLevel != topology) {
                     reflectionAssets.clear();
-                    assetLevel = identity;
+                    assetLevel = topology;
                 }
                 if (!wasOn)
                     capture.reset();
@@ -189,7 +191,7 @@ void sceneSink(PS2Runtime& runtime, const gsr::SceneGuideCamera& camera, void*) 
                 }();
                 capture.motionOnly = motionOnlyAllowed && lease->gs->sceneModelsMotionOnly();
                 capture.posedFused = drakan_scene_models::Capture::posedFusedDefault() && !gsr::dlssCanyonToggledOff();
-                auto models = capture.capture(runtime.memory().getRDRAM(), runtime.memory().guestRamInUse(), identity,
+                auto models = capture.capture(runtime.memory().getRDRAM(), runtime.memory().guestRamInUse(), topology,
                                               includeSkyForComparison);
                 shadowFrame.begin(models);
                 if (!wasOn || checks % 120 == 0)

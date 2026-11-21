@@ -14,5 +14,6 @@ struct SceneGeometry {
     uint64_t identity = 0;
     uint32_t layers = 0, waterLayers = 0;
     std::vector<SceneTriangle> triangles;
+    uint64_t topology = 0; // layer storage and horizontal geometry; changing vertex heights do not change this key
 };
 } // namespace gsr

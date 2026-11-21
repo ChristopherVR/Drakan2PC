@@ -214,8 +214,11 @@ float visibility(float3 p,float3 normal,float3 direction,float maximum,uint self
         // A low sun over a shallow terrain crease shadows the neighbouring face in per-triangle bands ("stitched"
         // terrain). Those bands are local: a gently sloped hillside further away still casts its shadow.
         travelled+=query.CommittedRayT();
-        alpha*=lerp(creaseWeight(primitive,(float3x3)query.CommittedWorldToObject3x4(),normal,direction),1,
-                    smoothstep(2*kMetre,5*kMetre,travelled));
+#ifdef RAY_DRY_COMPOSE
+        if(travelled<5*kMetre)
+#endif
+            alpha*=lerp(creaseWeight(primitive,(float3x3)query.CommittedWorldToObject3x4(),normal,direction),1,
+                        smoothstep(2*kMetre,5*kMetre,travelled));
         if(sun)alpha*=1-smoothstep(kSunShadowFade,kSunShadowReach,travelled);
         transmission*=1-alpha;float advance=query.CommittedRayT()+2;ray.Origin+=direction*advance;ray.TMax-=advance;travelled+=2;
         if(ray.TMax<=ray.TMin)break;
@@ -314,7 +317,10 @@ struct SurfaceHit {bool hit,direct;float t,opacity;uint primitive,instance;float
 bool foliage(uint flags) {return (flags&128) && ((flags&8) || (flags&7)!=1);}
 SurfaceHit closestSurface(RayDesc ray,bool levelOnly,bool bounce=false) {
     SurfaceHit h;h.hit=false;h.direct=true;h.t=0;h.opacity=0;h.primitive=0;h.instance=kNoInstance;h.bary=0;h.worldToObject=(float3x3)0;
-    RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,(Effects.w&32768)?16:1,ray);
+    // The vertical terrain search excludes model instances before traversing their triangles.
+    bool validated=(Effects.w&32768)!=0;
+    uint mask=levelOnly?(validated?64:32):(validated?16:1);
+    RayQuery<RAY_FLAG_NONE> query;query.TraceRayInline(Scene,RAY_FLAG_NONE,mask,ray);
     while(query.Proceed())if(query.CandidateType()==CANDIDATE_NON_OPAQUE_TRIANGLE){
         uint primitive=(query.CandidateInstanceID()&0x7ffff)+query.CandidatePrimitiveIndex(),flags=uint(Materials[primitive*kAttributes+5].z);
         if(!(flags&256) && !(levelOnly && (flags&128)) && !(bounce && foliage(flags)) &&
@@ -350,6 +356,7 @@ bool primarySurface(inout float3 p,out float3 normal,out float3 shading,out floa
     if(allowLod && confidence<1){
         RayDesc vertical;vertical.Origin=p;vertical.TMin=0;vertical.TMax=kLodReach;
         vertical.Direction=float3(0,-1,0);SurfaceHit below=closestSurface(vertical,true);
+        if(below.hit)vertical.TMax=below.t;
         vertical.Direction=float3(0,1,0);SurfaceHit above=closestSurface(vertical,true);
         bool up=above.hit && (!below.hit || above.t<below.t);SurfaceHit ground=below;if(up)ground=above;
         if(ground.hit){
@@ -614,12 +621,13 @@ void loadTransportTile(uint2 groupOrigin,uint2 local,uint lane) {
 }
 #endif
 
-float4 filteredTransport(uint2 pixel,uint2 local,float depth,float3 normal,uint materialClass) {
-    float3 centre=worldPosition(pixel,depth);
+float4 filteredTransport(uint2 pixel,uint2 local,float3 centre,float3 albedo,float3 normal,uint materialClass) {
     if(dot(normal,normal)<.5)return 0;
-    float3 albedo=toLinear(Color.Load(int3(pixel,0)).rgb);float4 sum=0;float total=0;
-    float footprint=2*length(centre)/max(1,SizeTime.y*abs(Projection[1][1]));
+    float4 sum=0;float total=0;
+    float distance=length(centre);
+    float footprint=2*distance/max(1,SizeTime.y*abs(Projection[1][1]));
     footprint/=max(.05,abs(dot(normal,normalize(centre))));
+    float reach=max(32,footprint*8),tolerance=max(4,distance*.005);
     int2 size=(int2(SizeTime.xy)+1)/2,base=int2(pixel/2);
     [unroll]for(int y=-2;y<=2;++y)[unroll]for(int x=-2;x<=2;++x){
 #ifdef RAY_CACHE_TRANSPORT
@@ -638,8 +646,8 @@ float4 filteredTransport(uint2 pixel,uint2 local,float depth,float3 normal,uint 
         float4 sample=Transport[q];
         float3 delta=worldPosition(source,sourceDepth)-centre;
 #endif
-        if(length(delta)>max(32,footprint*8))continue;
-        float plane=abs(dot(delta,normal)),tolerance=max(4,length(centre)*.005);
+        if(length(delta)>reach)continue;
+        float plane=abs(dot(delta,normal));
         if(plane>3*tolerance)continue;
         float weight=exp(-float(x*x+y*y)/8)*exp(-plane/tolerance);
         weight*=smoothstep(.75,.95,dot(normal,guide.xyz));
@@ -659,12 +667,15 @@ void main(uint3 id : SV_DispatchThreadID,uint3 local : SV_GroupThreadID,uint lan
     if(transportActive)loadTransportTile(id.xy-local.xy,local.xy,lane);
 #endif
     if(any(id.xy>=uint2(SizeTime.xy)))return;
-    float4 original=Color.Load(int3(id.xy,0));Output[id.xy]=original;float3 receiverShadow=1;
+    float4 original=Color.Load(int3(id.xy,0));float3 receiverShadow=1;
     float sceneDepth=Depth.Load(int3(id.xy,0));
     float2 uv=(float2(id.xy)+.5)/SizeTime.xy;
     float2 ndc=(uv-Jitter.xy/SizeTime.xy)*float2(2,-2)+float2(-1,1);
     float4 view=mul(float4(ndc,1,1),InverseProjection);
-    if(!all(isfinite(view)) || abs(view.w)<1e-12)return;
+    if(!all(isfinite(view)) || abs(view.w)<1e-12){Output[id.xy]=original;return;}
+#ifdef RAY_DRY_COMPOSE
+    const bool haveWater=false;
+#else
     float3 v=view.xyz/view.w;
     float3 direction=normalize(v.x*CameraRight.xyz+v.y*CameraUp.xyz-v.z*CameraForward.xyz);
     RayDesc ray;ray.Origin=0;ray.Direction=direction;
@@ -676,13 +687,16 @@ void main(uint3 id : SV_DispatchThreadID,uint3 local : SV_GroupThreadID,uint lan
     bool coveredWater=haveWater;
     haveWater=haveWater && !(sceneDepth>waterDepth+max(1e-6,abs(waterDepth)*.002));
     if(SceneInfo.w && SceneInfo.w<=2){float3 debug=float3(distance>0?1:0,coveredWater?1:0,haveWater?1:0);if(SceneInfo.w==2)debug=haveWater?waterOpacity.xxx:float3(0,0,0);Output[id.xy]=float4(debug,original.a);return;}
+#endif
     float rotation=pixelNoise(id.xy,0);
+#ifndef RAY_DRY_COMPOSE
     Lighting waterLight;waterLight.lit=waterLight.unshadowed=1;waterLight.sun=0;
     if(haveWater)waterLight=nativeLighting(p,geometric,geometric,rotation,1,kNoInstance);
-    float3 receiver=0,receiverNormal=0,receiverShading=0;float receiverConfidence=0;uint receiverSelf=kNoInstance;
+#endif
+    float3 rasterReceiver=0,receiver=0,receiverNormal=0,receiverShading=0;float receiverConfidence=0;uint receiverSelf=kNoInstance;
     SurfaceHit receiverHit=(SurfaceHit)0;bool haveReceiver=false;
     if(!haveWater && sceneDepth>0 && (Effects.y || transportActive)){
-        receiver=worldPosition(id.xy,sceneDepth);
+        rasterReceiver=receiver=worldPosition(id.xy,sceneDepth);
         haveReceiver=all(isfinite(receiver)) && primarySurface(receiver,receiverNormal,receiverShading,
             receiverConfidence,receiverSelf,receiverHit,Effects.y!=0);
     }
@@ -692,26 +706,34 @@ void main(uint3 id : SV_DispatchThreadID,uint3 local : SV_GroupThreadID,uint lan
     // 5: the radiance this surface returns to a secondary (bounce or reflection) ray that hits it.
     if(SceneInfo.w==5){float3 v=haveReceiver?hitColor(receiver,receiverHit.primitive,receiverHit.bary,receiverNormal,
         receiverShading,pixelNoise(id.xy,0),true,receiverSelf):0;Output[id.xy]=float4(toDisplay(v),original.a);return;}
+    float4 composed=original;float3 albedo=toLinear(original.rgb);
     if(Effects.y && sceneDepth>0){
         if(Effects.w&128)receiverShadow=0;
+#ifndef RAY_DRY_COMPOSE
         if(haveWater)receiverShadow=shadowRatio(waterLight);
-        else if(haveReceiver){
+        else
+#endif
+        if(haveReceiver){
             if(Effects.w&128){Output[id.xy]=float4(receiverConfidence.xxx,original.a);return;}
             float occlusion=ambientOcclusion(receiver,receiverNormal,pixelNoise(id.xy,1),receiverSelf);
             receiverShadow=lerp(float3(1,1,1),shadowRatio(nativeLighting(receiver,receiverNormal,receiverShading,
                 rotation,occlusion,receiverSelf)),receiverConfidence);
         }
-        Output[id.xy]=(Effects.w&128)?float4(receiverShadow,original.a):float4(toDisplay(toLinear(original.rgb)*receiverShadow),original.a);
+        composed=(Effects.w&128)?float4(receiverShadow,original.a):float4(toDisplay(albedo*receiverShadow),original.a);
     }
     // These opaque material effects are independent of water and direct-shadow switches. Diagnostic modes
     // remain isolated so AO/direct/receiver views continue to measure only their named effect.
     if(transportActive && haveReceiver && receiverHit.direct){
         uint materialKey=transportMaterialKey(receiverHit.primitive);
-        float4 incoming=filteredTransport(id.xy,local.xy,sceneDepth,receiverNormal,materialKey)*receiverConfidence;
-        float3 after=toLinear(Output[id.xy].rgb)*(1-saturate(incoming.a))+incoming.rgb;
+        float4 incoming=filteredTransport(id.xy,local.xy,rasterReceiver,albedo,receiverNormal,materialKey)*receiverConfidence;
+        // Preserve the half-float round trip between direct light and transport in the RGBA16F target.
+        float3 base=f16tof32(f32tof16(composed.rgb));
+        float3 after=toLinear(base)*(1-saturate(incoming.a))+incoming.rgb;
         if(SceneInfo.w==6)after=incoming.rgb*4; // 6: incoming bounce light alone (white receivers), times four
-        if(all(isfinite(after)))Output[id.xy]=float4(toDisplay(max(0,after)),original.a);
+        if(all(isfinite(after)))composed=float4(toDisplay(max(0,after)),original.a);
     }
+    Output[id.xy]=composed;
+#ifndef RAY_DRY_COMPOSE
     if(!Effects.x || !haveWater)return;
     float bottom=distance+8000;
     if(sceneDepth>0) {
@@ -820,4 +842,5 @@ void main(uint3 id : SV_DispatchThreadID,uint3 local : SV_GroupThreadID,uint lan
     // Otherwise nearly transparent water restores full brightness at banks.
     Output[id.xy]=float4(lerp(Output[id.xy].rgb,toDisplay(base),coverage),original.a);
     if(SceneInfo.w==3)Output[id.xy]=float4(waterOpacity,saturate(thickness/96),fresnel,original.a);
+#endif
 }
