@@ -2347,7 +2347,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr && !debugNoPages;
         cfg.showMultiplayer = drakan_netplay::wanted();
-        cfg.showSwitchCampaigns = true;     // shown only while more than one game is installed
+        cfg.showSwitchCampaigns = true; // shown only while more than one game is installed
         cfg.showIssueReporting = drakan_issue::available();
         cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
         return cfg;
@@ -2490,7 +2490,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             if (a.kind == gameui::TitleActionKind::ReportIssue)
                 drakan_issue::report();
             else if (a.kind == gameui::TitleActionKind::ModsEnable || a.kind == gameui::TitleActionKind::ModsKeepOff ||
-                a.kind == gameui::TitleActionKind::OpenMods)
+                     a.kind == gameui::TitleActionKind::OpenMods)
                 titleModsAction(a); // host only: no native press
             else {
                 if (a.kind == gameui::TitleActionKind::SelectGame)

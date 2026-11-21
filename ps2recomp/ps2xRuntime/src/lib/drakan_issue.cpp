@@ -283,13 +283,13 @@ bool runHelper(int, char*[]) {
 }
 void watchForCrashes() {}
 void markCrash() {
-    MAIN_THREAD_ASYNC_EM_ASM({ Module['onGameCrash']?.(); });
+    MAIN_THREAD_ASYNC_EM_ASM({ Module['onGameCrash'] && Module['onGameCrash'](); });
 }
 bool available() {
     return true;
 }
 void report() {
-    MAIN_THREAD_ASYNC_EM_ASM({ Module['onIssueReport']?.(); });
+    MAIN_THREAD_ASYNC_EM_ASM({ Module['onIssueReport'] && Module['onIssueReport'](); });
 }
 } // namespace drakan_issue
 #elif !defined(__linux__) || defined(__ANDROID__)

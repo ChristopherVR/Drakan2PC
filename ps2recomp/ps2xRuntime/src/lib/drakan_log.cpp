@@ -42,8 +42,8 @@ HANDLE openSessionLog(const std::filesystem::path& dir) {
     MoveFileExW(cur.c_str(), prev.c_str(), MOVEFILE_REPLACE_EXISTING);
     // The writer's share mode protects this session against rotation and truncation by another instance.
     auto open = [](const std::filesystem::path& path) {
-        return CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
+        return CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
     };
     HANDLE file = open(cur);
     if (file != INVALID_HANDLE_VALUE) {
@@ -173,8 +173,8 @@ void init() {
         g->sinkFile = openSessionLog(logDir);
     } else {
         g->sinkFile = openSessionLog(drakan_cfg::exeDir());
-        if (const wchar_t* appData = _wgetenv(L"LOCALAPPDATA"); appData && *appData &&
-            g->sinkFile == INVALID_HANDLE_VALUE) {
+        if (const wchar_t* appData = _wgetenv(L"LOCALAPPDATA");
+            appData && *appData && g->sinkFile == INVALID_HANDLE_VALUE) {
             const auto fallback = std::filesystem::path(appData) / L"DrakanPC" / L"logs";
             std::error_code ec;
             std::filesystem::create_directories(fallback, ec);
