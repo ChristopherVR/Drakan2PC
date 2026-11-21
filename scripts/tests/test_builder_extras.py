@@ -23,6 +23,7 @@ sys.modules["extras"] = extras  # dataclasses look their module up
 spec.loader.exec_module(extras)
 LOCK = ROOT / "scripts/buildtool/kit/installer.lock.json"
 ISS = ROOT / "scripts/buildtool/kit/DrakanPC-Setup.iss"
+ENGLISH_SETUP = ISS.parent / "locales/en/setup.isl"
 BUILD_DRAKAN = ROOT / "scripts/buildtool/Build-Drakan.ps1"
 
 
@@ -1106,7 +1107,7 @@ class PolicyTests(unittest.TestCase):
             self.assertIn("win_amd64", lock["hd"][wheel]["url"])
 
     def test_wizard_text_matches_the_estimates(self):
-        text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
+        text = ENGLISH_SETUP.read_text(encoding="utf-8")
         summary = extras.reference_summary()
         for key in ("ootf", "hd", "both"):
             time, disk = summary[key]
@@ -1148,27 +1149,23 @@ class PolicyTests(unittest.TestCase):
         dlss = text[text.index("DlssPage := ") : text.index("HdPage := ")]
         hd = text[text.index("HdPage := ") : text.index("OptionsPage := ")]
         other = text[text.index("OptionsPage := ") : text.index("CpuPage := ")]
-        self.assertIn("NVIDIA RTX SDKs License", dlss)
-        self.assertNotIn("Real-ESRGAN", dlss)
-        self.assertIn("Real-ESRGAN", hd)
-        self.assertNotIn("DLSS", hd)
-        self.assertNotIn("DLSS", other)
-        self.assertNotIn("Real-ESRGAN", other)
+        self.assertIn("CustomMessage('DlssOption')", dlss)
+        self.assertIn("CustomMessage('HdDescription')", hd)
+        self.assertNotIn("DlssDescription", hd)
+        self.assertNotIn("DlssDescription", other)
+        self.assertNotIn("HdDescription", other)
+        messages = ENGLISH_SETUP.read_text(encoding="utf-8")
+        self.assertRegex(messages, r"DlssOption=.*NVIDIA RTX SDKs License")
+        self.assertRegex(messages, r"HdDescription=.*Real-ESRGAN")
         self.assertEqual(other.count("OptionsPage.Add("), 4, "browser, priority, start the game, VU1 blocks")
 
-    def test_the_game_options_page_offers_the_three_features_and_says_they_can_be_changed(self):
+    def test_the_game_options_page_offers_initial_settings(self):
         text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
         page = text[text.index("DefaultsPage := ") : text.index("OptionsPage := ")]
-        self.assertEqual(page.count("DefaultsPage.Add("), 3)
-        for needle in (
-            "Modernise the menus",
-            "original PS2 menus",
-            "Order of the Flame bow combat",
-            "dual wielding (experimental)",
-        ):
-            self.assertIn(needle, page)
-        self.assertIn("change all of these in the game later", page)
-        self.assertIn("F1", page)
+        self.assertEqual(page.count("DefaultsPage.Add("), 4)
+        for key in ("DefaultsMenus", "DefaultsBow", "DefaultsDual", "DefaultsIssue"):
+            self.assertIn(f"DefaultsPage.Add(CustomMessage('{key}'))", page)
+        self.assertRegex(ENGLISH_SETUP.read_text(encoding="utf-8"), r"DefaultsDescription=.*F1")
         for needle in (
             "-MenuStyle modern",
             "-MenuStyle original",
@@ -1176,6 +1173,8 @@ class PolicyTests(unittest.TestCase):
             "-BowCombat native",
             "-DualWield on",
             "-DualWield off",
+            "-IssueReporting on",
+            "-IssueReporting off",
         ):
             self.assertIn(needle, text)
 
@@ -1183,14 +1182,14 @@ class PolicyTests(unittest.TestCase):
         text = BUILD_DRAKAN.read_text(encoding="utf-8")
         for needle in ("[string]$MenuStyle", "[string]$BowCombat", "[string]$DualWield", "'apply_defaults.py'"):
             self.assertIn(needle, text)
-        self.assertIn("if ($MenuStyle -or $BowCombat -or $DualWield)", text)
+        self.assertIn("if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting)", text)
         self.assertGreater(text.index("'apply_defaults.py'"), text.index("Invoke-BuildWithRetry (Join-Path"))
         self.assertNotIn(
             "menuStyle", text.split("$saveOptions = {")[1].split("}")[0], "a rebuild must not reapply them"
         )
 
     def test_the_vu1_option_is_explained(self):
-        text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
+        text = ENGLISH_SETUP.read_text(encoding="utf-8")
         for needle in ("VU1 microcode", "vector processor", "2 GB of memory per compiler", "17 GB", "same speed"):
             self.assertIn(needle, text)
 

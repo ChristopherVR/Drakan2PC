@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import re
 import shutil
 import tempfile
 import unittest
@@ -16,6 +17,35 @@ spec.loader.exec_module(kit)
 
 
 class BuilderKitTests(unittest.TestCase):
+    def test_setup_locales_cover_the_wizard_and_installed_help(self):
+        wizard = (kit.KIT / "DrakanPC-Setup.iss").read_text(encoding="utf-8")
+        keys = set(re.findall(r"CustomMessage\('([A-Za-z]+)'\)", wizard))
+        keys.update(re.findall(r"\{cm:([A-Za-z]+)\}", wizard))
+        keys.remove("CreateDesktopIcon")  # supplied by Inno Setup
+        locales = re.findall(r'^Name: "([a-z]{2})"; MessagesFile:', wizard, re.MULTILINE)
+        self.assertEqual(set(locales), {"en", "de", "fr", "it", "es"})
+        english = {}
+        for locale in locales:
+            with self.subTest(locale=locale):
+                folder = kit.KIT / "locales" / locale
+                messages = dict(
+                    line.split("=", 1)
+                    for line in (folder / "setup.isl").read_text(encoding="utf-8").splitlines()
+                    if "=" in line
+                )
+                self.assertEqual(set(messages), keys)
+                self.assertTrue(all(messages.values()))
+                if locale == "en":
+                    english = messages
+                for key, message in messages.items():
+                    self.assertEqual(
+                        sorted(re.findall(r"%[1-9]", message)), sorted(re.findall(r"%[1-9]", english[key]))
+                    )
+                self.assertTrue((folder / "SETUP-INFO.txt").read_text(encoding="utf-8").strip())
+                self.assertTrue((folder / "README.txt").read_text(encoding="utf-8").strip())
+                if locale != "en":
+                    self.assertEqual(kit.LOCALIZED_READMES[f"readme/{locale}.txt"], folder / "README.txt")
+
     def test_developer_material_is_left_out(self):
         entries = [
             ("BUILDING.md", b"build"),
@@ -149,7 +179,7 @@ class BuilderKitTests(unittest.TestCase):
     def test_root_files_exist(self):
         for source in [
             *kit.KIT_ROOT_FILES.values(),
-            *kit.INSTALLER_ROOT_FILES.values(),
+            *kit.LOCALIZED_READMES.values(),
             kit.KIT / "DrakanPC-Setup.iss",
         ]:
             self.assertTrue(source.is_file(), source)

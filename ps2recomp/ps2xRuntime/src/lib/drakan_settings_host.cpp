@@ -1112,7 +1112,6 @@ void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         // Default Settings and Quit cards (drakan_pause_screen.inl executes their actions).
         cfg.hostPages = true;
         cfg.quitCard = true;
-        cfg.showIssueReporting = drakan_issue::available();
         // One Options screen: the PC settings pages with the game options folded in (F1 stays the overlay).
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr;
         ui.screen = gameui::PauseScreen(cfg);
@@ -1155,10 +1154,12 @@ void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
+        ui.screen.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
         gameui::PauseFrameOutput out = ui.screen.frame(*snap, st, in, vp);
         for (const gameui::PauseAction& a : out.actions) {
             if (a.kind == gameui::PauseActionKind::ReportIssue)
-                drakan_issue::report();
+                drakan_issue::report("Pause menu", drakan_game::currentName(),
+                                     gameui::locationName(*snap, st.location));
             else
                 sh.actions.push(a);
         }
@@ -2352,8 +2353,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         cfg.screen.measure = tu.renderer.measure();
         cfg.pcSettingsPages = cfg.unifiedOptions = g_pcs != nullptr && !debugNoPages;
         cfg.showMultiplayer = drakan_netplay::wanted();
-        cfg.showSwitchCampaigns = true; // shown only while more than one game is installed
-        cfg.showIssueReporting = drakan_issue::available();
+        cfg.showSwitchCampaigns = true;     // shown only while more than one game is installed
         cfg.showCoop = cfg.showMultiplayer; // New Game asks Solo / Co-op (Co-op is not in the Multiplayer menu)
         return cfg;
     };
@@ -2518,6 +2518,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.now = now;
         st.capturedKey = take && capture ? g_capturedKey : std::string();
         const bool noticeBefore = ui.screen.page() == gameui::TitlePage::ModsNotice;
+        ui.screen.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
         gameui::TitleFrameOutput out = ui.screen.frame(st, in, vp);
 #if defined(_WIN32)
         if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
@@ -2542,7 +2543,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             std::fprintf(stderr, "[menu-screens] overlay t=%.3f: title action %s(%d)\n",
                          drakan_menu_screens::clockSeconds(), gameui::titleActionName(a.kind), a.value);
             if (a.kind == gameui::TitleActionKind::ReportIssue)
-                drakan_issue::report();
+                drakan_issue::report("Title menu", drakan_game::currentName());
             else if (a.kind == gameui::TitleActionKind::ModsEnable || a.kind == gameui::TitleActionKind::ModsKeepOff ||
                      a.kind == gameui::TitleActionKind::OpenMods)
                 titleModsAction(a); // host only: no native press
@@ -3113,8 +3114,6 @@ struct DrakanSettingsHost final : CommonSettingsHost {
         std::fprintf(stderr, "[settings] Quit to Desktop\n");
         drakan_win::requestClose();
     }
-    bool canReportIssue() const override { return drakan_issue::available(); }
-    void reportIssue() override { drakan_issue::report(); }
     bool gameTexture(int id, dsettings::GameImage& out) const override {
         std::lock_guard<std::mutex> l(g_artM);
         readArtFromDisc();

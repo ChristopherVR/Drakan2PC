@@ -173,7 +173,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) relea
 canvas.addEventListener('contextmenu', event => event.preventDefault());
 
 let issueLogUrl;
-function showIssueReport(crashed) {
+function showIssueReport(crashed, screen = '', campaign = '', level = '') {
   releaseInput();
   releaseMouse();
   issueHeading.textContent = crashed ? 'Report a crash' : 'Report an Issue';
@@ -184,7 +184,21 @@ function showIssueReport(crashed) {
   issueLogUrl = URL.createObjectURL(new Blob([report], {type: 'text/plain;charset=utf-8'}));
   issueDownload.href = issueLogUrl;
   issueDownload.download = `drakan-${crashed ? 'crash' : 'issue'}-${stamp.replace(/[:.]/g, '-')}.log`;
-  issueForm.href = `https://github.com/ChristopherVR/Drakan2PC/issues/new?template=${kind}-report.yml`;
+  const module = window.Module || {};
+  const details = [
+    'Platform: Browser',
+    module.drakanDisc && `Disc: ${module.drakanDisc}`,
+    screen && `Screen: ${screen}`,
+    campaign && `Campaign: ${campaign}`,
+    level && `Location: ${level}`,
+  ].filter(Boolean);
+  const query = new URLSearchParams({
+    template: `${kind}-report.yml`,
+    title: crashed ? '[Crash] Drakan on Browser' : `[Bug] ${level || screen || 'Drakan'}`,
+    environment: details.join('\n'),
+  });
+  if (module.drakanBuild) query.set('build', module.drakanBuild);
+  issueForm.href = `https://github.com/ChristopherVR/Drakan2PC/issues/new?${query}`;
   if (!issueReport.open) issueReport.showModal();
 }
 issueReport.addEventListener('close', () => {
@@ -310,7 +324,7 @@ startButton.onclick = async function () {
     },
     onAbort:showFailure,
     onGameCrash:() => showFailure('The game stopped unexpectedly.'),
-    onIssueReport:() => { if (gameActive()) showIssueReport(false); },
+    onIssueReport:(screen, campaign, level) => { if (gameActive()) showIssueReport(false, screen, campaign, level); },
     onSaveError:showSaveError,
     onExit:code => {
       if (sessionEnded) return;

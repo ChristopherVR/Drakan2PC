@@ -1,6 +1,9 @@
 #include "drakan_issue.h"
 
+#include <string>
+
 #if defined(_WIN32)
+#include "drakan_issue_url.h"
 #include "drakan_log.h"
 #include "drakan_region.h"
 
@@ -28,8 +31,6 @@ namespace drakan_issue {
 namespace {
 namespace fs = std::filesystem;
 constexpr char kHelperArgument[] = "--drakan-crash-reporter";
-constexpr wchar_t kBugUrl[] = L"https://github.com/ChristopherVR/Drakan2PC/issues/new?template=bug-report.yml";
-constexpr wchar_t kCrashUrl[] = L"https://github.com/ChristopherVR/Drakan2PC/issues/new?template=crash-report.yml";
 constexpr LONGLONG kLogLimit = 4 * 1024 * 1024;
 using Handle = std::unique_ptr<void, decltype([](HANDLE h) { CloseHandle(h); })>;
 HANDLE g_crashEvent = nullptr;
@@ -122,10 +123,12 @@ fs::path captureLog(HANDLE log, bool crashed, DWORD pid, DWORD status) {
     return path;
 }
 
-void offerReport(bool crashed, const fs::path& log) try {
+void offerReport(bool crashed, const fs::path& log, std::string_view screen = {}, std::string_view campaign = {},
+                 std::string_view level = {}) try {
     constexpr UINT kNotice = MB_SETFOREGROUND | MB_TOPMOST;
     const wchar_t* title = crashed ? L"Drakan crashed" : L"Report an Issue";
-    const wchar_t* url = crashed ? kCrashUrl : kBugUrl;
+    const auto address = formUrl(crashed, "Windows", screen, campaign, level);
+    const std::wstring url(address.begin(), address.end());
     std::wstring text = crashed ? L"Drakan closed unexpectedly. Open the crash report form on GitHub?"
                                 : L"Open the bug report form on GitHub?";
     if (log.empty())
@@ -140,7 +143,8 @@ void offerReport(bool crashed, const fs::path& log) try {
     const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (!log.empty())
         ShellExecuteW(nullptr, L"open", log.parent_path().c_str(), nullptr, nullptr, SW_SHOWNOACTIVATE);
-    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", url, nullptr, nullptr, SW_SHOWNORMAL)) <= 32) {
+    if (reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) <=
+        32) {
         const std::wstring error = std::wstring(L"Drakan could not open your browser. Open this address to report the "
                                                 L"issue.\n\n") +
                                    url;
@@ -253,11 +257,11 @@ bool available() {
     return true;
 }
 
-void report() {
+void report(std::string_view screen, std::string_view campaign, std::string_view level) {
     if (g_reporting.test_and_set())
         return;
     try {
-        std::thread([] {
+        std::thread([screen = std::string(screen), campaign = std::string(campaign), level = std::string(level)] {
             fs::path captured;
             try {
                 drakan_log::flush();
@@ -265,12 +269,12 @@ void report() {
                 captured = captureLog(log.get(), false, GetCurrentProcessId(), 0);
             } catch (...) {
             }
-            offerReport(false, captured);
+            offerReport(false, captured, screen, campaign, level);
             g_reporting.clear();
         }).detach();
     } catch (...) {
         g_reporting.clear();
-        offerReport(false, {});
+        offerReport(false, {}, screen, campaign, level);
     }
 }
 } // namespace drakan_issue
@@ -288,8 +292,20 @@ void markCrash() {
 bool available() {
     return true;
 }
-void report() {
-    MAIN_THREAD_ASYNC_EM_ASM({ Module['onIssueReport'] && Module['onIssueReport'](); });
+void report(std::string_view screen, std::string_view campaign, std::string_view level) {
+    // Copy the strings on the browser thread before the worker releases them.
+    const std::string screenText(screen), campaignText(campaign), levelText(level);
+    MAIN_THREAD_EM_ASM(
+        {
+            const show = Module["onIssueReport"];
+            if (show) {
+                const screen = UTF8ToString($0);
+                const campaign = UTF8ToString($1);
+                const level = UTF8ToString($2);
+                setTimeout(function() { show(screen, campaign, level); }, 0);
+            }
+        },
+        screenText.c_str(), campaignText.c_str(), levelText.c_str());
 }
 } // namespace drakan_issue
 #elif !defined(__linux__) || defined(__ANDROID__)
@@ -302,6 +318,6 @@ void markCrash() {}
 bool available() {
     return false;
 }
-void report() {}
+void report(std::string_view, std::string_view, std::string_view) {}
 } // namespace drakan_issue
 #endif

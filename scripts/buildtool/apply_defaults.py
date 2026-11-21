@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Set the starting values of three PC features in a play folder's ini files (the installer's "Game defaults" page).
+"""Set the starting values of PC features in a play folder's ini files (the installer's "Game defaults" page).
 
-    apply_defaults.py --play dist/DrakanPC [--menus modern|original] [--bow ootf|native] [--dual-wield on|off]
+    apply_defaults.py --play dist/DrakanPC [--menus modern|original] [--bow ootf|native] [--dual-wield on|off] [--issue-reporting on|off]
 
 * --menus   drakan.ini `title_menu`: `modern` (the PC main menu over the title art) or `original` (= `native`, the game's own menu).
 * --bow     drakan_input.ini `bow_aim`: `ootf` (Order of the Flame bow combat: left click fires with auto-aim, right click toggles the
             sight) or `native` (the original PS2 bow).
 * --dual-wield  drakan.ini `dual_wield`: `on` / `off` (experimental).
+* --issue-reporting  drakan.ini `show_issue_reporting`: `on` / `off` for the menu shortcut.
 
 These are only starting values: every one can be changed in the game's PC settings (F1) or in the ini files afterwards. Only the
 named values are touched; comments, other keys and line endings are kept. Standard library only.
@@ -21,7 +22,7 @@ from pathlib import Path
 
 MENUS = {"modern": "modern", "original": "native"}
 BOW = {"ootf": "ootf", "native": "native"}
-DUAL = {"on": "1", "off": "0"}
+ON_OFF = {"on": "1", "off": "0"}
 
 
 def set_key(text: str, key: str, value: str) -> tuple[str, str | None]:
@@ -36,27 +37,47 @@ def set_key(text: str, key: str, value: str) -> tuple[str, str | None]:
     return text, None
 
 
-def apply_file(path: Path, key: str, value: str) -> str:
+def apply_file(path: Path, key: str, value: str, *, section: str = "") -> str:
     """Set one key in one ini; returns a report line. A missing file or key is reported, never fatal."""
     if not path.is_file():
         return f"{path.name}: not found, {key} left alone"
     raw = path.read_bytes()
     bom = raw.startswith(b"\xef\xbb\xbf")
     text = raw.decode("utf-8-sig")  # bytes, so CRLF files stay CRLF
-    new, previous = set_key(text, key, value)
+    if section:
+        header = re.search(rf"^[ \t]*\[{section}\][ \t]*(?:[;#][^\r\n]*)?(?:\r?\n|$)", text, re.I | re.M)
+        newline = "\r\n" if "\r\n" in text else "\n"
+        if not header:
+            new, previous = text.rstrip("\r\n") + newline * 2 + f"[{section}]{newline}{key} = {value}{newline}", ""
+        else:
+            start = header.end()
+            next_header = re.search(r"^[ \t]*\[", text[start:], re.M)
+            end = start + next_header.start() if next_header else len(text)
+            block, previous = set_key(text[start:end], key, value)
+            if previous is None:
+                separator = "" if text[start - 1 : start] == "\n" else newline
+                block = f"{separator}{key} = {value}{newline}{block}"
+                previous = ""
+            new = text[:start] + block + text[end:]
+    else:
+        new, previous = set_key(text, key, value)
     if previous is None:
         return f"{path.name}: no {key} line, left alone"
     if new != text:
         path.write_bytes((b"\xef\xbb\xbf" if bom else b"") + new.encode("utf-8"))
-    return f"{path.name}: {key} = {value}" + (f" (was {previous})" if previous != value else "")
+    return f"{path.name}: {key} = {value}" + (f" (was {previous})" if previous and previous != value else "")
 
 
-def apply(play: Path, menus: str = "", bow: str = "", dual: str = "") -> list[str]:
+def apply(play: Path, menus: str = "", bow: str = "", dual: str = "", issue_reporting: str = "") -> list[str]:
     report = []
     if menus:
         report.append(apply_file(play / "drakan.ini", "title_menu", MENUS[menus]))
+    if issue_reporting:
+        report.append(
+            apply_file(play / "drakan.ini", "show_issue_reporting", ON_OFF[issue_reporting], section="general")
+        )
     if dual:
-        report.append(apply_file(play / "drakan.ini", "dual_wield", DUAL[dual]))
+        report.append(apply_file(play / "drakan.ini", "dual_wield", ON_OFF[dual]))
     if bow:
         report.append(apply_file(play / "drakan_input.ini", "bow_aim", BOW[bow]))
     return report
@@ -67,12 +88,13 @@ def main(argv=None) -> int:
     parser.add_argument("--play", required=True, type=Path)
     parser.add_argument("--menus", choices=sorted(MENUS), default="")
     parser.add_argument("--bow", choices=sorted(BOW), default="")
-    parser.add_argument("--dual-wield", choices=sorted(DUAL), default="", dest="dual")
+    parser.add_argument("--dual-wield", choices=sorted(ON_OFF), default="", dest="dual")
+    parser.add_argument("--issue-reporting", choices=sorted(ON_OFF), default="")
     args = parser.parse_args(argv)
     if not args.play.is_dir():
         print(f"Play folder not found: {args.play}", file=sys.stderr)
         return 1
-    for line in apply(args.play, args.menus, args.bow, args.dual):
+    for line in apply(args.play, args.menus, args.bow, args.dual, args.issue_reporting):
         print(line)
     return 0
 

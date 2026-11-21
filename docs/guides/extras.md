@@ -1,6 +1,6 @@
 # HD textures, video & subtitles
 
-All optional. Textures and movies are generated from your own disc; narration subtitles are files you supply. None of them are distributed here.
+Build textures and movies from your own disc. Supply matching local subtitle files for narration in The Ancients' Gates.
 
 ## HD textures
 
@@ -56,9 +56,11 @@ local/subtitles/intro_english.srt
 local/subtitles/outro_english.srt
 ```
 
-The canonical builder copies these into the playable `subtitles` folder and preserves existing subtitles across rebuilds. Other languages use the same `<intro|outro>_<language>.srt` naming pattern. Missing translations are not generated automatically.
+The builder copies these into the playable `subtitles` folder and preserves them across rebuilds. For the other PAL languages, replace `english` with `german`, `french`, `italian` or `spanish`. Use timings from the matching recordings, since dubbed narration can differ in length.
 
 Enable **Narration subtitles** in PC Settings and ensure the game's **Show Subtitles** option is enabled. Subtitle size can follow the window or use an explicit scale. The [subtitle reference](../reference/subtitles.md) contains implementation and timing notes; its earlier proposal sections are historical.
+
+**Order of the Flame scene captions:** in Setup, choose **Generate subtitles from my recordings** for a German, French, Italian or Spanish installation, or use `Build-Drakan.cmd -OotfSubtitles generate` with your own copy. You can also supply `ootf-subtitles.json` next to an installed copy. The existing bundled captions match the English recording.
 
 ![Intro narration with the added subtitle overlay](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/narration-subtitles.jpg)
 

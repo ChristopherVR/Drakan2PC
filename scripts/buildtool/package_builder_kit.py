@@ -109,15 +109,15 @@ BUILDER_FILES = {
     *(
         "scripts/buildtool/" + name
         for name in (
-            "Build-Affinity.ps1",
+            "powershell/Build-Affinity.ps1",
             "Build-Drakan.ps1",
             "Build-Drakan.sh",
-            "Build-Job.ps1",
+            "powershell/Build-Job.ps1",
             "Build-LocalGame.ps1",
-            "Build-Policy.ps1",
-            "Build-Progress.ps1",
+            "powershell/Build-Policy.ps1",
+            "powershell/Build-Progress.ps1",
             "Build-Recovery.ps1",
-            "Build-Textures.ps1",
+            "powershell/Build-Textures.ps1",
             "apply_defaults.py",
             "bootstrap_linux.py",
             "drakan_update_linux.py",
@@ -184,8 +184,10 @@ def excluded(name):
 
 
 # Files placed at the kit root, next to BUILDING.md.
-KIT_ROOT_FILES = {"Build-Drakan.cmd": KIT / "Build-Drakan.cmd", "README.txt": KIT / "README.txt"}
-INSTALLER_ROOT_FILES = {"SETUP-INFO.txt": KIT / "SETUP-INFO.txt"}
+KIT_ROOT_FILES = {"Build-Drakan.cmd": KIT / "Build-Drakan.cmd", "README.txt": KIT / "locales/en/README.txt"}
+LOCALIZED_READMES = {
+    f"readme/{locale}.txt": KIT / "locales" / locale / "README.txt" for locale in ("de", "fr", "it", "es")
+}
 # The builders whose Python scripts the installer smoke test runs, and the Node.js script step 6 runs.
 BUILDERS = ("scripts/buildtool/Build-LocalGame.ps1", "scripts/buildtool/Build-Drakan.ps1")
 RETARGET = "analysis/scripts/character_motion_retarget.ts"
@@ -251,7 +253,7 @@ def kit_entries(commit, *, release_tag=None):
     if release_tag is not None and not RELEASE_TAG.fullmatch(release_tag):
         raise ValueError("Release tag must be a stable vX.Y.Z version")
     entries = select(snapshot(commit), load_guard())
-    for name, source in KIT_ROOT_FILES.items():
+    for name, source in (KIT_ROOT_FILES | LOCALIZED_READMES).items():
         if name in entries:
             raise RuntimeError(f"{name} already exists at the repository root")
         entries[name] = source.read_bytes()
@@ -510,8 +512,6 @@ def build_installer(entries, commit, output_directory, iscc, *, release_tag=None
     cache = work_root / "cache"
     stage = work_root / "stage"
     write_stage(entries, stage)
-    for name, source in INSTALLER_ROOT_FILES.items():
-        shutil.copyfile(source, stage / name)
     for path, source in prebuilt_files(stage, commit, work_root, lock).items():
         (stage / path).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, stage / path)

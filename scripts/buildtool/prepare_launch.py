@@ -35,7 +35,7 @@ def prepare(repo, output, iso, elf, renderer=None, relocate_elf_from=None, moder
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     files = {
-        "drakan.ini": f"; Private local build paths\n[general]\niso = {iso}\nelf = {elf}\n",
+        "drakan.ini": f"; Private local build paths\n[general]\niso = {iso}\nelf = {elf}\nshow_issue_reporting = 1\n",
         "drakan_input.ini": template.group(1),
     }
     if modern_title:

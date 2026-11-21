@@ -248,6 +248,8 @@ const std::vector<Field>& fields() {
          },
          "native = the game's own pause menu, modern = the PC pause menu over the dimmed world (env "
          "DRAKAN_PAUSE_MENU)"},
+        {"general", "show_issue_reporting", false, GETB(general.showIssueReporting), SETB(general.showIssueReporting),
+         "1 = show Report an Issue in the PC menus"},
         {"general", "dual_wield", false, GETB(general.dualWield), SETB(general.dualWield),
          "1 = a second one-handed weapon goes to Rynn's left hand and strikes with the right hand's attacks (env "
          "DRAKAN_DUAL_WIELD)"},
@@ -947,6 +949,7 @@ std::string settingLabel(const std::string& key) {
         {"general.settings_ui_scale", "Settings menu size"},
         {"general.inventory_screen", "Inventory screen"},
         {"general.pause_menu", "Pause menu"},
+        {"general.show_issue_reporting", "Show Report an Issue"},
         {"general.dual_wield", "Dual wielding"},
         {"general.debug_menu", "Developer debug menu"},
         {"general.ootf_debug_gold", "Allow Increase Gold in Order of the Flame"},

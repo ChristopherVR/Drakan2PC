@@ -1,4 +1,4 @@
-"""Ending the builder must end the compilers it started (scripts/buildtool/Build-Job.ps1). Real processes, no game data."""
+"""Ending the builder must end the compilers it started (scripts/buildtool/powershell/Build-Job.ps1). Real processes, no game data."""
 
 import hashlib
 import importlib.util
@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-JOB = ROOT / "scripts/buildtool/Build-Job.ps1"
+JOB = ROOT / "scripts/buildtool/powershell/Build-Job.ps1"
 PWSH = shutil.which("pwsh")
 
 

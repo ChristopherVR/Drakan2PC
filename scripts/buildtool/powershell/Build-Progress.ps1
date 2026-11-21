@@ -1,7 +1,7 @@
 # Dot-sourced by Build-LocalGame.ps1 (compile progress) and Build-Drakan.ps1 (resume review). Kept apart from the
 # scripts so scripts/tests can run it against synthetic build folders without a compiler.
 
-$script:BuildMessageFile = Join-Path $PSScriptRoot 'build-messages.json'
+$script:BuildMessageFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'build-messages.json'
 $script:BuildMessageCatalog = $null
 $script:BuildLanguage = 'en'
 $script:PlainBuildConsole = $false

@@ -69,12 +69,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
-. (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
-. (Join-Path $PSScriptRoot 'Build-Progress.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Affinity.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Progress.ps1')
 Initialize-BuildConsole $Language -Plain:$Plain
-. (Join-Path $PSScriptRoot 'Build-Textures.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Textures.ps1')
 . (Join-Path $PSScriptRoot 'Build-Recovery.ps1')
-. (Join-Path $PSScriptRoot 'Build-Job.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Job.ps1')
 [void](Enter-BuildJob) # no-op when Build-Drakan.ps1 already did
 if ($CpuAffinity -and (-not $windowsHost -or $TargetPlatform -eq 'web')) {
     throw '-CpuAffinity supports native Windows builds only; Linux/WSL/browser builds keep their platform defaults.'

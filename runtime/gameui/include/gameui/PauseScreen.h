@@ -180,6 +180,7 @@ public:
     void reactivate(); // a native child closed and the pause is active again: input resumes, page and focus kept
     void close();
     bool isOpen() const { return open_; }
+    void setIssueReportingVisible(bool visible) { cfg_.showIssueReporting = visible; }
     // An action that opens a native child was emitted; input is ignored until reactivate() (or the time-out).
     bool suspended() const { return suspendLeft_ > 0; }
 

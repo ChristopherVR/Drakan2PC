@@ -106,6 +106,7 @@ const Entry kEntries[] = {
      "1 = the modern Windows and Linux title menus check GitHub for a newer Drakan PC release; 0 = off "
      "(env DRAKAN_CHECK_FOR_UPDATES)"},
     {"general", "settings_ui_scale", "auto", "size of the F1 settings menu: auto (by window height) or 0.75 .. 2.5"},
+    {"general", "show_issue_reporting", "1", "Show Report an Issue in the PC menus"},
     {"general", "dual_wield", "0",
      "1 = using a second one-handed weapon while Rynn holds one puts it in her left hand (instead of a shield); her "
      "strikes then alternate hands. 0 = original, one weapon (env DRAKAN_DUAL_WIELD)"},

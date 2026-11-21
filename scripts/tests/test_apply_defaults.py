@@ -69,6 +69,18 @@ class ApplyTests(unittest.TestCase):
         defaults.apply(self.play, "modern")
         self.assertEqual((self.play / "drakan.ini").read_bytes(), raw.replace(b"native", b"modern"))
 
+    def test_report_menu_choice_is_saved_in_older_configs(self):
+        ini = self.play / "drakan.ini"
+        original = b"\xef\xbb\xbf[general]\r\ntitle_menu = modern\r\n[video]\r\nshow_issue_reporting = unrelated\r\n"
+        ini.write_bytes(original)
+        self.assertEqual(defaults.main(["--play", str(self.play), "--issue-reporting", "off"]), 0)
+        hidden = original.replace(b"[general]\r\n", b"[general]\r\nshow_issue_reporting = 0\r\n")
+        self.assertEqual(ini.read_bytes(), hidden)
+        defaults.apply(self.play)
+        self.assertEqual(ini.read_bytes(), hidden)
+        defaults.apply(self.play, issue_reporting="on")
+        self.assertEqual(ini.read_bytes(), hidden.replace(b"reporting = 0", b"reporting = 1"))
+
     def test_missing_files_and_keys_are_reported_not_fatal(self):
         (self.play / "drakan_input.ini").unlink()
         (self.play / "drakan.ini").write_text("[general]\n", encoding="utf-8")

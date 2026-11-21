@@ -1,5 +1,6 @@
 #include "drakan_settings_host.h"
 #include "drakan_settings_common.h"
+#include "drakan_game.h"
 #include "drakan_subtitles.h"
 #include "drakan_software_frame_clock.h"
 #include "drakan_config.h"
@@ -509,7 +510,6 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             ui.titleSession = ms.titleSession.load();
             gameui::TitleConfig cfg;
             cfg.screen.measure = ui.renderer.measure();
-            cfg.showIssueReporting = drakan_issue::available();
             cfg.pcSettingsPages = cfg.unifiedOptions = true;
             ui.title = gameui::TitleScreen(cfg);
             ui.title.open();
@@ -540,6 +540,7 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
         state.now = now;
         state.pcSettings = &ui.settings.schema();
         state.capturedKey = captured;
+        ui.title.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
         auto out = ui.title.frame(state, in, viewport);
 #if defined(__linux__) && !defined(__EMSCRIPTEN__)
         if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
@@ -551,7 +552,7 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
 #endif
         for (const auto& action : out.actions) {
             if (action.kind == gameui::TitleActionKind::ReportIssue) {
-                drakan_issue::report();
+                drakan_issue::report("Title menu", drakan_game::currentName());
                 sound(out.sound);
             } else {
                 ms.titleActions.push(action);
@@ -570,7 +571,6 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             ui.pauseSession = ps.session.load();
             gameui::PauseConfig cfg;
             cfg.screen.measure = ui.renderer.measure();
-            cfg.showIssueReporting = drakan_issue::available();
             cfg.hostPages = cfg.quitCard = cfg.pcSettingsPages = cfg.unifiedOptions = true;
             ui.pause = gameui::PauseScreen(cfg);
             ui.pause.open();
@@ -585,10 +585,12 @@ void drawPortableUi(PS2Runtime& runtime, int w, int h, unsigned frameTexture) {
             state.now = now;
             state.pcSettings = &ui.settings.schema();
             state.capturedKey = captured;
+            ui.pause.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
             auto out = ui.pause.frame(*snapshot, state, in, viewport);
             for (const auto& action : out.actions) {
                 if (action.kind == gameui::PauseActionKind::ReportIssue) {
-                    drakan_issue::report();
+                    drakan_issue::report("Pause menu", drakan_game::currentName(),
+                                         gameui::locationName(*snapshot, state.location));
                     sound(out.sound);
                 } else {
                     ps.actions.push(action);

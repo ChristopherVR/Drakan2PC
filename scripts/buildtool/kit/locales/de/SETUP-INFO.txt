@@ -1,0 +1,9 @@
+DRAKAN PC – INSTALLATION
+
+Setup erstellt die Windows-Version aus deinem eigenen ISO-Abbild: PAL (SCES-500.06) oder USA (SCUS-971.28, experimentell). Das Spiel liest die ISO auch nach der Installation. Lass sie am selben Ort.
+
+Wähle den Builder-Ordner, die ISO und einen eigenen Spielordner. Optional kannst du NVIDIA DLSS, eine Browser-Version (WSL mit Ubuntu), HD-Texturen und Order of the Flame hinzufügen. Für Order of the Flame kannst du die Szenenuntertitel aus deinen eigenen Aufnahmen erzeugen.
+
+Beim ersten Build installiert der Builder die kostenlosen Visual Studio 2022 Build Tools von Microsoft (ca. 3 GB). Windows kann dafür eine Bestätigung verlangen. Mit dem Fortfahren akzeptierst du die Lizenz: https://visualstudio.microsoft.com/license-terms/
+
+Der Build dauert etwa ein bis zwei Stunden. Für fehlende Kartenbilder kann sich das Spiel kurz öffnen. Du kannst den Build über „Drakan neu erstellen“ fortsetzen. Spielstände und Einstellungen bleiben im Spielordner; die Deinstallation des Builders lässt ihn bestehen.

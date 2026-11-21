@@ -14,7 +14,7 @@ PWSH = shutil.which("pwsh")
 class BuildAffinityTests(unittest.TestCase):
     def run_script(self, body):
         helpers = "; ".join(
-            ". '{}'".format(str(ROOT / "scripts/buildtool" / name).replace("'", "''"))
+            ". '{}'".format(str(ROOT / "scripts/buildtool/powershell" / name).replace("'", "''"))
             for name in ("Build-Affinity.ps1", "Build-Policy.ps1")
         )
         result = subprocess.run(

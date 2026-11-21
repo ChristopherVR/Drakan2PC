@@ -39,11 +39,12 @@ param(
     [string]$TextureDirectory,
     # Vulkan device number the upscaler uses (default: the first). -1 clears a remembered choice.
     [ValidateRange(-1, 15)][int]$HdGpu = -2,
-    # Starting values of three PC features, written into the play folder's ini files after the build (only the ones given;
+    # Starting values of PC features, written into the play folder's ini files after the build (only the ones given;
     # a plain rebuild leaves the settings alone). All of them can be changed in the game's PC settings (F1) afterwards.
     # -MenuStyle modern (the PC main menu) | original (the game's own menus); -BowCombat ootf (Order of the Flame bow:
     # left click fires with auto-aim) | native (the PS2 bow); -DualWield on | off (experimental).
     [ValidateSet('', 'modern', 'original')][string]$MenuStyle = '',
+    [ValidateSet('', 'on', 'off')][string]$IssueReporting = '',
     [ValidateSet('', 'ootf', 'native')][string]$BowCombat = '',
     [ValidateSet('', 'on', 'off')][string]$DualWield = '',
     # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4; never more than -CpuAffinity
@@ -68,12 +69,12 @@ param(
     [switch]$Plain
 )
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot 'Build-Affinity.ps1')
-. (Join-Path $PSScriptRoot 'Build-Policy.ps1')
-. (Join-Path $PSScriptRoot 'Build-Progress.ps1')
-. (Join-Path $PSScriptRoot 'Build-Textures.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Affinity.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Policy.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Progress.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Textures.ps1')
 . (Join-Path $PSScriptRoot 'Build-Recovery.ps1')
-. (Join-Path $PSScriptRoot 'Build-Job.ps1')
+. (Join-Path $PSScriptRoot 'powershell/Build-Job.ps1')
 # Everything the build starts (cmake, MSBuild, the compilers, the game for the pictures) ends with this window.
 [void](Enter-BuildJob)
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
@@ -628,10 +629,11 @@ try {
             $extraNotes.Add((Get-BuildText 'hd_failed'))
         }
     }
-    if ($MenuStyle -or $BowCombat -or $DualWield) {
+    if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting) {
         Write-BuildHeading (Get-BuildText 'applying_settings')
         $defaultArgs = @((Join-Path $PSScriptRoot 'apply_defaults.py'), '--play', $play)
         if ($MenuStyle) { $defaultArgs += @('--menus', $MenuStyle) }
+        if ($IssueReporting) { $defaultArgs += @('--issue-reporting', $IssueReporting) }
         if ($BowCombat) { $defaultArgs += @('--bow', $BowCombat) }
         if ($DualWield) { $defaultArgs += @('--dual-wield', $DualWield) }
         & $python @defaultArgs

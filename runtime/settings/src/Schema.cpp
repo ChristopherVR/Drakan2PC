@@ -812,6 +812,9 @@ void gameplayPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
         "list in the same style (no covers, no mod pack card). Takes effect right away on the title screen.",
         {{"modern", "Modern"}, {"native", "Original"}});
 
+    b.toggle("general.show_issue_reporting", "Show Report an Issue",
+             "Show the reporting shortcut in the title, pause and PC settings menus. Crash prompts remain available.");
+
     pg.sections.push_back({"Combat", {}});
     b.sec = &pg.sections.back();
     b.toggle("general.dual_wield", "Dual wielding",

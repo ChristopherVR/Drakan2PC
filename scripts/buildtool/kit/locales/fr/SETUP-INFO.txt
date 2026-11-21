@@ -1,0 +1,9 @@
+DRAKAN PC – INSTALLATION
+
+Ce programme compile le jeu Windows à partir de votre propre image ISO : PAL (SCES-500.06) ou américaine (SCUS-971.28, expérimentale). Le jeu lit encore l’ISO pendant la partie. Gardez-la au même endroit.
+
+Choisissez les dossiers de compilation et de jeu ainsi que l’ISO. En option, ajoutez NVIDIA DLSS, la version navigateur (WSL avec Ubuntu), des textures HD ou votre copie d’Order of the Flame. Vous pouvez créer les sous-titres d’Order of the Flame à partir de vos propres enregistrements.
+
+La première compilation installe les outils gratuits Visual Studio 2022 Build Tools de Microsoft (environ 3 Go). Windows peut demander votre accord. En continuant, vous acceptez leur licence : https://visualstudio.microsoft.com/license-terms/
+
+Comptez une à deux heures. Le jeu peut s’ouvrir brièvement pour créer les aperçus de cartes manquants. Reprenez une compilation interrompue avec « Recompiler Drakan ». Les sauvegardes et réglages sont dans le dossier du jeu, que la désinstallation conserve.

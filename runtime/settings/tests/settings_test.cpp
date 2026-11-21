@@ -707,6 +707,19 @@ static void testDualWield() {
     CHECK(reread.loaded().general.dualWield);
 }
 
+static void testIssueReporting() {
+    SettingsStore store;
+    CHECK(store.loaded().general.showIssueReporting);
+    auto edited = store.loaded();
+    edited.general.showIssueReporting = false;
+    CHECK((changedKeys(store.loaded(), edited) == std::vector<std::string>{"general.show_issue_reporting"}));
+    std::string game, input;
+    store.render(edited, game, input);
+    CHECK(contains(game, "show_issue_reporting = 0"));
+    store.loadFromText(game, input);
+    CHECK(!store.loaded().general.showIssueReporting);
+}
+
 static void testDebugMenu() {
     SettingsStore st;
     CHECK(!st.defaults().general.debugMenu);
@@ -1090,6 +1103,7 @@ int main(int argc, char** argv) {
     testCombatAndFovSettings();
     testInventoryScreen();
     testPauseMenu();
+    testIssueReporting();
     testDualWield();
     testDebugMenu();
     testSaveAndTitleMenus();

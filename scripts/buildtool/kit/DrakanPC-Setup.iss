@@ -44,7 +44,6 @@ OutputDir={#OutputDir}
 OutputBaseFilename={#OutputName}
 SetupIconFile={#StageDir}\{#AppIcon}
 UninstallDisplayIcon={app}\{#AppIcon}
-InfoBeforeFile={#StageDir}\SETUP-INFO.txt
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -52,21 +51,19 @@ WizardStyle=modern
 ExtraDiskSpaceRequired=2147483648
 
 [Languages]
-Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "de"; MessagesFile: "compiler:Languages\German.isl"
-Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
-Name: "it"; MessagesFile: "compiler:Languages\Italian.isl"
-Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl"
-
-[CustomMessages]
-en.BuildNow=Build the game now (one to two hours). The game may briefly open to capture missing map pictures.
-de.BuildNow=Spiel jetzt erstellen (ein bis zwei Stunden). Für fehlende Kartenbilder kann sich das Spiel kurz öffnen.
-fr.BuildNow=Compiler le jeu maintenant (une à deux heures). Le jeu peut s’ouvrir brièvement pour créer les aperçus manquants.
-it.BuildNow=Compila il gioco ora (una o due ore). Il gioco potrebbe aprirsi brevemente per acquisire le immagini mancanti.
-es.BuildNow=Compilar el juego ahora (una o dos horas). El juego puede abrirse brevemente para capturar imágenes de mapas que falten.
+Name: "en"; MessagesFile: "compiler:Default.isl,locales\en\setup.isl"; InfoBeforeFile: "locales\en\SETUP-INFO.txt"
+Name: "de"; MessagesFile: "compiler:Languages\German.isl,locales\de\setup.isl"; InfoBeforeFile: "locales\de\SETUP-INFO.txt"
+Name: "fr"; MessagesFile: "compiler:Languages\French.isl,locales\fr\setup.isl"; InfoBeforeFile: "locales\fr\SETUP-INFO.txt"
+Name: "it"; MessagesFile: "compiler:Languages\Italian.isl,locales\it\setup.isl"; InfoBeforeFile: "locales\it\SETUP-INFO.txt"
+Name: "es"; MessagesFile: "compiler:Languages\Spanish.isl,locales\es\setup.isl"; InfoBeforeFile: "locales\es\SETUP-INFO.txt"
 
 [Files]
-Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "\SETUP-INFO.txt"; Flags: recursesubdirs ignoreversion
+Source: "{#StageDir}\*"; DestDir: "{app}"; Excludes: "\README.txt"; Flags: recursesubdirs ignoreversion
+Source: "locales\en\README.txt"; DestDir: "{app}"; DestName: "README.txt"; Languages: en; Flags: ignoreversion
+Source: "locales\de\README.txt"; DestDir: "{app}"; DestName: "README.txt"; Languages: de; Flags: ignoreversion
+Source: "locales\fr\README.txt"; DestDir: "{app}"; DestName: "README.txt"; Languages: fr; Flags: ignoreversion
+Source: "locales\it\README.txt"; DestDir: "{app}"; DestName: "README.txt"; Languages: it; Flags: ignoreversion
+Source: "locales\es\README.txt"; DestDir: "{app}"; DestName: "README.txt"; Languages: es; Flags: ignoreversion
 
 [Registry]
 #if ReleaseTag != ""
@@ -79,11 +76,11 @@ Root: HKCU64; Subkey: "{#SetupRegistration}"; ValueType: none; Flags: deletekey
 [Icons]
 Name: "{autoprograms}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\{#AppIcon}"
 Name: "{autodesktop}\Drakan - The Ancients' Gates"; Filename: "{code:GetPlayDir}\drakan.exe"; WorkingDir: "{code:GetPlayDir}"; IconFilename: "{app}\{#AppIcon}"; Tasks: desktopicon
-Name: "{autoprograms}\Rebuild Drakan"; Filename: "{app}\Build-Drakan.cmd"; WorkingDir: "{app}"
-Name: "{autoprograms}\Drakan play folder"; Filename: "{code:GetPlayDir}"
+Name: "{autoprograms}\{cm:RebuildShortcut}"; Filename: "{app}\Build-Drakan.cmd"; WorkingDir: "{app}"
+Name: "{autoprograms}\{cm:PlayShortcut}"; Filename: "{code:GetPlayDir}"
 
 [Tasks]
-Name: desktopicon; Description: "Create a desktop shortcut"
+Name: desktopicon; Description: "{cm:CreateDesktopIcon}"
 
 [Run]
 Filename: "{app}\Build-Drakan.cmd"; Parameters: "-Language {language} -IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "{cm:BuildNow}"; Flags: postinstall shellexec nowait skipifsilent
@@ -191,17 +188,17 @@ begin
      not SameDirectory(UpdateBuilderDir, ExpandConstant('{param:DIR|}')) or
      not SameDirectory(UpdatePlayDir, ExpandConstant('{param:PLAYDIR|}')) or
      not FileExists(AddBackslash(UpdatePlayDir) + 'drakan.exe') then begin
-    SuppressibleMsgBox('This update does not match an existing Drakan PC Setup installation.', mbError, MB_OK, IDOK);
+    SuppressibleMsgBox(CustomMessage('UpdateMismatch'), mbError, MB_OK, IDOK);
     Exit;
   end;
   if not WaitForGameExit then begin
-    SuppressibleMsgBox('Drakan did not close. Close the game before retrying the update.', mbError, MB_OK, IDOK);
+    SuppressibleMsgBox(CustomMessage('UpdateGameOpen'), mbError, MB_OK, IDOK);
     Exit;
   end;
 
   BuildDir := AddBackslash(UpdateBuilderDir) + 'build\';
   if not FileExists(BuildDir + 'iso-path.txt') then begin
-    SuppressibleMsgBox('The builder has no saved disc path. Run Rebuild Drakan to choose your disc image, then retry.',
+    SuppressibleMsgBox(CustomMessage('UpdateMissingDisc'),
       mbError, MB_OK, IDOK);
     Exit;
   end;
@@ -209,7 +206,7 @@ begin
   BuildLockHandle := OpenBuildLock(BuildDir + 'game.build.lock', GenericReadWrite, 0, 0, OpenAlways, NormalFile, 0);
   if BuildLockHandle = THandle(-1) then begin
     BuildLockHandle := 0;
-    SuppressibleMsgBox('Drakan Setup could not lock the builder. Close any running build and retry the update.',
+    SuppressibleMsgBox(CustomMessage('UpdateBuildBusy'),
       mbError, MB_OK, IDOK);
     Exit;
   end;
@@ -231,7 +228,7 @@ var
   Dir: String;
 begin
   Dir := OotfEdit.Text;
-  if BrowseForFolder('Choose the folder Drakan: Order of the Flame is installed in (or a copy of its disc)', Dir, False) then
+  if BrowseForFolder(CustomMessage('OotfBrowseFolder'), Dir, False) then
     OotfEdit.Text := Dir;
 end;
 
@@ -240,8 +237,8 @@ var
   Name: String;
 begin
   Name := OotfEdit.Text;
-  if GetOpenFileName('Choose the Drakan: Order of the Flame disc image', Name, '',
-    'Disc images and zips (*.mdx;*.iso;*.zip)|*.mdx;*.iso;*.zip|All files (*.*)|*.*', 'mdx') then
+  if GetOpenFileName(CustomMessage('OotfBrowseImage'), Name, '',
+    CustomMessage('OotfFilter'), 'mdx') then
     OotfEdit.Text := Name;
 end;
 
@@ -251,18 +248,14 @@ var
   FolderButton, FileButton: TNewButton;
 begin
   OotfPage := CreateCustomPage(PlayPage.ID,
-    'Drakan: Order of the Flame (optional)',
-    'Add the first Drakan as a second campaign.');
+    CustomMessage('OotfTitle'),
+    CustomMessage('OotfSubtitle'));
   Info := TNewStaticText.Create(OotfPage);
   Info.Parent := OotfPage.Surface;
   Info.WordWrap := True;
   Info.Width := OotfPage.SurfaceWidth;
-  Info.Caption :=
-    'If you own the PC game Drakan: Order of the Flame, the builder can convert its 13 campaign levels and 10 ' +
-    'multiplayer arenas, with their cut scenes and music, into a mod pack for this game. The title menu then offers ' +
-    'both games. Choose its install folder (the one holding Dragon.rrc), a copy of the disc, its disc image ' +
-    '(.mdx or .iso) or the Drakan.zip that holds the image. Leave the field empty to skip it.' + #13#10#13#10 +
-    'Allow 3 to 8 min and about 1 GB for the conversion with the included English scene subtitles.';
+  Info.Caption := CustomMessage('OotfDescription');
+  WizardForm.AdjustLabelHeight(Info);
   OotfEdit := TNewEdit.Create(OotfPage);
   OotfEdit.Parent := OotfPage.Surface;
   OotfEdit.Top := Info.Top + Info.Height + ScaleY(16);
@@ -272,18 +265,18 @@ begin
   OotfEdit.Text := ExpandConstant('{param:OOTF|}');
   FolderButton := TNewButton.Create(OotfPage);
   FolderButton.Parent := OotfPage.Surface;
-  FolderButton.Caption := 'Choose install folder...';
+  FolderButton.Caption := CustomMessage('OotfFolderButton');
   FolderButton.Top := OotfEdit.Top + OotfEdit.Height + ScaleY(8);
   FolderButton.Left := 0;
-  FolderButton.Width := ScaleX(150);
+  FolderButton.Width := (OotfPage.SurfaceWidth - ScaleX(8)) div 2;
   FolderButton.Height := ScaleY(23);
   FolderButton.OnClick := @OotfBrowseFolder;
   FileButton := TNewButton.Create(OotfPage);
   FileButton.Parent := OotfPage.Surface;
-  FileButton.Caption := 'Choose disc image or zip...';
+  FileButton.Caption := CustomMessage('OotfImageButton');
   FileButton.Top := FolderButton.Top;
   FileButton.Left := FolderButton.Left + FolderButton.Width + ScaleX(8);
-  FileButton.Width := ScaleX(170);
+  FileButton.Width := OotfPage.SurfaceWidth - FileButton.Left;
   FileButton.Height := ScaleY(23);
   FileButton.OnClick := @OotfBrowseFile;
 end;
@@ -291,24 +284,16 @@ end;
 procedure InitializeWizard;
 begin
   IsoPage := CreateInputFilePage(wpSelectDir,
-    'Your game disc',
-    'Where is your Drakan: The Ancients'' Gates disc image?',
-    'Select the .iso file of your own copy of the game: the PAL release (SCES-500.06) or the USA release ' +
-    '(SCUS-971.28, experimental: keyboard and mouse work, but not the PC settings, widescreen, quicksave or the ' +
-    'modern menus; saves are separate). The game is built from it and reads it ' +
-    'while it runs, so keep it where it is afterwards.');
-  IsoPage.Add('Disc image (.iso):', 'Disc images (*.iso)|*.iso|All files (*.*)|*.*', '.iso');
+    CustomMessage('DiscTitle'), CustomMessage('DiscSubtitle'),
+    CustomMessage('DiscDescription'));
+  IsoPage.Add(CustomMessage('DiscField'), CustomMessage('DiscFilter'), '.iso');
   // DrakanPC-Setup.exe /ISO="D:\Games\Drakan.iso" fills it in.
   IsoPage.Values[0] := ExpandConstant('{param:ISO|}');
 
   PlayPage := CreateInputDirPage(IsoPage.ID,
-    'Play folder',
-    'Where should the built game go?',
-    'The build puts drakan.exe here, and the game keeps its saves and settings here. Rebuilds refresh the game ' +
-    'files and keep saves, settings, mods and HD textures. Uninstalling the builder leaves this folder in place.' + #13#10#13#10 +
-    'The build itself (about 2 GB of intermediate files) stays in the builder folder chosen before.',
-    False, '');
-  PlayPage.Add('Play folder:');
+    CustomMessage('PlayTitle'), CustomMessage('PlaySubtitle'),
+    CustomMessage('PlayDescription'), False, '');
+  PlayPage.Add(CustomMessage('PlayField'));
   // DrakanPC-Setup.exe /PLAYDIR="D:\Games\DrakanPC" fills it in; otherwise the previous install's choice.
   PlayPage.Values[0] := ExpandConstant('{param:PLAYDIR|}');
   if PlayPage.Values[0] = '' then
@@ -317,83 +302,58 @@ begin
   CreateOotfPage;
 
   SubtitlePage := CreateInputOptionPage(OotfPage.ID,
-    'Order of the Flame subtitles', 'Choose the source of the scene captions.',
-    'The included captions match the English recordings. You can also put ootf-subtitles.json beside your game files. ' +
-    'To transcribe another language or create a fresh transcript, choose local generation. The first run downloads ' +
-    'about 145 MiB and adds roughly 5 to 15 minutes. Your recordings stay on this PC.', True, False);
-  SubtitlePage.Add('Use included English subtitles or my supplied transcript');
-  SubtitlePage.Add('Generate subtitles from my own recordings');
+    CustomMessage('SubtitlesTitle'), CustomMessage('SubtitlesSubtitle'),
+    CustomMessage('SubtitlesDescription'), True, False);
+  SubtitlePage.Add(CustomMessage('SubtitlesBundled'));
+  SubtitlePage.Add(CustomMessage('SubtitlesGenerate'));
   SubtitlePage.Values[1] := GetPreviousData('OotfSubtitles', 'bundled') = 'generate';
   SubtitlePage.Values[0] := not SubtitlePage.Values[1];
 
   DlssPage := CreateInputOptionPage(SubtitlePage.ID,
-    'NVIDIA DLSS (optional)',
-    'AI upscaling and frame generation on NVIDIA RTX graphics cards.',
-    'DLSS works only on NVIDIA RTX graphics cards; on any other card leave it off. Its SDK is downloaded from ' +
-    'NVIDIA during the build, under the NVIDIA RTX SDKs License ' +
-    '(https://github.com/NVIDIA/DLSS/blob/v310.9.16/LICENSE.txt); ticking the box means you accept that licence. ' +
-    'Without it the game still runs on every graphics card.',
-    False, False);
-  DlssPage.Add('NVIDIA DLSS - I accept the NVIDIA RTX SDKs License');
+    CustomMessage('DlssTitle'), CustomMessage('DlssSubtitle'),
+    CustomMessage('DlssDescription'), False, False);
+  DlssPage.Add(CustomMessage('DlssOption'));
 
   HdPage := CreateInputOptionPage(DlssPage.ID,
-    'HD textures',
-    'Reuse a local pack automatically or generate HD textures from your disc.',
-    'The builder reuses HD textures from local\textures in the builder folder or textures in an existing play folder. ' +
-    'If no pack is available, the game starts with the original textures. ' + #13#10#13#10 +
-    'Generation upscales textures 4x with Real-ESRGAN and downloads about 75 MB of tools once. On a fast graphics card, ' +
-    'allow 17 to 32 min (about 2 GB), or 23 to 43 min with Order of the Flame (about 4 GB). ' +
-    'The console shows an estimate for your PC. Run the builder again to resume generation.',
-    False, False);
-  HdPage.Add('Generate HD textures after the build (requires Vulkan)');
+    CustomMessage('HdTitle'), CustomMessage('HdSubtitle'),
+    CustomMessage('HdDescription'), False, False);
+  HdPage.Add(CustomMessage('HdOption'));
   // DrakanPC-Setup.exe /HD=1 ticks it.
   HdPage.Values[0] := ExpandConstant('{param:HD|}') = '1';
 
   DefaultsPage := CreateInputOptionPage(HdPage.ID,
-    'Game options (optional)',
-    'Choose how the game starts. You can change all of these in the game later.',
-    'These are only starting values. Press F1 in the game for the PC settings, ' +
-    'or edit drakan.ini and drakan_input.ini in the play folder, to change any of them at any time. Leave a box empty to ' +
-    'keep the original behaviour.',
-    False, False);
-  DefaultsPage.Add('Modernise the menus (the PC main menu over the title art). Leave empty for the original PS2 menus.');
-  DefaultsPage.Add('Use the Order of the Flame bow combat: left click fires with auto-aim, right click toggles the sight.');
-  DefaultsPage.Add('Enable dual wielding (experimental): a second one-handed weapon goes in the left hand.');
+    CustomMessage('DefaultsTitle'), CustomMessage('DefaultsSubtitle'),
+    CustomMessage('DefaultsDescription'), False, False);
+  DefaultsPage.Add(CustomMessage('DefaultsMenus'));
+  DefaultsPage.Add(CustomMessage('DefaultsBow'));
+  DefaultsPage.Add(CustomMessage('DefaultsDual'));
+  DefaultsPage.Add(CustomMessage('DefaultsIssue'));
   // DrakanPC-Setup.exe /MENUS=modern, /BOW=ootf and /DUAL=1 tick them; the menus default to modern.
   DefaultsPage.Values[0] := CompareText(ExpandConstant('{param:MENUS|modern}'), 'original') <> 0;
   DefaultsPage.Values[1] := CompareText(ExpandConstant('{param:BOW|}'), 'ootf') = 0;
   DefaultsPage.Values[2] := ExpandConstant('{param:DUAL|}') = '1';
+  DefaultsPage.Values[3] := ExpandConstant('{param:ISSUEREPORTING|}') <> '0';
+  if ExpandConstant('{param:ISSUEREPORTING|}') = '' then
+    DefaultsPage.Values[3] := GetPreviousData('IssueReporting', '1') <> '0';
 
   OptionsPage := CreateInputOptionPage(DefaultsPage.ID,
-    'Other options',
-    'Browser version, build priority and the VU1 build method.',
-    'The browser version needs Windows Subsystem for Linux with Ubuntu (wsl --install -d Ubuntu). You play it on ' +
-    'the project''s browser player page by choosing the built folder and your .iso; nothing is uploaded.' + #13#10#13#10 +
-    'VU1 microcode: the PlayStation 2 has a second vector processor (VU1) that runs much of the game''s 3D geometry ' +
-    'code. The builder translates that microcode into C++ and compiles it. By default this is done in small chunks that ' +
-    'need about 2 GB of memory per compiler, which suits any PC. "Whole blocks" is the older method: four very large ' +
-    'files, each needing up to 17 GB of memory and 10 to 20 minutes, compiled one after another. The game runs at ' +
-    'the same speed either way, so tick it only if you have 24 GB or more of memory and a reason to.',
-    False, False);
-  OptionsPage.Add('Also build the browser version (needs WSL with Ubuntu)');
-  OptionsPage.Add('Keep the PC responsive while building (compile at low priority)');
-  OptionsPage.Add('Start the game when the build has finished');
-  OptionsPage.Add('Compile the VU1 microcode as whole blocks (older method, needs 24 GB or more)');
+    CustomMessage('OptionsTitle'), CustomMessage('OptionsSubtitle'),
+    CustomMessage('OptionsDescription'), False, False);
+  OptionsPage.Add(CustomMessage('OptionsWeb'));
+  OptionsPage.Add(CustomMessage('OptionsPriority'));
+  OptionsPage.Add(CustomMessage('OptionsLaunch'));
+  OptionsPage.Add(CustomMessage('OptionsVuWhole'));
   // DrakanPC-Setup.exe /VUBLOCKS=whole ticks it; otherwise the last install's choice.
   OptionsPage.Values[3] := (CompareText(ExpandConstant('{param:VUBLOCKS|}'), 'whole') = 0) or
     ((ExpandConstant('{param:VUBLOCKS|}') = '') and (GetPreviousData('VuBlocks', '') = 'Whole'));
 
   CpuPage := CreateInputQueryPage(OptionsPage.ID,
-    'Build speed',
-    'How much of this PC may the build use?',
-    'This PC has ' + GetEnv('NUMBER_OF_PROCESSORS') + ' logical CPU cores. More cores build faster but leave less ' +
-    'for other programs; memory still limits how many compilers run at once (each needs up to 2 GB). Leave the ' +
-    'field empty to let the builder choose (half the cores, at most 4). These are build settings only: they do not ' +
-    'change how the game runs. Affinity applies only to the Windows build; an optional browser build uses its default. "Rebuild Drakan" keeps them.');
-  CpuPage.Add('CPU cores to use (empty = automatic):', False);
+    CustomMessage('CpuTitle'), CustomMessage('CpuSubtitle'),
+    FmtMessage(CustomMessage('CpuDescription'), [GetEnv('NUMBER_OF_PROCESSORS')]));
+  CpuPage.Add(CustomMessage('CpuCores'), False);
   // DrakanPC-Setup.exe /CORES=8 fills it in.
   CpuPage.Values[0] := ExpandConstant('{param:CORES|}');
-  CpuPage.Add('Windows build affinity hex mask (e.g. 0xFFF; empty = default):', False);
+  CpuPage.Add(CustomMessage('CpuAffinity'), False);
   CpuPage.Values[1] := ExpandConstant('{param:AFFINITY|}');
 end;
 
@@ -425,6 +385,10 @@ begin
   else
     SetPreviousData(PreviousDataKey, 'OotfSubtitles', 'bundled');
   SetPreviousData(PreviousDataKey, 'PlayFolder', GetPlayDir(''));
+  if DefaultsPage.Values[3] then
+    SetPreviousData(PreviousDataKey, 'IssueReporting', '1')
+  else
+    SetPreviousData(PreviousDataKey, 'IssueReporting', '0');
   if OptionsPage.Values[3] then
     SetPreviousData(PreviousDataKey, 'VuBlocks', 'Whole')
   else
@@ -455,15 +419,15 @@ begin
         FindClose(Found);
       end;
     end;
-    Result := 'That folder holds neither the installed game (Dragon.rrc) nor a copy of its disc (SETUP\DATA1.CAB).';
+    Result := CustomMessage('OotfBadFolder');
   end else if FileExists(Path) then begin
     Ext := Lowercase(ExtractFileExt(Path));
     if (Ext <> '.zip') and (Ext <> '.mdx') and (Ext <> '.iso') and (Ext <> '.cue') and (Ext <> '.bin') then
-      Result := 'Choose the installed game folder, a disc image (.mdx, .iso, or .cue with its .bin tracks) or a .zip holding one.'
+      Result := CustomMessage('OotfBadFormat')
     else if (Ext <> '.cue') and FileSize64(Path, FileBytes) and (FileBytes < 50 * 1024 * 1024) then
-      Result := 'That file is too small to be the game disc. For a .cue / .bin rip choose the .cue sheet or Track 1.';
+      Result := CustomMessage('OotfSmallFile');
   end else
-    Result := 'That file or folder does not exist.';
+    Result := CustomMessage('OotfMissing');
 end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -476,7 +440,7 @@ begin
   Result := '';
   if UpdateMode and
     (not SameDirectory(UpdateBuilderDir, WizardDirValue) or not SameDirectory(UpdatePlayDir, GetPlayDir(''))) then
-    Result := 'The builder and play folders must match the installed copy for an update.';
+    Result := CustomMessage('UpdatePaths');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -493,18 +457,17 @@ begin
   // A regular silent install never starts the build (skipifsilent), so it does not need an ISO.
   if (CurPageID = IsoPage.ID) and not (WizardSilent and (IsoPage.Values[0] = '')) then begin
     if not FileExists(IsoPage.Values[0]) then begin
-      MsgBox('Choose your disc image (.iso) to continue.', mbError, MB_OK);
+      MsgBox(CustomMessage('DiscMissing'), mbError, MB_OK);
       Result := False;
     end else if FileSize64(IsoPage.Values[0], Size) and (Size < 100 * 1024 * 1024) then begin
-      MsgBox('That file is too small to be the game disc. Choose the full .iso image.', mbError, MB_OK);
+      MsgBox(CustomMessage('DiscSmall'), mbError, MB_OK);
       Result := False;
     end;
   end;
   if (CurPageID = OotfPage.ID) and (Trim(OotfEdit.Text) <> '') then begin
     Problem := OotfProblem(Trim(OotfEdit.Text));
     if Problem <> '' then begin
-      MsgBox(Problem + #13#10#13#10 + 'Choose your Drakan: Order of the Flame folder, disc image or zip, ' +
-        'or leave the field empty to skip it.', mbError, MB_OK);
+      MsgBox(FmtMessage(CustomMessage('OotfInvalid'), [Problem]), mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -512,7 +475,7 @@ begin
     Mask := Lowercase(AddBackslash(GetPlayDir('')));
     if (Length(GetPlayDir('')) <= 3) or (Mask = Lowercase(AddBackslash(WizardDirValue))) or
        (Pos(Lowercase(AddBackslash(WizardDirValue) + 'build\'), Mask) = 1) then begin
-      MsgBox('Choose a play folder of its own: not a drive root, the builder folder itself or its build folder.',
+      MsgBox(CustomMessage('PlayBadPath'),
         mbError, MB_OK);
       Result := False;
     end;
@@ -520,8 +483,7 @@ begin
   if (CurPageID = CpuPage.ID) and (Trim(CpuPage.Values[0]) <> '') then begin
     Cores := StrToIntDef(Trim(CpuPage.Values[0]), 0);
     if (Cores < 1) or (Cores > StrToIntDef(GetEnv('NUMBER_OF_PROCESSORS'), 256)) then begin
-      MsgBox('Enter a number of cores from 1 to ' + GetEnv('NUMBER_OF_PROCESSORS') + ', or leave the field empty.',
-        mbError, MB_OK);
+      MsgBox(FmtMessage(CustomMessage('CpuInvalidCores'), [GetEnv('NUMBER_OF_PROCESSORS')]), mbError, MB_OK);
       Result := False;
     end;
   end;
@@ -537,7 +499,7 @@ begin
       end;
       if not Nonzero then Result := False;
       if not Result then
-        MsgBox('Affinity must be a nonzero hexadecimal mask of up to 16 digits, such as 0xFFF. The builder checks available processors.', mbError, MB_OK);
+        MsgBox(CustomMessage('CpuInvalidAffinity'), mbError, MB_OK);
     end;
   end;
 end;
@@ -549,7 +511,7 @@ var
   Code: Integer;
 begin
   if (CurStep = ssPostInstall) and UpdateMode then begin
-    WizardForm.StatusLabel.Caption := 'Rebuilding Drakan from your disc image...';
+    WizardForm.StatusLabel.Caption := CustomMessage('UpdateBuilding');
     ReleaseBuildLock;
     if not Exec(
       ExpandConstant('{app}\tools\pwsh\pwsh.exe'),
@@ -560,10 +522,8 @@ begin
       Code := 1;
     if Code <> 0 then begin
       UpdateExitCode := 20;
-      SuppressibleMsgBox(
-        'The rebuild did not finish. Open Drakan to continue playing. If the game shortcut does not open, ' +
-        'run Rebuild Drakan from Start to recover it.' + #13#10#13#10 +
-        'Build log: ' + AddBackslash(UpdateBuilderDir) + 'build-log.txt', mbError, MB_OK, IDOK);
+      SuppressibleMsgBox(FmtMessage(CustomMessage('UpdateFailed'), [AddBackslash(UpdateBuilderDir) + 'build-log.txt']),
+        mbError, MB_OK, IDOK);
     end;
     Exit;
   end;
@@ -571,7 +531,7 @@ begin
   // The files are installed, so the builder's own checker can read the choice (a zip's contents, a disc's cabinet).
   // A choice that does not work is left out of the build instead of stopping it. Regular silent installs build nothing.
   if (CurStep = ssPostInstall) and (Trim(OotfEdit.Text) <> '') and not WizardSilent then begin
-    WizardForm.StatusLabel.Caption := 'Checking your Drakan: Order of the Flame files...';
+    WizardForm.StatusLabel.Caption := CustomMessage('OotfChecking');
     Log := ExpandConstant('{tmp}\ootf-check.txt');
     DeleteFile(Log);
     OotfRejected := True;
@@ -584,9 +544,7 @@ begin
       Text := '';
       if LoadStringFromFile(Log, Output) then
         Text := Trim(String(Output));
-      MsgBox('Your Drakan: Order of the Flame choice cannot be used:' + #13#10#13#10 + Text + #13#10#13#10 +
-        'The game itself is still built, without Order of the Flame. To add it later, run "Rebuild Drakan" from a ' +
-        'command prompt with -OotfSource <path>, or run this setup again with a working copy.', mbError, MB_OK);
+      MsgBox(FmtMessage(CustomMessage('OotfRejected'), [Text]), mbError, MB_OK);
     end;
   end;
 end;
@@ -632,11 +590,8 @@ begin
       Code := 1;
   // A silent uninstall answers No: the build folder stays.
   if (Code <> 0) and HasCardFolder(Work) then
-    Result := SuppressibleMsgBox('Saves of an older game version may still be in the card folders (mc0, mc1, ' +
-      'mc0_...) of' + #13#10 + Work + #13#10 + 'and could not be copied to the play folder. Uninstalling deletes ' +
-      'that folder.' + #13#10#13#10 + 'Choose No to keep everything, copy those folders somewhere safe and ' +
-      'uninstall again.' + #13#10#13#10 + 'Uninstall anyway?', mbConfirmation, MB_YESNO or MB_DEFBUTTON2,
-      IDNO) = IDYES;
+    Result := SuppressibleMsgBox(FmtMessage(CustomMessage('UninstallSaves'), [Work]),
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
 end;
 
 function GetIsoPath(Param: String): String;
@@ -690,6 +645,10 @@ begin
     Result := Result + ' -DualWield on'
   else
     Result := Result + ' -DualWield off';
+  if DefaultsPage.Values[3] then
+    Result := Result + ' -IssueReporting on'
+  else
+    Result := Result + ' -IssueReporting off';
   if HdPage.Values[0] then
     Result := Result + ' -HdTextures on'
   else

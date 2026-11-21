@@ -525,6 +525,14 @@ void testIssueReporting() {
     const auto action = screen.frame(snapshot, state, keys({UiKey::Confirm}), vp);
     CHECK(action.actions.size() == 1 && findAction(action, PauseActionKind::ReportIssue));
     CHECK(screen.isOpen() && !screen.suspended() && focused(screen, PauseRow::ReportIssue));
+
+    screen.setIssueReportingVisible(false);
+    const auto hidden = screen.frame(snapshot, state, {}, vp);
+    CHECK(!hasText(hidden.draw, "Report an Issue"));
+    CHECK(!rowTarget(screen, PauseRow::ReportIssue));
+
+    screen.setIssueReportingVisible(true);
+    CHECK(hasText(screen.frame(snapshot, state, {}, vp).draw, "Report an Issue"));
 }
 
 void testAspect() {

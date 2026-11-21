@@ -2,7 +2,9 @@
 // and the portable raylib host (drakan_portable_ui.cpp). Backends override capabilities() / applyVideo() for their
 // renderer and call applyCommonVideo() for the settings that do not depend on it.
 #pragma once
+#include "drakan_config.h"
 #include "drakan_debug_menu.h"
+#include "drakan_issue.h"
 #include "drakan_dual_wield.h"
 #include "drakan_polyclip.h"
 #include "drakan_region.h"
@@ -29,6 +31,10 @@ namespace drakan_settings_host {
 class CommonSettingsHost : public dsettings::ISettingsHost {
 public:
     explicit CommonSettingsHost(std::atomic<spu2::AudioOutput*>& audio) : audio_(audio) {}
+
+    static bool issueReportingVisible() { return drakan_issue::available() && issueReportingSetting().load(); }
+    bool canReportIssue() const override { return issueReportingVisible(); }
+    void reportIssue() override { drakan_issue::report("PC Options"); }
 
     // Capabilities every host provides; a backend adds its renderer's features.
     static dsettings::HostCaps commonCapabilities() {
@@ -121,6 +127,7 @@ public:
             drakan_menu_screens::setSaveModern(n.saveMenu == dsettings::SaveMenu::Modern);
         if (n.titleMenu != p.titleMenu)
             drakan_menu_screens::chooseTitleModern(n.titleMenu == dsettings::TitleMenu::Modern);
+        issueReportingSetting().store(n.showIssueReporting);
         drakan_dual_wield::setEnabled(n.dualWield);
 #if defined(PS2X_HAVE_DRAKAN_INPUT)
         drakan_debug_menu::setEnabled(n.debugMenu);
@@ -160,6 +167,11 @@ protected:
     }
 
 private:
+    static std::atomic<bool>& issueReportingSetting() {
+        static std::atomic<bool> enabled{drakan_cfg::getBool("general", "show_issue_reporting", nullptr, true)};
+        return enabled;
+    }
+
     std::atomic<spu2::AudioOutput*>& audio_;
 };
 

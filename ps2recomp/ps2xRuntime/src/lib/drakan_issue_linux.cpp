@@ -1,6 +1,7 @@
 #include "drakan_issue.h"
 
 #if defined(__linux__) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
+#include "drakan_issue_url.h"
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -15,6 +16,7 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <spawn.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -27,6 +29,8 @@ constexpr int kManual = -1;
 constexpr int kRuntimeFailure = 0;
 constexpr off_t kLogLimit = 4 * 1024 * 1024;
 volatile sig_atomic_t g_notice = -1;
+int g_reports = -1;
+using ReportUrl = std::array<char, 2048>;
 
 struct Pipe {
     int fds[2]{-1, -1};
@@ -67,11 +71,6 @@ void onSignal(int signal) {
     raise(signal); // SA_RESETHAND restores the normal termination and core-dump behavior.
 }
 
-const char* formUrl(bool crash) {
-    return crash ? "https://github.com/ChristopherVR/Drakan2PC/issues/new?template=crash-report.yml"
-                 : "https://github.com/ChristopherVR/Drakan2PC/issues/new?template=bug-report.yml";
-}
-
 fs::path reportFolder() {
     fs::path base;
     if (const char* logs = std::getenv("DRAKAN_LOG_DIR"); logs && *logs)
@@ -103,7 +102,7 @@ void copyLog(std::ostream& out, int log, off_t offset, off_t length) {
     }
 }
 
-fs::path captureReport(int log, int reason) {
+fs::path captureReport(int log, int reason, std::string_view url) {
     const bool crash = reason != kManual;
     const fs::path dir = reportFolder();
     if (dir.empty())
@@ -145,8 +144,14 @@ fs::path captureReport(int log, int reason) {
                 "attaching it to your report.</p>";
     else
         page << "<p>The game could not save a copy of the session log.</p>";
-    page << "<p><a href=\"" << formUrl(crash) << "\">Open the GitHub " << (crash ? "crash" : "bug")
-         << " report form</a></p></main></html>";
+    page << "<p><a href=\"";
+    for (const char c : url) {
+        if (c == '&')
+            page << "&amp;";
+        else
+            page << c;
+    }
+    page << "\">Open the GitHub " << (crash ? "crash" : "bug") << " report form</a></p></main></html>";
     page.close();
     return page.good() ? html : fs::path();
 }
@@ -189,11 +194,12 @@ void openReport(const char* destination) {
     _exit(0);
 }
 
-void offerReport(int log, int reason) {
+void offerReport(int log, int reason, const char* reportedUrl = "") {
     const bool crash = reason != kManual;
+    const std::string url = *reportedUrl ? reportedUrl : formUrl(crash, "Linux");
     fs::path page;
     try {
-        page = captureReport(log, reason);
+        page = captureReport(log, reason, url);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "[report] Could not save a report: %s\n", error.what());
     }
@@ -202,8 +208,8 @@ void offerReport(int log, int reason) {
         return;
     if (!page.empty())
         std::fprintf(stderr, "[report] Open %s to report the issue.\n", page.c_str());
-    std::fprintf(stderr, "[report] GitHub form: %s\n", formUrl(crash));
-    openReport(page.empty() ? formUrl(crash) : page.c_str());
+    std::fprintf(stderr, "[report] GitHub form: %s\n", url.c_str());
+    openReport(page.empty() ? url.c_str() : page.c_str());
 }
 
 void logChunk(pollfd& source, int destination, int log) {
@@ -220,10 +226,10 @@ void logChunk(pollfd& source, int destination, int log) {
     }
 }
 
-void monitor(int out, int err, int notice, int log) {
+void monitor(int out, int err, int notice, int reports, int log) {
     setsid(); // The monitor survives a signal delivered to the game's foreground process group.
     std::signal(SIGPIPE, SIG_IGN);
-    pollfd inputs[]{{out, POLLIN, 0}, {err, POLLIN, 0}, {notice, POLLIN, 0}};
+    pollfd inputs[]{{out, POLLIN, 0}, {err, POLLIN, 0}, {notice, POLLIN, 0}, {reports, POLLIN, 0}};
     auto drain = [&] {
         // A child can inherit stdout or stderr. Drain the bytes already queued without waiting on that child.
         for (int i = 0; i < 64 && poll(inputs, 2, 0) > 0; ++i) {
@@ -233,26 +239,31 @@ void monitor(int out, int err, int notice, int log) {
     };
     int crash = kManual;
     for (;;) {
-        const int ready = poll(inputs, 3, -1);
+        const int ready = poll(inputs, std::size(inputs), -1);
         if (ready < 0 && errno != EINTR)
             return;
         if (ready <= 0)
             continue;
         logChunk(inputs[0], STDOUT_FILENO, log);
         logChunk(inputs[1], STDERR_FILENO, log);
+        if (inputs[3].revents) {
+            ReportUrl url{};
+            const ssize_t count = read(reports, url.data(), url.size());
+            if (count == sizeof url) {
+                drain();
+                offerReport(log, kManual, url.data());
+                continue; // Handle reports already queued before the game closed.
+            }
+            if (count == 0)
+                inputs[3].fd = -1;
+        }
         if (inputs[2].revents) {
             int reason;
             const ssize_t count = read(notice, &reason, sizeof reason);
             if (count == 0)
                 break;
-            if (count == sizeof reason) {
-                if (reason == kManual) {
-                    drain();
-                    offerReport(log, reason);
-                } else {
-                    crash = reason;
-                }
-            }
+            if (count == sizeof reason)
+                crash = reason;
         }
     }
     drain();
@@ -266,8 +277,9 @@ bool runHelper(int, char*[]) {
 }
 
 void watchForCrashes() {
-    Pipe out, err, notice;
-    if (!out.open() || !err.open() || !notice.open(O_NONBLOCK))
+    Pipe out, err, notice, reports;
+    if (!out.open() || !err.open() || !notice.open(O_NONBLOCK) ||
+        socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, reports.fds) != 0)
         return;
     FILE* log = std::tmpfile();
     if (!log)
@@ -278,7 +290,8 @@ void watchForCrashes() {
         close(out.fds[1]);
         close(err.fds[1]);
         close(notice.fds[1]);
-        monitor(out.fds[0], err.fds[0], notice.fds[0], fileno(log));
+        close(reports.fds[1]);
+        monitor(out.fds[0], err.fds[0], notice.fds[0], reports.fds[0], fileno(log));
         _exit(0);
     }
     std::fclose(log);
@@ -292,6 +305,8 @@ void watchForCrashes() {
     setvbuf(stderr, nullptr, _IONBF, 0);
     g_notice = notice.fds[1];
     notice.fds[1] = -1;
+    g_reports = reports.fds[1];
+    reports.fds[1] = -1;
 
     struct sigaction action{};
     action.sa_handler = onSignal;
@@ -309,9 +324,15 @@ bool available() {
     return true;
 }
 
-void report() {
-    if (!notify(kManual))
-        std::fprintf(stderr, "[report] Open %s to report an issue.\n", formUrl(false));
+void report(std::string_view screen, std::string_view campaign, std::string_view level) {
+    const auto url = formUrl(false, "Linux", screen, campaign, level);
+    ReportUrl message{};
+    if (g_reports != -1 && url.size() < message.size()) {
+        url.copy(message.data(), url.size());
+        if (send(g_reports, message.data(), message.size(), MSG_NOSIGNAL) == sizeof message)
+            return;
+    }
+    std::fprintf(stderr, "[report] Open %s to report an issue.\n", url.c_str());
 }
 } // namespace drakan_issue
 #endif

@@ -186,7 +186,7 @@ class RetryPolicyTests(unittest.TestCase):
                 marker.write_text("{}", encoding="utf-8")
             result = pwsh(
                 f"""
-                . {quote(BUILDTOOL / "Build-Policy.ps1")}
+                . {quote(BUILDTOOL / "powershell/Build-Policy.ps1")}
                 $buildArgs = @{{ IsoPath = 'x.iso'; WorkDir = 'w'; Jobs = 2; CompilerProcesses = 4 }}
                 try {{ Invoke-BuildWithRetry {quote(temp / "Build-LocalGame.ps1")} $buildArgs {quote(marker)}; 'RESULT ok' }}
                 catch {{ "RESULT failed: $_" }}

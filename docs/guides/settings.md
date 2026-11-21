@@ -70,6 +70,12 @@ PC Settings includes master volume and output-device selection where available. 
 
 Gameplay dialogue uses the game's **Show Subtitles** option. **Narration subtitles** controls the added intro/outro SRT overlay, with an independent text-size setting. No narration text appears unless matching local SRT files are installed.
 
+## Issue reporting
+
+In the game's Options, open **Gameplay** and turn off **Show Report an Issue** to hide the shortcut in the title menu, pause menu and PC settings. Windows Setup offers the same choice under **Game options**, alongside the modern menus option. Crash prompts are controlled separately.
+
+The reporting link opens an editable GitHub draft with the build, platform and disc version when available. A report from the pause menu also includes the current campaign and location. Review the saved session log before attaching it.
+
 ## CPU cores
 
 Gameplay > Performance > CPU cores sets how much of your processor the game may use (Automatic, or 4, 6, 8, 12 or 16 cores). Leave it on Automatic unless you have a reason to change it. It takes effect the next time you start the game. For an exact set, write a hex mask in `drakan.ini` (or the environment variable `DRAKAN_CPU_AFFINITY`):

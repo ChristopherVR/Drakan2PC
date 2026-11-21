@@ -769,11 +769,36 @@ target_link_libraries(ps2EntryRunner
     ps2_runtime
 )
 
+# Prefer a packaged release tag, then the kit's commit or the local checkout's commit.
+set(DRAKAN_REPORT_BUILD "")
+if(EXISTS "${DRAKAN_ROOT_DIR}/DrakanPC-release.txt")
+    file(STRINGS "${DRAKAN_ROOT_DIR}/DrakanPC-release.txt" DRAKAN_REPORT_BUILD LIMIT_COUNT 1)
+endif()
+if(NOT DRAKAN_REPORT_BUILD MATCHES "^v[0-9]+[.][0-9]+[.][0-9]+$")
+    set(DRAKAN_REPORT_BUILD "")
+    if(EXISTS "${DRAKAN_ROOT_DIR}/KIT-VERSION.txt")
+        file(STRINGS "${DRAKAN_ROOT_DIR}/KIT-VERSION.txt" DRAKAN_KIT_BUILD LIMIT_COUNT 1)
+        if(DRAKAN_KIT_BUILD MATCHES "^commit ([0-9a-f]+)$")
+            string(SUBSTRING "${CMAKE_MATCH_1}" 0 12 DRAKAN_REPORT_BUILD)
+        endif()
+    elseif(EXISTS "${DRAKAN_ROOT_DIR}/.git")
+        find_package(Git QUIET)
+        if(Git_FOUND)
+            execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short=12 HEAD
+                WORKING_DIRECTORY "${DRAKAN_ROOT_DIR}" OUTPUT_VARIABLE DRAKAN_REPORT_BUILD
+                OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        endif()
+    endif()
+endif()
+string(REPLACE "_" "-" DRAKAN_REPORT_DISC "${DRAKAN_BOOT_ELF_NAME}")
+set_property(SOURCE src/lib/drakan_issue.cpp src/lib/drakan_issue_linux.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+    "DRAKAN_REPORT_BUILD=\"${DRAKAN_REPORT_BUILD}\"" "DRAKAN_REPORT_DISC=\"${DRAKAN_REPORT_DISC}\"")
+
 if(EMSCRIPTEN)
     # pre.js reads the boot ELF name from here (/SCES_500.06 for PAL, /SCUS_971.28 for USA).
     set(DRAKAN_WEB_REGION_JS "${CMAKE_CURRENT_BINARY_DIR}/drakan_web_region.js")
     file(GENERATE OUTPUT "${DRAKAN_WEB_REGION_JS}"
-        CONTENT "Module['drakanBootElf'] = '/${DRAKAN_BOOT_ELF_NAME}';\n")
+        CONTENT "Module['drakanBootElf'] = '/${DRAKAN_BOOT_ELF_NAME}';\nModule['drakanBuild'] = '${DRAKAN_REPORT_BUILD}';\nModule['drakanDisc'] = '${DRAKAN_REPORT_DISC}';\n")
     target_compile_options(raylib PRIVATE -include "${CMAKE_SOURCE_DIR}/runtime/web/raylib_proxy.h")
     target_sources(ps2_runtime PRIVATE src/lib/drakan_web.cpp)
     set_property(TARGET ps2EntryRunner APPEND PROPERTY LINK_DEPENDS

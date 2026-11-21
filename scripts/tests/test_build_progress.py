@@ -11,7 +11,7 @@ from pathlib import Path
 from test_build_drakan import PWSH, pwsh, quote
 
 ROOT = Path(__file__).resolve().parents[2]
-PROGRESS = ROOT / "scripts/buildtool/Build-Progress.ps1"
+PROGRESS = ROOT / "scripts/buildtool/powershell/Build-Progress.ps1"
 
 RUNNER = """<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">

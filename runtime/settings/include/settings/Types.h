@@ -120,6 +120,7 @@ struct GeneralSettings {
     // pause_menu: the Esc menu. native = the game's pause page; modern = the host-drawn pause screen (gameui
     // PauseScreen; Save, Load, Options and Quit still open the game's own screens). Applies from the next Esc.
     PauseMenu pauseMenu = PauseMenu::Native;
+    bool showIssueReporting = true;
     // dual_wield: a second one-handed weapon goes to Rynn's left hand (the shield slot); attacks alternate hands
     // Applied live through ISettingsHost::applyGeneral; disabling stows the off-hand on the next game update.
     bool dualWield = false;

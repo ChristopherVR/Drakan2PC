@@ -1,0 +1,9 @@
+DRAKAN PC – INSTALACIÓN
+
+El instalador compila el juego para Windows a partir de tu propia imagen ISO: PAL (SCES-500.06) o estadounidense (SCUS-971.28, experimental). El juego sigue leyendo la ISO al jugar, así que déjala donde está.
+
+Elige la carpeta del compilador, la ISO y una carpeta de juego separada. Puedes añadir NVIDIA DLSS, la versión web (WSL con Ubuntu), texturas HD y tu copia de Order of the Flame. También puedes generar subtítulos de Order of the Flame a partir de tus grabaciones.
+
+La primera compilación instala las herramientas gratuitas Visual Studio 2022 Build Tools de Microsoft (unos 3 GB). Windows puede pedir confirmación. Al continuar aceptas su licencia: https://visualstudio.microsoft.com/license-terms/
+
+La compilación dura una o dos horas. El juego puede abrirse brevemente para crear las imágenes de mapas que falten. Usa « Recompilar Drakan » para continuar si se interrumpe. Las partidas y los ajustes se conservan en la carpeta del juego, incluso al desinstalar el compilador.

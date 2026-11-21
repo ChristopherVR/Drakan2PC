@@ -639,6 +639,18 @@ const Entry kEntries[] = {
      {"Speichern / Laden", "Écrans de sauvegarde / chargement", "Schermate salva / carica",
       "Pantallas de guardar / cargar"}},
     {"Title menu", {"Hauptmenü", "Menu titre", "Menu del titolo", "Menú de título"}},
+    {"Show Report an Issue",
+     {"Problem melden anzeigen", "Afficher Signaler un problème", "Mostra Segnala un problema",
+      "Mostrar Informar de un problema"}},
+    {"Show the reporting shortcut in the title, pause and PC settings menus. Crash prompts remain available.",
+     {"Zeigt die Meldemöglichkeit im Titelmenü, Pausenmenü und in den PC-Einstellungen. Absturzmeldungen bleiben "
+      "aktiv.",
+      "Affiche le signalement dans le menu principal, la pause et les réglages PC. Les alertes de plantage restent "
+      "actives.",
+      "Mostra la segnalazione nei menu principale, di pausa e nelle impostazioni PC. Gli avvisi di arresto restano "
+      "attivi.",
+      "Muestra la opción en el menú principal, la pausa y los ajustes de PC. Los avisos de cierre inesperado siguen "
+      "activos."}},
     {"Dual wielding", {"Beidhändiger Waffenkampf", "Double maniement", "Doppia impugnatura", "Doble empuñadura"}},
     {"CPU cores", {"CPU-Kerne", "Cœurs du processeur", "Core CPU", "Núcleos de CPU"}},
     {"Developer debug menu",

@@ -206,6 +206,7 @@ public:
     void open();
     void close();
     bool isOpen() const { return open_; }
+    void setIssueReportingVisible(bool visible) { cfg_.showIssueReporting = visible; }
     // A native child (Load, Credits, the F1 overlay) closed and the title is the active screen again.
     void reactivate();
     // A multiplayer text field is being edited: the glue passes typed characters (UiInput::text) and stops mapping
