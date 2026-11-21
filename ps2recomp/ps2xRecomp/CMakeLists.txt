@@ -130,7 +130,9 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebI
     EnableFastReleaseMode(ps2_recomp)
 endif()
 
-# Instruction-level differential tester (generator half; the outer project's scripts/harness/stability/stab_difftest.ps1 compiles the runner)
-add_executable(ps2_difftest_gen difftest/difftest_gen.cpp)
-target_link_libraries(ps2_difftest_gen PRIVATE ps2_recomp_lib drakan::options)
-target_include_directories(ps2_difftest_gen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ps2xRuntime/include)
+# The builder kit omits the developer-only differential tester.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/difftest/difftest_gen.cpp")
+    add_executable(ps2_difftest_gen difftest/difftest_gen.cpp)
+    target_link_libraries(ps2_difftest_gen PRIVATE ps2_recomp_lib drakan::options)
+    target_include_directories(ps2_difftest_gen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../ps2xRuntime/include)
+endif()
