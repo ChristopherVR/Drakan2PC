@@ -229,13 +229,12 @@ struct Pick {
     }
 
     bool originalItemAtPad(const world::EntitySnapshot& e) const {
+        const auto matchesReward = [&](const auto& reward) {
+            return reward.kind == drakan::net::ArenaReward::Kind::Item && reward.value == e.resourceId;
+        };
         return std::abs(e.position.x - def.pos[0]) < 100.0f && std::abs(e.position.y - def.pos[1]) < 700.0f &&
                std::abs(e.position.z - def.pos[2]) < 100.0f &&
-               std::any_of(
-                   def.rewards.begin(), def.rewards.end(),
-                   [&](const auto& reward) {
-                       return reward.kind == drakan::net::ArenaReward::Kind::Item && reward.value == e.resourceId;
-                   });
+               std::any_of(def.rewards.begin(), def.rewards.end(), matchesReward);
     }
 };
 std::vector<Pick> g_picks;
