@@ -54,9 +54,10 @@ Read [PC enhancements](enhancements.md) for the PS2 comparison, then [Controls &
 
 ## Interrupted build or update
 
-Packaged Windows builds with the modern title menu check GitHub for a newer release in the background. **View
-changes** opens the release notes in your browser. **Dismiss** hides that version. Set `check_for_updates = 0`
-under `[general]` in `drakan.ini` to turn the check off.
+Automatic update checks are off by default. To enable them, select **Check for Drakan PC updates automatically** in
+Setup's **Game options**, or set `check_for_updates = 1` under `[general]` in the play folder's `drakan.ini`. With checks
+enabled, the builder and the modern title menu check GitHub for newer releases. **View changes** opens the release
+notes in your browser. **Dismiss** hides that version.
 
 If you installed with Windows Setup from a release that includes the updater, choose **Download and rebuild**.
 Drakan checks the download against the release checksum. Windows may ask for approval before opening the unsigned

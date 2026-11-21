@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "buildtool"))
+import bootstrap_linux
 import drakan_update_linux as updater
 import prepare_launch
 
@@ -23,6 +24,30 @@ def builder_zip(path, entries):
 
 
 class BuilderReleaseTests(unittest.TestCase):
+    def test_bootstrap_only_checks_releases_when_enabled_in_the_play_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            play = Path(temporary)
+            iso = play / "Drakan.iso"
+            iso.touch()
+            with (
+                patch.object(sys, "argv", ["bootstrap_linux.py", str(iso), "--play-dir", str(play)]),
+                patch.object(sys, "platform", "linux"),
+                patch.object(bootstrap_linux.platform, "machine", return_value="x86_64"),
+                patch.dict(os.environ, {"DRAKAN_CHECK_FOR_UPDATES": ""}),
+                patch.object(bootstrap_linux, "dependencies"),
+                patch.object(bootstrap_linux, "tools", return_value=("pwsh", "python", "node")),
+                patch.object(bootstrap_linux, "run"),
+                patch.object(bootstrap_linux, "builder_release_status", return_value=None) as check_release,
+            ):
+                bootstrap_linux.main()
+                ini = play / "drakan.ini"
+                ini.write_text("[general]\ncheck_for_updates = 0\n", encoding="utf-8")
+                bootstrap_linux.main()
+                check_release.assert_not_called()
+                ini.write_text("[general]\ncheck_for_updates = 1\n", encoding="utf-8")
+                bootstrap_linux.main()
+                check_release.assert_called_once_with(bootstrap_linux.ROOT)
+
     def test_checks_only_versioned_builders_and_compares_stable_tags_numerically(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)

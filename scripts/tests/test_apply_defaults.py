@@ -1,9 +1,11 @@
 """The installer's "Game options" page: starting values written into the play folder's ini files. Synthetic inis only."""
 
 import importlib.util
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("apply_defaults", ROOT / "scripts/buildtool/apply_defaults.py")
@@ -87,6 +89,19 @@ class ApplyTests(unittest.TestCase):
         report = defaults.apply(self.play, "modern", "ootf", "on")
         self.assertEqual(len(report), 3)
         self.assertTrue(all("left alone" in line for line in report))
+
+    def test_update_checks_require_opt_in_and_saved_choice_survives_rebuild(self):
+        ini = self.play / "drakan.ini"
+        ini.write_text(f"{MAIN_INI}[video]\ncheck_for_updates = 1\n", encoding="utf-8")
+        with patch.dict(os.environ, {"DRAKAN_CHECK_FOR_UPDATES": ""}):
+            self.assertFalse(defaults.update_checks_enabled(self.play))
+            self.assertEqual(defaults.main(["--play", str(self.play), "--check-for-updates", "on"]), 0)
+            self.assertTrue(defaults.update_checks_enabled(self.play))
+            defaults.apply(self.play)
+            self.assertTrue(defaults.update_checks_enabled(self.play))
+            defaults.apply(self.play, check_for_updates="off")
+            self.assertFalse(defaults.update_checks_enabled(self.play))
+            self.assertIn("[video]\ncheck_for_updates = 1\n", ini.read_text(encoding="utf-8"))
 
     def test_cli_exit_codes(self):
         self.assertEqual(defaults.main(["--play", str(self.play), "--menus", "modern"]), 0)

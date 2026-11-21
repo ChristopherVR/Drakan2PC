@@ -49,6 +49,7 @@ DefaultsMenus=Usar menús modernos de PC. Desmarca para usar los menús de PS2.
 DefaultsBow=Controles de arco de Order of the Flame: clic izquierdo para disparar, derecho para apuntar.
 DefaultsDual=Activar el combate con dos armas (experimental).
 DefaultsIssue=Mostrar « Informar de un problema » en los menús del juego.
+DefaultsUpdates=Buscar automáticamente actualizaciones de Drakan PC.
 OptionsTitle=Otras opciones
 OptionsSubtitle=Versión web, prioridad y compilación VU1.
 OptionsDescription=La versión web requiere WSL con Ubuntu (wsl --install -d Ubuntu). El navegador usa la carpeta compilada y la ISO en local. VU1 usa unos 2 GB por compilador. Los bloques enteros requieren hasta 17 GB y no cambian el rendimiento.

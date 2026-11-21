@@ -49,6 +49,7 @@ DefaultsMenus=Use modern PC menus. Clear to use the original PS2 menus.
 DefaultsBow=Use the Order of the Flame bow controls: left click fires, right click aims.
 DefaultsDual=Enable dual wielding (experimental).
 DefaultsIssue=Show Report an Issue in the game menus.
+DefaultsUpdates=Check for Drakan PC updates automatically.
 OptionsTitle=Other options
 OptionsSubtitle=Browser build, priority and VU1 compilation.
 OptionsDescription=The browser build needs WSL with Ubuntu (wsl --install -d Ubuntu). The browser player uses the built folder and your ISO locally. The builder compiles VU1 microcode for the PS2’s second vector processor. The default uses about 2 GB of memory per compiler. Whole blocks can need 17 GB per compiler. The game runs at the same speed either way.
