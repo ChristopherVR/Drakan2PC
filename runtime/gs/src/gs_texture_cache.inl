@@ -311,8 +311,7 @@ void GSR_IMPL::resampleBilinear(const std::vector<uint32_t>& img, uint32_t rw, u
         }
 }
 
-// alias match: keep the RGB of the pack texture but take the alpha the game actually uses (bilinear upscale; binary
-// alpha (alpha test cut-outs, foliage) is pushed to a ~2 px ramp so the edges stay crisp instead of fat and blurry)
+// Keep the pack's RGB and resample the game's alpha. Sharpen binary alpha to a roughly two-pixel ramp.
 void GSR_IMPL::applyGameAlpha(std::vector<uint32_t>& hi, uint32_t tw, uint32_t th, const std::vector<uint32_t>& base,
                               uint32_t W, uint32_t H) {
     uint32_t amax = 0;
@@ -454,6 +453,7 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
         key.hash ^= preview.version;
         viaAlias = true;
     }
+    const bool useGameAlpha = viaAlias || texup::preservesGameAlpha(hash);
     texup::Algo algo = upAlgoCfg;
     if (ui)
         algo = texup::Algo::XBrz; // HUD / font / sprite textures at 1:1 texel mapping stay crisp (pixel-art scaler)
@@ -464,7 +464,7 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
         key.packed = (mxl << 12) | (2u << 16) | (overlayPack.empty() ? 0u : (1u << 18));
     } else if (replace) {
         key.factor = 0; // resolved by the job
-        key.packed = (mxl << 12) | (1u << 16) | (viaAlias ? (1u << 17) : 0u);
+        key.packed = (mxl << 12) | (1u << 16) | (useGameAlpha ? (1u << 17) : 0u);
     } else {
         if (factor <= 1 || texup::looksUninitialized(base.data(), W, H, (uint32_t)bitsOf(s.tex0, 20, 6) == PSM_CT24))
             return;
@@ -494,9 +494,9 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
         std::fprintf(stderr, "[texup] menu artwork: %s\n", rpath.c_str());
     std::vector<uint32_t> copy = base;
     const uint32_t gen = upGen;
-    auto job = [this, gen, key, copy = std::move(copy), W, H, mxl, factor, algo, wrapS, wrapT, replace, rpath, viaAlias,
-                generated, generatedFactor, preview, overlayPack, overlayAlias, withMaterial, materialCopy,
-                materialHash, materialDir = texDir] {
+    auto job = [this, gen, key, copy = std::move(copy), W, H, mxl, factor, algo, wrapS, wrapT, replace, rpath,
+                useGameAlpha, generated, generatedFactor, preview, overlayPack, overlayAlias, withMaterial,
+                materialCopy, materialHash, materialDir = texDir] {
         const auto t0 = std::chrono::steady_clock::now();
         UpDone d;
         d.key = key;
@@ -551,7 +551,7 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
                     b0 = std::move(img);
                 else
                     resampleBilinear(img, rw, rh, tw, th, b0);
-                if (viaAlias)
+                if (useGameAlpha)
                     applyGameAlpha(b0, tw, th, copy, W, H);
             } else {
                 N = 1;

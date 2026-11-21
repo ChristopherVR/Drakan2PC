@@ -46,6 +46,11 @@ uint64_t hashContent(const uint32_t* px, uint32_t w, uint32_t h);
 uint64_t hashContentRgb(const uint32_t* px, uint32_t w, uint32_t h);
 std::string hashName(uint64_t h); // 16 lower-case hex digits
 
+// SYSTEM.TXD entry 5430. Arokh's wing membranes use the game's alpha for coverage.
+constexpr bool preservesGameAlpha(uint64_t hash) {
+    return hash == 0x0280f875945ec026ull;
+}
+
 struct Stats {
     uint32_t uniqueColors = 0;    // capped
     float equalNeighbourFrac = 0; // fraction of horizontally / vertically adjacent pairs with identical colour

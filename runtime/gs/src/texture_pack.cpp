@@ -122,7 +122,7 @@ std::shared_ptr<const PackImage> TexturePack::findHashed(const std::vector<uint3
     if (p.excluded.count(hash))
         return {};
     auto file = p.files.find(hash);
-    bool useGameAlpha = false;
+    bool useGameAlpha = texup::preservesGameAlpha(hash);
     if (file == p.files.end()) {
         const auto alias = p.aliases.find(rgb);
         file = p.files.find(alias == p.aliases.end() ? rgb : alias->second);
