@@ -445,3 +445,11 @@ light direction, ascension, color, ambient color and dropoff in the installed pa
 The screenshots and camera captures are in `build/harness/issue12-village-floor-{d3d11,vulkan}`
 and `build/harness/issue12-village-floor-protected-{d3d11,vulkan}`. The reporter's exact floor
 patch is unknown.
+
+### Spider-cave retest on 22 November 2026 (15)
+
+The Windows build replayed the seesaw collapse in Wartok Canyons. The detector fired, all eight boulders fell
+2,519–3,686 units, and loading the save taken during the event returned to gameplay. The run quit cleanly after the
+reloaded rockfall. See `build/harness/issue12-cave-followup` and the maintained `ootf_spider_cave_check.py`.
+
+The crash report still has no save, exact landmark or crash log beyond the original description.

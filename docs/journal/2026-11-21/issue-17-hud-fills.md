@@ -61,3 +61,20 @@ are in `build/harness/issue17-fixed-d1` and `build/harness/issue17-fixed-d2`.
 The synthetic failure establishes one way to lose a fill. The screenshots and logs do not identify the texture pack
 match or draw state in the affected frames. Confirmation on the reporter's installation and the cause of its missing
 inventory text remain open.
+
+## Retest with the reporter's v0.1.36 settings
+
+The follow-up confirms that inventory text and subtitles are visible and shows that the health orb is still transparent.
+The newer logs cover Direct3D 11 in both games. During play they show DLSS Quality and ray-traced diffuse lighting.
+The renderer exit counters show zero aliased texture copies. The remaining cause is open.
+[Follow-up screenshots, logs and settings](https://github.com/ChristopherVR/Drakan2PC/issues/17#issuecomment-7069458879)
+
+The local retest used the reported `5028d2c84dfcdae2` Order of the Flame pack and the attached settings at 3440×1440.
+On an RTX 5080, Direct3D 11 rendered the health fill in gameplay and Original inventory in Ruined Village and Surdana.
+A separate Vulkan run at 1920×1080 with the same campaign pack also rendered both fills. The Direct3D 11 underwater
+replay with ray-traced diffuse lighting showed the air gauge draining. Captures are in `build/harness/issue17-ootf-title-pad`,
+`build/harness/issue17-surdana-title`, `build/harness/issue17-vulkan-reporter-pack` and
+`build/harness/issue17-reporter-gi-before`.
+
+The reporter's installed `textures` directory and affected saves were unavailable. A comparison on the same save with
+HD textures and automatic texture upscaling switched off would isolate whether either replacement path is involved.
