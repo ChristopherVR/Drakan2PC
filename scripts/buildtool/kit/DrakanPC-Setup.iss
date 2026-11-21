@@ -328,6 +328,7 @@ begin
   DefaultsPage.Add(CustomMessage('DefaultsBow'));
   DefaultsPage.Add(CustomMessage('DefaultsDual'));
   DefaultsPage.Add(CustomMessage('DefaultsIssue'));
+  DefaultsPage.Add(CustomMessage('DefaultsUpdates'));
   // DrakanPC-Setup.exe /MENUS=modern, /BOW=ootf and /DUAL=1 tick them; the menus default to modern.
   DefaultsPage.Values[0] := CompareText(ExpandConstant('{param:MENUS|modern}'), 'original') <> 0;
   DefaultsPage.Values[1] := CompareText(ExpandConstant('{param:BOW|}'), 'ootf') = 0;
@@ -335,6 +336,9 @@ begin
   DefaultsPage.Values[3] := ExpandConstant('{param:ISSUEREPORTING|}') <> '0';
   if ExpandConstant('{param:ISSUEREPORTING|}') = '' then
     DefaultsPage.Values[3] := GetPreviousData('IssueReporting', '1') <> '0';
+  DefaultsPage.Values[4] := ExpandConstant('{param:CHECKFORUPDATES|}') = '1';
+  if ExpandConstant('{param:CHECKFORUPDATES|}') = '' then
+    DefaultsPage.Values[4] := GetPreviousData('CheckForUpdates', '0') = '1';
 
   OptionsPage := CreateInputOptionPage(DefaultsPage.ID,
     CustomMessage('OptionsTitle'), CustomMessage('OptionsSubtitle'),
@@ -389,6 +393,10 @@ begin
     SetPreviousData(PreviousDataKey, 'IssueReporting', '1')
   else
     SetPreviousData(PreviousDataKey, 'IssueReporting', '0');
+  if DefaultsPage.Values[4] then
+    SetPreviousData(PreviousDataKey, 'CheckForUpdates', '1')
+  else
+    SetPreviousData(PreviousDataKey, 'CheckForUpdates', '0');
   if OptionsPage.Values[3] then
     SetPreviousData(PreviousDataKey, 'VuBlocks', 'Whole')
   else
@@ -649,6 +657,10 @@ begin
     Result := Result + ' -IssueReporting on'
   else
     Result := Result + ' -IssueReporting off';
+  if DefaultsPage.Values[4] then
+    Result := Result + ' -CheckForUpdates on'
+  else
+    Result := Result + ' -CheckForUpdates off';
   if HdPage.Values[0] then
     Result := Result + ' -HdTextures on'
   else

@@ -162,7 +162,7 @@ struct UpdateState {
 
     UpdateState() {
         const fs::path folder = playFolder();
-        if (folder.empty() || !drakan_cfg::getBool("general", "check_for_updates", "DRAKAN_CHECK_FOR_UPDATES", true))
+        if (folder.empty() || !drakan_cfg::getBool("general", "check_for_updates", "DRAKAN_CHECK_FOR_UPDATES", false))
             return;
         installed = installedRelease(folder);
         if (!installed)

@@ -171,7 +171,7 @@ struct Updater {
     Install status = Install::Unavailable;
 
     Updater() {
-        if (!drakan_cfg::getBool("general", "check_for_updates", "DRAKAN_CHECK_FOR_UPDATES", true))
+        if (!drakan_cfg::getBool("general", "check_for_updates", "DRAKAN_CHECK_FOR_UPDATES", false))
             return;
         const fs::path play(drakan_cfg::exeDir());
         auto local = readTag(readSmallFile(play / "DrakanPC-release.txt"));

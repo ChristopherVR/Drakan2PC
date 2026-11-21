@@ -1162,9 +1162,10 @@ class PolicyTests(unittest.TestCase):
     def test_the_game_options_page_offers_initial_settings(self):
         text = re.sub(r"'\s*\+\s*\n\s*'", "", ISS.read_text(encoding="utf-8"))
         page = text[text.index("DefaultsPage := ") : text.index("OptionsPage := ")]
-        self.assertEqual(page.count("DefaultsPage.Add("), 4)
-        for key in ("DefaultsMenus", "DefaultsBow", "DefaultsDual", "DefaultsIssue"):
+        self.assertEqual(page.count("DefaultsPage.Add("), 5)
+        for key in ("DefaultsMenus", "DefaultsBow", "DefaultsDual", "DefaultsIssue", "DefaultsUpdates"):
             self.assertIn(f"DefaultsPage.Add(CustomMessage('{key}'))", page)
+        self.assertIn("GetPreviousData('CheckForUpdates', '0') = '1'", page)
         self.assertRegex(ENGLISH_SETUP.read_text(encoding="utf-8"), r"DefaultsDescription=.*F1")
         for needle in (
             "-MenuStyle modern",
@@ -1175,6 +1176,8 @@ class PolicyTests(unittest.TestCase):
             "-DualWield off",
             "-IssueReporting on",
             "-IssueReporting off",
+            "-CheckForUpdates on",
+            "-CheckForUpdates off",
         ):
             self.assertIn(needle, text)
 
@@ -1182,8 +1185,8 @@ class PolicyTests(unittest.TestCase):
         text = BUILD_DRAKAN.read_text(encoding="utf-8")
         for needle in ("[string]$MenuStyle", "[string]$BowCombat", "[string]$DualWield", "'apply_defaults.py'"):
             self.assertIn(needle, text)
-        self.assertIn("if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting)", text)
-        self.assertGreater(text.index("'apply_defaults.py'"), text.index("Invoke-BuildWithRetry (Join-Path"))
+        self.assertIn("if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting -or $CheckForUpdates)", text)
+        self.assertGreater(text.index("$defaultArgs ="), text.index("Invoke-BuildWithRetry (Join-Path"))
         self.assertNotIn(
             "menuStyle", text.split("$saveOptions = {")[1].split("}")[0], "a rebuild must not reapply them"
         )

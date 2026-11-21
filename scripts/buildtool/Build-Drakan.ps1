@@ -45,6 +45,8 @@ param(
     # left click fires with auto-aim) | native (the PS2 bow); -DualWield on | off (experimental).
     [ValidateSet('', 'modern', 'original')][string]$MenuStyle = '',
     [ValidateSet('', 'on', 'off')][string]$IssueReporting = '',
+    # Automatic update checks for this installation. Omission keeps the play folder's preference.
+    [ValidateSet('', 'on', 'off')][string]$CheckForUpdates = '',
     [ValidateSet('', 'ootf', 'native')][string]$BowCombat = '',
     [ValidateSet('', 'on', 'off')][string]$DualWield = '',
     # CPU cores the compilers may use (0 = automatic: half the logical cores, at most 4; never more than -CpuAffinity
@@ -93,7 +95,8 @@ $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
 $languagePreference = if ($Language) { $Language } else { $saved.language }
 Initialize-BuildConsole $languagePreference -Plain:$Plain
 
-function Show-BuilderRelease {
+function Show-BuilderRelease([string]$Python, [string]$PlayFolder) {
+    if ($CheckForUpdates -eq 'off') { return }
     $marker = Join-Path $RepoRoot 'DrakanPC-release.txt'
     if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { return }
     $component = '(?:0|[1-9][0-9]{0,9})'
@@ -101,6 +104,10 @@ function Show-BuilderRelease {
     try { $installed = (Get-Content -LiteralPath $marker -Raw -Encoding ascii).Trim() }
     catch { return }
     if ($installed -cnotmatch $tagPattern) { return }
+    if (-not $CheckForUpdates) {
+        $choice = & $Python (Join-Path $PSScriptRoot 'apply_defaults.py') --play $PlayFolder --read-update-checks
+        if ($choice -ne 'on') { return }
+    }
 
     $releases = 'https://github.com/ChristopherVR/Drakan2PC/releases'
     $tagPrefix = "$releases/tag/"
@@ -220,6 +227,7 @@ function Install-BuildTools {
 }
 Start-Transcript -LiteralPath $sessionLog -Force | Out-Null
 $previousRendering = if ($PSStyle) { $PSStyle.OutputRendering }
+$previousUpdateCheckOverride = $env:DRAKAN_CHECK_FOR_UPDATES
 try {
     if ($PSStyle -and -not (Test-BuildConsoleColor)) { $PSStyle.OutputRendering = 'PlainText' }
     Write-BuildHeading 'Drakan PC | The Ancients'' Gates'
@@ -244,7 +252,6 @@ try {
         }
     }
     if (-not $python) { $problems.Add((Get-BuildText 'python_required')) }
-    if (-not $TransactionalUpdate) { Show-BuilderRelease }
 
     # Node.js 22.18+ or 23.6+ (TypeScript type stripping on by default) makes the multiplayer character motions in the
     # last step: the bundled copy first, then one on PATH. character_motion.py finds it on PATH. No TypeScript flag is
@@ -350,6 +357,11 @@ try {
         }
     }
     Write-BuildValue (Get-BuildText 'play_folder') $playShown
+    if (-not $TransactionalUpdate) { Show-BuilderRelease $python $playShown }
+    if ($CheckForUpdates) {
+        # Apply Setup's choice to any game launched during the build before the final INI is written.
+        $env:DRAKAN_CHECK_FOR_UPDATES = if ($CheckForUpdates -eq 'on') { '1' } else { '0' }
+    }
     if ($playDrive.Name -ne $drive.Name) {
         Write-BuildValue (Get-BuildText 'play_disk') (Get-BuildText 'disk_free' @([Math]::Round($playDrive.AvailableFreeSpace / 1GB, 1), $playDrive.Name))
     }
@@ -629,11 +641,12 @@ try {
             $extraNotes.Add((Get-BuildText 'hd_failed'))
         }
     }
-    if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting) {
+    if ($MenuStyle -or $BowCombat -or $DualWield -or $IssueReporting -or $CheckForUpdates) {
         Write-BuildHeading (Get-BuildText 'applying_settings')
         $defaultArgs = @((Join-Path $PSScriptRoot 'apply_defaults.py'), '--play', $play)
         if ($MenuStyle) { $defaultArgs += @('--menus', $MenuStyle) }
         if ($IssueReporting) { $defaultArgs += @('--issue-reporting', $IssueReporting) }
+        if ($CheckForUpdates) { $defaultArgs += @('--check-for-updates', $CheckForUpdates) }
         if ($BowCombat) { $defaultArgs += @('--bow', $BowCombat) }
         if ($DualWield) { $defaultArgs += @('--dual-wield', $DualWield) }
         & $python @defaultArgs
@@ -662,6 +675,7 @@ try {
     Write-BuildValue (Get-BuildText 'session_log') $sessionLog
     exit 1
 } finally {
+    if ($CheckForUpdates) { $env:DRAKAN_CHECK_FOR_UPDATES = $previousUpdateCheckOverride }
     if ($PSStyle) { $PSStyle.OutputRendering = $previousRendering }
     Stop-Transcript | Out-Null
 }

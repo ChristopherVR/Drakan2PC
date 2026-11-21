@@ -97,12 +97,14 @@ Native Linux saves live in the deployed `mc0` folder, with `mc1` used if present
 
 ## Update the Linux game
 
-When a newer release is available, the modern title screen offers **View changes** and **Download and rebuild**.
+Automatic update checks are off by default. Set `check_for_updates = 1` under `[general]` in the play folder's
+`drakan.ini` to enable them in the game and the native build script. When a newer release is available, the modern
+title screen offers **View changes** and **Download and rebuild**.
 The updater checks the GitHub ZIP against the release checksum and rebuilds from the disc image used for the original
 build. Keep the ISO drive connected and leave room for a temporary build. The first update creates a managed build
 folder, which later updates can reuse. The current game stays available if the rebuild fails. Its saves and settings
 carry over when the replacement is ready. The build log is next to the play folder, at `dist/DrakanPC-linux.update.log`
-with the default layout. Set `check_for_updates = 0` under `[general]` in `drakan.ini` to turn off update checks.
+with the default layout.
 
 To use an existing optional texture pack, supply its location:
 

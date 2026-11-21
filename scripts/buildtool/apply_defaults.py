@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Set the starting values of PC features in a play folder's ini files (the installer's "Game defaults" page).
-
-    apply_defaults.py --play dist/DrakanPC [--menus modern|original] [--bow ootf|native] [--dual-wield on|off] [--issue-reporting on|off]
+"""Set the starting values of PC features in a play folder's ini files (the installer's "Game options" page).
 
 * --menus   drakan.ini `title_menu`: `modern` (the PC main menu over the title art) or `original` (= `native`, the game's own menu).
 * --bow     drakan_input.ini `bow_aim`: `ootf` (Order of the Flame bow combat: left click fires with auto-aim, right click toggles the
             sight) or `native` (the original PS2 bow).
 * --dual-wield  drakan.ini `dual_wield`: `on` / `off` (experimental).
 * --issue-reporting  drakan.ini `show_issue_reporting`: `on` / `off` for the menu shortcut.
+* --check-for-updates  drakan.ini `check_for_updates`: `on` / `off` for automatic release checks.
 
-These are only starting values: every one can be changed in the game's PC settings (F1) or in the ini files afterwards. Only the
-named values are touched; comments, other keys and line endings are kept. Standard library only.
+These values can be changed in the ini files afterwards. Only named values are touched. Comments, other keys and line endings are kept.
 """
 
 from __future__ import annotations
 
 import argparse
+import configparser
+import os
 import re
 import sys
 from pathlib import Path
@@ -23,6 +23,23 @@ from pathlib import Path
 MENUS = {"modern": "modern", "original": "native"}
 BOW = {"ootf": "ootf", "native": "native"}
 ON_OFF = {"on": "1", "off": "0"}
+
+
+def update_checks_enabled(play: Path) -> bool:
+    override = os.environ.get("DRAKAN_CHECK_FOR_UPDATES")
+    if override:
+        return configparser.ConfigParser.BOOLEAN_STATES.get(override.strip().lower(), False)
+    ini = configparser.ConfigParser(
+        interpolation=None, strict=False, delimiters=("=",), inline_comment_prefixes=(";",), default_section=""
+    )
+    try:
+        ini.read(play / "drakan.ini", encoding="utf-8-sig")
+        for section in reversed(ini.sections()):
+            if section.lower() == "general" and ini.has_option(section, "check_for_updates"):
+                return ini.getboolean(section, "check_for_updates")
+    except (configparser.Error, OSError, ValueError):
+        pass
+    return False
 
 
 def set_key(text: str, key: str, value: str) -> tuple[str, str | None]:
@@ -68,13 +85,19 @@ def apply_file(path: Path, key: str, value: str, *, section: str = "") -> str:
     return f"{path.name}: {key} = {value}" + (f" (was {previous})" if previous and previous != value else "")
 
 
-def apply(play: Path, menus: str = "", bow: str = "", dual: str = "", issue_reporting: str = "") -> list[str]:
+def apply(
+    play: Path, menus: str = "", bow: str = "", dual: str = "", issue_reporting: str = "", check_for_updates: str = ""
+) -> list[str]:
     report = []
     if menus:
         report.append(apply_file(play / "drakan.ini", "title_menu", MENUS[menus]))
     if issue_reporting:
         report.append(
             apply_file(play / "drakan.ini", "show_issue_reporting", ON_OFF[issue_reporting], section="general")
+        )
+    if check_for_updates:
+        report.append(
+            apply_file(play / "drakan.ini", "check_for_updates", ON_OFF[check_for_updates], section="general")
         )
     if dual:
         report.append(apply_file(play / "drakan.ini", "dual_wield", ON_OFF[dual]))
@@ -90,11 +113,16 @@ def main(argv=None) -> int:
     parser.add_argument("--bow", choices=sorted(BOW), default="")
     parser.add_argument("--dual-wield", choices=sorted(ON_OFF), default="", dest="dual")
     parser.add_argument("--issue-reporting", choices=sorted(ON_OFF), default="")
+    parser.add_argument("--check-for-updates", choices=sorted(ON_OFF), default="")
+    parser.add_argument("--read-update-checks", action="store_true")
     args = parser.parse_args(argv)
+    if args.read_update_checks:
+        print("on" if update_checks_enabled(args.play) else "off")
+        return 0
     if not args.play.is_dir():
         print(f"Play folder not found: {args.play}", file=sys.stderr)
         return 1
-    for line in apply(args.play, args.menus, args.bow, args.dual, args.issue_reporting):
+    for line in apply(args.play, args.menus, args.bow, args.dual, args.issue_reporting, args.check_for_updates):
         print(line)
     return 0
 

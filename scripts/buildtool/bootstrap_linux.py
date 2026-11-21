@@ -14,6 +14,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+from apply_defaults import update_checks_enabled
 from drakan_update_linux import builder_release_status
 
 HERE = Path(__file__).resolve().parent
@@ -201,7 +202,13 @@ def main():
         parser.error("The ISO must be a file")
     if args.installed_release and (args.web or not args.play_dir):
         parser.error("An automatic update needs the existing native play folder.")
-    if not args.installed_release and (status := builder_release_status(ROOT)):
+    play = args.play_dir or ROOT / "dist/DrakanPC-linux"
+    if (
+        not args.installed_release
+        and not args.web
+        and update_checks_enabled(play)
+        and (status := builder_release_status(ROOT))
+    ):
         messages = json.loads((HERE / "build-messages.json").read_text(encoding="utf-8"))
         message = messages[f"builder_release_{status['state']}"]["en"]
         label = messages["builder_release"]["en"]

@@ -49,6 +49,7 @@ DefaultsMenus=Moderne PC-Menüs verwenden. Ohne Häkchen bleiben die PS2-Menüs.
 DefaultsBow=Bogensteuerung aus Order of the Flame: Linksklick schießt, Rechtsklick zielt.
 DefaultsDual=Kampf mit zwei Waffen aktivieren (experimentell).
 DefaultsIssue=„Problem melden“ in den Spielmenüs anzeigen.
+DefaultsUpdates=Automatisch nach Updates für Drakan PC suchen.
 OptionsTitle=Weitere Optionen
 OptionsSubtitle=Browser-Version, Priorität und VU1-Kompilierung.
 OptionsDescription=Die Browser-Version benötigt WSL mit Ubuntu (wsl --install -d Ubuntu). Der Browser liest Spielordner und ISO lokal. VU1 wird standardmäßig in Teilen von ca. 2 GB pro Compiler erstellt. Ganze Blöcke brauchen bis zu 17 GB und ändern die Spielleistung nicht.
