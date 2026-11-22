@@ -91,3 +91,20 @@ transitions and passes on Direct3D 11 and Vulkan. The rebuilt Windows game showe
 inventory on both renderers using the reported campaign pack. The Direct3D 11 run used the reported ultrawide settings
 with DLSS Quality and also showed the air gauge draining underwater. Captures are under
 `build/harness/issue17-readback-fill-{live,vulkan}`.
+
+## Reproduce the empty gauges with the uploaded HUD mask
+
+The guest uploads `INTERFCE.TXD` entry 128 as a 128×128 texture. The draw trace shows the health fill sampling
+the white mask in its bottom half and tinting it red. The frame comes from a separate indexed texture.
+[HUD atlas and draw trace](../2026-10-18/hud-orb-edge.md)
+
+I gave the renderer an exact-match HD image named `0aca2ff6ae460ac2.png` with its alpha cleared. With the readback
+fix already present, Direct3D 11 accepted the image and drew empty health and air gauges in Ruined Village. The
+Original inventory kept its text and frame, and the health fill was transparent there too. The renderer reported
+zero aliased texture copies in that run, matching the reporter's counter.
+
+The shared texture cache now uses the original pixels for this mask across both renderers. Replaying with the same
+replacement showed the red health fill in gameplay and Original inventory, and the blue air fill shrank over the
+course of the dive on Direct3D 11 and Vulkan. Direct3D 11 also showed the health and mana fills in Surdana.
+All nine selected renderer and UI tests passed. The replay logs and captures are in `build/harness/issue17-mask-before`
+and `build/harness/issue17-mask-after-*`. The reporter's installed texture pack still needs a retest.

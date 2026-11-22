@@ -148,6 +148,9 @@ Options: `--iso`, `--work` (default build\hdpack), `--out`, `--exe`, `--scale` (
   renderer can prove that the texture's overlapping blocks match local memory, the atlas can use authored HD art.
   When the target holds newer pixels, the texture uses those pixels. This preserves effects such as the HUD liquid
   even when the older upload matches a pack image.
+* The HUD gauge mask (`INTERFCE.TXD` entry 128, `0aca2ff6ae460ac2`) always uses native pixels. The game tints and
+  clips its samples to draw health, mana and air. A replacement can make those fills transparent. The separate gauge
+  frames can still use HD textures.
 * `texup::looksUninitialized`: textures whose rows are mostly random memory stay native in the live upscale path.
   The intro's 64x64 CT24 sky ramp is point sampled in two written bands, and the 8x smooth filter blended the
   garbage rows into them as rainbow stripes (`docs/journal/2026-10-24/inventory-sky-textures.md`). Rows count as random

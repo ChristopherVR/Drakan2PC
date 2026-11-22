@@ -372,6 +372,11 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
     const bool wantDumpReplace = texDump || (texReplace && !replIndex.empty());
     const uint32_t factor = pickFactor(W, H, ui);
     const uint64_t hash = decodedHash ? *decodedHash : texup::hashContent(base.data(), W, H);
+    // INTERFCE.TXD entry 128 supplies the masks that the guest tints and clips for the HUD gauges.
+    // Both the mask color and its alpha contribute to the gauge fill.
+    constexpr uint64_t kHudGaugeAtlasHash = 0x0aca2ff6ae460ac2ull;
+    if (hash == kHudGaugeAtlasHash)
+        return;
     e.menuArtwork = hud::menuArtwork(hash);
     auto generated = runtimeTexture(hash);
     const auto preview = W == 128 && H == 128 ? savePreview(hash) : SavePreview{};
