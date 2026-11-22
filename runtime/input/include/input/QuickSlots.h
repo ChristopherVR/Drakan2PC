@@ -40,6 +40,7 @@ inline constexpr uint32_t kMoveBlocked = 0x8000;
 // controller ctl
 inline constexpr uint32_t kBusy = 0x0;
 inline constexpr uint32_t kBarShown = 0x10;
+inline constexpr uint32_t kSelectedCell = 0x20;
 inline constexpr uint32_t kSlots = 0x30;
 inline constexpr uint32_t kSlotStride = 0x10;
 inline constexpr uint32_t kList = 0x214;
@@ -68,6 +69,8 @@ std::vector<int> quickSlotOrder(const bool (&hot)[quickslot::kGridCells]);
 
 // The bar's live list (cells in bar order); empty when the controller is not valid.
 std::vector<int> nativeQuickList(IGuest& g, uint32_t ctl);
+bool quickSlotIsWeapon(IGuest& g, uint32_t ctl, int cell);
+int equippedQuickWeapon(IGuest& g, uint32_t ctl);
 // The player data object (ctx+0x4b0 -> +0xfc -> +0x10), 0 when there is none.
 uint32_t quickSlotPlayer(IGuest& g);
 // Pad button (scePad mask, active high) that the live controller scheme binds to `command`, 0 when none.
@@ -102,6 +105,26 @@ private:
     int frames_ = 0, slot_ = 0, cell_ = -1, retries_ = 0;
     uint32_t ctl_ = 0, item_ = 0;
     uint16_t openMask_ = 0, confirmMask_ = 0;
+};
+
+class QuickInventoryGesture {
+public:
+    struct Sample {
+        uint16_t suppress = 0;
+        uint16_t weaponTap = 0;
+        bool holdStarted = false;
+        bool holdReleased = false;
+    };
+
+    // A zero binding leaves the sample unchanged but still observes held buttons across menus and focus changes.
+    Sample update(uint16_t buttons, uint16_t binding, float seconds, bool canStart = true);
+
+private:
+    static constexpr float kHoldSeconds = 0.25f;
+    uint16_t previousButtons_ = 0;
+    uint16_t pending_ = 0;
+    float elapsed_ = 0.0f;
+    bool held_ = false;
 };
 
 } // namespace drakan_input

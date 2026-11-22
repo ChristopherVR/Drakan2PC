@@ -317,6 +317,47 @@ int main() {
         game.run(d, 2, 30, &log);
         check(game.equipped(8) && game.opens == 0 && game.confirms == 1, "a shown bar is confirmed at the slot");
     }
+    {
+        Game game({0, 8, 3});
+        game.g.write32(Game::ctl + q::kBarShown, 1);
+        QuickSlotDriver d;
+        game.run(d, 2, 2, nullptr);
+        game.g.write32(Game::ctl + q::kListIndex, 2);
+        game.run(d, 0, 10, nullptr);
+        check(game.confirms == 0, "changing the selection before the confirm never uses the other item");
+    }
+    {
+        Game game({0, 8}, 8);
+        game.g.write32(Game::ctl + q::kSelectedCell, 0);
+        game.g.write32(game.rec(8) + q::kEquipped, 1);
+        check(equippedQuickWeapon(game.g, Game::ctl) == 8, "weapon tap finds the weapon when a consumable is selected");
+        game.g.write32(game.rec(8) + q::kEquipped, 0);
+        check(equippedQuickWeapon(game.g, Game::ctl) == -1, "with no weapon drawn the game can choose one to draw");
+    }
+    {
+        QuickInventoryGesture gesture;
+        constexpr uint16_t button = Game::kR1;
+        auto press = gesture.update(button, button, 0.01f);
+        auto release = gesture.update(0, button, 0.10f);
+        check(press.suppress == button && !press.weaponTap, "a controller press waits before opening the bar");
+        check(!release.suppress && release.weaponTap == button, "a short tap uses the native weapon action once");
+        check(!gesture.update(0, button, 0.01f).weaponTap, "the tap pulse ends after one sample");
+
+        gesture.update(button, button, 0.01f);
+        auto hold = gesture.update(button, button, 0.30f);
+        release = gesture.update(0, button, 0.01f, false); // the bar has opened
+        check(hold.holdStarted && !hold.suppress && !hold.weaponTap, "a hold passes the normal button to the game");
+        check(release.holdReleased && !release.weaponTap, "releasing after a hold can commit a weapon choice");
+        check(!gesture.update(button, button, 0.01f, false).suppress,
+              "a press with the bar open keeps normal navigation");
+        gesture.update(0, button, 0.01f);
+
+        gesture.update(button, button, 0.01f);
+        gesture.update(button, 0, 0.01f); // a menu or another input owner took over
+        check(!gesture.update(0, button, 0.01f).weaponTap, "losing gameplay cancels the pending tap");
+        gesture.update(button, button, 0.01f);
+        check(!gesture.update(0, Game::kSquare, 0.01f).weaponTap, "changing scheme cancels the old button's tap");
+    }
     std::printf("quick_slots_test: %u checks passed\n", checks);
     return 0;
 }

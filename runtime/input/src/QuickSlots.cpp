@@ -1,4 +1,5 @@
 #include "input/QuickSlots.h"
+#include "input/FrameInput.h"
 #include <cstdio>
 
 namespace drakan_input {
@@ -41,6 +42,28 @@ std::vector<int> nativeQuickList(IGuest& g, uint32_t ctl) {
         out.push_back(cell < uint32_t(q::kGridCells) ? int(cell) : -1);
     }
     return out;
+}
+
+bool quickSlotIsWeapon(IGuest& g, uint32_t ctl, int cell) {
+    if (cell < 0 || cell >= q::kGridCells)
+        return false;
+    const uint32_t item = g.read32(ctl + q::kSlots + uint32_t(cell) * q::kSlotStride + q::kItem);
+    return ram(item) && g.read32(item + q::kItemType) == q::kTypeWeapon;
+}
+
+int equippedQuickWeapon(IGuest& g, uint32_t ctl) {
+    const int selected = int(g.read32(ctl + q::kSelectedCell));
+    const auto equipped = [&](int cell) {
+        return cell >= 0 && cell < q::kGridCells &&
+               g.read32(ctl + q::kSlots + uint32_t(cell) * q::kSlotStride + q::kEquipped) &&
+               quickSlotIsWeapon(g, ctl, cell);
+    };
+    if (equipped(selected))
+        return selected;
+    for (int cell = 0; cell < q::kGridCells; ++cell)
+        if (equipped(cell))
+            return cell;
+    return -1;
 }
 
 uint32_t quickSlotPlayer(IGuest& g) {
@@ -223,17 +246,26 @@ void QuickSlotDriver::tick(IGuest& g, int slot, bool allowed, uint32_t padMgr, s
                 }
             }
             break;
-        case Phase::Confirm:
-            // Checked until the press starts (the press itself closes the bar).
-            if (frames_ < kReleaseFrames &&
-                (!g.read32(ctl + q::kBarShown) || (g.read32(player + q::kMoveFlags) & q::kMoveBlocked))) {
-                say(log, "slot %d: the bar closed before the confirm", slot_);
-                reset();
-                break;
+        case Phase::Confirm: {
+            // The press itself closes the bar. Until then, confirm only the item that started this request.
+            if (frames_ <= kReleaseFrames) {
+                const uint32_t rec = ctl + q::kSlots + uint32_t(cell_) * q::kSlotStride;
+                const auto list = nativeQuickList(g, ctl);
+                if (!g.read32(ctl + q::kBarShown) || (g.read32(player + q::kMoveFlags) & q::kMoveBlocked) ||
+                    g.read32(ctl + q::kListIndex) != uint32_t(slot_ - 1) || slot_ > int(list.size()) ||
+                    list[size_t(slot_ - 1)] != cell_ || g.read32(rec + q::kItem) != item_) {
+                    say(log, "slot %d: selection changed before the confirm", slot_);
+                    reset();
+                    break;
+                }
             }
-            if (press(confirmMask_))
+            if (press(confirmMask_)) {
                 phase_ = Phase::WaitClose;
+            } else {
+                overlay_.up |= Pad::LEFT | Pad::RIGHT | openMask_;
+            }
             break;
+        }
         case Phase::WaitClose:
             overlay_ = {};
             if (!g.read32(ctl + q::kBarShown)) {
@@ -246,6 +278,34 @@ void QuickSlotDriver::tick(IGuest& g, int slot, bool allowed, uint32_t padMgr, s
             }
             break;
     }
+}
+
+QuickInventoryGesture::Sample QuickInventoryGesture::update(uint16_t buttons, uint16_t binding, float seconds,
+                                                            bool canStart) {
+    const uint16_t pressed = buttons & ~previousButtons_;
+    previousButtons_ = buttons;
+    if (pending_ != binding)
+        pending_ = 0;
+    if (canStart && (pressed & binding)) {
+        pending_ = binding;
+        elapsed_ = 0.0f;
+        held_ = false;
+        return {binding, 0};
+    }
+    if (!pending_)
+        return {};
+    if (!(buttons & binding)) {
+        pending_ = 0;
+        return held_ ? Sample{0, 0, false, true} : Sample{0, binding};
+    }
+    if (held_)
+        return {};
+    elapsed_ += seconds;
+    if (elapsed_ >= kHoldSeconds) {
+        held_ = true;
+        return {0, 0, true, false};
+    }
+    return {binding, 0};
 }
 
 } // namespace drakan_input

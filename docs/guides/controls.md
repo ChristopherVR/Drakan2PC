@@ -30,6 +30,8 @@ Default PC bindings. Rebind anything under **F1 → Key Bindings**. Linux and br
 
 The keys are bound to PS2 pad buttons, so their meaning follows the game's own controller scheme (**Options > Controls**, schemes A, B and C) and changes while Rynn rides Arokh. The table is scheme A on foot. On Arokh in scheme A, **E** steps to the previous breath / item and **Q** attacks; schemes B and C move most actions to other buttons (in C, for example, E jumps and Q attacks). **F1 → Controls** names every key for the scheme the game is running, with the Arokh meaning next to it, and the controller view lists both layouts.
 
+On the Windows PAL build, tap the controller's **Quick Inventory** button on foot to draw or sheathe your weapon. Hold the button to browse quick-slotted items. To switch weapons, hold it while selecting a different weapon with the D-pad, then release it. Use the normal confirm button to use a consumable.
+
 Quickload discards unsaved progress without asking and uses its own slot, not your newest manual save. See [Saves & updates](saves.md).
 
 ## Mouse capture and menus

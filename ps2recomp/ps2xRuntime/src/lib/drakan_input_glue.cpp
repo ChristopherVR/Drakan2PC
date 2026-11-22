@@ -246,6 +246,11 @@ bool g_skipMemcard = true;
 bool g_wasMenu = true;
 QuickInventoryBridge g_quickInventory;
 QuickSlotDriver g_quickSlots; // QUICK1..QUICK9 keys through the native Quick Inventory bar (input/QuickSlots.h)
+QuickInventoryGesture g_quickInventoryGesture;
+QuickInventoryGesture::Sample g_quickInventorySample;
+PS2Runtime::RecompiledFunction g_origQuickInventoryHasItems = nullptr;
+uint32_t g_heldQuickInventoryCtl = 0, g_heldQuickInventoryIndex = 0;
+bool g_quickWeaponSelected = false;
 double nowS() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - g_t0).count();
 }
@@ -487,6 +492,24 @@ void hookPadSetActDirect(uint8_t*, R5900Context* c, PS2Runtime*) {
     ret(c, 1);
 }
 
+void hookQuickInventoryHasItems(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (g_quickInventorySample.weaponTap && getRegU32(c, 31) == 0x23cb64u) {
+        if (!g_quickWeaponSelected) {
+            g_quickWeaponSelected = true;
+            RecompGuest g(rdram, c, rt);
+            const uint32_t ctl = getRegU32(c, 4);
+            const int cell = equippedQuickWeapon(g, ctl);
+            if (cell >= 0 && uint32_t(cell) != g.read32(ctl + quickslot::kSelectedCell))
+                tabInvokeSelector(rdram, c, rt, ctl, cell);
+        }
+        // Take the native empty-bar branch. It finds or toggles a weapon through normal item-use checks.
+        g_quickInventorySample.weaponTap = 0;
+        ret(c, 0);
+        return;
+    }
+    g_origQuickInventoryHasItems(rdram, c, rt);
+}
+
 void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t port = getRegU32(c, 4), slot = getRegU32(c, 5), buf = getRegU32(c, 6);
     uint8_t s[32];
@@ -514,6 +537,10 @@ void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const auto& input = module();
         const uint16_t bits =
             g_quickInventory.buttons(guest, !input.menuActive() && input.frame().focused && !input.suspended());
+        s[2] |= static_cast<uint8_t>(g_quickInventorySample.suppress >> 8);
+        s[3] |= static_cast<uint8_t>(g_quickInventorySample.suppress);
+        s[2] &= static_cast<uint8_t>(~(g_quickInventorySample.weaponTap >> 8));
+        s[3] &= static_cast<uint8_t>(~g_quickInventorySample.weaponTap);
         s[2] &= static_cast<uint8_t>(~(bits >> 8));
         s[3] &= static_cast<uint8_t>(~bits);
         // Quick-slot keys: the scheme's Quick Inventory / Attack buttons, first released then pressed (active low).
@@ -630,6 +657,29 @@ void quickSlotsTick(RecompGuest& g, int scr, bool gameplay) {
 #endif
     const bool allowed = gameplay && scr < 0 && !m.suspended() && f.focused && !g_dragon.load() && !invHostView() &&
                          g_invViewRequest == drakan_views::View::None;
+    if (g_origQuickInventoryHasItems) {
+        namespace q = quickslot;
+        const bool canUsePad = allowed && !slot && m.config().gamepadEnabled && f.gamepad.connected &&
+                               g_quickSlots.phase() == QuickSlotDriver::Phase::Idle;
+        const uint32_t player = canUsePad ? quickSlotPlayer(g) : 0;
+        const uint32_t ctl = player ? player + q::kController : 0;
+        const uint16_t binding = ctl ? nativePadButton(g, m.config().addrPadMgr, q::kCmdQuickInventory) : 0;
+        const bool barShown = ctl && g.read32(ctl + q::kBarShown);
+        const bool canStart = ctl && !barShown && (g.read32(ctl + q::kListCount) || g.read32(ctl + q::kListDirty));
+        g_quickInventorySample = g_quickInventoryGesture.update(f.gamepad.buttons, binding, f.frameSeconds, canStart);
+        g_quickWeaponSelected = false;
+        if (g_quickInventorySample.holdStarted) {
+            g_heldQuickInventoryCtl = ctl;
+            g_heldQuickInventoryIndex = g.read32(ctl + q::kListIndex);
+        }
+        if (g_quickInventorySample.holdReleased && barShown && ctl == g_heldQuickInventoryCtl) {
+            const auto items = nativeQuickList(g, ctl);
+            const uint32_t index = g.read32(ctl + q::kListIndex);
+            const uint32_t start = g_heldQuickInventoryIndex < items.size() ? g_heldQuickInventoryIndex : 0;
+            if (index != start && index < items.size() && quickSlotIsWeapon(g, ctl, items[index]))
+                slot = int(index) + 1;
+        }
+    }
     std::string log;
     g_quickSlots.tick(g, slot, allowed, m.config().addrPadMgr, &log);
     if (slot && !allowed)
@@ -1573,6 +1623,9 @@ void drakanInstallInput(PS2Runtime& rt) {
             rt.replaceFunction(0x32cf30u, &hookBowShotMotion);
         if (!(skip & 64))
             installBowSightControls(rt);
+        g_origQuickInventoryHasItems = rt.lookupFunction(0x341388u);
+        if (g_origQuickInventoryHasItems)
+            rt.replaceFunction(0x341388u, &hookQuickInventoryHasItems);
     }
     if (g_origBowLaunch && !(skip & 64)) // 64: no modern bow aim hook
         rt.replaceFunction(kBowLaunch, &hookBowLaunch);
