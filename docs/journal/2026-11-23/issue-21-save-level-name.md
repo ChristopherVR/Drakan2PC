@@ -1,0 +1,42 @@
+# Issue #21: overlapping level-name copies during restore
+
+Issue: <https://github.com/ChristopherVR/Drakan2PC/issues/21>.
+
+The Linux PAL report has a missing indirect call target at `0x2bf37c` during save restore. Before that failure,
+the texture-budget log names the level `Litor's Lairnquisitor's Lair`, rather than Inquisitor's Lair. The corruption
+is significant: a normal level transition succeeds, while loading the saved level fails. A missing-target guard
+would conceal the earlier failure rather than repair it.
+
+An uncommitted fix to the guest `strcpy` stub was present at the beginning of this implementation. It replaces
+the host `strcpy` with a bounded NUL scan and `memmove`, including the terminator. Retained that fix and documented
+why the length must be measured before copying: overlapping writes can change the source. The guest's path
+handling can copy within a buffer, whereas host `strcpy` makes overlap undefined. The PAL configuration maps
+`0x4cecf8` to this stub, and inspection of the private generated level loader confirms calls to it.
+
+Added `guest_strcpy` to the runtime policy tests. CMake extracts the current production function and reconfigures
+when LibC.cpp changes, so the test does not duplicate the implementation. The fixture supplies only register,
+pointer-resolution and write-trace doubles. It does not exercise full guest address aliasing or game loading.
+It sweeps 32 destination alignments and prefix lengths 0 through 32 for a synthetic level name, checks untouched
+bytes outside the write, the destination return register and the complete write receipt. Separate cases cover
+non-overlapping copies, empty strings, exact-fit source/destination boundaries, invalid addresses, unterminated
+input and insufficient destination space, with host canaries beyond the guest window.
+
+Validation:
+
+- Compiled and ran the test with MSVC x64 in optimized C++20 mode against the corrected production function: pass.
+- Recompiled the same test against HEAD's original stub: fails the write-receipt assertion during the overlap
+  sweep. Restored the generated fixture to the corrected implementation afterward.
+- All six `test_runtime_compile_set.py` policy checks pass. Repository source audit reports no prohibited tracked
+  files; the regression source passes clang-format and the patch passes `git diff --check`.
+- Full incremental build attempted through `Build-LocalGame.ps1`, using the existing `build/final-game` directory.
+  MSBuild fails while querying the Windows SDK registry (`MSB4184`, requested registry access is not allowed).
+  The runtime-tests CMake preset hits the same restriction in its dependency subbuild.
+- Downloading the issue attachment fails with DNS unavailable in this execution environment. The reporter's
+  exact save has therefore not been replayed, and the null callback's disappearance has not been verified.
+
+Existing private `issue21-*baseline*` harness outputs cannot count as successful restore evidence: inspection
+shows runs that reach a menu or start a new level without actually restoring a valid manual slot. A clean script
+exit alone is insufficient. A follow-up on a build-capable host should load the reporter's unmodified card via
+Continue and Load Game, verify the intact level name and gameplay, then save and reload within the session.
+
+No save payload, disc data or generated game code is added to the repository.

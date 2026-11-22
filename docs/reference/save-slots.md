@@ -1,5 +1,16 @@
 # Save pages (16 slots), title "Quit", text-bound menu hit areas
 
+## Overlapping level-name copies (issue #21)
+
+The guest `strcpy` stub bounds its source scan and destination to their contiguous guest-memory windows, measures
+the string before copying, then uses `memmove` including the terminator. Guest path handling can copy a substring
+within the same buffer; forwarding that to host `strcpy` has undefined behavior and can corrupt a restored level
+name, especially with a different host C library. This addresses the corrupted Inquisitor's Lair name reported in
+issue #21 without suppressing missing guest callback failures or changing saved data. `guest_strcpy` compiles the
+production stub with a small guest-memory fixture and checks overlapping names, return values, write receipts and
+memory boundaries. Exact reporter-save verification remains outstanding; see
+[investigation notes](../journal/2026-11-23/issue-21-save-level-name.md).
+
 ## Quick save / quick load (2026-10-25)
 
 `F5 = QUICKSAVE` and `F8 = QUICKLOAD` in `drakan_input.ini [bindings]` provide one-press save/load during

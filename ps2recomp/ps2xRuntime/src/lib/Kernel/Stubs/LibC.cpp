@@ -262,8 +262,16 @@ void strcpy(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     const char* hostSrc = reinterpret_cast<const char*>(getConstMemPtr(rdram, srcAddr));
 
     if (hostDest && hostSrc) {
-        ::strcpy(hostDest, hostSrc);
-        ps2TraceGuestRangeWrite(rdram, destAddr, static_cast<uint32_t>(::strlen(hostSrc) + 1u), "strcpy", ctx);
+        const size_t limit = std::min(guestContiguousBytes(srcAddr), guestContiguousBytes(destAddr));
+        const auto* end = static_cast<const char*>(std::memchr(hostSrc, '\0', limit));
+        if (end) {
+            const auto size = static_cast<uint32_t>(end - hostSrc + 1);
+            // Guest path handling copies substrings within the same buffer. Host strcpy has undefined
+            // behavior for overlap (and can corrupt level names during save restore on Linux).
+            // Measure before moving: the source may be overwritten by the copy.
+            std::memmove(hostDest, hostSrc, size);
+            ps2TraceGuestRangeWrite(rdram, destAddr, size, "strcpy", ctx);
+        }
     } else {
         std::cerr << "strcpy error: Invalid address provided."
                   << " Dest: 0x" << std::hex << destAddr << " (host ptr valid: " << (hostDest != nullptr) << ")"
