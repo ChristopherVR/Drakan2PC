@@ -262,6 +262,11 @@ class BuilderKitTests(unittest.TestCase):
         runtime = (ROOT / "ps2recomp/ps2xRuntime/CMakeLists.txt").read_text(encoding="utf-8")
         self.assertIn(f"URL_HASH SHA256={lock['ffmpeg']['sha256']}", runtime)
 
+    def test_builder_payload_includes_both_bundled_subtitle_tracks(self):
+        paths = [f"scripts/buildtool/kit/subtitles/{language}.json" for language in ("english", "german")]
+        entries = kit.select(((path, (ROOT / path).read_bytes()) for path in paths), kit.load_guard())
+        self.assertEqual(set(entries), set(paths))
+
     def test_workflows_that_package_the_kit_check_out_submodules(self):
         # The kit packs submodule sources; a checkout without them fails the release (run 42180772185).
         workflows = sorted((ROOT / ".github/workflows").glob("*.yml"))

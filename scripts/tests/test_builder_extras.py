@@ -768,6 +768,20 @@ class ConverterTests(unittest.TestCase):
         self.run_convert(runs, generate_subtitles=True)
         self.assertIn(str(self.generated), runs[-1][0])
 
+    def test_adding_editing_or_removing_a_bundled_language_rebuilds_the_pack(self):
+        runs = []
+        self.run_convert(runs)
+        track = self.root / "scripts/buildtool/kit/subtitles/german.json"
+        track.write_text("bundled first")
+        self.run_convert(runs)
+        self.run_convert(runs)
+        track.write_text("bundled edited")
+        self.run_convert(runs)
+        track.unlink()
+        self.run_convert(runs)
+        self.assertEqual(len(runs), 4)
+        self.assertTrue(all("--subtitles" not in run[0] for run in runs))
+
     def test_a_failed_generation_keeps_the_existing_captioned_pack(self):
         self.run_convert([])
         out = self.work / "mods/ootf-levels.zip"

@@ -17,8 +17,10 @@ import sys
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPTION_FILE = "scripts/buildtool/kit/subtitles/english.json"
-CAPTION_SHA256 = "07beac08ed2120bae6795e32818ab64401c5d927f2f70216126d5115e1f64424"
+CAPTION_HASHES = {
+    "scripts/buildtool/kit/subtitles/english.json": "07beac08ed2120bae6795e32818ab64401c5d927f2f70216126d5115e1f64424",
+    "scripts/buildtool/kit/subtitles/german.json": "6f2f65bfd650f1e9e755cf2eb2863574fb8304514f50414f77659eef48b015f7",
+}
 SOURCE_ROOTS = {
     ".github",
     ".githooks",
@@ -180,7 +182,8 @@ def reason(name: str, content: bytes | None = None) -> str | None:
     if not parts or p.is_absolute() or ".." in parts:
         return "unsafe path"
     if name.startswith("scripts/buildtool/kit/subtitles/"):
-        if name != CAPTION_FILE or (content is not None and hashlib.sha256(content).hexdigest() != CAPTION_SHA256):
+        pinned = CAPTION_HASHES.get(name)
+        if pinned is None or (content is not None and hashlib.sha256(content).hexdigest() != pinned):
             return "unapproved bundled subtitle file or contents"
     if name in ALLOWED_BINARIES:
         if content is not None and hashlib.sha256(content).hexdigest() != ALLOWED_BINARIES[name]:

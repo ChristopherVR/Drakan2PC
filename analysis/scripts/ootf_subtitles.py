@@ -9,7 +9,7 @@ converter reads it with `ootf-convert.ts --subtitles <file>` and stores the text
 
     pip install faster-whisper numpy      (in a venv; the first run downloads the model, about 0.5 GB for small.en)
 
-Write generated transcripts under build/ or local/. The builder kit includes one approved English transcript.
+Write generated transcripts under build/ or local/. The builder kit includes English and German transcripts.
 Review it before a release build: names are spelled by ear. The file is plain JSON and can be corrected by hand; a line
 whose cues are emptied gets no subtitle.
 

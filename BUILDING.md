@@ -242,12 +242,12 @@ interactive run and remembers the answer and the HD generation choice in `build/
   `--cover`, so the pack ships `previews/campaign-ootf.png` and `background-ootf.png`. A rebuild converts again only when the source, the ISO, the cover, the converter
   code (`KIT-VERSION.txt` or the Git revision) or the need for HD sources changed (`build/ootf/convert-state.json`). A
   failed conversion is reported and the game build goes on without it.
-* **Order of the Flame scene subtitles.** Setup and the editor include English captions for 295 clips (510 timed
-  pages). The converter selects them for an English PC install. Enable **Show Subtitles** in the game.
-  To transcribe your own recordings, select **Generate subtitles from my own recordings** in setup, or pass
+* **Order of the Flame scene subtitles.** Setup and the editor include English and German captions. The converter
+  selects the track that matches the Order of the Flame install. Enable **Show Subtitles** in the game.
+  To transcribe your own recordings, select **Generate subtitles from my recordings** in setup, or pass
   `-OotfSubtitles generate` to the guided builder. The first run downloads about 145 MiB for whisper.cpp and its
   multilingual model. The recordings stay on your computer. Rebuilds reuse the generated file in `build/ootf/subtitles`.
-  Select **Use included English subtitles or my supplied transcript** or pass `-OotfSubtitles bundled` to switch back.
+  Select **Use matching bundled subtitles or my transcript** or pass `-OotfSubtitles bundled` to switch back.
   In that mode both the guided builder and the editor prefer a supplied `ootf-subtitles.json` in the chosen install folder.
   For a disc folder put it at the folder root. For an image or archive put it beside the file with
   `.subtitles.json` appended to its complete name, e.g. `Drakan.iso.subtitles.json`. Adding, editing or removing

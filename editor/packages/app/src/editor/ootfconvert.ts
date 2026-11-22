@@ -18,6 +18,7 @@ import {
     parseLevelHeader,
     pcLevelName,
     type PcFileSource,
+    type OotfLanguage,
     type Ps2ModelSwapOptions,
     type LevelMapOverride,
     type Ps2TextureSwapOptions,
@@ -38,6 +39,14 @@ const AUTHORED_IMAGES = import.meta.glob<string>('../../../../../scripts/buildto
     query: '?url',
     import: 'default',
 });
+
+const BUNDLED_SUBTITLES = import.meta.glob('../../../../../scripts/buildtool/kit/subtitles/*.json', {
+    import: 'default',
+});
+
+export async function loadBundledOotfSubtitles(language: OotfLanguage): Promise<unknown> {
+    return BUNDLED_SUBTITLES[`../../../../../scripts/buildtool/kit/subtitles/${language}.json`]?.();
+}
 
 async function authoredModels(): Promise<AuthoredModel[]> {
     const all = await Promise.all(Object.values(AUTHORED_FILES).map((load) => load()));
@@ -148,7 +157,7 @@ export async function runConversion(
         { ...context, readPs2Txd: readDisc },
         {
             ...OOTF_DIALOG_OPTIONS,
-            subtitles: await ootfSubtitleTable(src, undefined, progress),
+            subtitles: await ootfSubtitleTable(src, { loadBundled: loadBundledOotfSubtitles, log: progress }),
             ps2Textures: req.ps2Textures,
             ps2Models: req.ps2Models,
             authoredModels: await authoredModels(),

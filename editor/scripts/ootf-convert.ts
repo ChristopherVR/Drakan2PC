@@ -284,18 +284,24 @@ const readPs2Txd = async (discPath: string): Promise<Uint8Array | null> => {
 const prefix = opt['prefix'] ?? 'OotF - ';
 const only = opt['only'] ? new Set(opt['only'].split(',')) : null; // stage switches: --only textures,models,...
 // --subtitles <json>: the subtitle lines of the PC voice clips (analysis/scripts/ootf_subtitles.py makes the file on this
-// machine from the install's own audio; the PC game has no subtitle text). Defaults to ootf-subtitles.json in the install.
+// machine from the install's own audio; the PC game has no subtitle text). Defaults to ootf-subtitles.json in the install
+// or the matching bundled language.
 // Several files separated by `;`: a later file's lines replace an earlier one's, so a hand-corrected file (the player's or a pack
 // author's) listed last wins over a fresh transcription.
 // Only dialogue and narration are subtitled: a line whose clip a class or an object plays by itself (an idle mumble, a pain or
 // attack list, a waypoint's sound) is a bark and gets no text, unless a file gives the line a kind (`kind` in the line).
 const subtitleArg = opt['subtitles'];
 const subtitlePaths = subtitleArg && (existsSync(subtitleArg) ? [subtitleArg] : subtitleArg.split(';').filter(Boolean));
-const subtitles = await ootfSubtitleTable(
-    src,
-    subtitlePaths ? subtitlePaths.map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8')))) : undefined,
-    console.warn,
-);
+const subtitles = await ootfSubtitleTable(src, {
+    explicit: subtitlePaths
+        ? subtitlePaths.map((f) => parseSubtitleFile(JSON.parse(readFileSync(f, 'utf8'))))
+        : undefined,
+    loadBundled: async (language) => {
+        const path = new URL(`../../scripts/buildtool/kit/subtitles/${language}.json`, import.meta.url);
+        return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
+    },
+    log: console.warn,
+});
 // Saves across rebuilds (docs/reference/modding.md "Saves and pack builds"): the previous build of the pack (--previous <zip>,
 // default the --out file when it exists; --previous none = start afresh) hands its class ids on, so classes the conversion
 // adds do not renumber the others, and the new pack keeps its `build` while nothing a save names changed.

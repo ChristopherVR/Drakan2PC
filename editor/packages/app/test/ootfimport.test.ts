@@ -8,7 +8,7 @@ import {
     ootfTemplateLevels,
     progressText,
 } from '../src/editor/ootfimport.ts';
-import { filesSource } from '../src/editor/ootfconvert.ts';
+import { filesSource, loadBundledOotfSubtitles } from '../src/editor/ootfconvert.ts';
 
 describe('importer progress text', () => {
     it('names the level being converted instead of the converter bookkeeping', () => {
@@ -52,20 +52,35 @@ describe('install language note', () => {
 });
 
 describe('install files for the conversion worker', () => {
-    it('uses the included captions only when the install identifies as English', async () => {
-        for (const [sample, expected] of [
-            ['the and you of to is your with this are for have not from', 295],
-            ['der die das und nicht ist sie mit der die das und', undefined],
-        ] as const) {
-            const data = xorRrcString(new TextEncoder().encode(sample));
-            const rrc = writePs2Srsc([{ type: 0x400, id: 1, sub: 0, data }]);
-            const src = { list: async () => ['Dragon.rrc'], read: async (p: string) => p === 'Dragon.rrc' ? rrc : null };
-            expect((await ootfSubtitleTable(src))?.size).toBe(expected);
-        }
+    const bundled = { loadBundled: loadBundledOotfSubtitles };
+
+    function localizedSource(sample: string) {
+        const data = xorRrcString(new TextEncoder().encode(sample));
+        const rrc = writePs2Srsc([{ type: 0x400, id: 1, sub: 0, data }]);
+        return { list: async () => ['Dragon.rrc'], read: async (p: string) => (p === 'Dragon.rrc' ? rrc : null) };
+    }
+
+    it('loads English captions for an English install', async () => {
+        const src = localizedSource('the and you of to is your with this are for have not from');
+        expect((await ootfSubtitleTable(src, bundled))?.size).toBe(295);
+    });
+
+    it('loads German captions for a German install', async () => {
+        const src = localizedSource('der die das und nicht ist sie mit der die das und');
+        const table = await ootfSubtitleTable(src, bundled);
+        expect(table?.language).toBe('german');
+        expect(table?.size).toBeGreaterThan(0);
+    });
+
+    it('leaves captions empty when there is no matching language track', async () => {
+        const src = localizedSource('les des avec sont dans vous pour une mais nous cette mon');
+        const available = async (language: string) =>
+            language === 'english' ? loadBundledOotfSubtitles(language) : undefined;
+        expect(await ootfSubtitleTable(src, { loadBundled: available })).toBeUndefined();
     });
 
     it('reads scene captions from the selected install, including on a rebuild with edited text', async () => {
-        expect(await ootfSubtitleTable(filesSource([]))).toBeUndefined();
+        expect(await ootfSubtitleTable(filesSource([]), bundled)).toBeUndefined();
         for (const text of ['First line', 'Edited line']) {
             const transcript = {
                 format: 'drakan-subtitles',
@@ -74,7 +89,7 @@ describe('install files for the conversion worker', () => {
                 lines: [{ bank: 'village', id: 2, cues: [{ start: 0, end: 2, text }] }],
             };
             const file = new File([JSON.stringify(transcript)], 'ootf-subtitles.json');
-            const table = await ootfSubtitleTable(filesSource(installFilesOf([file])));
+            const table = await ootfSubtitleTable(filesSource(installFilesOf([file])), bundled);
             expect(table?.clipText('village', 2)).toContain(text);
         }
     });

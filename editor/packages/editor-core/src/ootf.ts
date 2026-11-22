@@ -21,6 +21,7 @@ import {
     readPcTexture,
     SrscReader,
     type BlobBuilder,
+    type OotfLanguage,
     type PcLevel,
     type PcFileSource,
     type SubtitleFile,
@@ -100,23 +101,37 @@ export async function ootfCredits(src: PcFileSource): Promise<{
 }
 
 /** Explicit transcripts take precedence over the install's own file and the matching bundled language. */
-export async function ootfSubtitleTable(src: PcFileSource, explicit?: SubtitleFile[], log?: (s: string) => void) {
+export async function ootfSubtitleTable(
+    src: PcFileSource,
+    {
+        explicit,
+        loadBundled,
+        log,
+    }: {
+        explicit?: SubtitleFile[];
+        loadBundled: (language: OotfLanguage) => Promise<unknown>;
+        log?: (s: string) => void;
+    },
+) {
     if (!explicit) {
         const bytes = await src.read('ootf-subtitles.json');
         if (bytes) {
             explicit = [parseSubtitleFile(JSON.parse(new TextDecoder().decode(bytes)))];
         } else {
-            const { language } = await detectOotfInstallLanguage(src);
-            if (language.language !== 'english') {
+            const detected = await detectOotfInstallLanguage(src);
+            const { language } = detected.language;
+            const bundled = language === 'unknown' ? undefined : await loadBundled(language);
+            if (bundled === undefined) {
                 log?.(
-                    `No bundled subtitles for this ${language.language} install. Supply a transcript or generate one in setup.`,
+                    `No matching bundled subtitles (install language: ${language}). Supply a transcript or generate one in setup.`,
                 );
                 return undefined;
             }
-            const bundled = await import('../../../../scripts/buildtool/kit/subtitles/english.json', {
-                with: { type: 'json' },
-            });
-            explicit = [parseSubtitleFile(bundled.default)];
+            const track = parseSubtitleFile(bundled);
+            if (track.language !== language) {
+                throw new Error(`Bundled subtitle file ${language}.json declares language "${track.language}".`);
+            }
+            explicit = [track];
         }
     }
     const merged = mergeSubtitleFiles(explicit);

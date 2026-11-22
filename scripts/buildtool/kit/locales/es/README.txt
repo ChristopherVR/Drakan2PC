@@ -6,6 +6,6 @@ Recompilar: usa « Recompilar Drakan » o Build-Drakan.cmd. Si se interrumpió, 
 
 Opciones: la versión web necesita WSL con Ubuntu. Abre Play-Browser.cmd desde dist\DrakanPC-web. Para usar DLSS necesitas una tarjeta NVIDIA RTX y aceptar su licencia. Puedes generar texturas HD desde el disco o reutilizar un paquete local.
 
-Subtítulos: el disco incluye los del diálogo. Para la narración de la introducción y el final, coloca intro_spanish.srt y outro_spanish.srt en local\subtitles. Para Order of the Flame, usa la transcripción local del instalador o -OotfSubtitles generate con tu copia. Los subtítulos de las escenas incluidos corresponden al audio en inglés.
+Subtítulos: el disco incluye los del diálogo. Para la narración de la introducción y el final, coloca intro_spanish.srt y outro_spanish.srt en local\subtitles. Order of the Flame incluye subtítulos de escenas en inglés y alemán. También puedes generarlos a partir de tu copia con el instalador o -OotfSubtitles generate.
 
 Ayuda: si falla la compilación, consulta build-log.txt en la carpeta del compilador. Para informar de un problema del juego, usa el menú. Consulta BUILDING.md para más detalles y licenses\ y THIRD_PARTY.md para las licencias.

@@ -13,7 +13,7 @@ What happens:
      You can also choose how many CPU cores the build may use, and whether it
      compiles at low priority so the PC stays responsive.
      Optional: add your own Drakan: Order of the Flame (PC) as a second
-     campaign with included English subtitles (3 to 8 minutes, 1 GB) or generate
+     campaign with included English or German subtitles (3 to 8 minutes, 1 GB) or generate
      captions from your own recordings. The builder reuses local HD texture
      packs. Generating a new pack takes 17 to 32 minutes on a fast card, or
      23 to 43 minutes with Order of the Flame. The build shows your PC's estimate.

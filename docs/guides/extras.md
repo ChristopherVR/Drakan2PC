@@ -77,7 +77,7 @@ The builder copies these into the playable `subtitles` folder and preserves them
 
 Enable **Narration subtitles** in PC Settings and ensure the game's **Show Subtitles** option is enabled. Subtitle size can follow the window or use an explicit scale. The [subtitle reference](../reference/subtitles.md) contains implementation and timing notes; its earlier proposal sections are historical.
 
-**Order of the Flame scene captions:** in Setup, choose **Generate subtitles from my recordings** for a German, French, Italian or Spanish installation, or use `Build-Drakan.cmd -OotfSubtitles generate` with your own copy. You can also supply `ootf-subtitles.json` next to an installed copy. The existing bundled captions match the English recording.
+**Order of the Flame scene captions.** Setup automatically uses the bundled English or German track that matches your Order of the Flame installation. To transcribe your own copy, choose **Generate subtitles from my recordings** or run `Build-Drakan.cmd -OotfSubtitles generate`. You can also place `ootf-subtitles.json` in the install folder.
 
 ![Intro narration with the added subtitle overlay](https://github.com/ChristopherVR/Drakan2PC/releases/download/site-media-20261028/narration-subtitles.jpg)
 

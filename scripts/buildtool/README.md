@@ -19,6 +19,6 @@ Each language lives in [kit/locales/](kit/locales/) under its two-letter code. U
 
 ## Game subtitles
 
-The installer language does not determine the language of the game recordings. For Order of the Flame, choose **Generate subtitles from my recordings** to use your own German, French, Italian or Spanish copy. A transcript you already have can be supplied as `ootf-subtitles.json` alongside an installed copy or as `<image filename>.subtitles.json` beside a disc image. The bundled scene captions match English recordings.
+Order of the Flame uses the bundled English or German scene captions that match the detected language of the selected game copy. Choose **Generate subtitles from my recordings** to transcribe your copy locally. You can also supply `ootf-subtitles.json` in an install folder or `<image filename>.subtitles.json` beside a disc image.
 
 For The Ancients' Gates intro and ending, place your matching SRTs in `local/subtitles/` as described in the [extras guide](../../docs/guides/extras.md). Gameplay dialogue subtitles are read from the game's disc.

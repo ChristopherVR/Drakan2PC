@@ -6,6 +6,6 @@ Neu erstellen: Starte „Drakan neu erstellen“ oder Build-Drakan.cmd. Ein unte
 
 Optionen: Die Browser-Version benötigt WSL mit Ubuntu. Starte sie mit Play-Browser.cmd aus dist\DrakanPC-web. DLSS ist für NVIDIA RTX vorgesehen und setzt die Annahme der NVIDIA-Lizenz voraus. HD-Texturen lassen sich aus dem Datenträger erzeugen oder aus einem vorhandenen Paket übernehmen.
 
-Untertitel: Im Original enthält der Datenträger die Dialoguntertitel. Für Erzählertexte in Intro und Abspann lege intro_german.srt und outro_german.srt unter local\subtitles ab. Für Order of the Flame wähle die lokale Transkription in Setup oder nutze -OotfSubtitles generate mit deiner eigenen Kopie. Englisch ist die einzige mitgelieferte Szenenspur.
+Untertitel: Im Original enthält der Datenträger die Dialoguntertitel. Für Erzählertexte in Intro und Abspann lege intro_german.srt und outro_german.srt unter local\subtitles ab. Setup wählt für Order of the Flame die englische oder deutsche Szenenspur passend zu deiner Spielversion aus. Du kannst auch die lokale Transkription in Setup wählen oder -OotfSubtitles generate verwenden.
 
 Hilfe: Nach einem Fehler findest du build-log.txt im Builder-Ordner. Melde Spielfehler über „Problem melden“ im Menü. Zur Installationshilfe siehe BUILDING.md. Lizenzangaben stehen in licenses\ und THIRD_PARTY.md.

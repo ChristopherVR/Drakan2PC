@@ -17,11 +17,12 @@ spec.loader.exec_module(guard)
 
 
 class SourceGuardTests(unittest.TestCase):
-    def test_only_the_pinned_english_caption_file_can_ship(self):
-        path = guard.CAPTION_FILE
-        self.assertIsNone(guard.reason(path, (guard.ROOT / path).read_bytes()))
-        self.assertIsNotNone(guard.reason(path, b"other text"))
-        self.assertIsNotNone(guard.reason(path.replace("english", "draft"), b"other text"))
+    def test_only_pinned_caption_files_can_ship(self):
+        for path in guard.CAPTION_HASHES:
+            with self.subTest(path=path):
+                self.assertIsNone(guard.reason(path, (guard.ROOT / path).read_bytes()))
+                self.assertIsNotNone(guard.reason(path, b"other text"))
+        self.assertIsNotNone(guard.reason("scripts/buildtool/kit/subtitles/draft.json", b"other text"))
 
     def test_authored_source(self):
         for path in [

@@ -848,8 +848,12 @@ def convert_ootf(
             ) from error
     state = convert_state(install, iso, hd, code_version(root), cover, models, subtitles)
     if not subtitles:
-        # The converter selects these only when Dragon.rrc identifies an English installation.
-        state["bundledSubtitles"] = sha256_of(root / "scripts/buildtool/kit/subtitles/english.json")
+        # The converter chooses a track by install language. Changes to the bundle invalidate this cached pack.
+        state["bundledSubtitles"] = {
+            path.name: sha256_of(path)
+            for path in sorted((root / "scripts/buildtool/kit/subtitles").glob("*.json"))
+            if path.is_file()
+        }
     if installed and out.is_file() and not filecmp.cmp(installed, out, shallow=False):
         force = True
     if not convert_needed(work, state, force):
