@@ -108,3 +108,17 @@ replacement showed the red health fill in gameplay and Original inventory, and t
 course of the dive on Direct3D 11 and Vulkan. Direct3D 11 also showed the health and mana fills in Surdana.
 All nine selected renderer and UI tests passed. The replay logs and captures are in `build/harness/issue17-mask-before`
 and `build/harness/issue17-mask-after-*`. The reporter's installed texture pack still needs a retest.
+
+## White lines at the edges of the orbs, 23 November 2026
+
+The reporter confirmed that the bars fill again and attached screenshots showing thin white lines along the right and
+bottom edges of the health and compass orbs. The attached settings use forced Bilinear filtering. That setting bypassed
+the HUD sprite bounds, so the edge of each orb sampled bright texels from the next cell of the texture atlas.
+[Reporter retest and settings](https://github.com/ChristopherVR/Drakan2PC/issues/17#issuecomment-7078488276)
+
+Forced Bilinear now respects the same native sprite bounds at 1× and higher internal scales. The synthetic scene caught
+white bleeding into red sprites on the old Direct3D 11 code and passes on Direct3D 11 and WebGPU over Vulkan. The
+before-and-after Surdana replay used Direct3D 11, 5× internal scale, 21:9, DLSS Quality and the reporter's INI with the
+local HD pack. The lines are visible around both orbs before the fix and absent after it. Captures are under
+`build/harness/issue-orb-surdanabilinear-{before,after}`. The Ruined Village replay also shows a clean, filled health orb
+on Vulkan at 5× with Bilinear filtering in `build/harness/issue-orb-ootf-vulkan-verified`.

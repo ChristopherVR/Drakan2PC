@@ -2558,6 +2558,52 @@ static void hudClusterTest(Config cfg) {
     expectPixel(img, 10 * s, 10 * s, 0, 0, 0, 3, "full-frame clear untouched");
 }
 
+// The HUD orbs sit next to other artwork in their atlas. Forced filtering must preserve their edge texels.
+static void hudAtlasBilinearTest(Config cfg) {
+    cfg.textureFilter = 2;
+    cfg.textureUpscale = 1;
+    for (uint32_t scale : {1u, 2u}) {
+        cfg.scale = scale;
+        cfg.hardwareTextureFilter = scale > 1;
+        auto gs = Renderer::create(cfg);
+        if (!gs) {
+            ++g_fail;
+            continue;
+        }
+        constexpr uint32_t tbp = 0x2000;
+        std::vector<uint8_t> atlas(64 * 64 * 4, 0xff);
+        for (int y = 8; y < 24; ++y)
+            for (int x = 8; x < 24; ++x) {
+                const int i = (y * 64 + x) * 4;
+                atlas[i + 1] = atlas[i + 2] = 0;
+            }
+
+        Gif g;
+        uploadImage(g, tbp, 1, 0, 0, 0, 64, 64, atlas);
+        g.ad({{FRAME_1, 8ull << 16},
+              {ZBUF_1, 140ull | (1ull << 32)},
+              {XYOFFSET_1, kOfs},
+              {SCISSOR_1, 511ull << 16 | (511ull << 48)},
+              {COLCLAMP, 1},
+              {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 0, 1)},
+              {TEX1_1, 0},
+              {CLAMP_1, 5},
+              {TEX0_1, mkTex0(tbp, 1, 0, 6, 6, 1, 1, 0, 0, 0, 0, 0)}});
+        const int prim = (int)mkPrim(6, 0, 1, 0, 0, 1);
+        sprite(g, 40, 440, 56, 456, 128, 128, 128, 128, 0, prim, 8.5f, 8.5f, 24.5f, 24.5f);
+        sprite(g, 460, 440, 476, 456, 128, 128, 128, 128, 0, prim, 8.5f, 8.5f, 24.5f, 24.5f);
+        gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+        Image image;
+        if (!gs->captureFramebuffer(0, 8, 0, 512, 512, image)) {
+            ++g_fail;
+            continue;
+        }
+        expectPixel(image, 56 * scale - 1, 445 * scale, 255, 0, 0, 1, "bilinear HUD atlas: right edge");
+        expectPixel(image, 45 * scale, 456 * scale - 1, 255, 0, 0, 1, "bilinear HUD atlas: bottom edge");
+        expectPixel(image, 476 * scale - 1, 456 * scale - 1, 255, 0, 0, 1, "bilinear HUD atlas: second sprite corner");
+    }
+}
+
 // Replay a world-to-loading boundary before host menu state catches up.
 // Loading foreground keeps one centre canvas regardless of gameplay HUD size.
 static void loadingCanvasTest(Config cfg) {
@@ -3046,6 +3092,7 @@ int main(int argc, char** argv) {
     targetReplicationTest(cfg);
     motionBatchTest(cfg);
     hudClusterTest(cfg);
+    hudAtlasBilinearTest(cfg);
     loadingCanvasTest(cfg);
     mipChainLimitTest(cfg, 1);
     mipChainLimitTest(cfg, 4);
