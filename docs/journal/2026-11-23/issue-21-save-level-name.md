@@ -40,3 +40,42 @@ exit alone is insufficient. A follow-up on a build-capable host should load the 
 Continue and Load Game, verify the intact level name and gameplay, then save and reload within the session.
 
 No save payload, disc data or generated game code is added to the repository.
+
+## Follow-up: Windows gameplay verification
+
+Published the fix as `100647b9e0c7f08e21d52283da8958d9da9ead2c`. GitHub Desktop completed the push, and the
+GitHub connector independently returned that SHA for main. The local Git shell hook could not start, so its commit
+policy and source audit were run directly before the local commit. Native Git networking was unavailable.
+
+The full incremental build and normal deployment subsequently succeeded. The SDK and compiler were supplied as
+explicit environment paths with MSBuild's `DisableRegistryUse=true`, and the build used `-Jobs 1 -CompilerProcesses 1`
+with `MSBUILDDISABLENODEREUSE=1`. The earlier parallel build stalled at Checking File Globs; the same glob check ran
+successfully on its own. No build scripts or installed SDK files were changed. The deployed executable's SHA-256 is
+`235cbfae261069cfeac64b00f33777d11b61b3b506de014cfac1d4a6af69fec9`.
+
+Successful private replays from `dist/DrakanPC`:
+
+- `build/harness/issue21-fixed-manual-final`: New Game, then Surdana's native Inquisitor exit through the existing
+  `DRAKAN_LEVELCHANGE=inquisitor@1200` test aid. The native manual Save Game screen wrote Slot1's Lair `.rsg`, its
+  Surdana `.rlt` companion and the normal icons/preview. `afterSaveWrite` reports that actual Slot1 path, and the
+  captured screen says the save succeeded. The recipe uses the native pause menu's initial Save selection.
+- `build/harness/issue21-fixed-continue-mouse`: a fresh process, a copy of that card, no start-level override.
+  The modern title's Continue action selects Slot1. `beforeLevelLoad` and `afterLevelLoad` both identify the full
+  `Level 1E - Inquisitor's Lair` name with `fromSave=1`; `afterSaveRestore` completes, the screen returns to
+  `gameplay=1`, a subsequent forward-input sequence and screenshots execute, and the script quits cleanly.
+- `build/harness/issue21-fixed-load-menu`: another fresh process and copied card, no start-level override.
+  The title's Load Game action opens the native load screen; selecting Slot1 completes the same restore and returns
+  to gameplay. The script sends forward input, captures the result and quits cleanly. Neither cold restore logs a
+  missing branch target or fatal guest unwind.
+- `build/harness/issue21-fixed-quicksave`: supplementary in-session F5/F8 smoke test with the file-layer level
+  redirect. It returns to the Lair, but its saved filename remains Surdana because of that redirect, so it is not
+  the evidence for the manual Lair save case above.
+
+The full Lair name in the cold level-load events is distinct from the native 24-character saved filename/caption
+`Level 1E - Inquisitor's L`, which is expected and unchanged. Early discarded attempts included invalid pad-button
+tokens, an exit fired before the script's gameplay synchronization, and title actions aimed at the hovered row
+instead of Continue. They do not count as successful checks. Final title recipes explicitly position the cursor
+over Continue or Load Game before clicking, and the logs confirm the chosen action.
+
+These are Windows PAL checks with newly generated private saves. The reporter's attachment was not replayed and
+Linux/Steam Deck remains untested locally; the host-overlap regression covers the portable implementation directly.

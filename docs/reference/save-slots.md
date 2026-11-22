@@ -8,7 +8,9 @@ within the same buffer; forwarding that to host `strcpy` has undefined behavior 
 name, especially with a different host C library. This addresses the corrupted Inquisitor's Lair name reported in
 issue #21 without suppressing missing guest callback failures or changing saved data. `guest_strcpy` compiles the
 production stub with a small guest-memory fixture and checks overlapping names, return values, write receipts and
-memory boundaries. Exact reporter-save verification remains outstanding; see
+memory boundaries. A Windows PAL gameplay replay entered the Lair through Surdana's native exit, made a manual
+save, and restored that slot through both Continue and Load Game in fresh processes, with gameplay resuming and
+the full level name intact. Exact reporter-save and Steam Deck verification remain outstanding; see
 [investigation notes](../journal/2026-11-23/issue-21-save-level-name.md).
 
 ## Quick save / quick load (2026-10-25)
