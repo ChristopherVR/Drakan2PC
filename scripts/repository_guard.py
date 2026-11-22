@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPTION_HASHES = {
-    "scripts/buildtool/kit/subtitles/english.json": "07beac08ed2120bae6795e32818ab64401c5d927f2f70216126d5115e1f64424",
+    "scripts/buildtool/kit/subtitles/english.json": "18c6b23d7ded5718b3abbb0e473aaa0c84dfb32300c258df269629ea1aa354d2",
     "scripts/buildtool/kit/subtitles/german.json": "6f2f65bfd650f1e9e755cf2eb2863574fb8304514f50414f77659eef48b015f7",
 }
 SOURCE_ROOTS = {

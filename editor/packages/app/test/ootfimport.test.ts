@@ -62,7 +62,7 @@ describe('install files for the conversion worker', () => {
 
     it('loads English captions for an English install', async () => {
         const src = localizedSource('the and you of to is your with this are for have not from');
-        expect((await ootfSubtitleTable(src, bundled))?.size).toBe(295);
+        expect((await ootfSubtitleTable(src, bundled))?.size).toBe(294);
     });
 
     it('loads German captions for a German install', async () => {

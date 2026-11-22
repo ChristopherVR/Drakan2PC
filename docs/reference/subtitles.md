@@ -209,7 +209,7 @@ The option "Show Subtitles" (word 0x4fb740, default 1) gates both the game's bar
 ## 10. Voice clips of mod packs: timed pages (2026-11-12)
 
 For Order of the Flame, the guided Windows builder and editor select the subtitle track using the detected language
-of the PC install. The kit includes 295 English clips and 278 German clips. The German track was generated from the
+of the PC install. The kit includes 294 English clips and 278 German clips. The German track was generated from the
 German retail disc's voice banks.
 Setup also offers to generate captions from the player's own recordings and caches the result for later builds.
 The editor importer and the guided builder's default mode accept a custom
@@ -220,6 +220,10 @@ for transcription and file locations. In a converted pack, `story/subtitles.json
 The November 22 German transcript pass checked the 55 low-confidence clips against new transcriptions of the source
 audio. It corrected 48 clips and removed five effects or cries. The exact wording of two Wartok lines and the phonetic
 spelling of two ritual chants still need a listening review.
+
+The English pass compared all 295 original bundled clips with a new transcription of the English recordings.
+It corrected 60 clips and removed one battle cry. Seven readings still need a listening review, including three
+ritual chants and an uncertain place name.
 
 Finding (Order of the Flame campaign, `docs/journal/2026-11-12/ootf-church-cinematic.md`): the engine's own bar only shows
 descriptor text for a sound that an actor's speech controller plays. With a test text on all 617 converted sounds, the
