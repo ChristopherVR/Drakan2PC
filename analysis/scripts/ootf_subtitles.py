@@ -41,6 +41,9 @@ import wave
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from node_runtime import node_environment
+
 ROOT = Path(__file__).resolve().parents[2]
 FORMAT = "drakan-subtitles"
 VERSION = 1
@@ -400,6 +403,7 @@ def main() -> int:
         subprocess.run(
             [*cmd, "--ootf", str(Path(a.ootf).resolve()), "--out", str(work.resolve()), "--rate", "16000"],
             cwd=ROOT,
+            env=node_environment(),
             check=True,
         )
     if not (work / "manifest.json").is_file():

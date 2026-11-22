@@ -5,8 +5,8 @@ Both are a snapshot of a Git revision (HEAD by default; uncommitted changes are 
 the repository guard, so neither holds game data, generated game C++ or the private VU image; the recipient builds the
 game from their own disc with Build-Drakan.cmd. Both also carry the prebuilt ps2_recomp.exe (built from the same
 snapshot) and the raylib / FFmpeg sources (pinned in kit/installer.lock.json), so neither build needs Git. The installer
-also bundles portable PowerShell 7, Python and Node.js, so it needs no downloads other than Microsoft's C++ Build Tools,
-which Build-Drakan.ps1 installs on first run; the zip uses the player's own PowerShell, Python and Node.js.
+also bundles portable PowerShell 7, Python and Node.js. The ZIP uses the player's own PowerShell, Python and Node.js.
+Both kits include fflate for the Order of the Flame converter.
 """
 
 import argparse
@@ -23,6 +23,9 @@ import tarfile
 import urllib.request
 import zipfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "analysis/scripts"))
+from node_runtime import node_environment
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -78,6 +81,7 @@ BUILDER_FILES = {
             "lvl_dump.py",
             "lvl_objects.py",
             "material_maps.py",
+            "node_runtime.py",
             "odb_fields.py",
             "ootf_cab.py",
             "ootf_hd_pack.py",
@@ -406,6 +410,7 @@ def smoke_test(stage, tools=None, node=True):
             capture_output=True,
             text=True,
             cwd=stage,
+            env=node_environment(),
         )
         if "scratch and output directories required" not in result.stderr:
             failures.append(f"{RETARGET}: {first_error(result.stderr)}")
@@ -455,7 +460,7 @@ def ffmpeg_files(spec, cache):
 def prebuilt_files(stage, commit, work_root, lock):
     """What lets either kit build without Git, as kit path -> file: ps2_recomp.exe built from the staged snapshot
     (Build-LocalGame.ps1 uses the compiler next to it instead of building one) and the raylib source and FFmpeg prebuilt
-    (Build-LocalGame.ps1 picks up <root>/deps by itself)."""
+    (Build-LocalGame.ps1 picks up <root>/deps by itself), plus fflate for the optional converter."""
     cache = work_root / "cache"
     cache.mkdir(parents=True, exist_ok=True)
     files = {"scripts/buildtool/ps2_recomp.exe": build_compiler(stage, commit, work_root / "compiler")}
@@ -475,6 +480,8 @@ def prebuilt_files(stage, commit, work_root, lock):
         if path.is_file() and not any(part.startswith(".") for part in relative.parts):
             files[f"deps/raylib/{relative.as_posix()}"] = path
     files.update(ffmpeg_files(lock["ffmpeg"], cache))
+    fflate = download(lock["hd"]["fflate"], cache)
+    files[f"deps/{fflate.name}"] = fflate
     return files
 
 

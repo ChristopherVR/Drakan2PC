@@ -38,6 +38,9 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "analysis/scripts"))
+from node_runtime import node_environment
+
 ROOT = Path(__file__).resolve().parents[2]
 LOCK = ROOT / "scripts/buildtool/kit/installer.lock.json"
 ANALYSIS = ROOT / "analysis/scripts"
@@ -551,7 +554,6 @@ def bundled_cover(root: Path = ROOT) -> Path | None:
 
 def ps2_data():
     spec = importlib.util.spec_from_file_location("ootf_ps2_data", ANALYSIS / "ootf_ps2_data.py")
-    sys.path.insert(0, str(ANALYSIS))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -619,7 +621,13 @@ def ensure_node_modules(root: Path, lock: dict, cache: Path, fetch=download) -> 
         (stub / "index.js").write_text(f"export * from '{depth}{entry}';\n", encoding="utf-8")
         made.append(name)
     if not (modules / "fflate" / "package.json").is_file():
-        archive = fetch(lock["hd"]["fflate"], cache)
+        spec = lock["hd"]["fflate"]
+        archive = root / "deps" / spec["url"].rsplit("/", 1)[1]
+        if archive.is_file():
+            if sha256_of(archive) != spec["sha256"]:
+                raise ExtrasError(f"The bundled {archive.name} failed its checksum. Reinstall the builder.")
+        else:
+            archive = fetch(spec, cache)
         safe_extract_tgz(archive, modules / "fflate")
         made.append("fflate")
     return made
@@ -871,7 +879,7 @@ def convert_ootf(
         f"Converting the Order of the Flame levels ({format_minutes(step.low, step.high)}); log: {log_file}", flush=True
     )
     mark = time.time()
-    environment = dict(os.environ, DRAKAN_ISO=str(iso))
+    environment = node_environment(DRAKAN_ISO=str(iso))
     baseline = installed or (previous if previous.is_file() else None)
     command = converter_command(node, install, data, iso, out, hd, cover, baseline, models, subtitles)
     code = run_logged(command, log_file, root, environment)

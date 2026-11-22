@@ -1,4 +1,5 @@
 [CustomMessages]
+SaveBuildChoicesFailed=Setup konnte die Build-Einstellungen nicht speichern. Prüfe, ob der Builder-Ordner beschreibbar ist, und starte Setup erneut.
 BuildNow=Spiel jetzt erstellen (ein bis zwei Stunden). Für fehlende Kartenbilder kann sich das Spiel kurz öffnen.
 RebuildShortcut=Drakan neu erstellen
 PlayShortcut=Drakan-Spielordner

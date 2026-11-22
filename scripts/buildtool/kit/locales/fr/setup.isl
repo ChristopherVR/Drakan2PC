@@ -1,4 +1,5 @@
 [CustomMessages]
+SaveBuildChoicesFailed=Le programme d’installation n’a pas pu enregistrer les options de compilation. Vérifiez que le dossier de compilation est accessible en écriture, puis relancez l’installation.
 BuildNow=Compiler le jeu maintenant (une à deux heures). Il peut s’ouvrir brièvement pour créer les aperçus manquants.
 RebuildShortcut=Recompiler Drakan
 PlayShortcut=Dossier du jeu Drakan

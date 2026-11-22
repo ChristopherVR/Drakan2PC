@@ -1,7 +1,7 @@
 ; Inno Setup script for DrakanPC-Setup.exe. package_builder_kit.py --installer stages the kit and compiles this with
 ; ISCC /DStageDir=<staged kit> /DAppVersion=<version> /DOutputDir=<dir> /DOutputName=<file name without .exe>.
-; The setup copies the builder (source, bundled tools, third-party sources) and then runs Build-Drakan.cmd with the
-; chosen ISO (or /ISO=<path> on the command line); the game itself is built on the player's PC from their own disc.
+; Setup copies the builder, saves the wizard selections, and offers to run Build-Drakan.cmd. The game itself is built
+; on the player's PC from their own disc.
 
 #ifndef StageDir
   #error Pass /DStageDir=<staged kit directory>
@@ -83,7 +83,7 @@ Name: "{autoprograms}\{cm:PlayShortcut}"; Filename: "{code:GetPlayDir}"
 Name: desktopicon; Description: "{cm:CreateDesktopIcon}"
 
 [Run]
-Filename: "{app}\Build-Drakan.cmd"; Parameters: "-Language {language} -IsoPath ""{code:GetIsoPath}""{code:GetBuildOptions}"; WorkingDir: "{app}"; Description: "{cm:BuildNow}"; Flags: postinstall shellexec nowait skipifsilent
+Filename: "{app}\Build-Drakan.cmd"; Parameters: "{code:GetFirstBuildOptions}"; WorkingDir: "{app}"; Description: "{cm:BuildNow}"; Flags: postinstall shellexec nowait skipifsilent
 
 [UninstallDelete]
 ; Build products; the play folder (saves and settings) is left in place.
@@ -453,7 +453,7 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Problem: String;
+  Disc, Problem: String;
   Size: Int64;
   Cores, I: Integer;
   Mask: String;
@@ -463,11 +463,12 @@ begin
   if UpdateMode then
     Exit;
   // A regular silent install never starts the build (skipifsilent), so it does not need an ISO.
-  if (CurPageID = IsoPage.ID) and not (WizardSilent and (IsoPage.Values[0] = '')) then begin
-    if not FileExists(IsoPage.Values[0]) then begin
+  Disc := Trim(IsoPage.Values[0]);
+  if (CurPageID = IsoPage.ID) and not (WizardSilent and (Disc = '')) then begin
+    if not FileExists(Disc) then begin
       MsgBox(CustomMessage('DiscMissing'), mbError, MB_OK);
       Result := False;
-    end else if FileSize64(IsoPage.Values[0], Size) and (Size < 100 * 1024 * 1024) then begin
+    end else if FileSize64(Disc, Size) and (Size < 100 * 1024 * 1024) then begin
       MsgBox(CustomMessage('DiscSmall'), mbError, MB_OK);
       Result := False;
     end;
@@ -512,13 +513,18 @@ begin
   end;
 end;
 
+procedure SaveBuildChoices;
+forward;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Log, Text: String;
   Output: AnsiString;
   Code: Integer;
 begin
-  if (CurStep = ssPostInstall) and UpdateMode then begin
+  if (CurStep <> ssPostInstall) then
+    Exit;
+  if UpdateMode then begin
     WizardForm.StatusLabel.Caption := CustomMessage('UpdateBuilding');
     ReleaseBuildLock;
     if not Exec(
@@ -536,9 +542,10 @@ begin
     Exit;
   end;
 
-  // The files are installed, so the builder's own checker can read the choice (a zip's contents, a disc's cabinet).
-  // A choice that does not work is left out of the build instead of stopping it. Regular silent installs build nothing.
-  if (CurStep = ssPostInstall) and (Trim(OotfEdit.Text) <> '') and not WizardSilent then begin
+  if WizardSilent then
+    Exit;
+  // The installed builder can check the optional campaign's source before saving it.
+  if Trim(OotfEdit.Text) <> '' then begin
     WizardForm.StatusLabel.Caption := CustomMessage('OotfChecking');
     Log := ExpandConstant('{tmp}\ootf-check.txt');
     DeleteFile(Log);
@@ -555,6 +562,7 @@ begin
       MsgBox(FmtMessage(CustomMessage('OotfRejected'), [Text]), mbError, MB_OK);
     end;
   end;
+  SaveBuildChoices;
 end;
 
 // Builds up to v0.1.11 saved into build\game (next to the game's ELF) instead of the play folder, and the uninstaller
@@ -602,45 +610,68 @@ begin
       mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES;
 end;
 
-function GetIsoPath(Param: String): String;
+function QuoteBuildPath(Path: String): String;
 begin
-  Result := IsoPage.Values[0];
+  Path := RemoveBackslashUnlessRoot(Path);
+  if Copy(Path, Length(Path), 1) = '\' then
+    Path := Path + '\';
+  Result := '"' + Path + '"';
 end;
 
-function GetBuildOptions(Param: String): String;
+procedure SaveBuildChoices;
+var
+  Arguments: String;
+  Code: Integer;
+begin
+  Arguments := '-NoProfile -ExecutionPolicy Bypass -File ' +
+    QuoteBuildPath(ExpandConstant('{app}\scripts\buildtool\Build-Drakan.ps1')) +
+    ' -SaveSetupChoices -Language ' + ActiveLanguage + ' -IsoPath ' + QuoteBuildPath(Trim(IsoPage.Values[0]));
+  if DlssPage.Values[0] then
+    Arguments := Arguments + ' -EnableDlss'
+  else
+    Arguments := Arguments + ' -EnableDlss:$false';
+  Arguments := Arguments + ' -Cores ' + IntToStr(StrToIntDef(Trim(CpuPage.Values[0]), 0));
+  if Trim(CpuPage.Values[1]) <> '' then
+    Arguments := Arguments + ' -CpuAffinity "' + Trim(CpuPage.Values[1]) + '"'
+  else
+    Arguments := Arguments + ' -CpuAffinity default';
+  if OptionsPage.Values[1] then
+    Arguments := Arguments + ' -Priority Low'
+  else
+    Arguments := Arguments + ' -Priority Normal';
+  if OptionsPage.Values[3] then
+    Arguments := Arguments + ' -VuBlocks Whole'
+  else
+    Arguments := Arguments + ' -VuBlocks Chunked';
+  if (Trim(OotfEdit.Text) <> '') and not OotfRejected then begin
+    Arguments := Arguments + ' -OotfSource ' + QuoteBuildPath(Trim(OotfEdit.Text));
+    if SubtitlePage.Values[1] then
+      Arguments := Arguments + ' -OotfSubtitles generate'
+    else
+      Arguments := Arguments + ' -OotfSubtitles bundled';
+  end else
+    Arguments := Arguments + ' -OotfSource none -OotfSubtitles bundled';
+  if HdPage.Values[0] then
+    Arguments := Arguments + ' -HdTextures on'
+  else
+    Arguments := Arguments + ' -HdTextures auto';
+  if SameDirectory(GetPlayDir(''), DefaultPlayDir) then
+    Arguments := Arguments + ' -DistDirectory default'
+  else
+    Arguments := Arguments + ' -DistDirectory ' + QuoteBuildPath(GetPlayDir(''));
+  if not Exec(ExpandConstant('{app}\tools\pwsh\pwsh.exe'), Arguments, WizardDirValue,
+    SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+    RaiseException(CustomMessage('SaveBuildChoicesFailed'));
+end;
+
+function GetFirstBuildOptions(Param: String): String;
 begin
   Result := '';
-  if DlssPage.Values[0] then
-    Result := Result + ' -EnableDlss';
   if OptionsPage.Values[0] then
     Result := Result + ' -Web';
-  // Always passed, so a reinstall replaces the choice remembered by an earlier one.
-  Result := Result + ' -Cores ' + IntToStr(StrToIntDef(Trim(CpuPage.Values[0]), 0));
-  if Trim(CpuPage.Values[1]) <> '' then
-    Result := Result + ' -CpuAffinity "' + Trim(CpuPage.Values[1]) + '"'
-  else
-    Result := Result + ' -CpuAffinity default';
-  if OptionsPage.Values[1] then
-    Result := Result + ' -Priority Low'
-  else
-    Result := Result + ' -Priority Normal';
   if OptionsPage.Values[2] then
     Result := Result + ' -LaunchWhenDone';
-  // Always passed, so a reinstall replaces the choice remembered by an earlier one.
-  if OptionsPage.Values[3] then
-    Result := Result + ' -VuBlocks Whole'
-  else
-    Result := Result + ' -VuBlocks Chunked';
-  // Always passed, so a reinstall replaces what an earlier one remembered. The builder checks the source and says so.
-  if (Trim(OotfEdit.Text) <> '') and not OotfRejected then begin
-    Result := Result + ' -OotfSource "' + Trim(OotfEdit.Text) + '"';
-    if SubtitlePage.Values[1] then
-      Result := Result + ' -OotfSubtitles generate'
-    else
-      Result := Result + ' -OotfSubtitles bundled';
-  end else
-    Result := Result + ' -OotfSource none';
-  // Always passed, so a reinstall applies what this page says; a plain rebuild leaves the settings alone.
+  // These are the starting settings for the game. Rebuild uses the player's current in-game settings.
   if DefaultsPage.Values[0] then
     Result := Result + ' -MenuStyle modern'
   else
@@ -661,13 +692,4 @@ begin
     Result := Result + ' -CheckForUpdates on'
   else
     Result := Result + ' -CheckForUpdates off';
-  if HdPage.Values[0] then
-    Result := Result + ' -HdTextures on'
-  else
-    Result := Result + ' -HdTextures auto';
-  // Always passed, so "Rebuild Drakan" remembers it (build/build-options.json) and the shortcuts match.
-  if CompareText(GetPlayDir(''), DefaultPlayDir) = 0 then
-    Result := Result + ' -DistDirectory default'
-  else
-    Result := Result + ' -DistDirectory "' + GetPlayDir('') + '"';
 end;

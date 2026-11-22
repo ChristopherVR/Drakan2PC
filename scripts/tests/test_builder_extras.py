@@ -510,6 +510,20 @@ class NodeModuleTests(unittest.TestCase):
         self.assertEqual(extras.ensure_node_modules(self.root, self.lock, self.root / "cache", self.fetch), [])
         self.assertEqual(self.fetched, [])
 
+    def test_bundled_fflate_is_verified_and_installed_without_network(self):
+        spec = self.lock["hd"]["fflate"]
+        archive = self.root / "deps/fflate-0.8.3.tgz"
+        archive.parent.mkdir()
+        data = tgz_bytes({"package/package.json": b'{"name":"fflate"}'})
+        spec["sha256"] = hashlib.sha256(data).hexdigest()
+        archive.write_bytes(b"damaged")
+        with self.assertRaisesRegex(extras.ExtrasError, "failed its checksum"):
+            extras.ensure_node_modules(self.root, self.lock, self.root / "cache", self.fetch)
+        archive.write_bytes(data)
+        self.assertIn("fflate", extras.ensure_node_modules(self.root, self.lock, self.root / "cache", self.fetch))
+        self.assertEqual((self.root / "editor/node_modules/fflate/package.json").read_bytes(), b'{"name":"fflate"}')
+        self.assertEqual(self.fetched, [])
+
     def test_missing_editor_sources_are_reported(self):
         (self.root / "editor/packages/formats/src/index.ts").unlink()
         with self.assertRaises(extras.ExtrasError):
@@ -538,13 +552,19 @@ class NodeModuleTests(unittest.TestCase):
             "import { one } from '@drakan/formats';\nimport { two } from '@drakan/editor-core';\nconsole.log(one, two);\n",
             encoding="utf-8",
         )
-        result = subprocess.run(
-            [node, "--no-warnings", str(probe)],
-            capture_output=True,
-            text=True,
-            cwd=self.root,
-            check=False,
-        )
+        inherited = '--max-old-space-size=4096 "--no-experimental-strip-types"'
+        with mock.patch.dict(os.environ, NODE_OPTIONS=inherited):
+            env = extras.node_environment()
+            self.assertEqual(env["NODE_OPTIONS"], "--max-old-space-size=4096")
+            self.assertEqual(os.environ["NODE_OPTIONS"], inherited)
+            result = subprocess.run(
+                [node, "--no-warnings", str(probe)],
+                capture_output=True,
+                text=True,
+                cwd=self.root,
+                env=env,
+                check=False,
+            )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.split(), ["1", "2"])
 
@@ -1285,11 +1305,17 @@ class PolicyTests(unittest.TestCase):
         names = {path.relative_to(ROOT).as_posix() for path in kit.builder_scripts(ROOT)}
         self.assertIn("scripts/buildtool/extras.py", names, "the smoke test must run it under the kit Python")
 
-    def test_the_script_needs_nothing_outside_the_standard_library(self):
-        tree = (ROOT / "scripts/buildtool/extras.py").read_text(encoding="utf-8")
-        imports = set(re.findall(r"^(?:from|import) ([\w.]+)", tree, re.MULTILINE))
-        stdlib = set(sys.stdlib_module_names)
-        self.assertEqual({name.split(".")[0] for name in imports} - stdlib - {"__future__"}, set())
+    def test_the_script_needs_no_installed_python_packages(self):
+        for path, local_imports in (
+            ("scripts/buildtool/extras.py", {"node_runtime"}),
+            ("analysis/scripts/node_runtime.py", set()),
+        ):
+            with self.subTest(path=path):
+                source = (ROOT / path).read_text(encoding="utf-8")
+                imports = {
+                    name.split(".")[0] for name in re.findall(r"^(?:from|import) ([\w.]+)", source, re.MULTILINE)
+                }
+                self.assertEqual(imports - sys.stdlib_module_names - local_imports, set())
 
     def test_the_shared_extractor_is_the_one_the_harness_uses(self):
         harness = (ROOT / "scripts/harness/ootf_level_run.py").read_text(encoding="utf-8")

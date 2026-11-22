@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import coop_character_roster as roster
 import lvl_dump
 import odb_fields
+from node_runtime import node_environment
 from ui_layout_dump import iso_files, read
 
 
@@ -78,6 +79,7 @@ def main():
         subprocess.run(
             [node, str(source_files[1]), str(scratch), str(output)],
             cwd=root,
+            env=node_environment(),
             check=True,
         )
         (output / "mod.toml").write_text(

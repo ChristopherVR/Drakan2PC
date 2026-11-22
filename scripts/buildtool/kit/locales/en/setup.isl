@@ -1,4 +1,5 @@
 [CustomMessages]
+SaveBuildChoicesFailed=Setup could not save the build choices. Check that the builder folder is writable and run Setup again.
 BuildNow=Build the game now (one to two hours). The game may briefly open to capture missing map pictures.
 RebuildShortcut=Rebuild Drakan
 PlayShortcut=Drakan play folder

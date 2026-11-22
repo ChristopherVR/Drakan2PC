@@ -10,12 +10,14 @@ thing installed system-wide is Microsoft's free C++ Build Tools, downloaded from
 build takes one to two hours; later runs reuse build/game. The playable folder is dist/DrakanPC. Nothing is uploaded.
 #>
 param(
-    # Your PAL SCES-500.06 or USA SCUS-971.28 ISO. Asked for (and remembered in build/iso-path.txt) when omitted.
+    # Your PAL SCES-500.06 or USA SCUS-971.28 ISO. Uses build/iso-path.txt when omitted, or asks if the file is missing.
     [string]$IsoPath,
     [string]$WorkDir,
     # Play folder: where drakan.exe and your saves go (default dist\DrakanPC next to this builder). Remembered in
     # build/build-options.json, so "Rebuild Drakan" keeps using it; 'default' goes back to dist\DrakanPC.
     [string]$DistDirectory,
+    # Setup records its selections before offering to start the build.
+    [switch]$SaveSetupChoices,
     # Setup's update entry, using the remembered disc and the existing prepared build.
     [switch]$TransactionalUpdate,
     # Build without the optional NVIDIA features even when an SDK is present.
@@ -77,8 +79,6 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'powershell/Build-Textures.ps1')
 . (Join-Path $PSScriptRoot 'Build-Recovery.ps1')
 . (Join-Path $PSScriptRoot 'powershell/Build-Job.ps1')
-# Everything the build starts (cmake, MSBuild, the compilers, the game for the pictures) ends with this window.
-[void](Enter-BuildJob)
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 if (-not $WorkDir) { $WorkDir = Join-Path $RepoRoot 'build/game' }
 $WorkDir = [IO.Path]::GetFullPath($WorkDir)
@@ -89,10 +89,51 @@ $vsComponents = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', 'Microsoft.
 $sessionLog = Join-Path $RepoRoot 'build-log.txt'
 $toolLog = "$WorkDir-output.log"
 $optionsFile = Join-Path $RepoRoot 'build/build-options.json'
+$rememberedIso = Join-Path $RepoRoot 'build/iso-path.txt'
 $saved = if (Test-Path -LiteralPath $optionsFile -PathType Leaf) {
     try { Get-Content -LiteralPath $optionsFile -Raw | ConvertFrom-Json } catch { $null }
 }
 $languagePreference = if ($Language) { $Language } else { $saved.language }
+
+if ($Cores -lt 0) { $Cores = if ($null -ne $saved.cores) { [int]$saved.cores } else { 0 } }
+if (-not $Priority) { $Priority = if ($saved.priority) { [string]$saved.priority } else { 'Normal' } }
+if (-not $VuBlocks) { $VuBlocks = if ($saved.vuBlocks) { [string]$saved.vuBlocks } else { 'Chunked' } }
+if (-not $PSBoundParameters.ContainsKey('CpuAffinity')) { $CpuAffinity = [string]$saved.cpuAffinity }
+if ($CpuAffinity -eq 'default') { $CpuAffinity = '' }
+$playKnown = $PSBoundParameters.ContainsKey('DistDirectory') -or [bool]($saved -and $saved.PSObject.Properties['playFolder'])
+if (-not $DistDirectory) { $DistDirectory = [string]$saved.playFolder }
+if ($DistDirectory -eq 'default') { $DistDirectory = '' }
+$extrasKnown = $PSBoundParameters.ContainsKey('OotfSource') -or [bool]($saved -and $saved.PSObject.Properties['ootfSource'])
+if (-not $PSBoundParameters.ContainsKey('OotfSource')) { $OotfSource = [string]$saved.ootfSource }
+if ($OotfSource -eq 'none') { $OotfSource = '' }
+if (-not $OotfSubtitles) { $OotfSubtitles = if ($saved.ootfSubtitles -eq 'generate') { 'generate' } else { 'bundled' } }
+if (-not $HdTextures) { $HdTextures = if ($saved.hdTextures) { 'on' } else { 'auto' } }
+if ($HdGpu -eq -2) { $HdGpu = if ($null -ne $saved.hdGpu) { [int]$saved.hdGpu } else { -1 } }
+$dlssKnown = $PSBoundParameters.ContainsKey('EnableDlss') -or [bool]($saved -and $saved.PSObject.Properties['enableDlss'])
+if (-not ($TransactionalUpdate -or $PSBoundParameters.ContainsKey('EnableDlss'))) { $EnableDlss = [bool]$saved.enableDlss }
+
+$saveOptions = {
+    $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; vuBlocks = $VuBlocks; hdGpu = $HdGpu }
+    # A missing key keeps an unanswered question open for a later interactive run.
+    if ($playKnown) { $options.playFolder = $DistDirectory }
+    if ($extrasKnown) { $options.ootfSource = $OotfSource; $options.ootfSubtitles = $OotfSubtitles }
+    if ($dlssKnown) { $options.enableDlss = [bool]$EnableDlss }
+    $options.hdTextures = ($HdTextures -eq 'on')
+    if ($languagePreference) { $options.language = $languagePreference }
+    New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
+    $options | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
+}
+if ($SaveSetupChoices) {
+    if (-not $IsoPath -or -not $PSBoundParameters.ContainsKey('DistDirectory')) {
+        throw 'Setup must supply the disc image and play folder.'
+    }
+    & $saveOptions
+    Set-Content -LiteralPath $rememberedIso -Value $IsoPath -NoNewline
+    return
+}
+
+# Everything the build starts (cmake, MSBuild, the compilers, the game for the pictures) ends with this window.
+[void](Enter-BuildJob)
 Initialize-BuildConsole $languagePreference -Plain:$Plain
 
 function Show-BuilderRelease([string]$Python, [string]$PlayFolder) {
@@ -235,7 +276,7 @@ try {
     else { Write-Host ('  ' + (Get-BuildText 'build_mode')) }
     Write-BuildHeading (Get-BuildText 'system_check')
     if ($env:OS -ne 'Windows_NT') { throw (Get-BuildText 'windows_only') }
-    if ($TransactionalUpdate -and (-not $DistDirectory -or $DistDirectory -eq 'default' -or $Fresh -or $CheckOnly)) {
+    if ($TransactionalUpdate -and (-not $PSBoundParameters['DistDirectory'] -or -not $DistDirectory -or $Fresh -or $CheckOnly)) {
         throw 'Automatic rebuild needs the registered play folder and the existing prepared build.'
     }
 
@@ -295,22 +336,7 @@ try {
     Write-BuildValue (Get-BuildText 'build_disk') (Get-BuildText 'disk_free' @($freeGb, $drive.Name))
     Write-Verbose "Python: $python | Node.js: $($node.Source) | Visual Studio: $vs"
 
-    # Compiler memory: up to about 2 GB per process (1.3 GB on the largest generated files, 1.9 GB on a VU1 AOT slice);
-    # a second MSBuild project only runs when there is room for both sets. Sizing: Get-BuildParallelism (Build-Policy.ps1).
-    # The CPU choice (installer page or -Cores / -Priority) is remembered so "Rebuild Drakan" keeps it.
-    if ($Cores -lt 0) { $Cores = if ($saved -and $null -ne $saved.cores) { [int]$saved.cores } else { 0 } }
-    if (-not $Priority) { $Priority = if ($saved -and $saved.priority) { [string]$saved.priority } else { 'Normal' } }
-    if (-not $VuBlocks) { $VuBlocks = if ($saved -and $saved.vuBlocks) { [string]$saved.vuBlocks } else { 'Chunked' } }
     $wholeVu = $VuBlocks -eq 'Whole'
-    if (-not $PSBoundParameters.ContainsKey('CpuAffinity')) {
-        $CpuAffinity = if ($saved -and $saved.cpuAffinity) { [string]$saved.cpuAffinity } else { '' }
-    }
-    if ($CpuAffinity -eq 'default') { $CpuAffinity = '' }
-    if (-not $DistDirectory -and $saved -and $saved.playFolder) { $DistDirectory = [string]$saved.playFolder }
-    if ($DistDirectory -eq 'default') { $DistDirectory = '' }
-    # The play folder (drakan.exe, saves, settings) is asked for once on the first interactive run; the setup passes
-    # -DistDirectory from its own folder page. Only an answered question is remembered, so -CheckOnly does not skip it.
-    $playKnown = $PSBoundParameters.ContainsKey('DistDirectory') -or [bool]($saved -and $saved.PSObject.Properties['playFolder'])
     Write-BuildHeading (Get-BuildText 'game_files')
     if (-not $playKnown -and [Environment]::UserInteractive -and -not $CheckOnly) {
         $defaultPlay = Join-Path $RepoRoot 'dist\DrakanPC'
@@ -325,13 +351,6 @@ try {
         }
         $playKnown = $true
     }
-    # Optional extras. A remembered key (even an empty one) means the question was answered before.
-    $extrasKnown = [bool]($saved -and $saved.PSObject.Properties['ootfSource'])
-    if (-not $PSBoundParameters.ContainsKey('OotfSource') -and $extrasKnown) { $OotfSource = [string]$saved.ootfSource }
-    if ($OotfSource -eq 'none') { $OotfSource = '' }
-    if (-not $OotfSubtitles) { $OotfSubtitles = if ($saved -and $saved.ootfSubtitles -eq 'generate') { 'generate' } else { 'bundled' } }
-    if (-not $HdTextures) { $HdTextures = if ($saved -and $saved.hdTextures) { 'on' } else { 'auto' } }
-    if ($HdGpu -eq -2) { $HdGpu = if ($saved -and $null -ne $saved.hdGpu) { [int]$saved.hdGpu } else { -1 } }
     if ($DistDirectory) {
         $DistDirectory = [IO.Path]::GetFullPath($DistDirectory)
         $inside = { param($Path, $Parent) $Path -eq $Parent -or $Path.StartsWith($Parent.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) }
@@ -367,19 +386,9 @@ try {
     }
     if ($CpuAffinity) { Resolve-BuildAffinity $CpuAffinity | Out-Null }
     $textureSource = Find-BuildTextureDirectory $RepoRoot $playShown $TextureDirectory
-    New-Item -ItemType Directory -Force -Path (Split-Path $optionsFile) | Out-Null
-    $saveOptions = {
-        $options = @{ cores = $Cores; priority = $Priority; cpuAffinity = $CpuAffinity; vuBlocks = $VuBlocks; hdGpu = $HdGpu }
-        if ($playKnown) { $options.playFolder = $DistDirectory }
-        # Only answered questions are remembered, so a run that never got to ask still asks the next time.
-        if ($extrasKnown) { $options.ootfSource = $OotfSource; $options.ootfSubtitles = $OotfSubtitles }
-        $options.hdTextures = ($HdTextures -eq 'on')
-        if ($languagePreference) { $options.language = $languagePreference }
-        $options | ConvertTo-Json | Set-Content -LiteralPath $optionsFile
-    }
-    if ($extrasKnown -or $PSBoundParameters.ContainsKey('OotfSource')) { $extrasKnown = $true }
     if (-not $TransactionalUpdate) { & $saveOptions }
 
+    # Large generated files and VU1 slices need up to about 2 GB per compiler process.
     $logicalCores = [Environment]::ProcessorCount
     # The compilers only run on the mask's processors, so size the build for those, not for the whole CPU.
     $usableCores = Get-BuildAffinityCount $CpuAffinity $logicalCores
@@ -398,14 +407,10 @@ try {
         Write-Warning (Get-BuildText 'ram_low')
     }
 
-    $rememberedIso = Join-Path $RepoRoot 'build/iso-path.txt'
     if (-not $IsoPath -and (Test-Path -LiteralPath $rememberedIso -PathType Leaf)) {
         $previous = (Get-Content -LiteralPath $rememberedIso -Raw).Trim()
         if (Test-Path -LiteralPath $previous -PathType Leaf) {
-            Write-BuildValue (Get-BuildText 'previous_disc') $previous
-            if ($TransactionalUpdate -or (Read-Host (Get-BuildText 'use_disc')) -notmatch '^\s*n') {
-                $IsoPath = $previous
-            }
+            $IsoPath = $previous
         }
     }
     if ($TransactionalUpdate -and -not $IsoPath) {
@@ -431,7 +436,7 @@ try {
 
     # NVIDIA DLSS is opt-in: the SDK is downloaded from NVIDIA only after its licence is accepted.
     $dlssSdk = Join-Path $RepoRoot 'tools/dlss/dlss_sdk/include/nvsdk_ngx.h'
-    if (-not ($CheckOnly -or $TransactionalUpdate -or $NoNvidia -or $EnableDlss) -and
+    if (-not ($CheckOnly -or $TransactionalUpdate -or $NoNvidia -or $dlssKnown) -and
         -not (Test-Path -LiteralPath $dlssSdk -PathType Leaf)) {
         $nvidiaGpu = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
             Where-Object { $_.PNPDeviceID -match 'VEN_10DE' }).Count -gt 0
@@ -441,7 +446,9 @@ try {
             Write-Host ('  ' + (Get-BuildText 'dlss_terms'))
             Write-BuildValue (Get-BuildText 'licence') "https://github.com/$($lock.repository)/blob/$($lock.tag)/LICENSE.txt"
             $answer = Read-Host (Get-BuildText 'dlss_prompt')
-            if ($answer.Trim().ToLowerInvariant() -in (Get-BuildText 'yes').Split(',')) { $EnableDlss = $true }
+            $EnableDlss = $answer.Trim().ToLowerInvariant() -in (Get-BuildText 'yes').Split(',')
+            $dlssKnown = $true
+            & $saveOptions
         }
     }
 

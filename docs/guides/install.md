@@ -99,6 +99,8 @@ Drakan** from Start to recover the play folder.
 
 Use **Rebuild Drakan** in the Start menu for a Setup installation or run `Build-Drakan.cmd` for a ZIP installation. Both commands build the version already in the builder folder. If the builder finds a newer release, it can show you the release link. Follow the update steps above to install that version.
 
+Setup saves your ISO, play folder and build options when it installs the builder, even if you skip **Build the game now**. Rebuild uses the saved selections and asks for the ISO if it can no longer find the file. To choose a different ISO, run `Build-Drakan.cmd -IsoPath "D:\Games\Drakan.iso"` from the builder folder.
+
 The builder checks each step's files on disk and can show a prompt like this:
 
 ```text

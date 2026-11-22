@@ -127,14 +127,20 @@ class BuilderKitTests(unittest.TestCase):
                 (raylib / name).write_bytes(b"x")
             ffmpeg = temp / "ffmpeg-win64.zip"
             ffmpeg.write_bytes(b"PK")
-            lock = {"raylib": {"url": "u", "commit": "c"}, "ffmpeg": {"url": "https://x/ffmpeg-win64.zip"}}
+            fflate = temp / "fflate-0.8.3.tgz"
+            fflate.write_bytes(b"tgz")
+            lock = {
+                "raylib": {"url": "u", "commit": "c"},
+                "ffmpeg": {"url": "https://x/ffmpeg-win64.zip"},
+                "hd": {"fflate": {"url": "https://x/fflate-0.8.3.tgz"}},
+            }
             entries = {"Build-Drakan.cmd": b"@echo off", kit.INSTALLER_LOCK: json.dumps(lock).encode()}
             out = temp / "out"
             out.mkdir()
             with (
                 mock.patch.object(kit, "build_compiler", return_value=compiler),
                 mock.patch.object(kit, "fetch_raylib", return_value=raylib),
-                mock.patch.object(kit, "download", return_value=ffmpeg),
+                mock.patch.object(kit, "download", side_effect=[ffmpeg, fflate]),
             ):
                 path = kit.build_zip(entries, "0123456789abcdef", out, "K")
             with zipfile.ZipFile(path) as archive:
@@ -149,6 +155,7 @@ class BuilderKitTests(unittest.TestCase):
                     "K/deps/raylib/CMakeLists.txt",
                     "K/deps/raylib/LICENSE",
                     "K/deps/ffmpeg-win64.zip",
+                    "K/deps/fflate-0.8.3.tgz",
                 },
             )
             # Build-Drakan.ps1 skips its Git check when exactly these two are present.

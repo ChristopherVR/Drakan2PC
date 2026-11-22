@@ -30,6 +30,7 @@ Attribution details and source commits are in [THIRD_PARTY.md](THIRD_PARTY.md).
 | ELFIO, toml11, fmt, libdwarf, Rabbitizer (recompiler) | Their own licences (MIT / BSD / LGPL), pinned in `scripts/buildtool/toolchain.lock.json` |
 | raylib | zlib |
 | FFmpeg prebuilt libraries | LGPL-2.1-or-later |
+| fflate (Order of the Flame converter, bundled in the builder kits) | MIT |
 | NVIDIA DLSS SDK (optional, opt-in) | [NVIDIA RTX SDKs License](https://github.com/NVIDIA/DLSS/blob/v310.9.16/LICENSE.txt), accepted by the player before download |
 | Microsoft Visual Studio Build Tools (installer only) | [Microsoft licence terms](https://visualstudio.microsoft.com/license-terms/) |
 | PowerShell, Python (bundled by the installer) | MIT, PSF License |

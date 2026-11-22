@@ -237,7 +237,7 @@ interactive run and remembers the answer and the HD generation choice in `build/
   `build/ootf/ps2/data`). `editor/scripts/ootf-convert.ts --campaign 1` writes `build/ootf/mods/ootf-levels.zip` (23
   levels, with `--hd` also the lossless texture sources) plus a `mods.ini`; this runs **before** the game build, which
   installs the folder through `Build-LocalGame.ps1 -ModDirectory` and pictures its maps. The converter needs only Node
-  and the pinned `fflate` (no `npm install`): `extras.py` unpacks it into `editor/node_modules` and writes one
+  and the pinned `fflate`. Setup and the ZIP kit carry its archive. `extras.py` verifies it, unpacks it into `editor/node_modules` and writes one
   re-exporting stub per editor workspace package. The campaign's cover picture (`scripts/buildtool/kit/art/ootf-cover.png`, tracked, SHA-pinned in the repository guard) is passed as
   `--cover`, so the pack ships `previews/campaign-ootf.png` and `background-ootf.png`. A rebuild converts again only when the source, the ISO, the cover, the converter
   code (`KIT-VERSION.txt` or the Git revision) or the need for HD sources changed (`build/ootf/convert-state.json`). A
@@ -275,7 +275,7 @@ interactive run and remembers the answer and the HD generation choice in `build/
   the conversion wrote with `--hd` (the PC pixels before the converter quantised or resized them; the 64 px ground tiles go
   through the upscaler twice to reach the disc ground's density), and redoes once the images an older build made from the
   8 bpp or resized picture. numpy, Pillow (cp312 wheels for the pinned
-  Python), Real-ESRGAN v0.2.5.0 and `fflate` are fetched on demand, never bundled, pinned by SHA-256 in
+  Python) and Real-ESRGAN v0.2.5.0 are fetched on demand, pinned by SHA-256 in
   `scripts/buildtool/kit/installer.lock.json` (`hd`), and refused when a hash differs. A TLS failure in Python falls back
   to `curl.exe` / PowerShell; the hash is still checked. A Python that already has numpy and Pillow is used as it is.
   The upscale ends with a refit of every image to its source (colour drift, lost grain, soft alpha planes; CPU only,

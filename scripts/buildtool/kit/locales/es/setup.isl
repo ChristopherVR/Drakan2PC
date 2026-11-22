@@ -1,4 +1,5 @@
 [CustomMessages]
+SaveBuildChoicesFailed=El instalador no pudo guardar las opciones de compilación. Comprueba que la carpeta de compilación permite la escritura y ejecuta el instalador de nuevo.
 BuildNow=Compilar el juego ahora (una o dos horas). Puede abrirse brevemente para capturar imágenes de mapas que falten.
 RebuildShortcut=Recompilar Drakan
 PlayShortcut=Carpeta del juego Drakan

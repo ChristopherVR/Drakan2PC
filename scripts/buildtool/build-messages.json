@@ -811,13 +811,6 @@
     "fr": "Compilation précédente",
     "it": "Compilazione precedente"
   },
-  "previous_disc": {
-    "de": "Vorherige Disc",
-    "en": "Previous disc",
-    "es": "Disco anterior",
-    "fr": "Disque précédent",
-    "it": "Disco precedente"
-  },
   "priority_low": {
     "de": "niedrig",
     "en": "low",
@@ -1216,13 +1209,6 @@
     "es": "Herramientas",
     "fr": "Outils",
     "it": "Strumenti"
-  },
-  "use_disc": {
-    "de": "Dieses Disc-Abbild verwenden? [J/n]",
-    "en": "Use this disc image? [Y/n]",
-    "es": "¿Usar esta imagen de disco? [S/n]",
-    "fr": "Utiliser cette image disque ? [O/n]",
-    "it": "Usare questa immagine disco? [S/n]"
   },
   "vu_mode": {
     "de": "VU1-Modus",

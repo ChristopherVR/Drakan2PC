@@ -39,7 +39,7 @@
     }
   },
   "hd": {
-    "comment": "Optional extras (scripts/buildtool/extras.py): fetched on demand, never bundled. The NumPy and Pillow wheels are selected by the Windows CPython ABI. Real-ESRGAN is the v0.2.5.0 ncnn Vulkan release. fflate is the converter's only third-party package.",
+    "comment": "Optional extras (scripts/buildtool/extras.py). The converter's fflate archive is bundled in the kits. NumPy, Pillow and Real-ESRGAN are fetched on demand. Wheels are selected by Windows CPython ABI.",
     "python_wheels": {
       "cp311-win_amd64": {
         "numpy": {

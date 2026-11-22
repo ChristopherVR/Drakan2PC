@@ -303,6 +303,60 @@ class CheckOnlyTests(unittest.TestCase):
             self.assertNotIn("Git on PATH", output)
             self.assertIn("Ready to build.", output)
 
+    def test_setup_choices_are_saved_before_the_first_build_and_reused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp).resolve()
+            copy = self.kit_copy(temp, bundled=True)
+            script = copy / "scripts/buildtool/Build-Drakan.ps1"
+            play = temp / "Gämes & saves (%USERPROFILE%!)"
+            iso = synthetic_iso(temp)
+            replacement = temp / "Replacement disc.iso"
+            shutil.copyfile(iso, replacement)
+            env = dict(os.environ, PATH=str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"])
+            setup = subprocess.run(
+                [
+                    PWSH,
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(script),
+                    "-SaveSetupChoices",
+                    "-IsoPath",
+                    str(iso),
+                    "-DistDirectory",
+                    str(play),
+                    "-OotfSource",
+                    "none",
+                    "-EnableDlss:$false",
+                    "-Cores",
+                    "2",
+                    "-Language",
+                    "en",
+                ],
+                capture_output=True,
+                encoding="utf-8",
+                timeout=30,
+                env=env,
+            )
+            self.assertEqual(setup.returncode, 0, setup.stdout + setup.stderr)
+            self.assertFalse((copy / "build-log.txt").exists())
+            self.assertEqual((copy / "build/iso-path.txt").read_text(encoding="utf-8"), str(iso))
+            options = json.loads((copy / "build/build-options.json").read_text(encoding="utf-8"))
+            self.assertEqual(options["playFolder"], str(play))
+            self.assertEqual(options["ootfSource"], "")
+            self.assertIs(options["enableDlss"], False)
+            self.assertEqual(options["cores"], 2)
+
+            result = pwsh(f"& {quote(script)} -CheckOnly", env=env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stdout, r"Play folder +" + re.escape(str(play)))
+            self.assertRegex(result.stdout, r"Disc image +" + re.escape(str(iso)))
+
+            result = pwsh(f"& {quote(script)} -CheckOnly -IsoPath {quote(replacement)} -DistDirectory default", env=env)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertRegex(result.stdout, r"Play folder +" + re.escape(str(copy / "dist/DrakanPC")))
+            self.assertRegex(result.stdout, r"Disc image +" + re.escape(str(replacement)))
+
     def test_hd_plan_reuses_a_local_pack_by_default_and_accepts_an_explicit_pack(self):
         with tempfile.TemporaryDirectory() as temp:
             temp = Path(temp).resolve()

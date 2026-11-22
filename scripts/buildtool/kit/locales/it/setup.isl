@@ -1,4 +1,5 @@
 [CustomMessages]
+SaveBuildChoicesFailed=Il programma di installazione non è riuscito a salvare le opzioni di compilazione. Verifica di poter scrivere nella cartella del builder ed esegui di nuovo l’installazione.
 BuildNow=Compila il gioco ora (una o due ore). Il gioco può aprirsi brevemente per acquisire le immagini mancanti.
 RebuildShortcut=Ricompila Drakan
 PlayShortcut=Cartella di gioco di Drakan
