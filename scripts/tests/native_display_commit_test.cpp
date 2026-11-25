@@ -251,7 +251,7 @@ std::string FakeBackend::rayTracingStatus() const {
 bool FakeBackend::captureLastGameplay(Image&, float&) {
     return false;
 }
-bool writePng(const char*, const Image&) {
+bool writePng(const std::filesystem::path&, const Image&) {
     return false;
 }
 } // namespace gsr

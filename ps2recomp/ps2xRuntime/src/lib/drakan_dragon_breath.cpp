@@ -206,15 +206,15 @@ bool canBreakUpWartok() {
 
 bool isWartok(uint32_t resource) {
     switch (resource) {
-    case 0x50000u | 4251u: // Chain center
-    case 0x50000u | 5067u: // Plate center
-    case 0x50000u | 5174u: // Leather center
-    case 0x50000u | 5784u: // Chain flank
-    case 0x50000u | 5786u: // Leather flank
-    case 0x50000u | 5788u: // Plate flank
-        return true;
-    default:
-        return false;
+        case 0x50000u | 4251u: // Chain center
+        case 0x50000u | 5067u: // Plate center
+        case 0x50000u | 5174u: // Leather center
+        case 0x50000u | 5784u: // Chain flank
+        case 0x50000u | 5786u: // Leather flank
+        case 0x50000u | 5788u: // Plate flank
+            return true;
+        default:
+            return false;
     }
 }
 
@@ -230,7 +230,8 @@ void queueFlameBreakup(const uint8_t* ram, const R5900Context* c) {
     const uint32_t source = actorResource(ram, getRegU32(c, 20));
     if (rd32(ram, source) != kFlameBurnEffect || rd32(ram, source + 8u) != kBurnEffectClass)
         return;
-    const uint32_t actor = rd32(ram, data + kNpcActor), record = actorResource(ram, actor), resource = rd32(ram, record);
+    const uint32_t actor = rd32(ram, data + kNpcActor), record = actorResource(ram, actor),
+                   resource = rd32(ram, record);
     if (isWartok(resource) && rd32(ram, record + 8u) == kWartokClass && dataOf(ram, actor) == data &&
         g_breakups.size() < 16)
         g_breakups.push_back({actor, data, resource, rd16(ram, actor + 0x12u)});
@@ -287,8 +288,7 @@ void finishBreakup(uint8_t* ram, R5900Context* c, PS2Runtime*) {
     SET_GPR_U32(c, 29, sp + kFrame);
     SET_GPR_U32(c, 31, ra);
     c->pc = ra;
-    const Breakup victim{rd32(ram, sp + 0x44u), rd32(ram, sp + 0x48u), rd32(ram, sp + 0x4cu),
-                        rd16(ram, sp + 0x50u)};
+    const Breakup victim{rd32(ram, sp + 0x44u), rd32(ram, sp + 0x48u), rd32(ram, sp + 0x4cu), rd16(ram, sp + 0x50u)};
     const bool generated = getRegU32(c, 2) || (g_breakupContext == c && g_breakupSpawnedPiece);
     g_breakupContext = nullptr;
     g_breakupSpawnedPiece = false;
