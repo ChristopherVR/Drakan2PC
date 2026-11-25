@@ -263,3 +263,19 @@ inside the spider cave. Waveform matching against the game PC's stereo output
 recording measured -24.64 dBFS RMS for the summon and -30.09 dBFS RMS for the
 refusal, about 6 dB above the earlier recordings. The matched speech was
 present in the final mix sent to the audio device.
+
+## Far-bank water flicker
+
+A denser 1280 x 828 replay walked forward and turned from the earlier mounted
+cave save. After releasing W, it requested screenshots at 17 ms intervals.
+A strip of visible blue water by the far bank disappeared and returned over
+successive screenshots. Arokh's wing stayed clear of the affected strip. The
+largest connected strip covered about 520 pixels with original water. The
+Modern Water replay with DXR reflections showed the same pattern. Both runs
+captured 210 screenshots after releasing W.
+
+A separate draw capture near this camera angle found blended water and opaque
+terrain within two GS depth units of each other at a shoreline sample. The
+existing water depth adjustment kept that sample stable. That capture missed
+the visible flash, so the depth relationship during the dropout still needs
+to be confirmed before changing the renderer.
