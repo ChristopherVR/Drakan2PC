@@ -232,3 +232,34 @@ the previous rebuild, which was used for the axe and slider checks. Both new
 fixes still need deployment and gameplay verification. The separate cave-water
 flicker remains open. The mounted replays did not isolate a water dropout apart
 from scenery and wing occlusion.
+
+## Rebuilt player replays
+
+The resumed Windows Ninja build linked and deployed through `Build-LocalGame.ps1`.
+The executable SHA-256 is `87F5FFFBB8723FFAFC1D338A79D1D4921B3C23DE45BDD28EBCB7BFBB31933F75`.
+The original campaign pack and quicksave matched their earlier checksums.
+
+The secondary flame replay created all four stock Wartok pieces, then called
+the native actor disable routine on the original body. The separate primary
+fire replay while reversing suppressed the near-camera burst, ring and
+shrapnel on two impacts. The primary fireball still followed the native
+projectile path. Both replays exited normally.
+
+The mounted entrance replay captured 46 frames in each 3840 x 2160 mode.
+The earlier native control had a discontinuity along 1,615 pixels of the last
+column in one frame. The corrected native replay and the corrected DLSS
+Quality and Modern Water replay showed no sustained one-column discontinuity.
+
+For the separate flicker report, the mounted approach and hold at the lower
+bank captured 96 settled frames per mode at 1280 x 828. In the native replay,
+the largest apparent loss of water color was frame 83, where Arokh's wing
+crossed the foreground. The other detected flashes comprised isolated pixels
+or groups of seven pixels or fewer. With Modern Water and ray-traced
+reflections, the largest connected change in the same comparison was one
+pixel. A separate dropout in the water surface remains unreproduced.
+
+Holding E on foot played the stock summon in the open canyon and the refusal
+inside the spider cave. Waveform matching against the game PC's stereo output
+recording measured -24.64 dBFS RMS for the summon and -30.09 dBFS RMS for the
+refusal, about 6 dB above the earlier recordings. The matched speech was
+present in the final mix sent to the audio device.
