@@ -32,6 +32,10 @@ bool replaceFile(const std::filesystem::path& from, const std::filesystem::path&
 std::mutex mutex;
 gsr::Renderer* renderer = nullptr;
 std::atomic<uint64_t> revision{0};
+bool captureGameplay(gsr::Image& image, float& aspect) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return renderer && renderer->captureLastGameplay(image, aspect) && image && std::isfinite(aspect) && aspect > 0;
+}
 uint64_t fingerprint(const std::filesystem::path& path) {
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
@@ -57,18 +61,15 @@ void written(const std::filesystem::path& path) {
         return;
     gsr::Image source;
     float aspect = 4.0f / 3.0f;
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (!renderer || !renderer->captureLastGameplay(source, aspect))
-            return;
-    }
+    if (!captureGameplay(source, aspect))
+        return;
     const uint64_t key = fingerprint(path);
-    if (!key || !source || !std::isfinite(aspect) || aspect <= 0)
+    if (!key)
         return;
     // The retail thumbnail aperture is 168x96 on the 4:3 GUI. Fit rather
     // than stretch the gameplay view into that physical aperture.
     constexpr unsigned size = 1024;
-    constexpr float aperture = 7.0f / 3.0f;
+    constexpr float aperture = kLegacyApertureAspect;
     const float fitX = std::min(1.0f, aspect / aperture), fitY = std::min(1.0f, aperture / aspect);
     const unsigned width = std::max(1u, unsigned(size * fitX)), height = std::max(1u, unsigned(size * fitY));
     const unsigned left = (size - width) / 2, top = (size - height) / 2;
@@ -100,7 +101,7 @@ void written(const std::filesystem::path& path) {
         }
     const auto output = std::filesystem::path(path.string() + "." + keyName(key) + ".preview.png");
     const auto temporary = std::filesystem::path(output.string() + ".tmp.png");
-    if (gsr::writePng(temporary.string().c_str(), preview) && replaceFile(temporary, output)) {
+    if (gsr::writePng(temporary, preview) && replaceFile(temporary, output)) {
         ++revision;
         std::fprintf(stderr, "[save-preview] saved 1024x1024 companion for %s (source %ux%u)\n",
                      path.filename().string().c_str(), source.width, source.height);
@@ -123,6 +124,28 @@ void written(const std::filesystem::path& path) {
     }
 }
 } // namespace
+bool writeGameplayScreenshot(const std::filesystem::path& path) {
+    gsr::Image source;
+    float aspect = 0;
+    if (!captureGameplay(source, aspect))
+        return false;
+    // The scanout has non-square pixels. Match the gameplay display aspect in the exported PNG.
+    gsr::Image screenshot;
+    screenshot.width = std::min(source.width, 1920u);
+    screenshot.height = static_cast<unsigned>(std::clamp(std::round(screenshot.width / aspect), 1.0f, 2160.0f));
+    screenshot.rgba.resize(size_t(screenshot.width) * screenshot.height * 4);
+    for (unsigned y = 0; y < screenshot.height; ++y)
+        for (unsigned x = 0; x < screenshot.width; ++x) {
+            const size_t sy = uint64_t(y) * source.height / screenshot.height;
+            const size_t sx = uint64_t(x) * source.width / screenshot.width;
+            const auto* src = source.rgba.data() + (sy * source.width + sx) * 4;
+            auto* dst = screenshot.rgba.data() + (size_t(y) * screenshot.width + x) * 4;
+            std::copy_n(src, 3, dst);
+            dst[3] = 255;
+        }
+    return gsr::writePng(path, screenshot);
+}
+
 void attach(gsr::Renderer* value) {
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -174,6 +197,9 @@ void registerSlot(int slot, const std::vector<uint32_t>& nativePixels) {
 } // namespace drakan_save_previews
 #else
 namespace drakan_save_previews {
+bool writeGameplayScreenshot(const std::filesystem::path&) {
+    return false;
+}
 void attach(gsr::Renderer*) {}
 uint64_t generation() {
     return 0;

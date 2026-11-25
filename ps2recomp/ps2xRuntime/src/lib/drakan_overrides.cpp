@@ -53,6 +53,7 @@
 #include "drakan_settings_host.h"
 #include "drakan_subtitles.h"
 #include "drakan_clip_subtitles.h"
+#include "drakan_audio_mix.h"
 #include "drakan_fpsmeter.h"
 #include "drakan_menus.h"
 #include "drakan_save_guard.h"
@@ -135,6 +136,16 @@ std::atomic<bool> g_drakanMovieSeen{
     false}; // the memory card warning was dismissed and the logo was requested or bypassed
 uint32_t g_drakanWrite4[8] = {};
 std::atomic<uint32_t> g_drakanWrite4Next{0};
+
+namespace drakan_audio_mix {
+namespace {
+std::atomic<int> voiceVolume{100}, effectsVolume{100};
+}
+void setVolumes(int voices, int effects) {
+    voiceVolume.store(std::clamp(voices, 0, 100), std::memory_order_relaxed);
+    effectsVolume.store(std::clamp(effects, 0, 100), std::memory_order_relaxed);
+}
+} // namespace drakan_audio_mix
 
 namespace {
 // EE addresses in SCES_500.06 (see docs/reference/iop-and-io.md section 4).
@@ -1446,6 +1457,7 @@ void installTraceHooks(PS2Runtime& rt, const std::vector<uint32_t>& addrs, std::
 //   [setgain] the gain the instance finally got (FUN_001e5470); gain=0 for a sound inside its range was the sqrt.s bug
 PS2Runtime::RecompiledFunction g_playSoundOrig = nullptr, g_gainOrig = nullptr, g_setGainOrig = nullptr;
 std::atomic<int> g_playSoundLog{0}, g_gainLog{0}, g_setGainLog{0};
+bool g_soundDebug = false;
 
 inline uint32_t sdbgRd32(uint8_t* rdram, uint32_t a) {
     uint32_t v = 0;
@@ -1499,25 +1511,53 @@ void soundDebugGainHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
     g_gainOrig(rdram, ctx, rt);
 }
 
-void soundDebugSetGainHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
+void soundSetGainHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
     const uint32_t inst = getRegU32(ctx, 4);
-    if (g_setGainLog.fetch_add(1) < 3000)
+    if (g_soundDebug && g_setGainLog.fetch_add(1) < 3000)
         std::fprintf(stderr, "[setgain %.3f] inst=%x id=%x gain=%g voice=%d\n", nowS(), inst,
                      sdbgRd32(rdram, inst + 0xc), ctx->f[12], static_cast<int32_t>(sdbgRd32(rdram, inst + 0x78)));
+    using namespace drakan_audio_mix;
+    const int voices = voiceVolume.load(std::memory_order_relaxed),
+              effects = effectsVolume.load(std::memory_order_relaxed);
+    if (ctx->pc == 0x1e5470u && inst >= 0x100000u) {
+        const uint32_t id = sdbgRd32(rdram, inst + 0xc);
+        const bool call = isArokhCall(id);
+        if (call && drakan_game::current() == drakan_game::Game::Ootf)
+            ctx->f[12] = arokhCallGain(ctx->f[12]);
+        if (voices != 100 || effects != 100) {
+            const uint32_t desc = sdbgRd32(rdram, inst + 0x10);
+            if (desc >= 0x100000u && sdbgRd32(rdram, desc) == id) {
+                const uint32_t category = sdbgRd32(rdram, desc + 0x3c);
+                if (category != 2 && category != 4) {
+                    // The converter adds lip tracks to effects as well as dialogue. Identify its dialogue by text.
+                    const bool speech =
+                        call || category == 3 || sdbgRd32(rdram, desc + 0x50) != 0 ||
+                        (drakan_game::current() == drakan_game::Game::Drakan && sdbgRd32(rdram, desc + 0x68) != 0);
+                    ctx->f[12] *= (speech ? voices : effects) / 100.0f;
+                }
+            }
+        }
+    }
     g_setGainOrig(rdram, ctx, rt);
 }
 
 void soundDebugInstall(PS2Runtime& rt) {
     const char* e = std::getenv("DRAKAN_SND_DBG");
-    if (!e || e[0] != '1')
+    g_soundDebug = e && e[0] == '1';
+    if constexpr (drakan_region::build().identityAddresses) {
+        drakan_audio_mix::setVolumes(drakan_cfg::getInt("audio", "voice_volume", nullptr, 100),
+                                     drakan_cfg::getInt("audio", "effects_volume", nullptr, 100));
+        g_setGainOrig = rt.lookupFunction(0x1e5470u);
+        if (g_setGainOrig)
+            rt.replaceFunction(0x1e5470u, &soundSetGainHook);
+    }
+    if (!g_soundDebug)
         return;
     struct Hook {
         uint32_t addr;
         PS2Runtime::RecompiledFunction* orig;
         PS2Runtime::RecompiledFunction hook;
-    } hooks[] = {{0x1b7f30u, &g_playSoundOrig, &soundDebugPlayHook},
-                 {0x1b1cf8u, &g_gainOrig, &soundDebugGainHook},
-                 {0x1e5470u, &g_setGainOrig, &soundDebugSetGainHook}};
+    } hooks[] = {{0x1b7f30u, &g_playSoundOrig, &soundDebugPlayHook}, {0x1b1cf8u, &g_gainOrig, &soundDebugGainHook}};
     for (const Hook& h : hooks) {
         *h.orig = rt.lookupFunction(h.addr);
         if (*h.orig)

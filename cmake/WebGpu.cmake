@@ -1,41 +1,54 @@
 # The one webgpu.h implementation per target (docs/proposals/webgpu-renderer.md):
-#   Windows x64 / Linux x64   pinned wgpu-native release (Vulkan, with D3D12 / GL fallbacks), shipped beside the player
+#   Windows x64 / Linux x64   wgpu-native SDK (Vulkan, with D3D12 / GL fallbacks), shipped beside the player
 #   Emscripten                the browser's WebGPU through Emscripten's emdawnwebgpu port
 # Consumers link drakan_webgpu_sdk privately; drakan_stage_webgpu(<target>) copies the native runtime next to it.
 include_guard(GLOBAL)
 
 set(DRAKAN_WEBGPU_AVAILABLE OFF)
-set(DRAKAN_WGPU_VERSION "v29.0.1.1")
 add_library(drakan_webgpu_sdk INTERFACE)
+
+set(_drakan_webgpu_default OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(_drakan_webgpu_default ON)
+endif()
+option(DRAKAN_NATIVE_WEBGPU "Use native WebGPU. Windows also supports a D3D11-only build" ${_drakan_webgpu_default})
+set(DRAKAN_WGPU_ROOT "$ENV{DRAKAN_WGPU_ROOT}" CACHE PATH "Extracted wgpu-native SDK with include/ and lib/")
 
 if(EMSCRIPTEN)
   target_compile_options(drakan_webgpu_sdk INTERFACE "--use-port=emdawnwebgpu")
   target_link_options(drakan_webgpu_sdk INTERFACE "--use-port=emdawnwebgpu")
   set(DRAKAN_WEBGPU_AVAILABLE ON)
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+elseif((DRAKAN_NATIVE_WEBGPU OR DRAKAN_WGPU_ROOT) AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND
+       (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
   if(WIN32)
     set(_drakan_wgpu_archive "wgpu-windows-x86_64-msvc-release.zip")
-    set(_drakan_wgpu_sha256 "7e67d7445c42aeb85e30f88930fd8d7d83ee769e3390aeb1ada75ebf3cf78132")
+    set(_drakan_wgpu_library "wgpu_native.dll")
   else()
     set(_drakan_wgpu_archive "wgpu-linux-x86_64-release.zip")
-    set(_drakan_wgpu_sha256 "95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a")
+    set(_drakan_wgpu_library "libwgpu_native.so")
   endif()
-  include(FetchContent)
-  FetchContent_Declare(drakan_wgpu
-    URL "https://github.com/gfx-rs/wgpu-native/releases/download/${DRAKAN_WGPU_VERSION}/${_drakan_wgpu_archive}"
-    URL_HASH SHA256=${_drakan_wgpu_sha256})
-  FetchContent_GetProperties(drakan_wgpu)
-  if(NOT drakan_wgpu_POPULATED)
-    FetchContent_Populate(drakan_wgpu)
+  if(DRAKAN_WGPU_ROOT)
+    set(drakan_wgpu_SOURCE_DIR "${DRAKAN_WGPU_ROOT}")
+  else()
+    include(FetchContent)
+    FetchContent_Declare(drakan_wgpu
+      URL "https://github.com/gfx-rs/wgpu-native/releases/latest/download/${_drakan_wgpu_archive}")
+    FetchContent_MakeAvailable(drakan_wgpu)
+  endif()
+  if(NOT EXISTS "${drakan_wgpu_SOURCE_DIR}/include/webgpu/webgpu.h" OR
+     NOT EXISTS "${drakan_wgpu_SOURCE_DIR}/include/webgpu/wgpu.h" OR
+     NOT EXISTS "${drakan_wgpu_SOURCE_DIR}/lib/${_drakan_wgpu_library}" OR
+     (WIN32 AND NOT EXISTS "${drakan_wgpu_SOURCE_DIR}/lib/wgpu_native.dll.lib"))
+    message(FATAL_ERROR "Native WebGPU needs an extracted wgpu-native SDK. Set DRAKAN_WGPU_ROOT to a complete SDK.")
   endif()
   add_library(drakan_wgpu_native SHARED IMPORTED GLOBAL)
+  set_target_properties(drakan_wgpu_native PROPERTIES
+    IMPORTED_LOCATION "${drakan_wgpu_SOURCE_DIR}/lib/${_drakan_wgpu_library}")
   if(WIN32)
     set_target_properties(drakan_wgpu_native PROPERTIES
-      IMPORTED_LOCATION "${drakan_wgpu_SOURCE_DIR}/lib/wgpu_native.dll"
       IMPORTED_IMPLIB "${drakan_wgpu_SOURCE_DIR}/lib/wgpu_native.dll.lib")
   else()
-    set_target_properties(drakan_wgpu_native PROPERTIES
-      IMPORTED_LOCATION "${drakan_wgpu_SOURCE_DIR}/lib/libwgpu_native.so" IMPORTED_NO_SONAME TRUE)
+    set_target_properties(drakan_wgpu_native PROPERTIES IMPORTED_NO_SONAME TRUE)
     target_link_libraries(drakan_webgpu_sdk INTERFACE ${CMAKE_DL_LIBS} m)
   endif()
   target_include_directories(drakan_webgpu_sdk INTERFACE "${drakan_wgpu_SOURCE_DIR}/include")
@@ -59,7 +72,7 @@ elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$" AND (WIN32 OR CMA
   endif()
 endif()
 
-# Ship the pinned native runtime and its licences beside an executable (origin-relative search path on Linux), and on
+# Ship the native runtime and its licences beside an executable (origin-relative search path on Linux), and on
 # Windows the Windows SDK's DXC.
 function(drakan_stage_webgpu target)
   if(NOT TARGET drakan_wgpu_native)

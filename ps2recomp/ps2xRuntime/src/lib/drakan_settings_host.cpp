@@ -1322,7 +1322,7 @@ void updatePreviewTextures() {
         t.hdShown = true;
         t.uv0 = ImVec2(float(r.x0) / r.img.width, float(r.y0) / r.img.height);
         t.uv1 = ImVec2(float(r.x1) / r.img.width, float(r.y1) / r.img.height);
-        t.w = float(r.x1 - r.x0);
+        t.w = float(r.x1 - r.x0) * drakan_save_previews::kLegacyApertureAspect;
         t.h = float(r.y1 - r.y0);
     }
 }

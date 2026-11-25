@@ -301,6 +301,8 @@ const Entry kEntries[] = {
 
     {"audio", "enabled", "1", "0 = no sound output (the SPU2 is still emulated silently) (env DRAKAN_AUDIO)"},
     {"audio", "volume", "100", "master volume in percent, 0..200 (env DRAKAN_VOLUME)"},
+    {"audio", "voice_volume", "100", "dialogue volume in percent, 0..100"},
+    {"audio", "effects_volume", "100", "sound effects volume in percent, 0..100"},
     {"audio", "device", "default",
      "default = follow the Windows default output device (also when it changes), or part of a device name, e.g. "
      "Speakers (env DRAKAN_AUDIO_DEVICE)"},

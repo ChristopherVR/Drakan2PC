@@ -329,14 +329,21 @@ compilation). The game is never launched and nothing is uploaded.
 
 ### Renderer
 
-Every platform renders the GS through the shared WebGPU renderer (Windows: Vulkan, D3D12 fallback; Linux: Vulkan, GL
-fallback; `DRAKAN_GPU_BACKEND=vulkan|dx12|gl` overrides), and the build stages `wgpu_native.dll` beside `drakan.exe`.
-On Windows it also stages `dxcompiler.dll` and `dxil.dll` from the newest Windows SDK (or `-DDRAKAN_DXC_RUNTIME_DIR=`):
+Windows builds use Direct3D 11 by default and can build without downloading the WebGPU SDK. To add the shared WebGPU
+renderer, configure CMake with `-DDRAKAN_NATIVE_WEBGPU=ON` to fetch the latest wgpu-native release, or set
+`-DDRAKAN_WGPU_ROOT=<extracted SDK>` to build offline. The `DRAKAN_WGPU_ROOT` environment variable also sets that path
+when configuring a new build folder. Linux builds enable native WebGPU by default. The browser uses its own WebGPU
+implementation. Native WebGPU uses Vulkan with a D3D12 fallback on Windows and a GL fallback on Linux.
+`DRAKAN_GPU_BACKEND=vulkan|dx12|gl` overrides that choice.
+
+With WebGPU enabled, the Windows build stages `wgpu_native.dll` beside `drakan.exe`. It also stages `dxcompiler.dll`
+and `dxil.dll` from the newest Windows SDK (or `-DDRAKAN_DXC_RUNTIME_DIR=`):
 D3D12 then compiles WGSL with DXC. Without them wgpu falls back to FXC, which hangs on the ray tracing shader, so
 WebGPU ray tracing reports itself unavailable on D3D12 (Vulkan is unaffected).
-The Windows game also contains the Direct3D 11 renderer for DLSS, neural rendering and hardware (DXR) ray tracing:
+The Direct3D 11 renderer supports DLSS, neural rendering and hardware (DXR) ray tracing:
 choose it under PC Settings > Display > Renderer (applied after a restart), with `renderer = d3d11` under `[video]` in
-`drakan.ini`, or with `PS2X_GS=d3d11`. `renderer = webgpu` is the default and `renderer = sw` selects the software GS.
+`drakan.ini`, or with `PS2X_GS=d3d11`. `renderer = webgpu` uses WebGPU when built in, and `renderer = sw` selects the
+software GS.
 `renderer = vulkan` (PC Settings > Display > Renderer > Vulkan, `PS2X_GS=vulkan`) is the WebGPU renderer held to Vulkan,
 on Windows and Linux: no Direct3D 12 or OpenGL adapter is considered, and when Vulkan cannot start the log says
 `[gsr-webgpu] Vulkan is not available (...)` and the automatic choice runs instead. The `[gpu] device: <adapter> via
@@ -391,6 +398,13 @@ it does not select physical cores or processors across groups. MSBuild node reus
 is disabled while the mask is active, and the caller's affinity and node-reuse
 setting are restored on success or failure. New build descendants inherit the mask.
 Linux and WSL/browser builds retain their defaults and reject this Windows option.
+
+From an x64 MSVC developer shell with Ninja on `PATH`, pass `-WindowsNinja` to
+`Build-LocalGame.ps1` to use Ninja for the Windows player build. It uses the
+Windows SDK and compiler from the shell and keeps its CMake files in
+`WORKDIR/runtime-build-ninja`. `-Compiler` and `-DependencyDirectory` can point to
+the translator and runtime dependencies from an installed builder kit for an
+offline build.
 
 ### The `dist/DrakanPC` play folder
 

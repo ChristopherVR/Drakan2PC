@@ -13,6 +13,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <string_view>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
@@ -1977,6 +1978,38 @@ static bool isPlainReadContainer(const std::string& name) {
     // rebuild the file.
     return up.size() > 4 && (up.compare(up.size() - 4, 4, ".LVL") == 0 || up.compare(up.size() - 4, 4, ".ODB") == 0);
 }
+
+// Use the model's visible face in the inventory while keeping the campaign pack's class IDs and save compatibility.
+static void orientOotfInventoryPreview(std::vector<u8>& data) {
+    constexpr size_t kRflClass = 80;
+    constexpr size_t kFieldCount = 86;
+    constexpr size_t kFields = 94;
+    constexpr size_t kSpecifyAxes = kFields + 6 * 4;
+    constexpr size_t kUpAxis = kFields + 7 * 4;
+    constexpr size_t kSideAxis = kFields + 8 * 4;
+    if (data.size() < 2)
+        return;
+    const size_t nameSize = rd16(data.data());
+    const size_t bodyStart = 2 + nameSize;
+    if (data.size() < bodyStart + kSideAxis + 4)
+        return;
+    std::string_view name(reinterpret_cast<const char*>(data.data() + 2), nameSize);
+    while (!name.empty() && name.back() == '\0')
+        name.remove_suffix(1);
+    u8* body = data.data() + bodyStart;
+    if (rd32(body + kFieldCount) < 9 || rd32(body + kSideAxis) != 0)
+        return;
+    const auto model = rd16(body + 2), type = rd16(body + kRflClass);
+    const auto specify = rd32(body + kSpecifyAxes), up = rd32(body + kUpAxis);
+    if (name == "Long Bow" && model == 5259 && type == 79 && specify == 0 && up == 2) {
+        body[kSpecifyAxes] = 1;
+        body[kUpAxis] = 1; // Y-up, X-side
+    } else if (name == "Rune of Stone" && model == 7656 && type == 33 && specify == 1 && up == 1) {
+        body[kUpAxis] = 0;
+        body[kSideAxis] = 1; // X-up, Y-side
+    }
+}
+
 static bool srscIndexOf(const std::vector<u8>& b, std::vector<SrscEntry>& out) {
     if (b.size() < 16 || memcmp(b.data(), "SRSC", 4) != 0)
         return false;
@@ -2257,6 +2290,8 @@ size_t ModManager::installFiles(IsoFs& fsys) {
             logf("mods: %s: cannot read %s", src.modId.c_str(), src.path.c_str());
             continue;
         }
+        if (src.modId == "ootf-levels" && k.file == "RESOURES.ODB" && p.type == 0x0102)
+            orientOotfInventoryPreview(p.data);
         byFile[k.file].push_back({src.modIndex, 1, std::move(p)});
     }
     for (auto& [file, items] : byFile) {

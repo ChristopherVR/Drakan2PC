@@ -12,6 +12,10 @@
 
 namespace drakan_issue {
 
+struct SystemDetails {
+    std::string os, cpu, ram, gpu;
+};
+
 inline std::string compactContext(std::string_view value) {
     constexpr size_t kMaxBytes = 96;
     if (value.size() > kMaxBytes) {
@@ -47,7 +51,8 @@ inline void appendQuery(std::string& url, std::string_view field, std::string_vi
 }
 
 inline std::string formUrl(bool crash, std::string_view platform, std::string_view screen = {},
-                           std::string_view campaign = {}, std::string_view level = {}) {
+                           std::string_view campaign = {}, std::string_view level = {},
+                           const SystemDetails& system = {}) {
     std::string url = "https://github.com/ChristopherVR/Drakan2PC/issues/new?template=";
     url += crash ? "crash-report.yml" : "bug-report.yml";
     const std::string location = compactContext(level);
@@ -71,6 +76,10 @@ inline std::string formUrl(bool crash, std::string_view platform, std::string_vi
     describe("Screen: ", screenName);
     describe("Campaign: ", compactContext(campaign));
     describe("Location: ", location);
+    describe("OS: ", compactContext(system.os));
+    describe("CPU: ", compactContext(system.cpu));
+    describe("RAM: ", compactContext(system.ram));
+    describe("GPU: ", compactContext(system.gpu));
     appendQuery(url, "environment", environment);
     return url;
 }

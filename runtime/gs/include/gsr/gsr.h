@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -475,7 +476,7 @@ bool registerRuntimeOverlay(uint64_t hash, const uint32_t* original, uint32_t w,
 void requestWindowShot(const std::string& path);
 
 // Image helpers (tests / tools)
-bool writePng(const char* path, const Image& img);
+bool writePng(const std::filesystem::path& path, const Image& img);
 bool writeBmp(const char* path, const Image& img);
 // Reads a .png (or .dds) into tightly packed RGBA8 (alpha 0..255), e.g. a save's HD preview companion.
 bool readImage(const char* path, Image& img);

@@ -450,7 +450,7 @@ endif()
 if(WIN32)
     target_sources(ps2_runtime PRIVATE src/lib/drakan_config_win.cpp src/lib/drakan_update_win.cpp
                                        src/lib/drakan_update_installer_win.cpp)
-    target_link_libraries(ps2_runtime PRIVATE shell32 ole32 winhttp advapi32 bcrypt version uuid)
+    target_link_libraries(ps2_runtime PRIVATE shell32 ole32 winhttp advapi32 bcrypt version uuid dxgi)
 else()
     target_sources(ps2_runtime PRIVATE src/lib/drakan_config_posix.cpp)
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

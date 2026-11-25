@@ -222,7 +222,9 @@ In the modern pause and title menus there is no separate PC Settings row any mor
 screen with the PC settings categories (Display, Audio, Controls, Gameplay, Key Bindings) and the game's own seven
 options folded into the matching pages (`PauseConfig::unifiedOptions`, `runtime/gameui/include/gameui/UnifiedOptions.h`):
 Audio starts with a "Game sound" section (Game volume = the native Master Volume, Music volume, Show subtitles, Stereo
-sound) above the PC output rows (the PC master volume reads "Output volume" there), Controls with a "Game controller"
+sound). Dragging either native volume slider previews the numeric value and applies it on release. The PAL build
+also offers Voice volume and Effects volume for the game's dialogue and gameplay sounds. The PC master volume reads
+"Output volume" and scales the whole mix. Controls starts with a "Game controller"
 section (Control scheme A / B / C, Vibration, Reverse pitch) above the mouse / keyboard / gamepad rows; Key Bindings
 are their own tabs. The game's rows apply through the native screens as before (the hidden Options 9 is entered with
 the screen, Audio 13 / Controller 10 while their page is shown) and are saved by the game (`drakan_native_options.ini`,

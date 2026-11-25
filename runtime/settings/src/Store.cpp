@@ -598,6 +598,8 @@ const std::vector<Field>& fields() {
 
         {"audio", "enabled", false, GETB(audio.enabled), SETB(audio.enabled), nullptr},
         {"audio", "volume", false, GETI(audio.volume), SETI(audio.volume), nullptr},
+        {"audio", "voice_volume", false, GETI(audio.voiceVolume), SETI(audio.voiceVolume), nullptr},
+        {"audio", "effects_volume", false, GETI(audio.effectsVolume), SETI(audio.effectsVolume), nullptr},
         {"audio", "device", false, GETS(audio.device),
          [](Settings& s, const std::string& v) { s.audio.device = trim(v); }, nullptr},
 
@@ -943,6 +945,8 @@ std::string settingLabel(const std::string& key) {
         {"subtitles.size", "Subtitle size"},
         {"audio.enabled", "Sound"},
         {"audio.volume", "Master volume"},
+        {"audio.voice_volume", "Voice volume"},
+        {"audio.effects_volume", "Effects volume"},
         {"audio.device", "Output device"},
         {"general.skip_memcard_warning", "Skip memory card warning"},
         {"general.skip_intro_videos", "Skip intro videos"},

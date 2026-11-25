@@ -98,6 +98,18 @@
       }
     },
     {
+      "name": "game-ninja",
+      "displayName": "Windows / Ninja with MSVC x64 environment: drakan.exe",
+      "inherits": "game",
+      "generator": "Ninja",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "binaryDir": "${sourceDir}/build/final-game/runtime-build-ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TRY_COMPILE_CONFIGURATION": "Release"
+      }
+    },
+    {
       "name": "runtime-check",
       "displayName": "Windows / MSVC: compile drakan.exe's runtime sources (no link, no game data, no recompiler output; downloads raylib and FFmpeg)",
       "inherits": "game",

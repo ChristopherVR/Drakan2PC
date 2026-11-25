@@ -568,7 +568,12 @@ bool GameUiRenderer::image(ImDrawList* dl, const DrawCmd& c, const GameUiCanvas&
             if (!icons || !icons(c.image, crop) || !crop.texture || !(crop.w > 0 && crop.h > 0) || r.w <= 0 || r.h <= 0)
                 return false;
             ImVec2 uv0 = crop.uv0, uv1 = crop.uv1;
-            if (!crop.stretch) {
+            Rect picture = r;
+            if (c.image.kind == ImageKind::SavePreview) {
+                const float scale = std::min(r.w / crop.w, r.h / crop.h);
+                const float w = crop.w * scale, h = crop.h * scale;
+                picture = {r.cx() - w * 0.5f, r.cy() - h * 0.5f, w, h};
+            } else if (!crop.stretch) {
                 const float ca = crop.w / crop.h, ra = r.w / r.h;
                 if (ca > ra) { // wider than the rect: trim the sides
                     const float k = ra / ca, cu = (uv0.x + uv1.x) * 0.5f, hu = (uv1.x - uv0.x) * 0.5f * k;
@@ -580,7 +585,7 @@ bool GameUiRenderer::image(ImDrawList* dl, const DrawCmd& c, const GameUiCanvas&
                     uv1.y = cv + hv;
                 }
             }
-            const ImVec2 p0(snap(r.x), snap(r.y)), p1(snap(r.right()), snap(r.bottom()));
+            const ImVec2 p0(snap(picture.x), snap(picture.y)), p1(snap(picture.right()), snap(picture.bottom()));
             const ImU32 tint = col(c.color, fade);
             dl->AddImage(crop.texture, p0, p1, uv0, uv1, tint);
             return true;

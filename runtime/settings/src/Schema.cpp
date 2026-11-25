@@ -567,10 +567,16 @@ void audioPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& env
     const AudioSettings& a = st.audio;
     pg.id = "audio";
     pg.title = "Audio";
-    pg.description = "Sound output, the master volume of the whole mix and the output device.";
-    pg.note = "Music and sound effect volume have separate sliders in the game's own Options > Audio screen. This "
-              "menu only sets the master level of the whole mix.";
+    pg.description = "Voice and effects levels, the whole mix and the output device.";
     Builder b{st};
+    pg.sections.push_back({"Sound mix", {}});
+    b.sec = &pg.sections.back();
+    b.slider("audio.voice_volume", "Voice volume", "Spoken dialogue level.", static_cast<float>(a.voiceVolume), 0.0f,
+             100.0f, "%d%%", 5.0f, a.enabled)
+        .integer = true;
+    b.slider("audio.effects_volume", "Effects volume", "Gameplay effects and ambient sounds.",
+             static_cast<float>(a.effectsVolume), 0.0f, 100.0f, "%d%%", 5.0f, a.enabled)
+        .integer = true;
     pg.sections.push_back({"Output", {}});
     b.sec = &pg.sections.back();
     b.toggle("audio.enabled", "Sound",

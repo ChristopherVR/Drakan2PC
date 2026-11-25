@@ -917,17 +917,24 @@ std::unique_ptr<GsrBridge> GsrBridge::create(void* parentHwnd, GSRegisters* priv
         cfg.hdTextureKeepSeconds = (uint32_t)std::max(0, drakan_cfg::getInt("video", "hd_texture_keep_s", nullptr, 60));
         cfg.hdTextureMips = drakan_cfg::getBool("video", "hd_texture_mips", nullptr, true);
     }
-    { // [video] renderer: d3d11 picks the Direct3D 11 backend (Windows builds have both); anything else is WebGPU,
-        // on the named graphics API (vulkan, d3d12, opengl) or on its automatic choice
-        const std::string api = drakan_cfg::getString("video", "renderer", "PS2X_GS", "webgpu");
+    { // A D3D11-only build can still open a play folder whose settings request WebGPU.
+        const bool haveWebGpu = gsr::backendAvailable(gsr::Config::Api::WebGpu);
+        const char* defaultApi = haveWebGpu ? "webgpu" : "d3d11";
+        const std::string api = drakan_cfg::getString("video", "renderer", "PS2X_GS", defaultApi);
         const gsr::RendererChoice choice = gsr::parseRendererChoice(api);
         if (!choice.known)
-            std::fprintf(stderr, "[gsr] unknown renderer '%s': using the default (webgpu)\n", api.c_str());
+            std::fprintf(stderr, "[gsr] unknown renderer '%s': using the default (%s)\n", api.c_str(), defaultApi);
         cfg.api = choice.api;
         cfg.gpuApi = choice.gpuApi;
-        if (choice.gpuApi != gsr::Config::GpuApi::Auto)
+        if (!haveWebGpu) {
+            if (choice.known && choice.api == gsr::Config::Api::WebGpu)
+                std::fprintf(stderr, "[gsr] renderer '%s' needs WebGPU: using Direct3D 11\n", api.c_str());
+            cfg.api = gsr::Config::Api::D3D11;
+            cfg.gpuApi = gsr::Config::GpuApi::Auto;
+        } else if (choice.gpuApi != gsr::Config::GpuApi::Auto) {
             std::fprintf(stderr, "[gsr] renderer '%s': the WebGPU renderer is asked for %s\n", api.c_str(),
                          gsr::gpuApiName(choice.gpuApi));
+        }
     }
     { // How the previous session ended may move this start to another renderer once (gsr/renderer_session.h).
         const bool haveD3D11 = gsr::backendAvailable(gsr::Config::Api::D3D11);

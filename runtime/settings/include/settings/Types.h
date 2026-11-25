@@ -102,6 +102,7 @@ struct VideoSettings {
 struct AudioSettings {
     bool enabled = true;
     int volume = 100;               // percent, 0..200
+    int voiceVolume = 100, effectsVolume = 100; // percent, 0..100
     std::string device = "default"; // "default" or part of a device name
     bool operator==(const AudioSettings&) const = default;
 };

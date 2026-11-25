@@ -472,8 +472,41 @@ void hookViewPanel(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     g_origViewPanel(ram, c, rt);
 }
 void hookViewHints(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc == 0x431a10u && invViewDrawingAny())
-        return invViewSkip(c);
+    if (c->pc == 0x431a10u) {
+        if (invViewDrawingAny())
+            return invViewSkip(c);
+        // Equipment builds its hint text in the caller's stack, with 256 bytes reserved at sp+0x10.
+        // Use the menu binding here because the shared Triangle glyph depicts the gameplay binding.
+        constexpr uint32_t kEquipmentHintsReturn = 0x4335e0u, kHintBufferSize = 0x100u;
+        if (getRegU32(c, 31) == kEquipmentHintsReturn) {
+            static const bool keyboardPrompts = [] {
+                if (const char* enabled = std::getenv("DRAKAN_UI_PROMPTS"))
+                    return std::atoi(enabled) != 0;
+                const std::string mode = drakan_cfg::getString("general", "ui_prompts", nullptr, "keyboard");
+                return mode == "keyboard";
+            }();
+            const uint32_t text = getRegU32(c, 5) & 0x1fffffffu;
+            const uint32_t stack = getRegU32(c, 29) & 0x1fffffffu;
+            if (keyboardPrompts && text == stack + 0x10u && text >= 0x100000u &&
+                text <= PS2_RAM_SIZE - kHintBufferSize) {
+                const auto& bindings = module().config().menu;
+                const auto drop = std::find_if(bindings.begin(), bindings.end(), [](const drakan_input::Binding& b) {
+                    return b.src == drakan_input::Binding::Key && b.act == drakan_input::Binding::PadBtn &&
+                           (b.value & drakan_input::Pad::TRIANGLE);
+                });
+                const char* key = drop == bindings.end() ? nullptr : drakan_input::nameOfKey(drop->code);
+                char* const hint = reinterpret_cast<char*>(ram + text);
+                auto* end = static_cast<char*>(std::memchr(hint, 0, kHintBufferSize));
+                if (auto* glyph = end && key ? std::find(hint, end, '\x1a') : end; glyph && glyph != end) {
+                    const std::string label = std::string("[") + key + "] ";
+                    if (static_cast<size_t>(end - hint) + label.size() <= kHintBufferSize) {
+                        std::memmove(glyph + label.size(), glyph + 1, end - glyph);
+                        std::memcpy(glyph, label.data(), label.size());
+                    }
+                }
+            }
+        }
+    }
     g_origViewHints(ram, c, rt);
 }
 void hookViewGold(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {

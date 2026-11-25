@@ -10,7 +10,9 @@ issue #21 without suppressing missing guest callback failures or changing saved 
 production stub with a small guest-memory fixture and checks overlapping names, return values, write receipts and
 memory boundaries. A Windows PAL gameplay replay entered the Lair through Surdana's native exit, made a manual
 save, and restored that slot through both Continue and Load Game in fresh processes, with gameplay resuming and
-the full level name intact. Exact reporter-save and Steam Deck verification remain outstanding; see
+the full level name intact. Docker Ubuntu 24.04 with glibc 2.39 and llvmpipe Vulkan also restored that manual
+slot through both routes on pre-fix `d378ca10` and patched `100647b9`, with gameplay, movement and clean exits.
+The original crash did not reproduce in that comparison. Exact reporter-save and Steam Deck verification remain outstanding; see
 [investigation notes](../journal/2026-11-23/issue-21-save-level-name.md).
 
 ## Quick save / quick load (2026-10-25)

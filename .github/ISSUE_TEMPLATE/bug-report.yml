@@ -28,5 +28,5 @@ body:
   - type: textarea
     id: attachments
     attributes:
-      label: Log and screenshots
-      description: Use Report an Issue in the game to capture a session log. Review it for personal information before attaching it here. Screenshots are welcome.
+      label: Report ZIP, log and screenshots
+      description: Use Report an Issue in the game to capture a session log. On Windows you can also include save slots and a gameplay screenshot in a ZIP. Review the files before attaching them here.

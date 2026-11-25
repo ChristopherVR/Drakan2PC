@@ -79,3 +79,35 @@ over Continue or Load Game before clicking, and the logs confirm the chosen acti
 
 These are Windows PAL checks with newly generated private saves. The reporter's attachment was not replayed and
 Linux/Steam Deck remains untested locally; the host-overlap regression covers the portable implementation directly.
+
+## Docker Linux comparison
+
+Replayed `d378ca10f707c4259449691e65acf44456d29aeb` and
+`100647b9e0c7f08e21d52283da8958d9da9ead2c` in Ubuntu 24.04.5 Docker, glibc 2.39,
+Clang 18.1.3, Xvfb and WebGPU/Vulkan on Mesa llvmpipe. Both builds used the standard
+ISO builder and its `build/final-game` work directory, with the pinned formats submodule
+`3ab82d367d3db2585c83d3dfe158298565777f23`. Runs launched from `dist/DrakanPC-linux`.
+
+All four final runs used fresh copies of `build/harness/issue21-fixed-manual-final/card/mc0`.
+SHA-256 checks matched all twelve fixture files in each run and in the source afterward.
+Used `issue21-cold-continue-mouse.txt` and `issue21-cold-load-menu.txt`, adjusting only
+cursor Y positions for the Linux menu layout (165 to 182, 202 to 218). The test window
+was 640 x 360, internal scale 1, HD textures off and audio off. Logs confirm the intended
+Continue and LoadGame actions. Initial menu-coordinate attempts were discarded.
+
+| Build | Continue | Load Game |
+| --- | --- | --- |
+| `d378ca10` | Restore completed, gameplay and movement, exit 0 | Restore completed, gameplay and movement, exit 0 |
+| `100647b9` | Restore completed, gameplay and movement, exit 0 | Restore completed, gameplay and movement, exit 0 |
+
+Every final log retains the full Lair level name, reports `afterSaveRestore` and
+`gameplay=1`, and reaches script quit. Position logs show translation after W input,
+and captures show Rynn in the cave with the HUD. None logs a missing branch target or
+fatal unwind. The original crash therefore did not reproduce on this Docker setup,
+including the pre-fix build. This comparison verifies both builds load this manual
+save here. Steam Deck hardware and the reporter's attached save remain untested.
+
+Private evidence is under `build/harness/issue21-linux-docker`, with final run folders
+`d378ca10-{continue,load-game}` and `100647b9-{continue,load-game}`. Executable SHA-256 values
+are `ccab8c863a49005fe40a478cd6d58560865ecd6c806c8c1810b3d4616340c23f` for pre-fix and
+`fb4daaf5c8eaecceff77ec636502f713d3fb6f6b55ea8d238904ed2ea23a2abe` for patched.

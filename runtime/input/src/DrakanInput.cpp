@@ -1447,13 +1447,13 @@ void InputModule::afterPadMgrUpdate(IGuest& g) {
     }
 
     if (blocked) {
-        mm_.reset();
+        mm_.reset(&g);
         return;
     }
 
     // ---- mouse on the game's own menus (hover / click / wheel)
     if (!layerIsMenu_) {
-        mm_.reset();
+        mm_.reset(&g);
     } else if (cfg_.menuMouse) {
         MenuMouseAddrs a;
         a.activeScreenVar = cfg_.addrActiveScreenVar;

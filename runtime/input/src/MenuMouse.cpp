@@ -24,12 +24,16 @@ constexpr uint32_t kWNext = 0x04, kWPrev = 0x00;
 constexpr uint32_t kWFlags = 0x10; // 0x40 = focused / highlighted, 0x80 = pressed, 0x100 = group member
 constexpr uint32_t kWRect = 0x1c;  // s16 x, y, w, h
 constexpr uint32_t kWType = 0x0c;  // s16: 3 = button, 9 = slider ...
+constexpr uint32_t kWId = 0x14;
 constexpr uint32_t kWEnabledA = 0x3c, kWEnabledB = 0x40; // both must be non-zero for the widget to take part in input
 constexpr uint32_t kWDirty = 0x50;
 constexpr uint32_t kWVtbl = 0x54;
-} // namespace
+constexpr uint32_t kAudioScreen = 13, kAudioMaster = 0x2351, kAudioMusic = 0x2352;
+constexpr uint32_t kSliderMin = 0x7c, kSliderMax = 0x80, kSliderValue = 0x84, kSliderStep = 0x88;
+constexpr uint32_t kPostScreenMessage = 0x2bcf80;
 
-bool MenuMouse::mapToGui(const MenuMouseSample& s, const MenuView& v, int screenW, int screenH, int* gx, int* gy) {
+bool mapGuiPoint(const MenuMouseSample& s, const MenuView& v, int screenW, int screenH, int* gx, int* gy,
+                 bool clampToView) {
     float vx = 0, vy = 0, vw = s.clientW, vh = s.clientH;
     if (v.valid) {
         vx = v.x;
@@ -40,19 +44,25 @@ bool MenuMouse::mapToGui(const MenuMouseSample& s, const MenuView& v, int screen
     if (vw <= 0.0f || vh <= 0.0f || screenW <= 0 || screenH <= 0)
         return false;
     float u = (s.cx - vx) / vw;
-    const float w = (s.cy - vy) / vh;
+    float w = (s.cy - vy) / vh;
     if (v.valid && v.hudScaleX > 0.2f && v.hudScaleX < 0.999f)
         u = (u - v.hudAnchorX) / v.hudScaleX +
             v.hudAnchorX; // undo the sprite de-stretch of gsr (full-width rows reach the screen edges)
-    if (u < 0.0f || u >= 1.0f || w < 0.0f || w >= 1.0f)
+    if (clampToView) {
+        u = std::clamp(u, 0.0f, 1.0f);
+        w = std::clamp(w, 0.0f, 1.0f);
+    } else if (u < 0.0f || u >= 1.0f || w < 0.0f || w >= 1.0f)
         return false;
     *gx = static_cast<int>(u * static_cast<float>(screenW));
     *gy = static_cast<int>(w * static_cast<float>(screenH));
     return true;
 }
 
-// ---- guest helpers
-// --------------------------------------------------------------------------------------------------------------
+} // namespace
+
+bool MenuMouse::mapToGui(const MenuMouseSample& s, const MenuView& v, int screenW, int screenH, int* gx, int* gy) {
+    return mapGuiPoint(s, v, screenW, screenH, gx, gy, false);
+}
 
 namespace {
 // Virtual call on an object whose vtable pointer sits at obj + vtOfs: records are {s16 this-adjust, fn} at vt + slot -
@@ -75,24 +85,80 @@ bool makeVcall(IGuest& g, GuestCall& c, uint32_t obj, uint32_t vtOfs, uint32_t s
     return true;
 }
 
-// Centre of a horizontal slider's thumb in GUI units, from the same numbers the game's own press handler
-// (FUN_002c59e0) uses: widget +0x7c min, +0x80 max, +0x84 value, +0x88 page step (floats), rect x / width at +0x1c /
-// +0x20, plus the skin's track margins (0x4fb408 left, 0x4fb438 right) and minimum thumb length (0x4fb3f8). The native
-// press only pages left / right of the thumb; pressing on the thumb is what makes it follow the pointer.
-bool sliderThumbCenter(IGuest& g, uint32_t w, int* center) {
-    const float mn = g.readF(w + 0x7c), mx = g.readF(w + 0x80), cur = g.readF(w + 0x84), step = g.readF(w + 0x88);
-    const float range = mx - mn;
-    if (!(range > 0.0f))
+struct SliderTrack {
+    int start = 0, travel = 0;
+    float minimum = 0, maximum = 0;
+};
+
+struct VolumeArt {
+    int left = 0, width = 0, top = 0, bottom = 0;
+    int fillLeft = 0, fillWidth = 0;
+};
+
+bool isAudioVolume(IGuest& g, uint32_t screen, uint32_t widget) {
+    if (g.read32(screen + kScrId) != kAudioScreen || g.readS16(widget + kWType) != 9)
+        return false;
+    const auto id = g.read16(widget + kWId);
+    return id == kAudioMaster || id == kAudioMusic;
+}
+
+// The original Audio screen draws a filled bar over a centred skin sprite (2c5638's 0x1000 path).
+// The widget's rectangle spans the row, while the bar sprite extends below it.
+bool readVolumeArt(IGuest& g, uint32_t widget, VolumeArt& art) {
+    if ((g.read32(widget + kWFlags) & 0x5000u) != 0x1000u)
+        return false;
+    const int width = g.readS16(widget + kWRect + 4);
+    const auto baseWidth = g.read32(0x4fb3d8u), baseHeight = g.read32(0x4fb3dcu);
+    const auto backdropU = g.read32(0x4fb3d0u), fillU = g.read32(0x4fb3e0u), fillWidth = g.read32(0x4fb3e8u);
+    if (width <= 0 || !baseWidth || baseWidth > static_cast<unsigned>(width) || !baseHeight || baseHeight > 512 ||
+        fillU < backdropU || fillU - backdropU >= baseWidth || !fillWidth ||
+        fillWidth > baseWidth - (fillU - backdropU))
+        return false;
+    const int y = g.readS16(widget + kWRect + 2);
+    art.width = static_cast<int>(baseWidth);
+    art.left = g.readS16(widget + kWRect) + (width - art.width) / 2;
+    art.fillLeft = art.left + static_cast<int>(fillU - backdropU);
+    art.fillWidth = static_cast<int>(fillWidth);
+    art.top = y + 7;
+    art.bottom = y + 13 + static_cast<int>(baseHeight);
+    return true;
+}
+
+bool sliderTrack(IGuest& g, uint32_t w, SliderTrack& result) {
+    result.minimum = g.readF(w + kSliderMin);
+    result.maximum = g.readF(w + kSliderMax);
+    const float range = result.maximum - result.minimum;
+    if (!std::isfinite(range) || range <= 0)
+        return false;
+    VolumeArt art;
+    if (readVolumeArt(g, w, art)) {
+        result.start = art.fillLeft;
+        result.travel = art.fillWidth;
+        return true;
+    }
+    // Native horizontal thumb travel (2c59e0): the available width minus the thumb and the skin margins.
+    const float step = g.readF(w + kSliderStep);
+    if (!std::isfinite(step) || step < 0)
         return false;
     const int marginL = static_cast<int32_t>(g.read32(0x4fb408u)), marginR = static_cast<int32_t>(g.read32(0x4fb438u));
     const int minThumb = static_cast<int32_t>(g.read32(0x4fb3f8u));
     const int track = g.readS16(w + 0x20) - marginL - marginR;
     if (track <= 0)
         return false;
-    const int thumbLen = std::max(static_cast<int>(step / range * static_cast<float>(track)), minThumb);
-    const int travel = track - thumbLen;
-    const int left = g.readS16(w + 0x1c) + marginL + static_cast<int>((cur - mn) / range * static_cast<float>(travel));
-    *center = left + thumbLen / 2;
+    const int thumb = std::clamp(std::max(static_cast<int>(std::min(step / range, 1.0f) * track), minThumb), 0, track);
+    result.start = g.readS16(w + kWRect) + marginL + thumb / 2;
+    result.travel = track - thumb;
+    return result.travel > 0;
+}
+
+bool sliderThumbCenter(IGuest& g, uint32_t w, int* center) {
+    SliderTrack track;
+    const float current = g.readF(w + kSliderValue);
+    if (!sliderTrack(g, w, track) || !std::isfinite(current))
+        return false;
+    const float fraction =
+        (std::clamp(current, track.minimum, track.maximum) - track.minimum) / (track.maximum - track.minimum);
+    *center = track.start + static_cast<int>(fraction * track.travel);
     return true;
 }
 
@@ -174,8 +240,11 @@ uint32_t MenuMouse::hitTest(IGuest& g, uint32_t screen, int gx, int gy) const {
             return 0;
         const int x = g.readS16(w + kWRect), y = g.readS16(w + kWRect + 2), ww = g.readS16(w + kWRect + 4),
                   hh = g.readS16(w + kWRect + 6);
-        // same comparisons as FUN_002bc618: x <= px < x + w, y < py < y + h
-        if (gx >= x && gx < x + ww && gy > y && gy < y + hh && canFocus(g, w) && insideLabel(g, w, gx, x, ww))
+        VolumeArt art;
+        const bool filledBar = isAudioVolume(g, screen, w) && readVolumeArt(g, w, art);
+        const bool inside = filledBar ? gx >= art.left && gx < art.left + art.width && gy >= art.top && gy < art.bottom
+                                      : gx >= x && gx < x + ww && gy > y && gy < y + hh;
+        if (inside && canFocus(g, w) && insideLabel(g, w, gx, x, ww))
             return w;
         w = g.read32(w + kWPrev);
     }
@@ -254,7 +323,14 @@ void MenuMouse::setFocus(IGuest& g, uint32_t screen, uint32_t widget) {
     g.write32(widget + kWDirty, 1);
 }
 
-void MenuMouse::reset() {
+void MenuMouse::reset(IGuest* guest) {
+    if (guest && volumeDrag_.widget && volumeDrag_.phase != VolumeDrag::Posted &&
+        guest->read32(a_.activeScreenVar) == volumeDrag_.screen &&
+        isChild(*guest, volumeDrag_.screen, volumeDrag_.widget)) {
+        guest->writeF(volumeDrag_.widget + kSliderValue, volumeDrag_.initial);
+        guest->write32(volumeDrag_.widget + kWDirty, 1);
+    }
+    volumeDrag_ = {};
     pressActive_ = false;
     pressedWidget_ = 0;
     inventoryTarget_ = -1;
@@ -279,6 +355,51 @@ void MenuMouse::reset() {
     dbg_.mapHit = dbg_.mapTarget = -1;
     dbg_.mapAge = 100;
     resetContent();
+}
+
+bool MenuMouse::beginVolumeDrag(IGuest& g, uint32_t screen, uint32_t widget) {
+    if (!isAudioVolume(g, screen, widget))
+        return false;
+    const float initial = g.readF(widget + kSliderValue);
+    if (!std::isfinite(initial))
+        return false;
+    volumeDrag_ = {screen, widget, initial};
+    setFocus(g, screen, widget);
+    ++dbg_.presses;
+    return true;
+}
+
+void MenuMouse::updateVolumeDrag(IGuest& g, const MenuMouseSample& sample, const MenuView& view, int width,
+                                 int height) {
+    const uint32_t widget = volumeDrag_.widget;
+    if (!isChild(g, volumeDrag_.screen, widget)) {
+        volumeDrag_ = {};
+        return;
+    }
+    if (volumeDrag_.phase == VolumeDrag::Dragging) {
+        SliderTrack track;
+        int gx = 0, gy = 0;
+        if (sliderTrack(g, widget, track) && mapGuiPoint(sample, view, width, height, &gx, &gy, true)) {
+            const float fraction = std::clamp(static_cast<float>(gx - track.start) / track.travel, 0.0f, 1.0f);
+            const float value = std::lerp(track.minimum, track.maximum, fraction);
+            if (value != g.readF(widget + kSliderValue)) {
+                g.writeF(widget + kSliderValue, value);
+                g.write32(widget + kWDirty, 1);
+            }
+        }
+        if ((sample.released & MBTN_LEFT) || !(sample.down & MBTN_LEFT))
+            volumeDrag_.phase = VolumeDrag::Released;
+    }
+    if (volumeDrag_.phase != VolumeDrag::Released || g.postBusy())
+        return;
+    // The native handler applies the audible volume and saves its options. It can wait on audio resources.
+    if (g.readF(widget + kSliderValue) != volumeDrag_.initial) {
+        if (!g.post(GuestCall(kPostScreenMessage).arg(volumeDrag_.screen).arg(widget).arg(1)))
+            return;
+        volumeDrag_.phase = VolumeDrag::Posted;
+    } else
+        volumeDrag_ = {};
+    ++dbg_.releases;
 }
 
 void MenuMouse::setHotspotHandler(HotspotHandler h) {
@@ -1322,7 +1443,7 @@ MenuMouseResult MenuMouse::update(IGuest& g, const MenuMouseSample& s, const Men
     }
     screenId_.store(static_cast<int>(g.read32(scr + kScrId)));
     if (scr != screen_) {
-        reset(); // the screen changed: a press on the old one can no longer be released
+        reset(&g); // the screen changed: a press on the old one can no longer be released
         screen_ = scr;
     }
     pumpOps(g);
@@ -1343,7 +1464,7 @@ MenuMouseResult MenuMouse::update(IGuest& g, const MenuMouseSample& s, const Men
         s.focused && s.inside && everMoved_ &&
         (idleHideMs <= 0.0f || std::chrono::duration<float, std::milli>(now - lastMove_).count() < idleHideMs));
     if (!s.focused) {
-        reset();
+        reset(&g);
         return res;
     }
     // Pages without widgets that the game closes on a key: the full-screen text page (0x10) and the movies (0x1d /
@@ -1365,6 +1486,12 @@ MenuMouseResult MenuMouse::update(IGuest& g, const MenuMouseSample& s, const Men
     if (!validPtr(sc))
         return res;
     const int W = static_cast<int>(g.read32(sc + 0xf8)), H = static_cast<int>(g.read32(sc + 0xfc));
+    if (volumeDrag_.phase == VolumeDrag::Posted && !g.postBusy())
+        volumeDrag_ = {};
+    if (volumeDrag_.widget) {
+        updateVolumeDrag(g, s, view, W, H);
+        return res;
+    }
     int gx = 0, gy = 0;
     const bool inGui = mapToGui(s, view, W, H, &gx, &gy);
     dbg_.gx = inGui ? gx : -1;
@@ -1447,6 +1574,10 @@ MenuMouseResult MenuMouse::update(IGuest& g, const MenuMouseSample& s, const Men
     //      slider thumb grab), release = activation (message 1 to the screen handler) or end of a slider drag
     if ((s.pressed & MBTN_LEFT) && inGui) {
         if (hit) {
+            if (beginVolumeDrag(g, scr, hit)) {
+                updateVolumeDrag(g, s, view, W, H);
+                return res;
+            }
             setFocus(g, scr, hit);
             // Native radio activation can wait for its sound resource. Let the
             // ordinary pad dispatcher run it on the live guest context instead

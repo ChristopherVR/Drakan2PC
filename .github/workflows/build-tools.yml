@@ -70,7 +70,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $PSNativeCommandUseErrorActionPreference = $true
-          cmake --preset runtime-tests
+          cmake --preset runtime-tests -DDRAKAN_NATIVE_WEBGPU=ON
           cmake --build --preset runtime-tests --parallel 2
       - name: Test runtime libraries, renderer and policies (ctest; data-dependent tests skip)
         run: |

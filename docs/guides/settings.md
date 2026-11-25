@@ -66,7 +66,7 @@ Gameplay > Developer > **Developer debug menu** unlocks the game's own debug men
 
 ## Sound, language and subtitles
 
-PC Settings includes master volume and output-device selection where available. Language selects the matching text and voice tree from your disc and may require restarting.
+In **Options → Audio**, **Game volume** controls the native mix, **Music volume** controls the music, and **Output volume** scales the final mix. PAL builds also offer independent **Voice volume** and **Effects volume** controls. Language selects the matching text and voice tree from your disc and may require restarting.
 
 Gameplay dialogue uses the game's **Show Subtitles** option. **Narration subtitles** controls the added intro/outro SRT overlay, with an independent text-size setting. No narration text appears unless matching local SRT files are installed.
 

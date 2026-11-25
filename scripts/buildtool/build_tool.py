@@ -37,9 +37,16 @@ def digest(path):
 def fetch(spec, target):
     if not target.exists():
         run(["git", "init", target])
+    # A failed fetch can leave an initialized repository without a checkout. Retry it on the next build.
+    head = subprocess.run(
+        ["git", "-C", str(target), "rev-parse", "--verify", "--quiet", "HEAD"],
+        capture_output=True,
+        text=True,
+    )
+    if head.returncode == 1 and (target / ".git").is_dir():
         run(["git", "-C", target, "fetch", "--depth=1", spec["url"], spec["commit"]])
         run(["git", "-C", target, "checkout", "--detach", "FETCH_HEAD"])
-    if output(["git", "-C", target, "rev-parse", "HEAD"]) != spec["commit"]:
+    elif head.returncode != 0 or head.stdout.strip() != spec["commit"]:
         raise RuntimeError(f"Unexpected checkout at {target}; choose a fresh --work-dir")
 
 

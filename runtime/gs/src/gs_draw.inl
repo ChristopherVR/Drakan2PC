@@ -908,6 +908,18 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     // --- vertices: a writable copy (the HUD / menu maps below rewrite positions), handed to the GPU by endVertices
     std::optional<CpuProfile::Scope> uploadProfile(std::in_place, cpuProfile, CpuProfile::DrawVertexUpload);
     DrawVertex* const mapped = beginVertices(v, count);
+    // The guest clipper can truncate a vertex on the right plane into the final 12.4 subpixels.
+    // At high internal scales that can exclude a raster sample and expose the sky behind a wall.
+    const float rightEdge = static_cast<float>(rt->w);
+    constexpr float clipGuard = 2.0f / 16.0f;
+    if (engineWorldOpen && zte && ztst >= 2 && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && sx0 == 0 &&
+        sx1 + 1 == static_cast<int>(rt->w) && maxx >= rightEdge - clipGuard) {
+        for (uint32_t i = 0; i < count; ++i) {
+            float& x = mapped[i].x;
+            if (x >= rightEdge - clipGuard && x < rightEdge)
+                x = rightEdge;
+        }
+    }
     if (inventoryFontShadow) {
         // Native batching can combine colored foregrounds and black
         // shadows in the same draw. Classify complete glyph triangles.

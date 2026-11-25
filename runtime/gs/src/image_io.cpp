@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 
 namespace gsr {
 namespace {
@@ -51,7 +52,7 @@ void chunk(std::vector<uint8_t>& out, const char* type, const std::vector<uint8_
 }
 } // namespace
 
-bool writePng(const char* path, const Image& img) {
+bool writePng(const std::filesystem::path& path, const Image& img) {
     if (!img)
         return false;
     const size_t stride = size_t(img.width) * 3 + 1;
@@ -103,12 +104,10 @@ bool writePng(const char* path, const Image& img) {
     chunk(out, "IHDR", ihdr);
     chunk(out, "IDAT", z);
     chunk(out, "IEND", {});
-    FILE* f = std::fopen(path, "wb");
-    if (!f)
-        return false;
-    std::fwrite(out.data(), 1, out.size(), f);
-    std::fclose(f);
-    return true;
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
+    file.close();
+    return bool(file);
 }
 
 bool readImage(const char* path, Image& img) {

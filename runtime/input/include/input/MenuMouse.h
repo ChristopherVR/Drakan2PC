@@ -106,7 +106,7 @@ public:
     bool cursorVisible() const { return visible_.load(); }
     int activeScreenId() const { return screenId_.load(); } // -1 = none
     // Cancel a press in progress (overlay opened, window lost focus ...).
-    void reset();
+    void reset(IGuest* guest = nullptr);
 
     // ---- hotspots (EE thread) ----
     // The host publishes the rectangles of the active screen every frame (setHotspots); they are used while they are at
@@ -212,6 +212,8 @@ private:
     void playUiSound(IGuest& g, uint32_t property);
     bool isChild(IGuest& g, uint32_t screen, uint32_t widget) const;
     void mouseEvent(IGuest& g, uint32_t type, uint32_t button, int gx, int gy);
+    bool beginVolumeDrag(IGuest& g, uint32_t screen, uint32_t widget);
+    void updateVolumeDrag(IGuest& g, const MenuMouseSample& sample, const MenuView& view, int width, int height);
 
     MenuMouseResult updateInventory(IGuest& g, uint32_t scr, const MenuMouseSample& s, const MenuView& view,
                                     bool moved);
@@ -300,6 +302,12 @@ private:
     bool everMoved_ = false;
     uint32_t pressedWidget_ = 0; // widget that received the native press (0 = none)
     bool pressActive_ = false;
+    struct VolumeDrag {
+        enum Phase { Dragging, Released, Posted };
+        uint32_t screen = 0, widget = 0;
+        float initial = 0.0f;
+        Phase phase = Dragging;
+    } volumeDrag_;
     // Widget handlers that can wait for a sound resource (sliders, check boxes, selectors) run as posted guest calls,
     // strictly one after the other. The "captured widget" variable stays set until the release has actually run.
     std::deque<GuestCall> ops_;

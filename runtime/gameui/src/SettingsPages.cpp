@@ -700,7 +700,7 @@ void SettingsPages::change(const SettingRow& r, const std::string& value, Settin
     held_.erase(std::remove_if(held_.begin(), held_.end(), [&](const Held& h) { return h.key == r.key; }), held_.end());
     if (value != r.currentValue)
         held_.push_back({r.key, value, 0});
-    if (out.sound == UiSound::None)
+    if (final && out.sound == UiSound::None)
         out.sound = r.kind == SettingKind::Slider ? UiSound::Slider : UiSound::Toggle;
     if (r.confirm && final && !revert && card_ == SettingsCard::None) {
         keepKey_ = r.key;

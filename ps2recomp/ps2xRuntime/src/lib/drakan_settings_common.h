@@ -3,6 +3,7 @@
 // renderer and call applyCommonVideo() for the settings that do not depend on it.
 #pragma once
 #include "drakan_config.h"
+#include "drakan_audio_mix.h"
 #include "drakan_debug_menu.h"
 #include "drakan_issue.h"
 #include "drakan_dual_wield.h"
@@ -53,6 +54,8 @@ public:
         using drakan_region::Feature;
         using drakan_region::supports;
         c.promptStyle = supports(Feature::UiPrompts);
+        if (!drakan_region::build().identityAddresses || !supports(Feature::SoundDebug))
+            c.unavailableSettings.insert({"audio.voice_volume", "audio.effects_volume"});
         c.directMouseLook = supports(Feature::DirectMouseLook);
         auto require = [&](Feature feature, std::initializer_list<const char*> keys) {
             if (!supports(feature))
@@ -93,6 +96,7 @@ public:
     }
 
     dsettings::ApplyResult applyAudio(const dsettings::AudioSettings& n, const dsettings::AudioSettings& p) override {
+        drakan_audio_mix::setVolumes(n.voiceVolume, n.effectsVolume);
         if (spu2::AudioOutput* a = audio_.load()) {
             a->setMuted(!n.enabled);
             a->setMasterGain(std::max(0, n.volume) / 100.0f);

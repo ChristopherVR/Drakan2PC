@@ -949,6 +949,54 @@ static void filesTests(const fs::path& root, const DiscProfile& pal) {
         CHECK(f4.lookup("\\Common\\System\\SYSTEM.SDB", sn) && !sn.mem);
     }
 
+    // Existing OotF packs display both inventory models face-on without replacing a class or model.
+    {
+        const fs::path d2 = root / "disc_ootf_bow";
+        writeFile(d2 / "ENGLISH/COMMON/RESOURES/RESOURES.ODB", makeSrsc({}));
+        const fs::path mods = root / "mods_ootf_bow";
+        writeText(mods / "ootf-levels/mod.toml", toml("ootf-levels"));
+        std::vector<u8> bow(2 + 10 + 94 + 9 * 4, 0);
+        bow[0] = 10;
+        const std::string name = "Long Bow";
+        std::copy(name.begin(), name.end(), bow.begin() + 2);
+        constexpr size_t body = 12;
+        bow[body + 2] = 0x8B;
+        bow[body + 3] = 0x14;
+        bow[body + 80] = 79;
+        bow[body + 86] = 9;
+        constexpr size_t specifyAxes = body + 94 + 6 * 4;
+        constexpr size_t upAxis = body + 94 + 7 * 4;
+        bow[upAxis] = 2;
+        auto customBow = bow;
+        customBow[specifyAxes] = 1;
+        auto rune = bow;
+        const std::string runeName = "Rune of Stone";
+        rune.insert(rune.begin() + body, 4, 0);
+        rune[0] = 14;
+        std::copy(runeName.begin(), runeName.end(), rune.begin() + 2);
+        rune[body + 4 + 2] = 0xE8;
+        rune[body + 4 + 3] = 0x1D;
+        rune[body + 4 + 80] = 33;
+        rune[specifyAxes + 4] = rune[upAxis + 4] = 1;
+        writeFile(mods / "ootf-levels/new/RESOURES.ODB/0102_17394_6473.bin", bow);
+        writeFile(mods / "ootf-levels/new/RESOURES.ODB/0102_17395_6473.bin", customBow);
+        writeFile(mods / "ootf-levels/new/RESOURES.ODB/0102_17835_5921.bin", rune);
+        IsoFs bowDisc;
+        CHECK(bowDisc.openFolder(d2.string(), &err));
+        bowDisc.setLanguageRoot("\\English");
+        ModManager mm(pal);
+        CHECK(mm.load(mods.string(), {{"ootf-levels", true}}) == 1);
+        CHECK(mm.installFiles(bowDisc) == 1);
+        bow[specifyAxes] = bow[upAxis] = 1;
+        const std::string odbPath = "\\Common\\RESOURES\\RESOURES.ODB";
+        std::vector<u8> b;
+        CHECK(entryBytes(bowDisc, odbPath, 0x102, 17394, 6473, b) && b == bow);
+        CHECK(entryBytes(bowDisc, odbPath, 0x102, 17395, 6473, b) && b == customBow);
+        rune[upAxis + 4] = 0;
+        rune[upAxis + 8] = 1;
+        CHECK(entryBytes(bowDisc, odbPath, 0x102, 17835, 5921, b) && b == rune);
+    }
+
     // A pack level converted on the intro template names the intro's own database without a folder ("Level 0 - Intro"),
     // which the engine looks for next to the converted level. It is served there from the sibling level folder, in the
     // running language tree, with the pack's entry patches; the intro's .LVL and other folders are left alone.

@@ -556,6 +556,9 @@ void PauseScreen::splitUnified(std::vector<SettingsAction>& in, PauseFrameOutput
     for (SettingsAction& a : in) {
         if (a.kind == SettingsActionKind::Change) {
             if (const std::optional<PauseOption> o = gameOptionFromKey(a.key)) {
+                // Applying a native volume also previews its sound. Commit once at release.
+                if (!a.final && (*o == PauseOption::MasterVolume || *o == PauseOption::MusicVolume))
+                    continue;
                 char* end = nullptr;
                 const double v = std::strtod(a.value.c_str(), &end);
                 if (end != a.value.c_str())

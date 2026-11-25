@@ -7,8 +7,11 @@ Work is committed as **`7f4a650f1cd0ec3964ce5617a00f415e102dc234`** on branch `d
 
 **Report an Issue** is available in the modern title and pause menus and in the **F1 → Gameplay** overlay.
 On Windows it captures the session log in `%LOCALAPPDATA%\DrakanPC\reports`. The report is capped at 4 MiB of log text. Large logs
-retain the first 64 KiB for startup details and the most recent entries for the failure. Select **Yes** to open
-the folder and GitHub form. Players choose what to attach after reviewing the log for personal information.
+retain the first 64 KiB for startup details and the most recent entries for the failure. The log and the
+GitHub form include the Windows build, CPU, usable RAM and graphics adapters when available.
+Select **Yes** to prepare a ZIP with the log and open the report folder and GitHub form.
+Separate prompts let you add the active campaign's save slots and the last gameplay screenshot.
+Review the ZIP before attaching it to the issue. If ZIP creation fails, attach the standalone log from the same folder.
 
 A separate process watches the game and offers the crash form after an abnormal exit. It holds a read handle to
 that session's log so a restart or a second instance cannot substitute its own log. A clean quit or a normal

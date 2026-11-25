@@ -1687,7 +1687,51 @@ static void testMenuMouse() {
     g.busy = false;
     mm.update(g, sample(60, 275), view, 5000);
     CHECK(g.read32(0x4fb19c) == 0);
+    // Original Audio tracks update the thumb immediately. The screen receives a single commit after release,
+    // even if a pending guest call had the dispatcher busy for the entire drag.
+    mm.reset();
+    g.write32(S + 0x18, 13);
+    g.write16(C + 0x14, 0x2351);
+    g.write32(C + 0x10, 0x1201);
+    g.write32(0x4fb3d8, 256);
+    g.write32(0x4fb3dc, 30);
+    g.write32(0x4fb3e0, 33);
+    g.write32(0x4fb3e8, 195);
+    putF(C + 0x80, 1.0f);
+    putF(C + 0x84, 0.6f);
+    putF(C + 0x88, 0.1f);
+    g.posted.clear();
+    g.busy = true;
+    p = sample(145, 300); // drawn bar extends below the widget's nominal bottom at 295
+    p.pressed = p.down = MBTN_LEFT;
+    mm.update(g, p, view, 5000);
+    CHECK(g.readF(C + 0x84) == 0 && g.posted.empty());
+    held = sample(259, 215); // pointer may leave the slider row during the drag
+    held.down = MBTN_LEFT;
+    mm.update(g, held, view, 5000);
+    CHECK(std::fabs(g.readF(C + 0x84) - 0.5f) < 0.01f && g.posted.empty());
+    q = sample(600, 275);
+    q.inside = false;
+    q.released = MBTN_LEFT;
+    mm.update(g, q, view, 5000);
+    CHECK(g.readF(C + 0x84) == 1 && g.posted.empty());
+    g.busy = false;
+    mm.update(g, sample(60, 275), view, 5000);
+    CHECK(g.posted.size() == 1 && g.posted[0].addr == 0x2bcf80 && g.posted[0].integerRegisters()[0] == S &&
+          g.posted[0].integerRegisters()[1] == C && g.posted[0].integerRegisters()[2] == 1 && g.readF(C + 0x84) == 1);
+    mm.update(g, p, view, 5000);
+    CHECK(g.readF(C + 0x84) == 1 && g.posted.size() == 1);
+    // Music uses the same path. If the game loses focus while held, restore the applied value.
+    g.busy = false;
+    g.write16(C + 0x14, 0x2352);
+    putF(C + 0x84, 0.8f);
+    mm.update(g, p, view, 5000);
+    CHECK(g.readF(C + 0x84) == 0);
+    held.focused = false;
+    mm.update(g, held, view, 5000);
+    CHECK(g.readF(C + 0x84) == 0.8f && g.posted.size() == 1);
     g.asyncPost = false;
+    g.write32(S + 0x18, 8);
     g.write16(C + 0xc, 3);
     g.write32(C + 0x10, 0x201);
     // wheel: down moves down (D-pad), a slider takes left / right

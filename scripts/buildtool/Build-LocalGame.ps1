@@ -60,6 +60,8 @@ param(
     # Reuse an existing WorkDir: skip ISO extraction, rerun the recompiler only when its inputs changed,
     # then let CMake/MSBuild rebuild just the changed sources and relink. -Regenerate forces the recompile.
     [switch]$Incremental,
+    # Build with Ninja in a Windows MSVC x64 developer environment.
+    [switch]$WindowsNinja,
     [switch]$Regenerate,
     # Skip making the multiplayer menu's map pictures (scripts/harness/map_previews.py runs the game briefly per map).
     [switch]$NoMapPictures,
@@ -69,6 +71,9 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $windowsHost = [OperatingSystem]::IsWindows()
+if ($WindowsNinja -and (-not $windowsHost -or $TargetPlatform -eq 'web' -or $TargetPlatform -eq 'linux')) {
+    throw '-WindowsNinja requires a native Windows build.'
+}
 . (Join-Path $PSScriptRoot 'powershell/Build-Affinity.ps1')
 . (Join-Path $PSScriptRoot 'powershell/Build-Progress.ps1')
 Initialize-BuildConsole $Language -Plain:$Plain
@@ -482,7 +487,7 @@ elseif ($windowsHost) {
     $cmake = Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
 }
 else { throw 'CMake must be installed and available on PATH.' }
-$runtimeBuild = Join-Path $WorkDir "runtime-build$platformSuffix"
+$runtimeBuild = Join-Path $WorkDir $(if ($WindowsNinja) { 'runtime-build-ninja' } else { "runtime-build$platformSuffix" })
 $gameOutput = Join-Path $WorkDir "bin$platformSuffix"
 $dlssBuild = 'OFF'
 if ($windowsHost -and -not $NoNvidia) {
@@ -508,7 +513,7 @@ if ($windowsHost -and -not $NoNvidia) {
 Write-BuildStep 'Setting up the C++ build'
 Write-Detail "NVIDIA options: DLSS=$dlssBuild$(if ($DlssSdkDirectory) { " (SDK $DlssSdkDirectory)" })  [-NoNvidia disables]"
 # One CMake root: the `game` preset (CMakePresets.json) selects drakan.exe, release logging and no debug UI.
-$preset = if ($webBuild) { 'web-game' } elseif ($windowsHost) { 'game' } else { 'linux-game' }
+$preset = if ($webBuild) { 'web-game' } elseif ($WindowsNinja) { 'game-ninja' } elseif ($windowsHost) { 'game' } else { 'linux-game' }
 $argsList = @('-S',$RepoRoot,'--preset',$preset,'-B',$runtimeBuild,
     "-DPS2X_GENERATED_DIR=$generatedDir","-DPS2X_OUTPUT_DIR=$gameOutput","-DDRAKAN_GAME_REGION=$gameRegion")
 if ($windowsHost) {
@@ -550,7 +555,7 @@ Invoke-Checked $cmake $argsList
 $compileTotal = 0
 $script:compilePlan = @()
 $compileTitle = ''
-if ($windowsHost) {
+if ($windowsHost -and -not $WindowsNinja) {
     $script:compilePlan = Get-CompilePlan $runtimeBuild
     $pendingCompiles = Get-PendingCompiles $script:compilePlan
     $compileTotal = $pendingCompiles.Count
@@ -560,7 +565,7 @@ if ($windowsHost) {
         else { ' (checking for changed files)' }
 }
 Write-BuildStep "Compiling the game$compileTitle"
-if ($windowsHost) {
+if ($windowsHost -and -not $WindowsNinja) {
     $savedCompilerOptions = [Environment]::GetEnvironmentVariable('_CL_','Process')
     try {
         [Environment]::SetEnvironmentVariable('_CL_',("$savedCompilerOptions /MP$CompilerProcesses").Trim(),'Process')
