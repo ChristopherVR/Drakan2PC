@@ -277,5 +277,37 @@ captured 210 screenshots after releasing W.
 A separate draw capture near this camera angle found blended water and opaque
 terrain within two GS depth units of each other at a shoreline sample. The
 existing water depth adjustment kept that sample stable. That capture missed
-the visible flash, so the depth relationship during the dropout still needs
-to be confirmed before changing the renderer.
+the visible flash. It confirmed the depth tie at the neighbouring angle.
+
+The terrain audit then found eight fully textured cells in water layer 393
+whose four corner heights match the floor on layer 392 exactly. The PS2
+subpixel rounding and different water and floor triangle edges can produce
+different raster depths for those coplanar surfaces. The first trial increased
+the margin in the blended water pass from about 16 GS units to 2,075 at the
+sampled depth of 8.5 million. The pass keeps depth writes masked.
+
+The synthetic renderer fixture places one water sample 512 GS units in
+front of the shore and another 16,384 units in front. With the previous
+margin the first pixel turned blue. The adjusted pass keeps the first
+pixel brown and the second blue at internal scales 1 and 2 on WARP.
+
+The rebuilt player reproduced the camera angle from the original-water
+capture and kept the far bank stable in all 210 screenshots. The dry terrain
+matched within a mean 0.12 RGB levels in the comparison crop, and the open
+water sample contained 4,129 blue pixels versus 4,131 in the baseline. A
+second 210-screenshot replay used Modern Water with DXR reflections active.
+In both trial replays the largest connected one-frame water changes were
+isolated pixels. The trial executable SHA-256 is
+`45EBBA78B0D5A1EA02843C294D1499B1886D250D33811E353BC91C38AF66B620`.
+The original Wartok quicksave still matched its earlier checksum.
+
+A wider turn reproduced a smaller 41-pixel flash at the far bank with the
+first margin. The second trial allows about 4,150 GS units at the sampled
+depth. Its synthetic fixture covers a 2,304-unit separation at the bank and
+uses the same 16,384-unit separation for the open-water control. Both
+controls passed at scales 1 and 2. With the final margin, the largest
+connected one-frame change detected in the 200-frame turn was two pixels.
+The matching original-water replay and the Modern Water replay with DXR
+showed connected changes of at most six and two pixels, respectively,
+over 210 screenshots each. The deployed executable SHA-256 is
+`F94A67DDD805F307C921F684F97B988565260136A960556643282B1702B7EAB7`.

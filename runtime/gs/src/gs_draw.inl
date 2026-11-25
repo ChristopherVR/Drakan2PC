@@ -767,10 +767,11 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         (s.flags & (rippleFlags | DF_FST | DF_SPRITE | DF_LINE | DF_POINT)) == rippleFlags && s.test == 0x5002d &&
         s.alpha == 0x44 && (s.clamp & 0xf) == 0 && bitsOf(s.tex0, 20, 6) == PSM_CT16 &&
         bitsOf(s.tex0, 26, 8) == 0x66 && bitsOf(s.tex0, 34, 3) == 1;
-    // Water and shore triangles quantize shared depths differently. Give the opaque shore a small reverse-Z
-    // tie break in the water colour pass. The depth buffer and ray geometry retain their original depths.
+    // The shore and water can cover the same plane with different triangle edges. The GS rounds their raster
+    // coordinates to sixteenths of a pixel before interpolation, so the depth error can exceed a few Z units.
+    // Bias only the water colour pass toward the far plane. The depth buffer and ray geometry keep their depths.
     if ((nativeWaterPass || lateWaterRipple) && abe && zmsk && zte && ztst >= 2)
-        k.rt[2] *= 1.0f + 0x1p-19f;
+        k.rt[2] *= 1.0f + 0x1p-11f;
     k.rt[3] = dsx;
     uint32_t fl = 0;
     if (tme && haveTex)

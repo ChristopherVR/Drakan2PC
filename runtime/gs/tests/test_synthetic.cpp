@@ -907,7 +907,46 @@ static void runtimeAtlasTest(Config cfg) {
 // rows, so a 128 wide target created earlier overlaps the 128 wide shadow-map target that was created later at a higher
 // base address. A texture whose TBP is exactly the base of the later target has to be sampled from that target, not
 // from the older one at an offset (which holds stale memory).
+static void waterShoreDepthTest(const Config& cfg) {
+    auto gs = Renderer::create(cfg);
+    if (!gs) {
+        ++g_fail;
+        return;
+    }
+    constexpr uint32_t shoreZ = 8500000;
+    constexpr uint64_t z24 = 140ull | (1ull << 24);
+    Gif g;
+    g.ad({{FRAME_1, 1ull << 16},
+          {ZBUF_1, z24},
+          {XYOFFSET_1, kOfs},
+          {SCISSOR_1, 63ull << 16 | 63ull << 48},
+          {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 1, 1)},
+          {COLCLAMP, 1},
+          {PRMODECONT, 1}});
+    sprite(g, 0, 0, 64, 64, 120, 30, 10, 128, shoreZ, (int)mkPrim(6, 0, 0, 0, 0, 0));
+    gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+
+    SceneGuideCamera phase{};
+    phase.sourcePc = 0x161a78u;
+    phase.reserved = 1;
+    gs->noteSceneCamera(phase);
+    g.d.clear();
+    g.ad({{ZBUF_1, z24 | (1ull << 32)}, {TEST_1, mkTest(0, 1, 0, 0, 0, 0, 1, 2)}, {ALPHA_1, mkAlpha(0, 1, 0, 1, 0)}});
+    const int blend = (int)mkPrim(6, 0, 0, 0, 1, 0);
+    sprite(g, 0, 0, 32, 64, 12, 64, 160, 128, shoreZ + 2304, blend);
+    sprite(g, 32, 0, 64, 64, 12, 64, 160, 128, shoreZ + 16384, blend);
+    gs->submitGifPacket(GifPath::Path3, g.d.data(), (uint32_t)g.d.size());
+    Image image;
+    if (!gs->captureFramebuffer(0, 1, 0, 64, 64, image)) {
+        ++g_fail;
+        return;
+    }
+    expectPixel(image, 16 * cfg.scale, 32 * cfg.scale, 120, 30, 10, 1, "shore wins over nearly coplanar water");
+    expectPixel(image, 48 * cfg.scale, 32 * cfg.scale, 12, 64, 160, 1, "water in front of the floor stays visible");
+}
+
 static void alphaPipelineTest(Config cfg) {
+    waterShoreDepthTest(cfg);
     cfg.textureUpscale = 1;
     for (unsigned mode = 0; mode < 8; ++mode) {
         auto gs = Renderer::create(cfg);
