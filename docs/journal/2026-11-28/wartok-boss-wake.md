@@ -38,10 +38,39 @@ wartok-poison-shrine.md). The boss starts hidden (flags 0x100) at (301589, 15463
   lever -> detector -> boss walk from Slot33 was not completed (`qs-L`).
 * No converter or save-upgrade change was made: the boss itself is not at fault.
 
-## Owner's save repaired
+## Owner's save: the woken boss never targets Arokh
 
-Slot33 was rewritten from a play of the save itself: quick load with a private copy of the installed pack whose Timer
-2473 starts at load (`modsA`), the boss woke, left its spawn and circled the shrine, then F5 (`build/harness/wartok-wake`).
-The new save carries the installed pack's stamp (build `493b53de681b8791`, revision 3). Loaded with the installed pack
-(`wartok-verify`): the boss (class `0x1001e`, 200 HP) keeps flying around the shrine. The original is kept in
-`dist/DrakanPC/save-backups/manual/2026-11-28-before-boss-wake/`. The kill, crystal and pickup were not played.
+The first repair (quick load with `modsA`, Timer 2473 at load, F5) was wrong: the owner saw no boss. The boss had woken
+(state `0x29021368`, 200 HP) but it flies the way point path 2456, 2474, 2475, 2476 and then parks at the last one,
+inside the shrine cave mouth (about 297200, 32700, 274300), behind the gate structure. It never takes Arokh as its
+target: instance data `d+244` holds the target's registry ref, Arokh's ref in a working run (`tgt-good`) and 0 in every
+run from this save (`tgt-bad`). With no target it never comes out, so it is never seen and never attacks.
+
+What it is not (each run under `build/harness/`):
+
+| Run | Change | Result |
+| --- | --- | --- |
+| `gen-s1` + `gen-s2` | fresh Wartok, F5 with the boss hidden, quick load, `modsA` wakes it | fights, drawn |
+| `nameT` | same save under the real level name and path | fights, drawn |
+| `fresh-reload3` | fresh fight, F5 and F8 mid fight | still fights after the reload |
+| `hidT2` | owner's save with the clean hidden boss record of `gen-s1` (slot fields `+48 +4c +6c +70 +1b8` kept) | parks, no target |
+| `refresh1` | owner's save, boss record renamed and 2455 added so the level file builds a new boss | parks, no target |
+| `sw302` | owner's save with the fresh save's `0x302` table | parks, no target |
+| `aimax` | `DRAKAN_AI_RUN_MAX=64` | parks, no target |
+| `bit-O`, `bit27` | clearing `+4` bit `0x1000` / setting bit 27 in the record | no effect (the restore sets `0x1000` itself) |
+
+So the boss, its record, the level name, the AI budget and the `0x302` table are fine: something else in this save
+(older state carried from the 15 to 27 November saves; the 52 small `0x104` records and the skill table could not be
+grafted onto a fresh save, the game stops at a null call `0x22b5fc`) keeps the boss from acquiring Arokh. Not found.
+A save made before the boss fight on the current pack does not show the fault (`gen-s2`).
+
+## Owner's save repaired (boss killed by a test timer)
+
+Slot33 now holds the state right after the boss died: quick load of the original save with a private copy of the
+installed pack whose Timer 2473 runs at load and sends Blow Up (5) to the boss (`modsK`, `kill1`). The boss dies
+(`0x21001350`), its death message (8) counts 2470 down, the shards rise and the gas lightning runs; F5 at that point.
+Loaded with the installed pack (`take1`): the released crystal floats over the pit, Arokh flies into it, the scene
+plays and his breath list (`+0x6b0`) goes from 1 to 2. Evidence: `build/review/wartok-crystal/`
+`slot33_boss_killed_shards_lightning.png`, `slot33_crystal_taken_installed_pack.png`, `fresh_save_boss_fights.png`,
+`user_save_boss_parked_no_target.png`. The boss fight itself is skipped in this save. Earlier versions are kept in
+`dist/DrakanPC/save-backups/manual/2026-11-28-before-boss-wake/` (original) and `.../2026-11-28-woken-boss-unseen/`.
