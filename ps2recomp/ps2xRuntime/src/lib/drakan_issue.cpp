@@ -20,6 +20,7 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -27,6 +28,7 @@
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -249,8 +251,18 @@ bool createZip(const fs::path& dir, const fs::path& zip) {
     if (!len || len >= MAX_PATH)
         return false;
     const fs::path tar = fs::path(system) / L"tar.exe";
+    // The top-level names, not ".": tar stored every entry as "./name" plus a "./" entry, and the Windows zip folder
+    // (Explorer's Extract All) shows such an archive as empty and cannot extract it.
     std::wstring command =
-        L"\"" + tar.wstring() + L"\" -a -cf \"" + zip.wstring() + L"\" -C \"" + dir.wstring() + L"\" .";
+        L"\"" + tar.wstring() + L"\" -a -cf \"" + zip.wstring() + L"\" -C \"" + dir.wstring() + L"\"";
+    std::error_code ec;
+    size_t entries = 0;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        command += L" \"" + it->path().filename().wstring() + L"\"";
+        ++entries;
+    }
+    if (ec || entries == 0)
+        return false;
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
@@ -308,20 +320,38 @@ fs::path bundleReport(const fs::path& log, const fs::path& card, bool includeSav
     return {};
 }
 
-void offerReport(bool crashed, const fs::path& log, const SystemDetails& system, const fs::path& card = {},
+// The session log copy and the system details; a report collects them while its first question is on screen.
+struct Collected {
+    fs::path log;
+    SystemDetails system;
+};
+
+std::shared_future<Collected> ready(Collected c) {
+    std::promise<Collected> p;
+    p.set_value(std::move(c));
+    return p.get_future().share();
+}
+
+void offerReport(bool crashed, std::shared_future<Collected> pending, const fs::path& card = {},
                  std::string_view screen = {}, std::string_view campaign = {}, std::string_view level = {}) try {
     constexpr UINT kNotice = MB_SETFOREGROUND | MB_TOPMOST;
     const wchar_t* title = crashed ? L"Drakan crashed" : L"Report an Issue";
-    const auto address = formUrl(crashed, "Windows", screen, campaign, level, system);
-    const std::wstring url(address.begin(), address.end());
     std::wstring text = crashed ? L"Drakan closed unexpectedly. Open the crash report form on GitHub?"
                                 : L"Open the bug report form on GitHub?";
-    if (log.empty())
+    const bool known = pending.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+    if (known && pending.get().log.empty())
         text += L"\n\nThe game could not save a copy of the session log.";
     else
         text += L"\n\nReview the files in the report folder before attaching them to GitHub.";
     if (MessageBoxW(nullptr, text.c_str(), title, kNotice | MB_YESNO | MB_DEFBUTTON2 | MB_ICONQUESTION) != IDYES)
         return;
+    const Collected& collected = pending.get();
+    const fs::path& log = collected.log;
+    if (!known && log.empty())
+        MessageBoxW(nullptr, L"The game could not save a copy of the session log.", title,
+                    kNotice | MB_OK | MB_ICONWARNING);
+    const auto address = formUrl(crashed, "Windows", screen, campaign, level, collected.system);
+    const std::wstring url(address.begin(), address.end());
 
     if (!crashed && !log.empty()) {
         const auto ask = [&](const wchar_t* question) {
@@ -381,7 +411,7 @@ void watchParent(HANDLE parent, HANDLE event, HANDLE log) {
     }
     const wchar_t* prompt = _wgetenv(L"DRAKAN_CRASH_PROMPT");
     if (!prompt || std::wcscmp(prompt, L"0") != 0)
-        offerReport(true, captured, system);
+        offerReport(true, ready({captured, system}));
 }
 } // namespace
 
@@ -499,22 +529,32 @@ void report(std::string_view screen, std::string_view campaign, std::string_view
                      campaign = campaign.empty() ? std::string(drakan_game::currentName()) : std::string(campaign),
                      level = std::move(location)] {
             g_reportThread.store(GetCurrentThreadId(), std::memory_order_release);
-            fs::path captured;
-            SystemDetails system;
-            try {
-                system = systemDetails();
-                drakan_log::flush();
-                const Handle log = openLog();
-                captured = captureLog(log.get(), false, GetCurrentProcessId(), 0, system);
-            } catch (...) {
-            }
-            offerReport(false, captured, system, card, screen, campaign, level);
+            // The log is flushed and copied as of the click, but the first question does not wait for that (the
+            // flush alone can take up to 1.5 s): the copy runs beside the message box.
+            const auto clicked = std::chrono::steady_clock::now();
+            std::shared_future<Collected> pending =
+                std::async(std::launch::async, [clicked] {
+                    Collected c;
+                    try {
+                        c.system = systemDetails();
+                        drakan_log::flush();
+                        const Handle log = openLog();
+                        c.log = captureLog(log.get(), false, GetCurrentProcessId(), 0, c.system);
+                    } catch (...) {
+                    }
+                    std::fprintf(
+                        stderr, "[issue] log and system details collected in %.0f ms\n",
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - clicked).count());
+                    return c;
+                }).share();
+            offerReport(false, pending, card, screen, campaign, level);
+            pending.wait();
             g_reportThread.store(0, std::memory_order_release);
             g_reporting.clear();
         }).detach();
     } catch (...) {
         g_reporting.clear();
-        offerReport(false, {}, {}, {}, screen, campaign, level);
+        offerReport(false, ready({}), {}, screen, campaign, level);
     }
 }
 } // namespace drakan_issue
