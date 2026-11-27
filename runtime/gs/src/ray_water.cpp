@@ -146,6 +146,9 @@ struct RayWater::Impl {
         bool consumedSignaled = false;
         bool cpuCache = false, checkCache = false, worldCache = false, packedTextures = false, modelReuse = true;
         bool stableUpload = true;
+        std::span<const Triangle> staticTriangleSpan() const {
+            return staticTriangles ? std::span<const Triangle>(*staticTriangles) : std::span<const Triangle>();
+        }
         uint32_t coverageDebug = 0;
         // GSR_VERTEX_SURFACE=gpu: the frame triangles the GPU built (surface_gpu.h layout, in the shared texture's
         // rows) and their slot count.
@@ -450,7 +453,63 @@ struct RayWater::Impl {
         }
     };
     PassStats passStats; // pass thread
+    // Materials buffer: the triangle attributes, then the texture texels from this attribute index on.
+    static constexpr uint32_t kTexelOffset = kTriangleBudget * kTriangleAttributes;
+    // The working state of one pass, handed from stage to stage of execute() (pass thread, on its stack).
+    struct PassWork {
+        bool pruneRejected = false, classifyNativeOpaque = false; // runtime flags, read once per pass
+        Point origin{};                         // the camera: every position of the pass is relative to it
+        bool validatedFrame = false;            // the frame's opaque triangles passed validation
+        std::span<const Point> staticPositions; // set when the static BLAS are rebuilt this pass
+        uint32_t staticTotal = 0;               // static triangles (attribute slots before the dynamic ones)
+        // Frame positions and dynamic attributes: the Impl's cpu* caches with job.cpuCache, else the temporaries.
+        std::vector<Point> temporaryPositions;
+        std::vector<Attribute> temporaryColors, temporaryFrameColors;
+        std::vector<Point>* positions = nullptr;
+        std::vector<Attribute>* colors = nullptr;      // all dynamic attributes (models and frame triangles)
+        std::vector<Attribute>* frameColors = nullptr; // the frame triangles' attributes
+        std::span<const uint32_t> alphaCoverage;
+        uint32_t counts[3]{};      // frame triangles per instance group (0 dry, 1 water coverage, 2 native water)
+        uint32_t totalCounts[3]{}; // ... with the static world
+        uint32_t texturedTriangles = 0;
+        std::vector<uint32_t> modelOffsets; // first attribute slot of each model mesh
+        std::set<uint64_t> usedMeshes, usedTopologies;
+        uint32_t frameBase = 0, gpuBase = 0, gpuSlots = 0; // first attribute slots; GPU-built triangle slots
+        // upload
+        size_t textureBytes = 0;
+        struct Copy {
+            uint64_t destination, source, bytes;
+        };
+        std::vector<Copy> copies; // staging buffer -> materials buffer
+        uint64_t stagingBytes = 0;
+        std::vector<std::pair<size_t, size_t>> dynamicDirty; // changed ranges of *colors
+        Parameters params{};
+        bool nativeOpaque = false; // the static dry world needs no any-hit test
+        // recording
+        bool gpuTiming = false, transportEnabled = false, useDryCompose = false;
+    };
     void execute(Job& job);
+    // The stages of execute(), in their order (ray_water.cpp).
+    void retireModelsOfOldLevel(const SceneModels* models);
+    void packGeometry(Job& job, PassWork& w);
+    bool packStaticPositions(Job& job, PassWork& w);
+    void packStaticMaterials(Job& job, const PassWork& w);
+    void packFrameTriangles(Job& job, PassWork& w);
+    void packModelMeshes(Job& job, PassWork& w);
+    void layoutDynamicAttributes(Job& job, PassWork& w);
+    Frame& waitForFrameSlot();
+    void uploadPass(Job& job, PassWork& w, Frame& frame);
+    void uploadMaterials(Job& job, PassWork& w, Frame& frame);
+    void buildParameters(Job& job, PassWork& w);
+    void writeDiagnosticDump(Job& job, const PassWork& w);
+    void recordPass(Job& job, PassWork& w, Frame& frame);
+    void timestamp(const PassWork& w, Frame& frame, UINT index);
+    void recordMaterialCopies(Job& job, PassWork& w, Frame& frame);
+    void buildBottomLevel(PassWork& w, Frame& frame);
+    void buildTopLevel(Job& job, PassWork& w, Frame& frame);
+    void addModelInstances(Job& job, PassWork& w, Frame& frame, std::vector<D3D12_RAYTRACING_INSTANCE_DESC>& instances);
+    void recordDispatches(Job& job, PassWork& w, Frame& frame);
+    void submitPass(Job& job, PassWork& w, Frame& frame);
     // ---- pass thread
     RayWorldCache worldCache;
     ComPtr<ID3D11Device> d11;
@@ -1155,26 +1214,48 @@ bool RayWater::submit(ID3D11Texture2D* color, ID3D11Texture2D* depth, ID3D11Text
         return false;
     }
 }
+// ---- one pass on the pass thread ----
+//
+// execute() runs the stages of a pass in order. Each stage is one function and sets passStage (run() has already set
+// kPacking), which the watchdog reports when a pass hangs. The state the stages hand on lives in a PassWork.
+// render() bypassed passes without water or shadows before queuing them.
 void RayWater::Impl::execute(Job& job) {
     auto& s = *this;
-    const auto& camera = job.camera;
-    const auto& triangles = job.triangles;
-    const bool pruneRejected = runtimeFlags().rayPruneRejected;
-    const bool validatedFrame = !pruneRejected || hasValidatedOpaque(triangles);
-    const SceneModels* models = job.models.get();
-    const auto& options = job.options;
-    const float seconds = job.seconds;
-    const bool reflections = job.reflections;
-    const std::span<const Triangle> staticTriangles =
-        job.staticTriangles ? std::span<const Triangle>(*job.staticTriangles) : std::span<const Triangle>();
-    const uint64_t staticGeometryInput = job.staticGeometry, staticAttributeInput = job.staticAttributes;
-    const size_t textureCount = job.textureCount;
-    const uint32_t nativeTextureBase = job.nativeTextureBase;
-    const bool cpuCache = job.cpuCache, checkCache = job.checkCache;
-    const bool classifyNativeOpaque = runtimeFlags().rayNativeOpaque;
+    PassWork w;
+    w.origin = {job.camera.cameraPosition[0], job.camera.cameraPosition[1], job.camera.cameraPosition[2]};
+    w.pruneRejected = runtimeFlags().rayPruneRejected;
+    w.classifyNativeOpaque = runtimeFlags().rayNativeOpaque;
+    w.validatedFrame = !w.pruneRejected || hasValidatedOpaque(job.triangles);
+    retireModelsOfOldLevel(job.models.get());
+    {
+        CpuProfile::Scope profile(s.threadProfile, CpuProfile::RayPack);
+        packGeometry(job, w); // kPacking
+    }
+    s.passStats.step(PassStats::kModels);
+    Frame* frame = nullptr;
+    {
+        CpuProfile::Scope profile(s.threadProfile, CpuProfile::RayWait);
+        frame = &waitForFrameSlot(); // kWaitingSlot
+    }
+    {
+        CpuProfile::Scope profile(s.threadProfile, CpuProfile::RayUpload);
+        uploadPass(job, w, *frame); // kUploading
+    }
+    s.passStats.stagingBytes = w.stagingBytes;
+    s.passStats.step(PassStats::kUpload);
+    {
+        CpuProfile::Scope profile(s.threadProfile, CpuProfile::RayBuild);
+        recordPass(job, w, *frame); // kRecording
+        submitPass(job, w, *frame); // kSubmitted
+    }
+}
+
+// Resource/topology IDs are level-local: a new level drops every per-model cache.
+void RayWater::Impl::retireModelsOfOldLevel(const SceneModels* models) {
+    auto& s = *this;
     if (models && s.modelLevel != models->level) {
-        // Resource/topology IDs are level-local. Keep old GPU allocations alive until a later queued frame's
-        // completion fence; CPU normal/material state may be discarded immediately on this ordered worker.
+        // Keep old GPU allocations alive until a later queued frame's completion fence; CPU normal/material state may
+        // be discarded immediately on this ordered worker.
         for (auto& [identity, mesh] : s.nativeMeshes)
             if (mesh.blas)
                 s.retiredModelResources.push_back(std::move(mesh.blas));
@@ -1190,1121 +1271,1238 @@ void RayWater::Impl::execute(Job& job) {
         ++s.materialGeneration;
         s.modelLevel = models->level;
     }
-    const struct {
-        UINT Width, Height;
-    } d{job.width, job.height};
-    size_t totalTriangles = triangles.size() + staticTriangles.size();
+}
+
+// ---- stage kPacking: the pass's geometry and material attributes on the CPU
+void RayWater::Impl::packGeometry(Job& job, PassWork& w) {
+    auto& s = *this;
+    {
+        CpuProfile::Scope profile(s.threadProfile, CpuProfile::RayTriangles);
+        const bool rebuildStatic = packStaticPositions(job, w);
+        packStaticMaterials(job, w);
+        w.staticTotal = s.staticCounts[0] + s.staticCounts[1] + s.staticCounts[2];
+        s.passStats.rebase = rebuildStatic ? (s.rebaseReuse ? 2 : 1) : 0;
+        s.passStats.step(PassStats::kStatic);
+        packFrameTriangles(job, w);
+    }
+    s.passStats.step(PassStats::kFrame);
+    {
+        CpuProfile::Scope profile(s.threadProfile, CpuProfile::RayModelAttributes);
+        packModelMeshes(job, w);
+        layoutDynamicAttributes(job, w);
+    }
+}
+
+// Static world: rebuilt on a new level/geometry, or when the camera has moved far from the BLAS base (positions are
+// stored relative to that base to keep float precision near the camera). True: rebuilt this pass (staticPositions).
+bool RayWater::Impl::packStaticPositions(Job& job, PassWork& w) {
+    auto& s = *this;
+    const std::span<const Triangle> staticTriangles = job.staticTriangleSpan();
+    const uint64_t staticGeometryInput = job.staticGeometry;
+    const bool checkCache = job.checkCache;
+    const Point origin = w.origin;
+    const auto offset = sub(origin, s.staticBase);
+    const bool rebuildStatic =
+        !staticTriangles.empty() &&
+        (s.staticGeometry != staticGeometryInput || (!s.staticBlas[0] && !s.staticBlas[1] && !s.staticBlas[2]) ||
+         length(offset) > runtimeFlags().rayRebaseDistance);
+    if (staticTriangles.empty()) {
+        s.staticCounts[0] = s.staticCounts[1] = s.staticCounts[2] = 0;
+        s.staticTextured = 0;
+        s.staticNativeTestedCount = 0;
+        s.staticGeometry = s.staticAttributes = ~0ull;
+        s.staticTextureCount = ~size_t(0);
+        s.staticAttributeData.clear();
+        s.staticNormals.clear();
+        s.staticSlot.clear();
+        s.staticPacked.reset();
+    } else if (rebuildStatic) {
+        if (s.staticGeometry != staticGeometryInput || s.staticSlot.size() != staticTriangles.size()) {
+            // The resident terrain grid shares exact corner positions, so welding recovers its smooth shading.
+            s.staticNormals.clear();
+            smoothNormals(
+                staticTriangles.size(),
+                [&](size_t i, Point(&p)[3]) { std::copy(staticTriangles[i].p, staticTriangles[i].p + 3, p); },
+                s.staticNormals);
+            s.staticSlot.assign(staticTriangles.size(), 0);
+            uint32_t slot = 0;
+            for (unsigned g = 0; g < 3; ++g) {
+                const uint32_t first = slot;
+                for (size_t i = 0; i < staticTriangles.size(); ++i)
+                    if (group(staticTriangles[i]) == g)
+                        s.staticSlot[i] = slot++;
+                s.staticSlotFirst[g] = first;
+                s.staticSlotCount[g] = slot - first;
+            }
+            s.staticPacked.reset();
+            s.staticAttributes = ~0ull; // group order may have changed
+        }
+        {
+            const uint32_t mode = runtimeFlags().rayRebaseReuse;
+            s.rebaseReuse = mode == 1 || (mode == 2 && (++s.rebaseCount & 1));
+        }
+        s.staticBase = origin;
+        // Camera-relative positions in instance group order. The slot table already holds that order, so one
+        // pass writes each triangle where the three group passes below would put it (same values, same order);
+        // they only run when a triangle's group no longer matches its slot.
+        auto& positionData = s.staticPositionData;
+        bool slotted = s.rebaseReuse && s.staticSlot.size() == staticTriangles.size();
+        if (slotted) {
+            positionData.resize(staticTriangles.size() * 3);
+            uint32_t counts[3]{};
+            for (size_t i = 0; i < staticTriangles.size(); ++i) {
+                const Triangle& tri = staticTriangles[i];
+                const unsigned g = group(tri);
+                const uint32_t slot = s.staticSlot[i];
+                if (slot - s.staticSlotFirst[g] >= s.staticSlotCount[g]) {
+                    slotted = false;
+                    break;
+                }
+                Point* out = &positionData[size_t(slot) * 3];
+                for (unsigned j = 0; j < 3; ++j)
+                    out[j] = sub(tri.p[j], origin);
+                ++counts[g];
+            }
+            if (slotted)
+                for (unsigned g = 0; g < 3; ++g)
+                    s.staticCounts[g] = counts[g];
+        }
+        const auto groupPass = [&](std::vector<Point>& out, uint32_t(&outCounts)[3]) {
+            out.clear();
+            out.reserve(staticTriangles.size() * 3);
+            for (unsigned g = 0; g < 3; ++g) {
+                outCounts[g] = 0;
+                for (const auto& tri : staticTriangles)
+                    if (group(tri) == g) {
+                        for (const auto& p : tri.p)
+                            out.push_back(sub(p, origin));
+                        ++outCounts[g];
+                    }
+            }
+        };
+        if (!slotted) {
+            if (!s.rebaseReuse)
+                std::vector<Point>().swap(positionData); // as before: fresh memory for every rebuild
+            groupPass(positionData, s.staticCounts);
+        } else if (checkCache) {
+            std::vector<Point> reference;
+            uint32_t referenceCounts[3];
+            groupPass(reference, referenceCounts);
+            if (std::memcmp(referenceCounts, s.staticCounts, sizeof(referenceCounts)) ||
+                reference.size() != positionData.size() ||
+                std::memcmp(reference.data(), positionData.data(), reference.size() * sizeof(Point)))
+                throw std::runtime_error("DXR static rebase positions differ from the group passes");
+        }
+        w.staticPositions = std::span<const Point>(positionData);
+        s.staticGeometry = staticGeometryInput;
+    }
+    return rebuildStatic;
+}
+
+// The static world's material attributes, repacked where they changed.
+void RayWater::Impl::packStaticMaterials(Job& job, const PassWork& w) {
+    auto& s = *this;
+    const std::span<const Triangle> staticTriangles = job.staticTriangleSpan();
+    const uint64_t staticAttributeInput = job.staticAttributes;
+    const size_t textureCount = job.textureCount;
+    const bool checkCache = job.checkCache;
+    const bool classifyNativeOpaque = w.classifyNativeOpaque;
+    if (staticTriangles.empty() || (s.staticAttributes == staticAttributeInput && s.staticTextureCount == textureCount))
+        return;
+    // Material projections change a few layers at a time (most frames while the camera moves): repack only
+    // the triangles that differ from the last packed snapshot or whose texture index crosses the texture count.
+    const std::vector<Triangle>* previous =
+        s.staticPacked && s.staticPacked->size() == staticTriangles.size() &&
+                s.staticAttributeData.size() == staticTriangles.size() * kTriangleAttributes
+            ? s.staticPacked.get()
+            : nullptr;
+    if (!previous) {
+        s.staticAttributeData.assign(staticTriangles.size() * kTriangleAttributes, Attribute{});
+        s.staticTextured = 0;
+        s.staticNativeTestedCount = 0;
+        s.staticUploaded = false;
+    }
+    const size_t oldTextures = previous ? s.staticTextureCount : 0;
+    std::vector<Attribute> packed;
+    std::vector<uint32_t> dirty;
+    const auto repack = [&](size_t i) {
+        const Triangle& t = staticTriangles[i];
+        const uint32_t slot = s.staticSlot[i];
+        const bool nativeSlot = classifyNativeOpaque && slot < s.staticSlotCount[0];
+        if (previous) {
+            const Triangle& old = (*previous)[i];
+            if (std::memcmp(&old, &t, sizeof(Triangle)) == 0 && (t.texture < oldTextures) == (t.texture < textureCount))
+                return;
+            s.staticTextured -= old.texture < oldTextures ? 1u : 0u;
+            s.staticNativeTestedCount -= nativeSlot && !nativeTriangleIsOpaque(old);
+        }
+        packed.clear();
+        s.staticTextured += packAttributes(t, textureCount, packed, &s.staticNormals[i * 3]);
+        s.staticNativeTestedCount += nativeSlot && !nativeTriangleIsOpaque(t);
+        std::copy(packed.begin(), packed.end(), s.staticAttributeData.begin() + size_t(slot) * kTriangleAttributes);
+        if (previous)
+            dirty.push_back(slot);
+    };
+    // The renderer names the triangles whose projection changed since the version packed last (resident scene
+    // change log): with the same texture count only those can differ, so the other ~140,000 are not compared.
+    if (previous && job.changedKnown && job.changedFrom == s.staticAttributes && oldTextures == textureCount) {
+        for (const uint32_t i : job.changed)
+            if (i < staticTriangles.size())
+                repack(i);
+    } else {
+        for (size_t i = 0; i < staticTriangles.size(); ++i)
+            repack(i);
+    }
+    if (s.staticUploaded && !dirty.empty()) {
+        // Slot ranges to upload; nearby runs merge so the copy count stays small.
+        std::sort(dirty.begin(), dirty.end());
+        for (const auto slot : dirty)
+            if (!s.staticDirty.empty() && slot <= s.staticDirty.back().second + 64)
+                s.staticDirty.back().second = std::max(s.staticDirty.back().second, slot + 1);
+            else
+                s.staticDirty.push_back({slot, slot + 1});
+    }
+    s.staticPacked = job.staticTriangles;
+    s.staticAttributes = staticAttributeInput;
+    s.staticTextureCount = textureCount;
+    if (checkCache) {
+        std::vector<Attribute> reference(s.staticAttributeData.size()), one;
+        uint32_t referenceTextured = 0;
+        uint32_t referenceNativeTested = 0;
+        for (size_t i = 0; i < staticTriangles.size(); ++i) {
+            one.clear();
+            referenceTextured += packAttributes(staticTriangles[i], textureCount, one, &s.staticNormals[i * 3]);
+            referenceNativeTested += classifyNativeOpaque && s.staticSlot[i] < s.staticSlotCount[0] &&
+                                     !nativeTriangleIsOpaque(staticTriangles[i]);
+            std::copy(one.begin(), one.end(), reference.begin() + size_t(s.staticSlot[i]) * kTriangleAttributes);
+        }
+        if (referenceTextured != s.staticTextured || referenceNativeTested != s.staticNativeTestedCount ||
+            std::memcmp(reference.data(), s.staticAttributeData.data(), reference.size() * sizeof(Attribute)))
+            throw std::runtime_error("DXR static material repack differs from a full pack");
+    }
+}
+
+// Per-frame (dynamic) triangles, camera relative.
+void RayWater::Impl::packFrameTriangles(Job& job, PassWork& w) {
+    auto& s = *this;
+    const auto& triangles = job.triangles;
+    const SceneModels* models = job.models.get();
+    const size_t textureCount = job.textureCount;
+    const bool cpuCache = job.cpuCache, checkCache = job.checkCache;
+    const Point origin = w.origin;
+    size_t totalTriangles = triangles.size() + job.staticTriangleSpan().size();
     if (models)
         for (const auto& m : models->meshes)
             totalTriangles += m->triangles.size();
-    std::optional<CpuProfile::Scope> stage;
-    stage.emplace(s.threadProfile, CpuProfile::RayPack);
-    {
-        const Point origin{camera.cameraPosition[0], camera.cameraPosition[1], camera.cameraPosition[2]};
-        // Static world: rebuilt on a new level/geometry, or when the camera has moved far from the BLAS base
-        // (positions are stored relative to that base to keep float precision near the camera).
-        std::optional<CpuProfile::Scope> packing;
-        packing.emplace(s.threadProfile, CpuProfile::RayTriangles);
-        const auto offset = sub(origin, s.staticBase);
-        const bool rebuildStatic =
-            !staticTriangles.empty() &&
-            (s.staticGeometry != staticGeometryInput || (!s.staticBlas[0] && !s.staticBlas[1] && !s.staticBlas[2]) ||
-             length(offset) > runtimeFlags().rayRebaseDistance);
-        std::span<const Point> staticPositions; // set when the static BLAS are rebuilt this pass
-        if (staticTriangles.empty()) {
-            s.staticCounts[0] = s.staticCounts[1] = s.staticCounts[2] = 0;
-            s.staticTextured = 0;
-            s.staticNativeTestedCount = 0;
-            s.staticGeometry = s.staticAttributes = ~0ull;
-            s.staticTextureCount = ~size_t(0);
-            s.staticAttributeData.clear();
-            s.staticNormals.clear();
-            s.staticSlot.clear();
-            s.staticPacked.reset();
-        } else if (rebuildStatic) {
-            if (s.staticGeometry != staticGeometryInput || s.staticSlot.size() != staticTriangles.size()) {
-                // The resident terrain grid shares exact corner positions, so welding recovers its smooth shading.
-                s.staticNormals.clear();
-                smoothNormals(
-                    staticTriangles.size(),
-                    [&](size_t i, Point(&p)[3]) { std::copy(staticTriangles[i].p, staticTriangles[i].p + 3, p); },
-                    s.staticNormals);
-                s.staticSlot.assign(staticTriangles.size(), 0);
-                uint32_t slot = 0;
-                for (unsigned g = 0; g < 3; ++g) {
-                    const uint32_t first = slot;
-                    for (size_t i = 0; i < staticTriangles.size(); ++i)
-                        if (group(staticTriangles[i]) == g)
-                            s.staticSlot[i] = slot++;
-                    s.staticSlotFirst[g] = first;
-                    s.staticSlotCount[g] = slot - first;
-                }
-                s.staticPacked.reset();
-                s.staticAttributes = ~0ull; // group order may have changed
+    w.positions = cpuCache ? &s.cpuPositions : &w.temporaryPositions;
+    w.colors = cpuCache ? &s.cpuMaterials : &w.temporaryColors;
+    auto& positions = *w.positions;
+    auto& colors = *w.colors;
+    // GSR_RAY_STABLE_UPLOAD: the dynamic attributes are laid out [native models][frame triangles] instead of
+    // [frame triangles][native models], so a change of the frame's triangle count no longer moves (and re-uploads)
+    // the ~12 MB of model attributes; the shader finds every triangle's attributes through its instance ID.
+    const bool stableUpload = job.stableUpload;
+    w.frameColors = !stableUpload ? &colors : cpuCache ? &s.cpuFrameMaterials : &w.temporaryFrameColors;
+    auto& frameColors = *w.frameColors;
+    positions.clear();
+    colors.clear();
+    frameColors.clear();
+    positions.reserve(triangles.size() * 3);
+    colors.reserve((totalTriangles - job.staticTriangleSpan().size()) * kTriangleAttributes);
+    w.alphaCoverage = s.modelAlphaCoverage.update(models);
+    if (cpuCache) {
+        // Material attributes depend on flags, texture-table indices and
+        // immutable mesh data, not on instance transforms or lighting. A new
+        // texture base (frame texture count) only moves the texture indices.
+        std::vector<uint32_t> flags;
+        if (models) {
+            flags.reserve(models->textures.size() * 3);
+            for (size_t index = 0; index < models->textures.size(); ++index) {
+                const auto& t = models->textures[index];
+                flags.push_back(t->flags);
+                flags.push_back(uint32_t(surface::packRayMaterial(t->roughness, t->reflectance)));
+                flags.push_back(w.alphaCoverage[index]);
             }
-            {
-                const uint32_t mode = runtimeFlags().rayRebaseReuse;
-                s.rebaseReuse = mode == 1 || (mode == 2 && (++s.rebaseCount & 1));
-            }
-            s.staticBase = origin;
-            // Camera-relative positions in instance group order. The slot table already holds that order, so one
-            // pass writes each triangle where the three group passes below would put it (same values, same order);
-            // they only run when a triangle's group no longer matches its slot.
-            auto& positionData = s.staticPositionData;
-            bool slotted = s.rebaseReuse && s.staticSlot.size() == staticTriangles.size();
-            if (slotted) {
-                positionData.resize(staticTriangles.size() * 3);
-                uint32_t counts[3]{};
-                for (size_t i = 0; i < staticTriangles.size(); ++i) {
-                    const Triangle& tri = staticTriangles[i];
-                    const unsigned g = group(tri);
-                    const uint32_t slot = s.staticSlot[i];
-                    if (slot - s.staticSlotFirst[g] >= s.staticSlotCount[g]) {
-                        slotted = false;
-                        break;
-                    }
-                    Point* out = &positionData[size_t(slot) * 3];
-                    for (unsigned j = 0; j < 3; ++j)
-                        out[j] = sub(tri.p[j], origin);
+        }
+        if (flags != s.materialFlags) {
+            s.materialFlags = std::move(flags);
+            ++s.materialGeneration;
+        }
+    }
+    uint32_t(&counts)[3] = w.counts;
+    const auto originalPack = [&](auto& positions, auto& colors, auto& counts) {
+        uint32_t texturedTriangles = 0;
+        for (unsigned g = 0; g < 3; ++g)
+            for (const auto& tri : triangles)
+                if (group(tri) == g) {
+                    for (const auto& p : tri.p)
+                        positions.push_back(sub(p, origin));
+                    texturedTriangles += packAttributes(tri, textureCount, colors);
                     ++counts[g];
                 }
-                if (slotted)
-                    for (unsigned g = 0; g < 3; ++g)
-                        s.staticCounts[g] = counts[g];
-            }
-            const auto groupPass = [&](std::vector<Point>& out, uint32_t(&outCounts)[3]) {
-                out.clear();
-                out.reserve(staticTriangles.size() * 3);
-                for (unsigned g = 0; g < 3; ++g) {
-                    outCounts[g] = 0;
-                    for (const auto& tri : staticTriangles)
-                        if (group(tri) == g) {
-                            for (const auto& p : tri.p)
-                                out.push_back(sub(p, origin));
-                            ++outCounts[g];
-                        }
-                }
-            };
-            if (!slotted) {
-                if (!s.rebaseReuse)
-                    std::vector<Point>().swap(positionData); // as before: fresh memory for every rebuild
-                groupPass(positionData, s.staticCounts);
-            } else if (checkCache) {
-                std::vector<Point> reference;
-                uint32_t referenceCounts[3];
-                groupPass(reference, referenceCounts);
-                if (std::memcmp(referenceCounts, s.staticCounts, sizeof(referenceCounts)) ||
-                    reference.size() != positionData.size() ||
-                    std::memcmp(reference.data(), positionData.data(), reference.size() * sizeof(Point)))
-                    throw std::runtime_error("DXR static rebase positions differ from the group passes");
-            }
-            staticPositions = std::span<const Point>(positionData);
-            s.staticGeometry = staticGeometryInput;
-        }
-        if (!staticTriangles.empty() &&
-            (s.staticAttributes != staticAttributeInput || s.staticTextureCount != textureCount)) {
-            // Material projections change a few layers at a time (most frames while the camera moves): repack only
-            // the triangles that differ from the last packed snapshot or whose texture index crosses the texture count.
-            const std::vector<Triangle>* previous =
-                s.staticPacked && s.staticPacked->size() == staticTriangles.size() &&
-                        s.staticAttributeData.size() == staticTriangles.size() * kTriangleAttributes
-                    ? s.staticPacked.get()
-                    : nullptr;
-            if (!previous) {
-                s.staticAttributeData.assign(staticTriangles.size() * kTriangleAttributes, Attribute{});
-                s.staticTextured = 0;
-                s.staticNativeTestedCount = 0;
-                s.staticUploaded = false;
-            }
-            const size_t oldTextures = previous ? s.staticTextureCount : 0;
-            std::vector<Attribute> packed;
-            std::vector<uint32_t> dirty;
-            const auto repack = [&](size_t i) {
-                const Triangle& t = staticTriangles[i];
-                const uint32_t slot = s.staticSlot[i];
-                const bool nativeSlot = classifyNativeOpaque && slot < s.staticSlotCount[0];
-                if (previous) {
-                    const Triangle& old = (*previous)[i];
-                    if (std::memcmp(&old, &t, sizeof(Triangle)) == 0 &&
-                        (t.texture < oldTextures) == (t.texture < textureCount))
-                        return;
-                    s.staticTextured -= old.texture < oldTextures ? 1u : 0u;
-                    s.staticNativeTestedCount -= nativeSlot && !nativeTriangleIsOpaque(old);
-                }
-                packed.clear();
-                s.staticTextured += packAttributes(t, textureCount, packed, &s.staticNormals[i * 3]);
-                s.staticNativeTestedCount += nativeSlot && !nativeTriangleIsOpaque(t);
-                std::copy(packed.begin(), packed.end(),
-                          s.staticAttributeData.begin() + size_t(slot) * kTriangleAttributes);
-                if (previous)
-                    dirty.push_back(slot);
-            };
-            // The renderer names the triangles whose projection changed since the version packed last (resident scene
-            // change log): with the same texture count only those can differ, so the other ~140,000 are not compared.
-            if (previous && job.changedKnown && job.changedFrom == s.staticAttributes && oldTextures == textureCount) {
-                for (const uint32_t i : job.changed)
-                    if (i < staticTriangles.size())
-                        repack(i);
-            } else {
-                for (size_t i = 0; i < staticTriangles.size(); ++i)
-                    repack(i);
-            }
-            if (s.staticUploaded && !dirty.empty()) {
-                // Slot ranges to upload; nearby runs merge so the copy count stays small.
-                std::sort(dirty.begin(), dirty.end());
-                for (const auto slot : dirty)
-                    if (!s.staticDirty.empty() && slot <= s.staticDirty.back().second + 64)
-                        s.staticDirty.back().second = std::max(s.staticDirty.back().second, slot + 1);
-                    else
-                        s.staticDirty.push_back({slot, slot + 1});
-            }
-            s.staticPacked = job.staticTriangles;
-            s.staticAttributes = staticAttributeInput;
-            s.staticTextureCount = textureCount;
-            if (checkCache) {
-                std::vector<Attribute> reference(s.staticAttributeData.size()), one;
-                uint32_t referenceTextured = 0;
-                uint32_t referenceNativeTested = 0;
-                for (size_t i = 0; i < staticTriangles.size(); ++i) {
-                    one.clear();
-                    referenceTextured += packAttributes(staticTriangles[i], textureCount, one, &s.staticNormals[i * 3]);
-                    referenceNativeTested += classifyNativeOpaque && s.staticSlot[i] < s.staticSlotCount[0] &&
-                                             !nativeTriangleIsOpaque(staticTriangles[i]);
-                    std::copy(one.begin(), one.end(),
-                              reference.begin() + size_t(s.staticSlot[i]) * kTriangleAttributes);
-                }
-                if (referenceTextured != s.staticTextured || referenceNativeTested != s.staticNativeTestedCount ||
-                    std::memcmp(reference.data(), s.staticAttributeData.data(), reference.size() * sizeof(Attribute)))
-                    throw std::runtime_error("DXR static material repack differs from a full pack");
-            }
-        }
-        const uint32_t staticTotal = s.staticCounts[0] + s.staticCounts[1] + s.staticCounts[2];
-        s.passStats.rebase = rebuildStatic ? (s.rebaseReuse ? 2 : 1) : 0;
-        s.passStats.step(PassStats::kStatic);
-        // Per-frame (dynamic) triangles, camera relative.
-        std::vector<Point> temporaryPositions;
-        std::vector<Attribute> temporaryColors;
-        auto& positions = cpuCache ? s.cpuPositions : temporaryPositions;
-        auto& colors = cpuCache ? s.cpuMaterials : temporaryColors;
-        // GSR_RAY_STABLE_UPLOAD: the dynamic attributes are laid out [native models][frame triangles] instead of
-        // [frame triangles][native models], so a change of the frame's triangle count no longer moves (and re-uploads)
-        // the ~12 MB of model attributes; the shader finds every triangle's attributes through its instance ID.
-        const bool stableUpload = job.stableUpload;
-        std::vector<Attribute> temporaryFrameColors;
-        auto& frameColors = !stableUpload ? colors : cpuCache ? s.cpuFrameMaterials : temporaryFrameColors;
-        positions.clear();
-        colors.clear();
-        frameColors.clear();
-        positions.reserve(triangles.size() * 3);
-        colors.reserve((totalTriangles - staticTriangles.size()) * kTriangleAttributes);
-        const auto alphaCoverage = s.modelAlphaCoverage.update(models);
-        if (cpuCache) {
-            // Material attributes depend on flags, texture-table indices and
-            // immutable mesh data, not on instance transforms or lighting. A new
-            // texture base (frame texture count) only moves the texture indices.
-            std::vector<uint32_t> flags;
-            if (models) {
-                flags.reserve(models->textures.size() * 3);
-                for (size_t index = 0; index < models->textures.size(); ++index) {
-                    const auto& t = models->textures[index];
-                    flags.push_back(t->flags);
-                    flags.push_back(uint32_t(surface::packRayMaterial(t->roughness, t->reflectance)));
-                    flags.push_back(alphaCoverage[index]);
-                }
-            }
-            if (flags != s.materialFlags) {
-                s.materialFlags = std::move(flags);
-                ++s.materialGeneration;
-            }
-        }
-        uint32_t counts[3]{}, texturedTriangles = 0;
-        const auto originalPack = [&](auto& positions, auto& colors, auto& counts) {
-            uint32_t texturedTriangles = 0;
-            for (unsigned g = 0; g < 3; ++g)
-                for (const auto& tri : triangles)
-                    if (group(tri) == g) {
-                        for (const auto& p : tri.p)
-                            positions.push_back(sub(p, origin));
-                        texturedTriangles += packAttributes(tri, textureCount, colors);
-                        ++counts[g];
-                    }
-            return texturedTriangles;
-        };
-        const bool worldCache = job.worldCache;
-        if (worldCache) {
-            texturedTriangles = s.worldCache.append(triangles, origin, textureCount, positions, frameColors, counts);
-            if (checkCache) {
-                std::vector<Point> referencePositions;
-                std::vector<Attribute> referenceColors;
-                uint32_t referenceCounts[3]{};
-                const auto referenceTextured = originalPack(referencePositions, referenceColors, referenceCounts);
-                if (referenceTextured != texturedTriangles || std::memcmp(counts, referenceCounts, sizeof(counts)) ||
-                    referencePositions.size() != positions.size() || referenceColors.size() != frameColors.size() ||
-                    std::memcmp(referencePositions.data(), positions.data(), positions.size() * sizeof(Point)) ||
-                    std::memcmp(referenceColors.data(), frameColors.data(), frameColors.size() * sizeof(colors[0])))
-                    throw std::runtime_error("DXR world cache differs from original packing");
-            }
-        } else
-            texturedTriangles = originalPack(positions, frameColors, counts);
-        packing.reset();
-        s.passStats.step(PassStats::kFrame);
-        packing.emplace(s.threadProfile, CpuProfile::RayModelAttributes);
-        std::vector<uint32_t> modelOffsets;
-        std::set<uint64_t> usedMeshes, usedTopologies;
-        if (models)
-            modelOffsets.reserve(models->meshes.size());
-        if (models)
-            for (const auto& model : models->meshes) {
-                modelOffsets.push_back(staticTotal + uint32_t(colors.size() / kTriangleAttributes));
-                usedMeshes.insert(model->identity);
-                usedTopologies.insert(model->topology);
-                // cache: the mesh's entry when its geometry is unchanged since its attributes were last built. Its
-                // welded normals depend only on the geometry and the welds (not on materials), so a material generation
-                // change (GSR_RAY_STABLE_UPLOAD) reuses them instead of welding and smoothing again.
-                const auto buildAttributes = [&](std::vector<Attribute>& target, NativeMesh* cache = nullptr) {
-                    const auto corners = [&](size_t i, Point(&p)[3]) {
-                        for (unsigned j = 0; j < 3; ++j) {
-                            const auto& v = model->triangles[i].position[j];
-                            p[j] = {v[0], v[1], v[2]};
-                        }
-                    };
-                    CornerWelds unshared;
-                    auto& welds = model->topology ? s.modelWelds[model->topology] : unshared;
-                    uint64_t weldVersion = 0; // which welds the normals come from (0: this mesh's own corners)
-                    if (welds.corners.size() != model->triangles.size() * 3 || welds.collapsed) {
-                        weldCorners(model->triangles.size(), corners, welds);
-                        if (model->topology)
-                            s.modelWeldVersions[model->topology] = ++s.weldSerial;
-                    }
-                    if (model->topology)
-                        weldVersion = s.modelWeldVersions[model->topology];
-                    const bool reuse = cache && cache->normalsValid && cache->normalWelds == weldVersion &&
-                                       cache->normalsPacked == job.modelReuse && !welds.collapsed;
-                    std::vector<Point> ownNormals;
-                    std::vector<float> ownPacked;
-                    auto& normals = cache ? cache->normals : ownNormals;
-                    auto& packedNormals = cache ? cache->packedNormals : ownPacked;
-                    if (!reuse) {
-                        normals.clear();
-                        packedNormals.clear();
-                        smoothNormals(model->triangles.size(), corners, welds, normals);
-                        if (job.modelReuse)
-                            packCornerNormals(welds, normals, packedNormals);
-                        if (cache) {
-                            cache->normalsValid = true;
-                            cache->normalWelds = weldVersion;
-                            cache->normalsPacked = job.modelReuse;
-                        }
-                    }
-                    return packModelAttributes(*model, *models, nativeTextureBase, normals, target, packedNormals,
-                                               alphaCoverage);
-                };
-                if (cpuCache) {
-                    auto& cached = s.nativeMeshes[model->identity];
-                    const bool unchanged =
-                        cached.attributeSource == model || (job.modelReuse && cached.attributeSource &&
-                                                            sameModelGeometry(*cached.attributeSource, *model));
-                    if (!unchanged || cached.attributeGeneration != s.materialGeneration) {
-                        cached.attributes.clear();
-                        cached.attributes.reserve(model->triangles.size() * kTriangleAttributes);
-                        if (!unchanged)
-                            cached.normalsValid = false;
-                        cached.texturedTriangles =
-                            buildAttributes(cached.attributes, job.stableUpload ? &cached : nullptr);
-                        ++s.passStats.attributeBuilds;
-                        cached.attributeSource = model;
-                        cached.attributeGeneration = s.materialGeneration;
-                        cached.attributeBase = nativeTextureBase;
-                    } else if (cached.attributeBase != nativeTextureBase) {
-                        rebaseModelAttributes(*model, *models, nativeTextureBase, cached.attributes);
-                        cached.attributeBase = nativeTextureBase;
-                    }
-                    cached.attributeSource = model;
-                    if (checkCache) {
-                        std::vector<Attribute> reference;
-                        reference.reserve(model->triangles.size() * kTriangleAttributes);
-                        const auto count = buildAttributes(reference);
-                        if (count != cached.texturedTriangles || reference.size() != cached.attributes.size() ||
-                            (!reference.empty() && std::memcmp(reference.data(), cached.attributes.data(),
-                                                               reference.size() * sizeof(reference[0]))))
-                            throw std::runtime_error("ray CPU material cache differs from uncached attributes");
-                    }
-                    colors.insert(colors.end(), cached.attributes.begin(), cached.attributes.end());
-                    texturedTriangles += cached.texturedTriangles;
-                } else
-                    texturedTriangles += buildAttributes(colors);
-            }
-        // Attribute slot of the first frame triangle: after the models with GSR_RAY_STABLE_UPLOAD, else after the
-        // static world (the models follow the frame triangles).
-        const uint32_t frameBase =
-            stableUpload ? staticTotal + uint32_t(colors.size() / kTriangleAttributes) : staticTotal;
-        if (stableUpload)
-            colors.insert(colors.end(), frameColors.begin(), frameColors.end());
-        // GSR_VERTEX_SURFACE=gpu: the GPU-built frame triangles' attributes follow all dynamic attributes.
-        const uint32_t gpuBase = staticTotal + uint32_t(colors.size() / kTriangleAttributes);
-        const uint32_t gpuSlots = job.gpuSurfaces && gpuBase + job.gpuSlots <= Impl::kTriangleBudget ? job.gpuSlots : 0;
-        const GpuSurfaceLayout gpuLayout{gpuSlots};
+        return texturedTriangles;
+    };
+    if (job.worldCache) {
+        w.texturedTriangles = s.worldCache.append(triangles, origin, textureCount, positions, frameColors, counts);
         if (checkCache) {
-            // The shader reads a triangle's attributes at its instance ID plus its primitive index: every frame
-            // triangle and every model mesh must find exactly its own attributes there, in either layout.
-            const auto at = [&](uint32_t slot) {
-                return colors.data() + size_t(slot - staticTotal) * kTriangleAttributes;
-            };
-            const size_t frameAttributes = size_t(counts[0] + counts[1] + counts[2]) * kTriangleAttributes;
-            bool same = frameBase >= staticTotal &&
-                        size_t(frameBase - staticTotal) * kTriangleAttributes + frameAttributes <= colors.size();
-            if (same && stableUpload)
-                same = std::memcmp(at(frameBase), frameColors.data(), frameAttributes * sizeof(Attribute)) == 0;
-            if (same && models && cpuCache)
-                for (size_t m = 0; m < models->meshes.size() && same; ++m) {
-                    const auto& attributes = s.nativeMeshes[models->meshes[m]->identity].attributes;
-                    same = size_t(modelOffsets[m] - staticTotal) * kTriangleAttributes + attributes.size() <=
-                               colors.size() &&
-                           (attributes.empty() || std::memcmp(at(modelOffsets[m]), attributes.data(),
-                                                              attributes.size() * sizeof(Attribute)) == 0);
-                }
-            if (!same)
-                throw std::runtime_error("DXR dynamic attribute layout does not match the instance IDs");
+            std::vector<Point> referencePositions;
+            std::vector<Attribute> referenceColors;
+            uint32_t referenceCounts[3]{};
+            const auto referenceTextured = originalPack(referencePositions, referenceColors, referenceCounts);
+            if (referenceTextured != w.texturedTriangles || std::memcmp(counts, referenceCounts, sizeof(counts)) ||
+                referencePositions.size() != positions.size() || referenceColors.size() != frameColors.size() ||
+                std::memcmp(referencePositions.data(), positions.data(), positions.size() * sizeof(Point)) ||
+                std::memcmp(referenceColors.data(), frameColors.data(), frameColors.size() * sizeof(colors[0])))
+                throw std::runtime_error("DXR world cache differs from original packing");
         }
-        if (cpuCache && checkCache && (++s.checkedFrames == 1 || s.checkedFrames % 60 == 0))
-            std::fprintf(stderr,
-                         "[ray-cpu-cache] frames=%llu world/materials compared byte-for-byte, zero mismatches; world "
-                         "blocks rebuilt=%zu/%zu\n",
-                         (unsigned long long)s.checkedFrames, s.worldCache.rebuiltBlocks(), s.worldCache.blockCount());
-        texturedTriangles += s.staticTextured;
-        uint32_t totalCounts[3];
-        for (unsigned g = 0; g < 3; ++g)
-            totalCounts[g] = counts[g] + s.staticCounts[g];
-        packing.reset();
-        // render() bypassed passes without water or shadows before queuing them.
-        stage.reset();
-        s.passStats.step(PassStats::kModels);
-        stage.emplace(s.threadProfile, CpuProfile::RayWait);
-        s.setStage(kWaitingSlot);
-        auto& frame = s.acquire();
-        s.passStats.step(PassStats::kWait);
-        for (auto& resource : s.retiredModelResources)
-            frame.retired.push_back(std::move(resource));
-        s.retiredModelResources.clear();
-        stage.reset();
-        stage.emplace(s.threadProfile, CpuProfile::RayUpload);
-        s.setStage(kUploading);
-        // Materials live in GPU memory. Layout: [static world][native models][frame triangles] attributes (frame
-        // triangles before the models without GSR_RAY_STABLE_UPLOAD), then
-        // texture texels at a fixed offset. Only changed ranges are copied from this frame's upload buffer.
-        constexpr uint32_t texelOffset = Impl::kTriangleBudget * kTriangleAttributes;
-        const bool packedTextures = job.packedTextures;
-        const size_t textureBytes =
-            Texture::size * Texture::size * (packedTextures ? sizeof(uint32_t) : sizeof(Attribute));
-        const uint64_t materialBytes = uint64_t(texelOffset) * sizeof(Attribute) + Impl::kTextureBudget * textureBytes;
-        if (!s.materials) {
-            // Allocated once: render() sends the texels of every texture slot with the first pass.
-            s.buffer(s.materials, materialBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON, frame.retired);
-            s.staticUploaded = false;
-        } else if (s.materials->GetDesc().Width < materialBytes)
-            throw std::runtime_error("DXR material buffer layout changed");
-        struct Copy {
-            uint64_t destination, source, bytes;
-        };
-        std::vector<Copy> copies;
-        uint64_t stagingBytes = 0;
-        const auto addCopy = [&](uint64_t destination, uint64_t bytes) {
-            if (bytes)
-                copies.push_back({destination, stagingBytes, bytes});
-            stagingBytes += bytes;
-        };
-        const bool uploadStatic = !s.staticUploaded && !s.staticAttributeData.empty();
-        if (uploadStatic)
-            addCopy(0, s.staticAttributeData.size() * sizeof(Attribute));
-        else
-            for (const auto& [first, end] : s.staticDirty)
-                addCopy(uint64_t(first) * kTriangleAttributes * sizeof(Attribute),
-                        uint64_t(end - first) * kTriangleAttributes * sizeof(Attribute));
-        const bool uploadCache = runtimeFlags().rayUploadCache;
-        std::vector<std::pair<size_t, size_t>> dynamicDirty;
-        if (!colors.empty()) {
-            if (!uploadCache || s.uploadedDynamicBase != staticTotal ||
-                (!stableUpload && s.uploadedDynamicAttributes.size() != colors.size()))
-                dynamicDirty.emplace_back(0, colors.size());
-            else {
-                // Preserve triangle boundaries, and coalesce adjacent changed blocks into one DMA copy. The GPU holds
-                // the mirror's bytes at the same offsets: compare where both exist, upload what lies beyond the mirror.
-                constexpr size_t kBlockAttributes = 128 * kTriangleAttributes;
-                const size_t common = std::min(colors.size(), s.uploadedDynamicAttributes.size());
-                for (size_t first = 0; first < common; first += kBlockAttributes) {
-                    const size_t end = std::min(first + kBlockAttributes, common);
-                    if (std::memcmp(colors.data() + first, s.uploadedDynamicAttributes.data() + first,
-                                    (end - first) * sizeof(Attribute)) != 0) {
-                        if (!dynamicDirty.empty() && dynamicDirty.back().second == first)
-                            dynamicDirty.back().second = end;
-                        else
-                            dynamicDirty.emplace_back(first, end);
-                    }
+    } else
+        w.texturedTriangles = originalPack(positions, frameColors, counts);
+}
+
+// The native models' attributes (cached per mesh with cpuCache), in model order after the frame triangles.
+void RayWater::Impl::packModelMeshes(Job& job, PassWork& w) {
+    auto& s = *this;
+    const SceneModels* models = job.models.get();
+    const uint32_t nativeTextureBase = job.nativeTextureBase;
+    const bool cpuCache = job.cpuCache, checkCache = job.checkCache;
+    auto& colors = *w.colors;
+    const std::span<const uint32_t> alphaCoverage = w.alphaCoverage;
+    if (models)
+        w.modelOffsets.reserve(models->meshes.size());
+    if (!models)
+        return;
+    for (const auto& model : models->meshes) {
+        w.modelOffsets.push_back(w.staticTotal + uint32_t(colors.size() / kTriangleAttributes));
+        w.usedMeshes.insert(model->identity);
+        w.usedTopologies.insert(model->topology);
+        // cache: the mesh's entry when its geometry is unchanged since its attributes were last built. Its
+        // welded normals depend only on the geometry and the welds (not on materials), so a material generation
+        // change (GSR_RAY_STABLE_UPLOAD) reuses them instead of welding and smoothing again.
+        const auto buildAttributes = [&](std::vector<Attribute>& target, NativeMesh* cache = nullptr) {
+            const auto corners = [&](size_t i, Point(&p)[3]) {
+                for (unsigned j = 0; j < 3; ++j) {
+                    const auto& v = model->triangles[i].position[j];
+                    p[j] = {v[0], v[1], v[2]};
                 }
-                if (colors.size() > common) {
-                    if (!dynamicDirty.empty() && dynamicDirty.back().second == common)
-                        dynamicDirty.back().second = colors.size();
-                    else
-                        dynamicDirty.emplace_back(common, colors.size());
+            };
+            CornerWelds unshared;
+            auto& welds = model->topology ? s.modelWelds[model->topology] : unshared;
+            uint64_t weldVersion = 0; // which welds the normals come from (0: this mesh's own corners)
+            if (welds.corners.size() != model->triangles.size() * 3 || welds.collapsed) {
+                weldCorners(model->triangles.size(), corners, welds);
+                if (model->topology)
+                    s.modelWeldVersions[model->topology] = ++s.weldSerial;
+            }
+            if (model->topology)
+                weldVersion = s.modelWeldVersions[model->topology];
+            const bool reuse = cache && cache->normalsValid && cache->normalWelds == weldVersion &&
+                               cache->normalsPacked == job.modelReuse && !welds.collapsed;
+            std::vector<Point> ownNormals;
+            std::vector<float> ownPacked;
+            auto& normals = cache ? cache->normals : ownNormals;
+            auto& packedNormals = cache ? cache->packedNormals : ownPacked;
+            if (!reuse) {
+                normals.clear();
+                packedNormals.clear();
+                smoothNormals(model->triangles.size(), corners, welds, normals);
+                if (job.modelReuse)
+                    packCornerNormals(welds, normals, packedNormals);
+                if (cache) {
+                    cache->normalsValid = true;
+                    cache->normalWelds = weldVersion;
+                    cache->normalsPacked = job.modelReuse;
                 }
             }
+            return packModelAttributes(*model, *models, nativeTextureBase, normals, target, packedNormals,
+                                       alphaCoverage);
+        };
+        if (cpuCache) {
+            auto& cached = s.nativeMeshes[model->identity];
+            const bool unchanged =
+                cached.attributeSource == model ||
+                (job.modelReuse && cached.attributeSource && sameModelGeometry(*cached.attributeSource, *model));
+            if (!unchanged || cached.attributeGeneration != s.materialGeneration) {
+                cached.attributes.clear();
+                cached.attributes.reserve(model->triangles.size() * kTriangleAttributes);
+                if (!unchanged)
+                    cached.normalsValid = false;
+                cached.texturedTriangles = buildAttributes(cached.attributes, job.stableUpload ? &cached : nullptr);
+                ++s.passStats.attributeBuilds;
+                cached.attributeSource = model;
+                cached.attributeGeneration = s.materialGeneration;
+                cached.attributeBase = nativeTextureBase;
+            } else if (cached.attributeBase != nativeTextureBase) {
+                rebaseModelAttributes(*model, *models, nativeTextureBase, cached.attributes);
+                cached.attributeBase = nativeTextureBase;
+            }
+            cached.attributeSource = model;
+            if (checkCache) {
+                std::vector<Attribute> reference;
+                reference.reserve(model->triangles.size() * kTriangleAttributes);
+                const auto count = buildAttributes(reference);
+                if (count != cached.texturedTriangles || reference.size() != cached.attributes.size() ||
+                    (!reference.empty() &&
+                     std::memcmp(reference.data(), cached.attributes.data(), reference.size() * sizeof(reference[0]))))
+                    throw std::runtime_error("ray CPU material cache differs from uncached attributes");
+            }
+            colors.insert(colors.end(), cached.attributes.begin(), cached.attributes.end());
+            w.texturedTriangles += cached.texturedTriangles;
+        } else
+            w.texturedTriangles += buildAttributes(colors);
+    }
+}
+
+// Where the frame triangles' and the GPU-built triangles' attributes go in the dynamic attributes, and the totals.
+void RayWater::Impl::layoutDynamicAttributes(Job& job, PassWork& w) {
+    auto& s = *this;
+    const SceneModels* models = job.models.get();
+    const bool cpuCache = job.cpuCache, checkCache = job.checkCache;
+    const bool stableUpload = job.stableUpload;
+    const uint32_t staticTotal = w.staticTotal;
+    auto& colors = *w.colors;
+    const auto& frameColors = *w.frameColors;
+    const uint32_t(&counts)[3] = w.counts;
+    // Attribute slot of the first frame triangle: after the models with GSR_RAY_STABLE_UPLOAD, else after the
+    // static world (the models follow the frame triangles).
+    w.frameBase = stableUpload ? staticTotal + uint32_t(colors.size() / kTriangleAttributes) : staticTotal;
+    const uint32_t frameBase = w.frameBase;
+    if (stableUpload)
+        colors.insert(colors.end(), frameColors.begin(), frameColors.end());
+    // GSR_VERTEX_SURFACE=gpu: the GPU-built frame triangles' attributes follow all dynamic attributes.
+    w.gpuBase = staticTotal + uint32_t(colors.size() / kTriangleAttributes);
+    w.gpuSlots = job.gpuSurfaces && w.gpuBase + job.gpuSlots <= Impl::kTriangleBudget ? job.gpuSlots : 0;
+    if (checkCache) {
+        // The shader reads a triangle's attributes at its instance ID plus its primitive index: every frame
+        // triangle and every model mesh must find exactly its own attributes there, in either layout.
+        const auto at = [&](uint32_t slot) { return colors.data() + size_t(slot - staticTotal) * kTriangleAttributes; };
+        const size_t frameAttributes = size_t(counts[0] + counts[1] + counts[2]) * kTriangleAttributes;
+        bool same = frameBase >= staticTotal &&
+                    size_t(frameBase - staticTotal) * kTriangleAttributes + frameAttributes <= colors.size();
+        if (same && stableUpload)
+            same = std::memcmp(at(frameBase), frameColors.data(), frameAttributes * sizeof(Attribute)) == 0;
+        if (same && models && cpuCache)
+            for (size_t m = 0; m < models->meshes.size() && same; ++m) {
+                const auto& attributes = s.nativeMeshes[models->meshes[m]->identity].attributes;
+                same = size_t(w.modelOffsets[m] - staticTotal) * kTriangleAttributes + attributes.size() <=
+                           colors.size() &&
+                       (attributes.empty() || std::memcmp(at(w.modelOffsets[m]), attributes.data(),
+                                                          attributes.size() * sizeof(Attribute)) == 0);
+            }
+        if (!same)
+            throw std::runtime_error("DXR dynamic attribute layout does not match the instance IDs");
+    }
+    if (cpuCache && checkCache && (++s.checkedFrames == 1 || s.checkedFrames % 60 == 0))
+        std::fprintf(stderr,
+                     "[ray-cpu-cache] frames=%llu world/materials compared byte-for-byte, zero mismatches; world "
+                     "blocks rebuilt=%zu/%zu\n",
+                     (unsigned long long)s.checkedFrames, s.worldCache.rebuiltBlocks(), s.worldCache.blockCount());
+    w.texturedTriangles += s.staticTextured;
+    for (unsigned g = 0; g < 3; ++g)
+        w.totalCounts[g] = counts[g] + s.staticCounts[g];
+}
+
+// ---- stage kWaitingSlot: a frame slot whose previous use the GPU has finished
+RayWater::Impl::Frame& RayWater::Impl::waitForFrameSlot() {
+    auto& s = *this;
+    s.setStage(kWaitingSlot);
+    auto& frame = s.acquire();
+    s.passStats.step(PassStats::kWait);
+    for (auto& resource : s.retiredModelResources)
+        frame.retired.push_back(std::move(resource));
+    s.retiredModelResources.clear();
+    return frame;
+}
+
+// ---- stage kUploading: materials, positions and the pass constants into the frame's upload buffers
+void RayWater::Impl::uploadPass(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    s.setStage(kUploading);
+    uploadMaterials(job, w, frame);
+    const auto& positions = *w.positions;
+    if (!positions.empty())
+        s.upload(frame.vertices, positions.data(), positions.size() * sizeof(Point), frame.retired);
+    if (!w.staticPositions.empty()) {
+        // Only the static BLAS builds read this buffer. Once the pass that last built from it has completed on
+        // the GPU, a rebase writes the new positions into it instead of allocating another 5 MB upload buffer.
+        const bool reuse =
+            s.rebaseReuse && s.staticVertices.resource && s.fence->GetCompletedValue() >= s.staticVerticesFence;
+        if (!reuse) {
+            if (s.staticVertices.resource)
+                frame.retired.push_back(s.staticVertices.resource);
+            s.staticVertices = {};
         }
-        for (const auto& [first, end] : dynamicDirty)
-            addCopy((uint64_t(staticTotal) * kTriangleAttributes + first) * sizeof(Attribute),
-                    (end - first) * sizeof(Attribute));
-        for (const auto& upload : job.textureUploads)
-            addCopy(uint64_t(texelOffset) * sizeof(Attribute) + upload.slot * textureBytes, textureBytes);
-        if (stagingBytes) {
-            s.ensureUpload(frame.staging, stagingBytes, frame.retired);
-            auto* bytes = frame.staging.data;
-            size_t at = 0;
-            if (uploadStatic) {
-                std::memcpy(bytes, s.staticAttributeData.data(), s.staticAttributeData.size() * sizeof(Attribute));
-                at += s.staticAttributeData.size() * sizeof(Attribute);
-            } else
-                for (const auto& [first, end] : s.staticDirty) {
-                    const size_t size = size_t(end - first) * kTriangleAttributes * sizeof(Attribute);
-                    std::memcpy(bytes + at, s.staticAttributeData.data() + size_t(first) * kTriangleAttributes, size);
-                    at += size;
+        s.upload(s.staticVertices, w.staticPositions.data(), w.staticPositions.size() * sizeof(Point), frame.retired);
+        s.staticVerticesFence = s.serial + 1; // this pass's completion value (submitted() below)
+    }
+    buildParameters(job, w);
+    if (!job.diagnosticDump.empty())
+        writeDiagnosticDump(job, w);
+    s.upload(frame.constants, &w.params, sizeof(w.params), frame.retired);
+}
+
+// Materials live in GPU memory. Layout: [static world][native models][frame triangles] attributes (frame triangles
+// before the models without GSR_RAY_STABLE_UPLOAD), then texture texels at a fixed offset. Only changed ranges are
+// copied from this frame's upload buffer: this plans the copies (recorded in recordPass) and fills the staging buffer.
+void RayWater::Impl::uploadMaterials(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    const bool checkCache = job.checkCache;
+    const bool stableUpload = job.stableUpload;
+    const uint32_t staticTotal = w.staticTotal;
+    const auto& colors = *w.colors;
+    const bool packedTextures = job.packedTextures;
+    w.textureBytes = Texture::size * Texture::size * (packedTextures ? sizeof(uint32_t) : sizeof(Attribute));
+    const size_t textureBytes = w.textureBytes;
+    const uint64_t materialBytes = uint64_t(kTexelOffset) * sizeof(Attribute) + Impl::kTextureBudget * textureBytes;
+    if (!s.materials) {
+        // Allocated once: render() sends the texels of every texture slot with the first pass.
+        s.buffer(s.materials, materialBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON, frame.retired);
+        s.staticUploaded = false;
+    } else if (s.materials->GetDesc().Width < materialBytes)
+        throw std::runtime_error("DXR material buffer layout changed");
+    auto& copies = w.copies;
+    uint64_t& stagingBytes = w.stagingBytes;
+    const auto addCopy = [&](uint64_t destination, uint64_t bytes) {
+        if (bytes)
+            copies.push_back({destination, stagingBytes, bytes});
+        stagingBytes += bytes;
+    };
+    const bool uploadStatic = !s.staticUploaded && !s.staticAttributeData.empty();
+    if (uploadStatic)
+        addCopy(0, s.staticAttributeData.size() * sizeof(Attribute));
+    else
+        for (const auto& [first, end] : s.staticDirty)
+            addCopy(uint64_t(first) * kTriangleAttributes * sizeof(Attribute),
+                    uint64_t(end - first) * kTriangleAttributes * sizeof(Attribute));
+    const bool uploadCache = runtimeFlags().rayUploadCache;
+    auto& dynamicDirty = w.dynamicDirty;
+    if (!colors.empty()) {
+        if (!uploadCache || s.uploadedDynamicBase != staticTotal ||
+            (!stableUpload && s.uploadedDynamicAttributes.size() != colors.size()))
+            dynamicDirty.emplace_back(0, colors.size());
+        else {
+            // Preserve triangle boundaries, and coalesce adjacent changed blocks into one DMA copy. The GPU holds
+            // the mirror's bytes at the same offsets: compare where both exist, upload what lies beyond the mirror.
+            constexpr size_t kBlockAttributes = 128 * kTriangleAttributes;
+            const size_t common = std::min(colors.size(), s.uploadedDynamicAttributes.size());
+            for (size_t first = 0; first < common; first += kBlockAttributes) {
+                const size_t end = std::min(first + kBlockAttributes, common);
+                if (std::memcmp(colors.data() + first, s.uploadedDynamicAttributes.data() + first,
+                                (end - first) * sizeof(Attribute)) != 0) {
+                    if (!dynamicDirty.empty() && dynamicDirty.back().second == first)
+                        dynamicDirty.back().second = end;
+                    else
+                        dynamicDirty.emplace_back(first, end);
                 }
-            for (const auto& [first, end] : dynamicDirty) {
-                const size_t size = (end - first) * sizeof(Attribute);
-                std::memcpy(bytes + at, colors.data() + first, size);
+            }
+            if (colors.size() > common) {
+                if (!dynamicDirty.empty() && dynamicDirty.back().second == common)
+                    dynamicDirty.back().second = colors.size();
+                else
+                    dynamicDirty.emplace_back(common, colors.size());
+            }
+        }
+    }
+    for (const auto& [first, end] : dynamicDirty)
+        addCopy((uint64_t(staticTotal) * kTriangleAttributes + first) * sizeof(Attribute),
+                (end - first) * sizeof(Attribute));
+    for (const auto& upload : job.textureUploads)
+        addCopy(uint64_t(kTexelOffset) * sizeof(Attribute) + upload.slot * textureBytes, textureBytes);
+    if (stagingBytes) {
+        s.ensureUpload(frame.staging, stagingBytes, frame.retired);
+        auto* bytes = frame.staging.data;
+        size_t at = 0;
+        if (uploadStatic) {
+            std::memcpy(bytes, s.staticAttributeData.data(), s.staticAttributeData.size() * sizeof(Attribute));
+            at += s.staticAttributeData.size() * sizeof(Attribute);
+        } else
+            for (const auto& [first, end] : s.staticDirty) {
+                const size_t size = size_t(end - first) * kTriangleAttributes * sizeof(Attribute);
+                std::memcpy(bytes + at, s.staticAttributeData.data() + size_t(first) * kTriangleAttributes, size);
                 at += size;
             }
-            for (const auto& texture : job.textureUploads) {
-                if (packedTextures)
-                    std::memcpy(bytes + at, texture.pixels.data(), textureBytes);
-                else {
-                    auto* pixels = reinterpret_cast<Attribute*>(bytes + at);
-                    for (size_t p = 0; p < texture.pixels.size(); ++p) {
-                        auto pixel = texture.pixels[p];
-                        pixels[p] = {float(pixel & 255) / 255.f, float((pixel >> 8) & 255) / 255.f,
-                                     float((pixel >> 16) & 255) / 255.f, float(pixel >> 24) / 255.f};
-                    }
-                }
-                at += textureBytes;
-            }
+        for (const auto& [first, end] : dynamicDirty) {
+            const size_t size = (end - first) * sizeof(Attribute);
+            std::memcpy(bytes + at, colors.data() + first, size);
+            at += size;
         }
-        if (uploadCache) {
-            s.uploadedDynamicAttributes.resize(colors.size());
-            for (const auto& [first, end] : dynamicDirty)
-                std::memcpy(s.uploadedDynamicAttributes.data() + first, colors.data() + first,
-                            (end - first) * sizeof(Attribute));
-            s.uploadedDynamicBase = staticTotal;
-            // The mirror is what the GPU buffer holds after this pass's copies: it must equal every attribute.
-            if (checkCache &&
-                std::memcmp(s.uploadedDynamicAttributes.data(), colors.data(), colors.size() * sizeof(Attribute)))
-                throw std::runtime_error("DXR dynamic attribute upload missed a changed range");
-        }
-        if (uploadStatic)
-            s.staticUploaded = true;
-        s.staticDirty.clear();
-        if (!positions.empty())
-            s.upload(frame.vertices, positions.data(), positions.size() * sizeof(Point), frame.retired);
-        if (!staticPositions.empty()) {
-            // Only the static BLAS builds read this buffer. Once the pass that last built from it has completed on
-            // the GPU, a rebase writes the new positions into it instead of allocating another 5 MB upload buffer.
-            const bool reuse =
-                s.rebaseReuse && s.staticVertices.resource && s.fence->GetCompletedValue() >= s.staticVerticesFence;
-            if (!reuse) {
-                if (s.staticVertices.resource)
-                    frame.retired.push_back(s.staticVertices.resource);
-                s.staticVertices = {};
-            }
-            s.upload(s.staticVertices, staticPositions.data(), staticPositions.size() * sizeof(Point), frame.retired);
-            s.staticVerticesFence = s.serial + 1; // this pass's completion value (submitted() below)
-        }
-        Parameters params{};
-        std::copy(camera.currentViewToClip, camera.currentViewToClip + 16, params.projection);
-        std::copy(camera.clipToCameraView, camera.clipToCameraView + 16, params.inverse);
-        std::copy(camera.cameraRight, camera.cameraRight + 3, params.right);
-        std::copy(camera.cameraUp, camera.cameraUp + 3, params.up);
-        std::copy(camera.cameraForward, camera.cameraForward + 3, params.forward);
-        params.sizeTime[0] = float(d.Width);
-        params.sizeTime[1] = float(d.Height);
-        params.sizeTime[2] = seconds;
-        params.sizeTime[3] = reflections ? 1.f : 0.f;
-        params.jitter[0] = camera.jitterPixels[0];
-        params.jitter[1] = camera.jitterPixels[1];
-        params.limits[0] = camera.nearPlane;
-        params.limits[1] = float(totalCounts[0]);
-        params.limits[2] = origin.x; // world-anchored water waves, caustics and foam
-        params.limits[3] = origin.z;
-        params.scene[0] = texelOffset;
-        params.scene[1] = uint32_t(textureCount);
-        static_assert(std::has_single_bit(Texture::size), "DXR atlas wrapping requires a power-of-two texture size");
-        params.scene[2] = Texture::size;
-        params.scene[3] = job.coverageDebug;
-        params.effects[0] = options.water && (totalCounts[1] || totalCounts[2]);
-        params.effects[1] = options.shadows;
-        params.effects[3] = (totalCounts[2] ? 1u : 0u) | (totalCounts[1] ? 2u : 0u) |
-                            (options.requireWaterCoverage ? 4u : 0u) | (packedTextures ? 16u : 0u);
-        params.effects[3] |= (options.globalIllumination ? 512u : 0u) | (options.materialReflections ? 1024u : 0u);
-        params.effects[3] |= runtimeFlags().rayAlphaFastPath ? 2048u : 0u;
-        params.effects[3] |= runtimeFlags().rayAlphaCoverage ? 4096u : 0u;
-        params.effects[3] |= runtimeFlags().rayAcceptedAlpha ? 8192u : 0u;
-        params.effects[3] |= pruneRejected ? 32768u : 0u;
-        const bool nativeOpaque = classifyNativeOpaque && s.staticPacked && s.staticCounts[0] &&
-                                  s.staticCounts[0] == s.staticSlotCount[0] && !s.staticNativeTestedCount;
-        params.effects[3] |= rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
-        const uint64_t skyLevel = models ? models->level : 0;
-        if (s.skyLevel != skyLevel) {
-            params.effects[3] |= 8;
-            s.skyLevel = skyLevel;
-        }
-        if (models) {
-            for (unsigned j = 0; j < 3; ++j)
-                params.ambient[j] = std::isfinite(models->lighting.ambient[j])
-                                        ? std::clamp(models->lighting.ambient[j], 0.f, 16.f)
-                                        : 0.f;
-            for (const auto& light : models->lighting.lights) {
-                if (params.effects[2] >= 4)
-                    break;
-                bool valid = light.type <= SceneLight::Point;
-                float lengthSquared = 0;
-                for (unsigned j = 0; j < 3; ++j) {
-                    valid &= std::isfinite(light.vector[j]) && std::isfinite(light.color[j]) && light.color[j] >= 0 &&
-                             light.color[j] <= 16;
-                    lengthSquared += light.vector[j] * light.vector[j];
-                }
-                if (light.type == SceneLight::Directional)
-                    valid &= std::isfinite(lengthSquared) && lengthSquared > 1e-12f;
-                else
-                    valid &= std::isfinite(light.radiusSquared) && light.radiusSquared > 0;
-                if (!valid)
-                    continue;
-                unsigned i = params.effects[2]++;
-                std::copy(light.vector, light.vector + 3, params.lightVector[i]);
-                std::copy(light.color, light.color + 3, params.lightColor[i]);
-                params.lightVector[i][3] = light.type ? 1.f : 0.f;
-                params.lightColor[i][3] = light.radiusSquared;
-                if (light.type) {
-                    params.lightVector[i][0] -= origin.x;
-                    params.lightVector[i][1] -= origin.y;
-                    params.lightVector[i][2] -= origin.z;
+        for (const auto& texture : job.textureUploads) {
+            if (packedTextures)
+                std::memcpy(bytes + at, texture.pixels.data(), textureBytes);
+            else {
+                auto* pixels = reinterpret_cast<Attribute*>(bytes + at);
+                for (size_t p = 0; p < texture.pixels.size(); ++p) {
+                    auto pixel = texture.pixels[p];
+                    pixels[p] = {float(pixel & 255) / 255.f, float((pixel >> 8) & 255) / 255.f,
+                                 float((pixel >> 16) & 255) / 255.f, float(pixel >> 24) / 255.f};
                 }
             }
+            at += textureBytes;
         }
-        // AO only multiplies the ambient term. With all three channels zero,
-        // its result cannot change either primary lighting or the fallback.
-        if (runtimeFlags().rayZeroAmbient && params.ambient[0] == 0 && params.ambient[1] == 0 && params.ambient[2] == 0)
-            params.effects[3] |= 16384u;
-        if (!job.diagnosticDump.empty())
-            if (FILE* file = std::fopen(job.diagnosticDump.c_str(), "wb")) {
-                const uint32_t header[] = {0x52545831, uint32_t(sizeof(params))};
-                std::fwrite(header, sizeof(header), 1, file);
-                std::fwrite(&params, sizeof(params), 1, file);
-                auto record = [&](const Point* p, uint32_t kind, uint32_t object, uint32_t material) {
-                    std::fwrite(p, sizeof(Point), 3, file);
-                    uint32_t tags[] = {kind, object, material};
-                    std::fwrite(tags, sizeof(tags), 1, file);
-                };
-                for (const auto source : {staticTriangles, std::span<const Triangle>(triangles)})
-                    for (const auto& tri : source) {
-                        Point p[3];
-                        for (unsigned j = 0; j < 3; ++j)
-                            p[j] = sub(tri.p[j], origin);
-                        record(p,
-                               tri.water            ? (tri.shadowGeometry ? 4 : 3)
-                               : tri.shadowGeometry ? 0
-                                                    : 1,
-                               0, tri.texture);
-                    }
-                if (models)
-                    for (const auto& instance : models->instances) {
-                        const auto& mesh = *models->meshes[instance.mesh];
-                        const auto& m = instance.transform;
-                        if (cameraShell(mesh, m, origin))
-                            continue;
-                        for (const auto& tri : mesh.triangles) {
-                            Point p[3];
-                            for (unsigned j = 0; j < 3; ++j) {
-                                const auto& v = tri.position[j];
-                                p[j] = {m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3] - origin.x,
-                                        m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7] - origin.y,
-                                        m[8] * v[0] + m[9] * v[1] + m[10] * v[2] + m[11] - origin.z};
-                            }
-                            record(p, 2, instance.object,
-                                   tri.material < models->textures.size() ? models->textures[tri.material]->nativeId
-                                                                          : ~0u);
-                        }
-                    }
-                std::fclose(file);
-                // Exact-frame source provenance for the triangle dump. This contains metadata only, and
-                // describes exported instances before admission/build success (opacity and shell are explicit).
-                const std::string metadataPath = job.diagnosticDump + ".models.csv";
-                if (models)
-                    if (FILE* metadata = std::fopen(metadataPath.c_str(), "wb")) {
-                        std::fprintf(metadata,
-                                     "object,resource,mesh,generation,triangles,opacity,shell,cameraX,cameraY,"
-                                     "cameraZ,level,m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,nativeShadow\n");
-                        for (const auto& instance : models->instances) {
-                            if (instance.mesh >= models->meshes.size())
-                                continue;
-                            const auto& mesh = *models->meshes[instance.mesh];
-                            std::fprintf(metadata, "%x,%x,%llx,%llu,%zu,%.9g,%u,%.9g,%.9g,%.9g,%llx", instance.object,
-                                         mesh.nativeId, static_cast<unsigned long long>(mesh.identity),
-                                         static_cast<unsigned long long>(instance.generation), mesh.triangles.size(),
-                                         instance.opacity, unsigned(cameraShell(mesh, instance.transform, origin)),
-                                         origin.x, origin.y, origin.z, static_cast<unsigned long long>(models->level));
-                            for (float value : instance.transform)
-                                std::fprintf(metadata, ",%.9g", value);
-                            std::fprintf(metadata, ",%u\n", unsigned(instance.nativeShadow));
-                        }
-                        std::fclose(metadata);
-                    }
+    }
+    if (uploadCache) {
+        s.uploadedDynamicAttributes.resize(colors.size());
+        for (const auto& [first, end] : dynamicDirty)
+            std::memcpy(s.uploadedDynamicAttributes.data() + first, colors.data() + first,
+                        (end - first) * sizeof(Attribute));
+        s.uploadedDynamicBase = staticTotal;
+        // The mirror is what the GPU buffer holds after this pass's copies: it must equal every attribute.
+        if (checkCache &&
+            std::memcmp(s.uploadedDynamicAttributes.data(), colors.data(), colors.size() * sizeof(Attribute)))
+            throw std::runtime_error("DXR dynamic attribute upload missed a changed range");
+    }
+    if (uploadStatic)
+        s.staticUploaded = true;
+    s.staticDirty.clear();
+}
+
+// The pass constants (Parameters, the cbuffer of ray_water.hlsl): camera, scene layout, effect flags and lights.
+void RayWater::Impl::buildParameters(Job& job, PassWork& w) {
+    auto& s = *this;
+    const auto& camera = job.camera;
+    const SceneModels* models = job.models.get();
+    const auto& options = job.options;
+    const bool packedTextures = job.packedTextures;
+    const Point origin = w.origin;
+    const uint32_t(&totalCounts)[3] = w.totalCounts;
+    Parameters& params = w.params;
+    std::copy(camera.currentViewToClip, camera.currentViewToClip + 16, params.projection);
+    std::copy(camera.clipToCameraView, camera.clipToCameraView + 16, params.inverse);
+    std::copy(camera.cameraRight, camera.cameraRight + 3, params.right);
+    std::copy(camera.cameraUp, camera.cameraUp + 3, params.up);
+    std::copy(camera.cameraForward, camera.cameraForward + 3, params.forward);
+    params.sizeTime[0] = float(job.width);
+    params.sizeTime[1] = float(job.height);
+    params.sizeTime[2] = job.seconds;
+    params.sizeTime[3] = job.reflections ? 1.f : 0.f;
+    params.jitter[0] = camera.jitterPixels[0];
+    params.jitter[1] = camera.jitterPixels[1];
+    params.limits[0] = camera.nearPlane;
+    params.limits[1] = float(totalCounts[0]);
+    params.limits[2] = origin.x; // world-anchored water waves, caustics and foam
+    params.limits[3] = origin.z;
+    params.scene[0] = kTexelOffset;
+    params.scene[1] = uint32_t(job.textureCount);
+    static_assert(std::has_single_bit(Texture::size), "DXR atlas wrapping requires a power-of-two texture size");
+    params.scene[2] = Texture::size;
+    params.scene[3] = job.coverageDebug;
+    params.effects[0] = options.water && (totalCounts[1] || totalCounts[2]);
+    params.effects[1] = options.shadows;
+    params.effects[3] = (totalCounts[2] ? 1u : 0u) | (totalCounts[1] ? 2u : 0u) |
+                        (options.requireWaterCoverage ? 4u : 0u) | (packedTextures ? 16u : 0u);
+    params.effects[3] |= (options.globalIllumination ? 512u : 0u) | (options.materialReflections ? 1024u : 0u);
+    params.effects[3] |= runtimeFlags().rayAlphaFastPath ? 2048u : 0u;
+    params.effects[3] |= runtimeFlags().rayAlphaCoverage ? 4096u : 0u;
+    params.effects[3] |= runtimeFlags().rayAcceptedAlpha ? 8192u : 0u;
+    params.effects[3] |= w.pruneRejected ? 32768u : 0u;
+    w.nativeOpaque = w.classifyNativeOpaque && s.staticPacked && s.staticCounts[0] &&
+                     s.staticCounts[0] == s.staticSlotCount[0] && !s.staticNativeTestedCount;
+    params.effects[3] |= rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
+    const uint64_t skyLevel = models ? models->level : 0;
+    if (s.skyLevel != skyLevel) {
+        params.effects[3] |= 8;
+        s.skyLevel = skyLevel;
+    }
+    if (models) {
+        for (unsigned j = 0; j < 3; ++j)
+            params.ambient[j] =
+                std::isfinite(models->lighting.ambient[j]) ? std::clamp(models->lighting.ambient[j], 0.f, 16.f) : 0.f;
+        for (const auto& light : models->lighting.lights) {
+            if (params.effects[2] >= 4)
+                break;
+            bool valid = light.type <= SceneLight::Point;
+            float lengthSquared = 0;
+            for (unsigned j = 0; j < 3; ++j) {
+                valid &= std::isfinite(light.vector[j]) && std::isfinite(light.color[j]) && light.color[j] >= 0 &&
+                         light.color[j] <= 16;
+                lengthSquared += light.vector[j] * light.vector[j];
             }
-        s.upload(frame.constants, &params, sizeof(params), frame.retired);
-        stage.reset();
-        s.passStats.stagingBytes = stagingBytes;
-        s.passStats.step(PassStats::kUpload);
-        stage.emplace(s.threadProfile, CpuProfile::RayBuild);
-        s.setStage(kRecording);
-        s.interop->wait12(s.queue.Get(), job.produced); // the D3D11 input copies precede this pass on the GPU
-        check(frame.allocator->Reset(), "DXR allocator reset");
-        check(s.list->Reset(frame.allocator.Get(), nullptr), "DXR list reset");
-        const bool gpuTiming = runtimeFlags().rayGpuTiming;
-        if (gpuTiming && !frame.timestamps) {
-            if (!s.timestampFrequency)
-                check(s.queue->GetTimestampFrequency(&s.timestampFrequency), "DXR timestamp frequency");
-            D3D12_QUERY_HEAP_DESC query{};
-            query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-            query.Count = Impl::kGpuTimestamps;
-            check(s.device->CreateQueryHeap(&query, IID_PPV_ARGS(&frame.timestamps)), "DXR timestamp heap");
-            s.buffer(frame.timestampReadback, Impl::kGpuTimestamps * sizeof(uint64_t), D3D12_HEAP_TYPE_READBACK,
-                     D3D12_RESOURCE_STATE_COPY_DEST, frame.retired);
+            if (light.type == SceneLight::Directional)
+                valid &= std::isfinite(lengthSquared) && lengthSquared > 1e-12f;
+            else
+                valid &= std::isfinite(light.radiusSquared) && light.radiusSquared > 0;
+            if (!valid)
+                continue;
+            unsigned i = params.effects[2]++;
+            std::copy(light.vector, light.vector + 3, params.lightVector[i]);
+            std::copy(light.color, light.color + 3, params.lightColor[i]);
+            params.lightVector[i][3] = light.type ? 1.f : 0.f;
+            params.lightColor[i][3] = light.radiusSquared;
+            if (light.type) {
+                params.lightVector[i][0] -= origin.x;
+                params.lightVector[i][1] -= origin.y;
+                params.lightVector[i][2] -= origin.z;
+            }
         }
-        const auto timestamp = [&](UINT index) {
-            if (gpuTiming)
-                s.list->EndQuery(frame.timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index);
+    }
+    // AO only multiplies the ambient term. With all three channels zero,
+    // its result cannot change either primary lighting or the fallback.
+    if (runtimeFlags().rayZeroAmbient && params.ambient[0] == 0 && params.ambient[1] == 0 && params.ambient[2] == 0)
+        params.effects[3] |= 16384u;
+}
+
+// Debug (job.diagnosticDump): the pass's constants and every triangle it traces, camera relative, plus the models'
+// provenance as CSV next to it.
+void RayWater::Impl::writeDiagnosticDump(Job& job, const PassWork& w) {
+    const SceneModels* models = job.models.get();
+    const auto& triangles = job.triangles;
+    const std::span<const Triangle> staticTriangles = job.staticTriangleSpan();
+    const Point origin = w.origin;
+    const Parameters& params = w.params;
+    if (FILE* file = std::fopen(job.diagnosticDump.c_str(), "wb")) {
+        const uint32_t header[] = {0x52545831, uint32_t(sizeof(params))}; // 'RTX1', then the size of the constants
+        std::fwrite(header, sizeof(header), 1, file);
+        std::fwrite(&params, sizeof(params), 1, file);
+        auto record = [&](const Point* p, uint32_t kind, uint32_t object, uint32_t material) {
+            std::fwrite(p, sizeof(Point), 3, file);
+            uint32_t tags[] = {kind, object, material};
+            std::fwrite(tags, sizeof(tags), 1, file);
         };
-        timestamp(0);
-        s.buffer(s.sky, 7 * 16, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, frame.retired,
-                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        for (const auto& c : copies)
-            s.list->CopyBufferRegion(s.materials.Get(), c.destination, frame.staging.Get(), c.source, c.bytes);
-        if (gpuSlots) {
-            // The shared texture's rows into one buffer (64 KiB rows: the footprint pitch is the row itself, so the
-            // buffer holds the layout's words in order), then the attributes into their slots of the materials.
-            frame.retired.push_back(job.gpuSurfaces);
-            s.buffer(s.gpuLinear, uint64_t(gpuLayout.rows()) * GpuSurfaceLayout::kRowWords * 4, D3D12_HEAP_TYPE_DEFAULT,
-                     D3D12_RESOURCE_STATE_COMMON, frame.retired);
-            D3D12_RESOURCE_BARRIER toCopy[] = {
-                transition(job.gpuSurfaces.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE),
-                transition(s.gpuLinear.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST)};
-            s.list->ResourceBarrier(2, toCopy);
-            D3D12_TEXTURE_COPY_LOCATION destination{}, source{};
-            destination.pResource = s.gpuLinear.Get();
-            destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-            destination.PlacedFootprint.Footprint = {DXGI_FORMAT_R32_UINT, GpuSurfaceLayout::kRowWords,
-                                                     gpuLayout.rows(), 1, GpuSurfaceLayout::kRowWords * 4};
-            source.pResource = job.gpuSurfaces.Get();
-            source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-            D3D12_BOX box{0, 0, 0, GpuSurfaceLayout::kRowWords, gpuLayout.rows(), 1};
-            s.list->CopyTextureRegion(&destination, 0, 0, 0, &source, &box);
-            D3D12_RESOURCE_BARRIER toRead[] = {
-                transition(job.gpuSurfaces.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON),
-                transition(s.gpuLinear.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
-                           D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)};
-            s.list->ResourceBarrier(2, toRead);
-            s.list->CopyBufferRegion(s.materials.Get(), uint64_t(gpuBase) * kTriangleAttributes * sizeof(Attribute),
-                                     s.gpuLinear.Get(), gpuLayout.attributeOffset(), gpuLayout.attributeBytes());
-        }
-        if (!copies.empty() || gpuSlots) {
-            const auto ready = transition(s.materials.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
-                                          D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            s.list->ResourceBarrier(1, &ready);
-        }
-        if (!staticPositions.empty()) {
-            // Earlier passes may still trace the current static BLAS, so a rebuild goes into another buffer. With
-            // GSR_RAY_REBASE_REUSE that is the one the rebuild before replaced, once every pass that traced it has
-            // completed on the GPU (a full build overwrites the whole structure), instead of a new allocation.
-            const bool spareReady = s.rebaseReuse && s.fence->GetCompletedValue() >= s.staticSpareFence;
-            uint64_t offset = 0;
-            for (unsigned g = 0; g < 3; ++g) {
-                if (s.staticCounts[g] && spareReady) {
-                    std::swap(s.staticBlas[g], s.staticSpareBlas[g]);
-                    s.buildBlas(
-                        s.staticBlas[g], s.staticVertices->GetGPUVirtualAddress() + offset, s.staticCounts[g] * 3,
-                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, false);
-                } else if (s.staticCounts[g])
-                    s.buildBlas(
-                        s.staticBlas[g], s.staticVertices->GetGPUVirtualAddress() + offset, s.staticCounts[g] * 3,
-                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, true);
-                else if (s.staticBlas[g]) {
-                    frame.retired.push_back(s.staticBlas[g]);
-                    s.staticBlas[g].Reset();
-                }
-                offset += uint64_t(s.staticCounts[g]) * 3 * sizeof(Point);
+        for (const auto source : {staticTriangles, std::span<const Triangle>(triangles)})
+            for (const auto& tri : source) {
+                Point p[3];
+                for (unsigned j = 0; j < 3; ++j)
+                    p[j] = sub(tri.p[j], origin);
+                record(p, tri.water ? (tri.shadowGeometry ? 4 : 3) : tri.shadowGeometry ? 0 : 1, 0, tri.texture);
             }
-            if (spareReady) // the replaced structures: earlier passes, at most up to this one, may still trace them
-                s.staticSpareFence = s.serial + 1;
-        }
-        {
-            uint64_t offset = 0;
-            for (unsigned g = 0; g < 3; ++g) {
-                if (counts[g])
-                    s.buildBlas(s.blas[g], frame.vertices->GetGPUVirtualAddress() + offset, counts[g] * 3,
-                                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, frame.retired,
-                                false);
-                offset += uint64_t(counts[g]) * 3 * sizeof(Point);
-            }
-            // The GPU-built frame triangles: one slot per streamed triangle, NaN positions for those the CPU path
-            // would not have appended (inactive triangles in DXR).
-            if (gpuSlots)
-                s.buildBlas(s.gpuBlas, s.gpuLinear->GetGPUVirtualAddress(), gpuSlots * 3,
-                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, frame.retired, false);
-        }
-        std::vector<D3D12_RAYTRACING_INSTANCE_DESC> temporaryInstances;
-        auto& instances = cpuCache ? s.cpuInstances : temporaryInstances;
-        instances.clear();
-        instances.reserve(6 + (models ? models->instances.size() : 0));
-        const auto frameTerrainMasks = kLevelSurfaceMask | (validatedFrame ? kValidatedTerrainMasks : 0u);
-        {
-            // Static world first (translated from its base to the camera), then this frame's triangles.
-            const auto translate = sub(s.staticBase, origin);
-            uint32_t materialBase = 0;
-            for (unsigned g = 0; g < 3; ++g) {
-                if (s.staticCounts[g]) {
-                    D3D12_RAYTRACING_INSTANCE_DESC i{};
-                    i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
-                    i.Transform[0][3] = translate.x;
-                    i.Transform[1][3] = translate.y;
-                    i.Transform[2][3] = translate.z;
-                    i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = (1u << g) | (g == 0 ? kLevelSurfaceMask | kValidatedTerrainMasks : 0u);
-                    if (g == 0 && nativeOpaque)
-                        i.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
-                    i.AccelerationStructure = s.staticBlas[g]->GetGPUVirtualAddress();
-                    instances.push_back(i);
-                }
-                materialBase += s.staticCounts[g];
-            }
-            materialBase = frameBase;
-            for (unsigned g = 0; g < 3; ++g) {
-                if (counts[g]) {
-                    D3D12_RAYTRACING_INSTANCE_DESC i{};
-                    i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
-                    i.InstanceID = (31u << 19) | materialBase;
-                    i.InstanceMask = (1u << g) | (g == 0 ? frameTerrainMasks : 0u);
-                    i.AccelerationStructure = s.blas[g]->GetGPUVirtualAddress();
-                    instances.push_back(i);
-                }
-                materialBase += counts[g];
-            }
-        }
-        if (models) {
-            // New poses/meshes: positions go to this frame's upload buffer (a built BLAS no longer reads them).
-            struct Build {
-                NativeMesh* mesh;
-                Deformable* slot;
-                size_t first;
-                uint32_t count;
-                std::shared_ptr<const SceneModelMesh> source;
-                ModelPoseShape shape;
-            };
-            std::vector<Build> builds;
-            ++s.modelPass;
-            s.modelPositions.clear();
-            for (const auto& model : models->meshes) {
-                auto& cached = s.nativeMeshes[model->identity];
-                // Identity is only a lookup key: a reused/colliding ID must not pair new attributes with an old BLAS.
-                // Keep this source separate from attributeSource, which was already updated during CPU packing.
-                if ((cached.built && cached.blasSource && sameModelGeometry(*cached.blasSource, *model)) ||
-                    model->triangles.empty())
+        if (models)
+            for (const auto& instance : models->instances) {
+                const auto& mesh = *models->meshes[instance.mesh];
+                const auto& m = instance.transform;
+                if (cameraShell(mesh, m, origin))
                     continue;
-                const size_t first = s.modelPositions.size();
-                for (const auto& t : model->triangles)
-                    for (const auto& p : t.position)
-                        s.modelPositions.push_back({p[0], p[1], p[2]});
-                const auto count = uint32_t(s.modelPositions.size() - first);
-                // Broken poses must not reach the GPU as level-wide slivers (or non-finite corners).
-                const auto shape = screenModelPose(std::span(s.modelPositions).subspan(first, count), s.poseScratch);
-                if (shape.inactive) {
-                    s.poseInactive += shape.inactive;
-                    if (s.lastPoseLog == Clock::time_point{} || msSince(s.lastPoseLog) > 5000) {
-                        s.lastPoseLog = Clock::now();
-                        logLine("model %u (%zu triangles): %u stretched or invalid triangle(s) left out of the ray "
-                                "scene, longest %.0f units (%llu so far)",
-                                model->nativeId, model->triangles.size(), shape.inactive, shape.longestInactive,
-                                (unsigned long long)s.poseInactive);
+                for (const auto& tri : mesh.triangles) {
+                    Point p[3];
+                    for (unsigned j = 0; j < 3; ++j) {
+                        const auto& v = tri.position[j];
+                        p[j] = {m[0] * v[0] + m[1] * v[1] + m[2] * v[2] + m[3] - origin.x,
+                                m[4] * v[0] + m[5] * v[1] + m[6] * v[2] + m[7] - origin.y,
+                                m[8] * v[0] + m[9] * v[1] + m[10] * v[2] + m[11] - origin.z};
                     }
+                    record(p, 2, instance.object,
+                           tri.material < models->textures.size() ? models->textures[tri.material]->nativeId : ~0u);
                 }
-                Deformable* slot = nullptr;
-                if (model->topology) {
-                    auto& slots = s.deformables[model->topology];
-                    for (auto& d : slots)
-                        if (d.vertexCount == count && d.used != s.modelPass && !usedMeshes.contains(d.identity)) {
-                            slot = &d;
-                            break;
-                        }
-                    if (!slot) {
-                        slot = &slots.emplace_back();
-                        slot->vertexCount = count;
-                    }
-                    slot->used = s.modelPass;
-                    slot->identity = model->identity;
-                }
-                builds.push_back({&cached, slot, first, count, model, shape});
             }
-            if (!builds.empty()) {
-                s.upload(frame.models, s.modelPositions.data(), s.modelPositions.size() * sizeof(Point), frame.retired);
-                for (const auto& b : builds) {
-                    const auto vertices = frame.models->GetGPUVirtualAddress() + b.first * sizeof(Point);
-                    if (!b.slot) {
-                        s.buildBlas(b.mesh->blas, vertices, b.count,
-                                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired,
-                                    true);
-                        b.mesh->blasSource = b.source;
-                        b.mesh->built = true;
-                        ++s.passStats.blasBuilds;
+        std::fclose(file);
+        // Exact-frame source provenance for the triangle dump. This contains metadata only, and
+        // describes exported instances before admission/build success (opacity and shell are explicit).
+        const std::string metadataPath = job.diagnosticDump + ".models.csv";
+        if (models)
+            if (FILE* metadata = std::fopen(metadataPath.c_str(), "wb")) {
+                std::fprintf(metadata, "object,resource,mesh,generation,triangles,opacity,shell,cameraX,cameraY,"
+                                       "cameraZ,level,m0,m1,m2,m3,m4,m5,m6,m7,m8,m9,m10,m11,nativeShadow\n");
+                for (const auto& instance : models->instances) {
+                    if (instance.mesh >= models->meshes.size())
                         continue;
-                    }
-                    Deformable& d = *b.slot;
-                    const bool due = d.blas && d.updates < Impl::kRefits;
-                    const bool refit = due && modelRefitFits(d.built, b.shape);
-                    s.poseRebuilds += due && !refit;
-                    s.buildBlas(d.blas, vertices, b.count,
-                                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
-                                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE,
-                                frame.retired, false, refit);
-                    d.updates = refit ? d.updates + 1 : 0;
-                    if (!refit)
-                        d.built = b.shape;
-                    ++(refit ? s.passStats.blasRefits : s.passStats.blasBuilds);
-                    s.modelRefits += refit;
-                    b.mesh->blas = d.blas;
-                    b.mesh->blasSource = b.source;
-                    b.mesh->built = true;
+                    const auto& mesh = *models->meshes[instance.mesh];
+                    std::fprintf(metadata, "%x,%x,%llx,%llu,%zu,%.9g,%u,%.9g,%.9g,%.9g,%llx", instance.object,
+                                 mesh.nativeId, static_cast<unsigned long long>(mesh.identity),
+                                 static_cast<unsigned long long>(instance.generation), mesh.triangles.size(),
+                                 instance.opacity, unsigned(cameraShell(mesh, instance.transform, origin)), origin.x,
+                                 origin.y, origin.z, static_cast<unsigned long long>(models->level));
+                    for (float value : instance.transform)
+                        std::fprintf(metadata, ",%.9g", value);
+                    std::fprintf(metadata, ",%u\n", unsigned(instance.nativeShadow));
                 }
+                std::fclose(metadata);
             }
-            for (const auto& source : models->instances) {
-                if (source.mesh >= models->meshes.size())
-                    throw std::runtime_error("DXR invalid native model instance");
-                const auto& model = models->meshes[source.mesh];
-                if (model->triangles.empty())
-                    continue;
-                // Zero-opacity props must not become primary shadow receivers
-                // or consume the bounded transparent reflection traversal.
-                if (!std::isfinite(source.opacity))
-                    throw std::runtime_error("DXR invalid native model opacity");
-                const auto opacity = uint32_t(std::clamp(source.opacity, 0.f, 1.f) * 31 + .5f);
-                if (!opacity || cameraShell(*model, source.transform, origin))
-                    continue;
+    }
+}
+
+// ---- stage kRecording: the D3D12 command list of the pass, up to its submission
+void RayWater::Impl::recordPass(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    s.setStage(kRecording);
+    s.interop->wait12(s.queue.Get(), job.produced); // the D3D11 input copies precede this pass on the GPU
+    check(frame.allocator->Reset(), "DXR allocator reset");
+    check(s.list->Reset(frame.allocator.Get(), nullptr), "DXR list reset");
+    w.gpuTiming = runtimeFlags().rayGpuTiming;
+    if (w.gpuTiming && !frame.timestamps) {
+        if (!s.timestampFrequency)
+            check(s.queue->GetTimestampFrequency(&s.timestampFrequency), "DXR timestamp frequency");
+        D3D12_QUERY_HEAP_DESC query{};
+        query.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+        query.Count = Impl::kGpuTimestamps;
+        check(s.device->CreateQueryHeap(&query, IID_PPV_ARGS(&frame.timestamps)), "DXR timestamp heap");
+        s.buffer(frame.timestampReadback, Impl::kGpuTimestamps * sizeof(uint64_t), D3D12_HEAP_TYPE_READBACK,
+                 D3D12_RESOURCE_STATE_COPY_DEST, frame.retired);
+    }
+    timestamp(w, frame, 0);
+    // The sky radiance the sky dispatch reduces once per pass: 7 float4 (skyMain in ray_water.hlsl).
+    s.buffer(s.sky, 7 * 16, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, frame.retired,
+             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    recordMaterialCopies(job, w, frame);
+    buildBottomLevel(w, frame);
+    buildTopLevel(job, w, frame);
+    recordDispatches(job, w, frame);
+}
+
+void RayWater::Impl::timestamp(const PassWork& w, Frame& frame, UINT index) {
+    if (w.gpuTiming)
+        list->EndQuery(frame.timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, index);
+}
+
+// The staged material copies, and the GPU-built frame triangles (GSR_VERTEX_SURFACE=gpu) into their slots.
+void RayWater::Impl::recordMaterialCopies(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    const uint32_t gpuSlots = w.gpuSlots;
+    const GpuSurfaceLayout gpuLayout{gpuSlots};
+    for (const auto& c : w.copies)
+        s.list->CopyBufferRegion(s.materials.Get(), c.destination, frame.staging.Get(), c.source, c.bytes);
+    if (gpuSlots) {
+        // The shared texture's rows into one buffer (64 KiB rows: the footprint pitch is the row itself, so the
+        // buffer holds the layout's words in order), then the attributes into their slots of the materials.
+        frame.retired.push_back(job.gpuSurfaces);
+        s.buffer(s.gpuLinear, uint64_t(gpuLayout.rows()) * GpuSurfaceLayout::kRowWords * 4, D3D12_HEAP_TYPE_DEFAULT,
+                 D3D12_RESOURCE_STATE_COMMON, frame.retired);
+        D3D12_RESOURCE_BARRIER toCopy[] = {
+            transition(job.gpuSurfaces.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_SOURCE),
+            transition(s.gpuLinear.Get(), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST)};
+        s.list->ResourceBarrier(2, toCopy);
+        D3D12_TEXTURE_COPY_LOCATION destination{}, source{};
+        destination.pResource = s.gpuLinear.Get();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint.Footprint = {DXGI_FORMAT_R32_UINT, GpuSurfaceLayout::kRowWords, gpuLayout.rows(), 1,
+                                                 GpuSurfaceLayout::kRowWords * 4};
+        source.pResource = job.gpuSurfaces.Get();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_BOX box{0, 0, 0, GpuSurfaceLayout::kRowWords, gpuLayout.rows(), 1};
+        s.list->CopyTextureRegion(&destination, 0, 0, 0, &source, &box);
+        D3D12_RESOURCE_BARRIER toRead[] = {
+            transition(job.gpuSurfaces.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_COMMON),
+            transition(s.gpuLinear.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_COPY_SOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)};
+        s.list->ResourceBarrier(2, toRead);
+        s.list->CopyBufferRegion(s.materials.Get(), uint64_t(w.gpuBase) * kTriangleAttributes * sizeof(Attribute),
+                                 s.gpuLinear.Get(), gpuLayout.attributeOffset(), gpuLayout.attributeBytes());
+    }
+    if (!w.copies.empty() || gpuSlots) {
+        const auto ready = transition(s.materials.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                                      D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        s.list->ResourceBarrier(1, &ready);
+    }
+}
+
+// The bottom-level acceleration structures of the static world (when rebuilt), the frame triangles and the
+// GPU-built triangles, one per instance group (0 dry, 1 water coverage, 2 native water).
+void RayWater::Impl::buildBottomLevel(PassWork& w, Frame& frame) {
+    auto& s = *this;
+    if (!w.staticPositions.empty()) {
+        // Earlier passes may still trace the current static BLAS, so a rebuild goes into another buffer. With
+        // GSR_RAY_REBASE_REUSE that is the one the rebuild before replaced, once every pass that traced it has
+        // completed on the GPU (a full build overwrites the whole structure), instead of a new allocation.
+        const bool spareReady = s.rebaseReuse && s.fence->GetCompletedValue() >= s.staticSpareFence;
+        uint64_t offset = 0;
+        for (unsigned g = 0; g < 3; ++g) {
+            if (s.staticCounts[g] && spareReady) {
+                std::swap(s.staticBlas[g], s.staticSpareBlas[g]);
+                s.buildBlas(s.staticBlas[g], s.staticVertices->GetGPUVirtualAddress() + offset, s.staticCounts[g] * 3,
+                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, false);
+            } else if (s.staticCounts[g])
+                s.buildBlas(s.staticBlas[g], s.staticVertices->GetGPUVirtualAddress() + offset, s.staticCounts[g] * 3,
+                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, true);
+            else if (s.staticBlas[g]) {
+                frame.retired.push_back(s.staticBlas[g]);
+                s.staticBlas[g].Reset();
+            }
+            offset += uint64_t(s.staticCounts[g]) * 3 * sizeof(Point);
+        }
+        if (spareReady) // the replaced structures: earlier passes, at most up to this one, may still trace them
+            s.staticSpareFence = s.serial + 1;
+    }
+    uint64_t offset = 0;
+    for (unsigned g = 0; g < 3; ++g) {
+        if (w.counts[g])
+            s.buildBlas(s.blas[g], frame.vertices->GetGPUVirtualAddress() + offset, w.counts[g] * 3,
+                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, frame.retired, false);
+        offset += uint64_t(w.counts[g]) * 3 * sizeof(Point);
+    }
+    // The GPU-built frame triangles: one slot per streamed triangle, NaN positions for those the CPU path
+    // would not have appended (inactive triangles in DXR).
+    if (w.gpuSlots)
+        s.buildBlas(s.gpuBlas, s.gpuLinear->GetGPUVirtualAddress(), w.gpuSlots * 3,
+                    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD, frame.retired, false);
+}
+
+// The instances of the top-level structure (static world, frame triangles, native models, GPU-built triangles) and
+// the structure itself. InstanceID packs the opacity (bits 19..23, 31 = opaque) over the first attribute slot.
+void RayWater::Impl::buildTopLevel(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    const SceneModels* models = job.models.get();
+    const Point origin = w.origin;
+    std::vector<D3D12_RAYTRACING_INSTANCE_DESC> temporaryInstances;
+    auto& instances = job.cpuCache ? s.cpuInstances : temporaryInstances;
+    instances.clear();
+    instances.reserve(6 + (models ? models->instances.size() : 0));
+    const auto frameTerrainMasks = kLevelSurfaceMask | (w.validatedFrame ? kValidatedTerrainMasks : 0u);
+    constexpr uint32_t kOpaqueInstance = 31u << 19;
+    {
+        // Static world first (translated from its base to the camera), then this frame's triangles.
+        const auto translate = sub(s.staticBase, origin);
+        uint32_t materialBase = 0;
+        for (unsigned g = 0; g < 3; ++g) {
+            if (s.staticCounts[g]) {
                 D3D12_RAYTRACING_INSTANCE_DESC i{};
-                std::memcpy(i.Transform, source.transform, sizeof(i.Transform));
-                i.Transform[0][3] -= origin.x;
-                i.Transform[1][3] -= origin.y;
-                i.Transform[2][3] -= origin.z;
-                i.InstanceID = modelOffsets[source.mesh] | (opacity << 19);
-                i.InstanceMask = 1u | kValidatedGeometryMask | (source.nativeShadow ? 0u : kDirectShadowMask);
-                i.AccelerationStructure = s.nativeMeshes.at(model->identity).blas->GetGPUVirtualAddress();
+                i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
+                i.Transform[0][3] = translate.x;
+                i.Transform[1][3] = translate.y;
+                i.Transform[2][3] = translate.z;
+                i.InstanceID = kOpaqueInstance | materialBase;
+                i.InstanceMask = (1u << g) | (g == 0 ? kLevelSurfaceMask | kValidatedTerrainMasks : 0u);
+                if (g == 0 && w.nativeOpaque)
+                    i.Flags = D3D12_RAYTRACING_INSTANCE_FLAG_FORCE_OPAQUE;
+                i.AccelerationStructure = s.staticBlas[g]->GetGPUVirtualAddress();
                 instances.push_back(i);
             }
+            materialBase += s.staticCounts[g];
         }
-        if (gpuSlots) {
-            // Last, so the instance indices of everything else stay as without it; dry frame triangles (group 0).
-            D3D12_RAYTRACING_INSTANCE_DESC i{};
-            i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
-            i.InstanceID = (31u << 19) | gpuBase;
-            i.InstanceMask = 1u | frameTerrainMasks;
-            i.AccelerationStructure = s.gpuBlas->GetGPUVirtualAddress();
-            instances.push_back(i);
-        }
-        const unsigned instanceCount = unsigned(instances.size());
-        s.upload(frame.instances, instances.data(), instances.size() * sizeof(instances[0]), frame.retired);
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS in{};
-        in.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-        in.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        in.NumDescs = instanceCount;
-        in.InstanceDescs = frame.instances->GetGPUVirtualAddress();
-        in.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
-        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO size{};
-        s.device->GetRaytracingAccelerationStructurePrebuildInfo(&in, &size);
-        s.buffer(s.tlas, size.ResultDataMaxSizeInBytes, D3D12_HEAP_TYPE_DEFAULT,
-                 D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, frame.retired,
-                 D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        s.buffer(s.scratch, size.ScratchDataSizeInBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                 frame.retired, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
-        build.Inputs = in;
-        build.DestAccelerationStructureData = s.tlas->GetGPUVirtualAddress();
-        build.ScratchAccelerationStructureData = s.scratch->GetGPUVirtualAddress();
-        s.list->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
-        s.barrier(s.tlas.Get());
-        const bool transportEnabled = (params.effects[3] & 1536u) && !(params.effects[3] & 224u);
-        if (transportEnabled) {
-            // Frame-owned images cannot be overwritten while an earlier queued pass still samples them.
-            // Allocate lazily: a water/shadow-only pass retains its existing memory and dispatch cost.
-            auto image = [&](ComPtr<ID3D12Resource>& resource) {
-                const UINT width = (d.Width + 1) / 2, height = (d.Height + 1) / 2;
-                if (resource && resource->GetDesc().Width == width && resource->GetDesc().Height == height)
-                    return;
-                if (resource)
-                    frame.retired.push_back(resource);
-                resource.Reset();
-                D3D12_HEAP_PROPERTIES heap{};
-                heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-                D3D12_RESOURCE_DESC desc{};
-                desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-                desc.Width = width;
-                desc.Height = height;
-                desc.DepthOrArraySize = desc.MipLevels = 1;
-                desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-                desc.SampleDesc.Count = 1;
-                desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-                check(s.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
-                                                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-                                                        IID_PPV_ARGS(&resource)),
-                      "DXR half-resolution transport image");
-            };
-            image(frame.transport);
-            image(frame.transportGuide);
-        }
-        D3D12_RESOURCE_BARRIER before[] = {
-            transition(s.interop->texture(0), D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
-            transition(s.interop->texture(3), D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
-            transition(s.interop->texture(1), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS)};
-        s.list->ResourceBarrier(3, before);
-        auto cpu = frame.heap->GetCPUDescriptorHandleForHeapStart();
-        const auto stride = s.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-        srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-        srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        srv.Texture2D.MipLevels = 1;
-        srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        s.device->CreateShaderResourceView(s.interop->texture(0), &srv, cpu);
-        cpu.ptr += stride;
-        srv.Format = DXGI_FORMAT_R32_FLOAT;
-        s.device->CreateShaderResourceView(s.interop->texture(3), &srv, cpu);
-        cpu.ptr += stride;
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
-        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-        s.device->CreateUnorderedAccessView(s.interop->texture(1), nullptr, &uav, cpu);
-        cpu.ptr += stride;
-        s.device->CreateUnorderedAccessView(transportEnabled ? frame.transport.Get() : nullptr, nullptr, &uav, cpu);
-        cpu.ptr += stride;
-        s.device->CreateUnorderedAccessView(transportEnabled ? frame.transportGuide.Get() : nullptr, nullptr, &uav,
-                                            cpu);
-        ID3D12DescriptorHeap* heaps[] = {frame.heap.Get()};
-        s.list->SetDescriptorHeaps(1, heaps);
-        s.list->SetComputeRootSignature(s.root.Get());
-        s.list->SetComputeRootConstantBufferView(0, frame.constants->GetGPUVirtualAddress());
-        s.list->SetComputeRootShaderResourceView(1, s.tlas->GetGPUVirtualAddress());
-        s.list->SetComputeRootShaderResourceView(2, s.materials->GetGPUVirtualAddress());
-        s.list->SetComputeRootDescriptorTable(3, frame.heap->GetGPUDescriptorHandleForHeapStart());
-        s.list->SetComputeRootUnorderedAccessView(4, s.sky->GetGPUVirtualAddress());
-        timestamp(1);
-        s.list->SetPipelineState(s.skyPipeline.Get());
-        s.list->Dispatch(1, 1, 1);
-        s.barrier(s.sky.Get());
-        timestamp(2);
-        if (transportEnabled) {
-            s.list->SetPipelineState(s.transportPipeline.Get());
-            s.list->Dispatch((d.Width + 15) / 16, (d.Height + 15) / 16, 1);
-            s.barrier(frame.transport.Get());
-            s.barrier(frame.transportGuide.Get());
-        }
-        timestamp(3);
-        // Match waterSurface's coverage guard so the smaller shader only runs where a water hit is impossible.
-        const uint32_t waterFlags = params.effects[3];
-        const bool noWaterSurface = !(waterFlags & 3u) || ((waterFlags & 4u) && !(waterFlags & 2u));
-        const bool useDryCompose = s.dryComposePipeline && transportEnabled && !job.coverageDebug && noWaterSurface;
-        s.list->SetPipelineState(useDryCompose ? s.dryComposePipeline.Get() : s.pipeline.Get());
-        s.list->Dispatch((d.Width + 7) / 8, (d.Height + 7) / 8, 1);
-        timestamp(4);
-        if (gpuTiming)
-            s.list->ResolveQueryData(frame.timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, Impl::kGpuTimestamps,
-                                     frame.timestampReadback.Get(), 0);
-        for (auto& b : before)
-            std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
-        s.list->ResourceBarrier(3, before);
-        check(s.list->Close(), "DXR list close");
-        ID3D12CommandList* lists[] = {s.list.Get()};
-        s.queue->ExecuteCommandLists(1, lists);
-        s.setStage(kSubmitted);
-        s.submitted(frame);
-        s.passStats.step(PassStats::kRecord);
-        if (gpuTiming) {
-            frame.timedPass = job.consumed;
-            frame.timedWidth = uint32_t(d.Width);
-            frame.timedHeight = d.Height;
-            frame.timedEffects = params.effects[3] | (nativeOpaque ? 1u << 17 : 0u);
-            frame.timedRejectedTriangles = validatedFrame ? 0 : counts[0];
-            frame.timedCachedCompose = transportEnabled && s.cachedCompose;
-            frame.timedDryCompose = useDryCompose;
-            frame.timedUploadBytes = stagingBytes;
-            frame.timedDynamicBytes = 0;
-            for (const auto& [first, end] : dynamicDirty)
-                frame.timedDynamicBytes += (end - first) * sizeof(Attribute);
-            frame.timedDynamicTotal = colors.size() * sizeof(Attribute); // models and frame triangles
-        }
-        // The D3D11 context waits for this value on the GPU before it copies the output; the CPU continues.
-        s.signalConsumed(job);
-        if (s.debug) {
-            bool errors = false;
-            const UINT64 messages = s.debug->GetNumStoredMessagesAllowedByRetrievalFilter();
-            for (UINT64 i = 0; i < messages; ++i) {
-                SIZE_T bytes = 0;
-                s.debug->GetMessage(i, nullptr, &bytes);
-                std::vector<uint8_t> storage(bytes);
-                auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
-                if (SUCCEEDED(s.debug->GetMessage(i, message, &bytes)) &&
-                    message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
-                    std::fprintf(stderr, "[water-d3d12-error] %s\n", message->pDescription);
-                    errors = true;
-                }
+        materialBase = w.frameBase;
+        for (unsigned g = 0; g < 3; ++g) {
+            if (w.counts[g]) {
+                D3D12_RAYTRACING_INSTANCE_DESC i{};
+                i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
+                i.InstanceID = kOpaqueInstance | materialBase;
+                i.InstanceMask = (1u << g) | (g == 0 ? frameTerrainMasks : 0u);
+                i.AccelerationStructure = s.blas[g]->GetGPUVirtualAddress();
+                instances.push_back(i);
             }
-            s.debug->ClearStoredMessages();
-            if (errors)
-                throw std::runtime_error("DXR debug validation reported an error");
+            materialBase += w.counts[g];
         }
-        for (auto it = s.nativeMeshes.begin(); it != s.nativeMeshes.end();)
-            if (!usedMeshes.contains(it->first)) {
-                if (it->second.blas)
-                    frame.retired.push_back(it->second.blas);
-                it = s.nativeMeshes.erase(it);
-            } else
-                ++it;
-        std::erase_if(s.modelWelds, [&](const auto& welds) { return !usedTopologies.contains(welds.first); });
-        std::erase_if(s.modelWeldVersions, [&](const auto& entry) { return !usedTopologies.contains(entry.first); });
-        for (auto it = s.deformables.begin(); it != s.deformables.end();) {
-            auto& slots = it->second;
-            for (auto d = slots.begin(); d != slots.end();)
-                if (d->used + Impl::kDeformableIdle < s.modelPass) {
-                    if (d->blas)
-                        frame.retired.push_back(d->blas);
-                    d = slots.erase(d);
-                } else
-                    ++d;
-            it = slots.empty() ? s.deformables.erase(it) : std::next(it);
-        }
-        s.setStatus("DXR scene evaluated: " + std::to_string(totalCounts[0]) + " opaque (" +
-                    std::to_string(s.staticCounts[0]) + " resident) / " + std::to_string(totalCounts[2]) +
-                    " native water / " + std::to_string(totalCounts[1]) + " water coverage triangles; " +
-                    std::to_string(texturedTriangles) + " textured / " + std::to_string(textureCount) +
-                    " material textures; " + std::to_string(models ? models->instances.size() : 0) +
-                    " resident model instances; " + std::to_string(s.modelRefits) + " model BLAS refits" +
-                    (s.poseRebuilds || s.poseInactive
-                         ? " (" + std::to_string(s.poseRebuilds) + " rebuilt for a changed shape, " +
-                               std::to_string(s.poseInactive) + " stretched triangles left out)"
-                         : std::string()) +
-                    "; shadows=" +
-                    (options.shadows ? (params.effects[2] ? std::to_string(params.effects[2]) + " native lights"
-                                                          : (models && models->lighting.hasContribution()
-                                                                 ? "ambient occlusion only"
-                                                                 : "waiting for native lighting"))
-                                     : "off"));
-        const uint32_t diagnostic = rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
-        static std::atomic_flag diagnosticLogged = ATOMIC_FLAG_INIT;
-        if (diagnostic && !diagnosticLogged.test_and_set())
-            std::fprintf(stderr, "[ray-diagnostic] backend=d3d11 mode=%s mask=%u applied in submitted pass\n",
-                         runtimeFlags().rayDiagnostic->c_str(), diagnostic);
     }
+    if (models)
+        addModelInstances(job, w, frame, instances);
+    if (w.gpuSlots) {
+        // Last, so the instance indices of everything else stay as without it; dry frame triangles (group 0).
+        D3D12_RAYTRACING_INSTANCE_DESC i{};
+        i.Transform[0][0] = i.Transform[1][1] = i.Transform[2][2] = 1;
+        i.InstanceID = kOpaqueInstance | w.gpuBase;
+        i.InstanceMask = 1u | frameTerrainMasks;
+        i.AccelerationStructure = s.gpuBlas->GetGPUVirtualAddress();
+        instances.push_back(i);
+    }
+    const unsigned instanceCount = unsigned(instances.size());
+    s.upload(frame.instances, instances.data(), instances.size() * sizeof(instances[0]), frame.retired);
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS in{};
+    in.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    in.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    in.NumDescs = instanceCount;
+    in.InstanceDescs = frame.instances->GetGPUVirtualAddress();
+    in.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_BUILD;
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO size{};
+    s.device->GetRaytracingAccelerationStructurePrebuildInfo(&in, &size);
+    s.buffer(s.tlas, size.ResultDataMaxSizeInBytes, D3D12_HEAP_TYPE_DEFAULT,
+             D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, frame.retired,
+             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    s.buffer(s.scratch, size.ScratchDataSizeInBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+             frame.retired, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build{};
+    build.Inputs = in;
+    build.DestAccelerationStructureData = s.tlas->GetGPUVirtualAddress();
+    build.ScratchAccelerationStructureData = s.scratch->GetGPUVirtualAddress();
+    s.list->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+    s.barrier(s.tlas.Get());
+}
+
+// The native models: a BLAS for each new pose or mesh (refitted in a free slot of its topology where it can be), then
+// one instance per visible model instance.
+void RayWater::Impl::addModelInstances(Job& job, PassWork& w, Frame& frame,
+                                       std::vector<D3D12_RAYTRACING_INSTANCE_DESC>& instances) {
+    auto& s = *this;
+    const SceneModels* models = job.models.get();
+    const Point origin = w.origin;
+    // New poses/meshes: positions go to this frame's upload buffer (a built BLAS no longer reads them).
+    struct Build {
+        NativeMesh* mesh;
+        Deformable* slot;
+        size_t first;
+        uint32_t count;
+        std::shared_ptr<const SceneModelMesh> source;
+        ModelPoseShape shape;
+    };
+    std::vector<Build> builds;
+    ++s.modelPass;
+    s.modelPositions.clear();
+    for (const auto& model : models->meshes) {
+        auto& cached = s.nativeMeshes[model->identity];
+        // Identity is only a lookup key: a reused/colliding ID must not pair new attributes with an old BLAS.
+        // Keep this source separate from attributeSource, which was already updated during CPU packing.
+        if ((cached.built && cached.blasSource && sameModelGeometry(*cached.blasSource, *model)) ||
+            model->triangles.empty())
+            continue;
+        const size_t first = s.modelPositions.size();
+        for (const auto& t : model->triangles)
+            for (const auto& p : t.position)
+                s.modelPositions.push_back({p[0], p[1], p[2]});
+        const auto count = uint32_t(s.modelPositions.size() - first);
+        // Broken poses must not reach the GPU as level-wide slivers (or non-finite corners).
+        const auto shape = screenModelPose(std::span(s.modelPositions).subspan(first, count), s.poseScratch);
+        if (shape.inactive) {
+            s.poseInactive += shape.inactive;
+            if (s.lastPoseLog == Clock::time_point{} || msSince(s.lastPoseLog) > 5000) {
+                s.lastPoseLog = Clock::now();
+                logLine("model %u (%zu triangles): %u stretched or invalid triangle(s) left out of the ray "
+                        "scene, longest %.0f units (%llu so far)",
+                        model->nativeId, model->triangles.size(), shape.inactive, shape.longestInactive,
+                        (unsigned long long)s.poseInactive);
+            }
+        }
+        Deformable* slot = nullptr;
+        if (model->topology) {
+            auto& slots = s.deformables[model->topology];
+            for (auto& d : slots)
+                if (d.vertexCount == count && d.used != s.modelPass && !w.usedMeshes.contains(d.identity)) {
+                    slot = &d;
+                    break;
+                }
+            if (!slot) {
+                slot = &slots.emplace_back();
+                slot->vertexCount = count;
+            }
+            slot->used = s.modelPass;
+            slot->identity = model->identity;
+        }
+        builds.push_back({&cached, slot, first, count, model, shape});
+    }
+    if (!builds.empty()) {
+        s.upload(frame.models, s.modelPositions.data(), s.modelPositions.size() * sizeof(Point), frame.retired);
+        for (const auto& b : builds) {
+            const auto vertices = frame.models->GetGPUVirtualAddress() + b.first * sizeof(Point);
+            if (!b.slot) {
+                s.buildBlas(b.mesh->blas, vertices, b.count,
+                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE, frame.retired, true);
+                b.mesh->blasSource = b.source;
+                b.mesh->built = true;
+                ++s.passStats.blasBuilds;
+                continue;
+            }
+            Deformable& d = *b.slot;
+            const bool due = d.blas && d.updates < Impl::kRefits;
+            const bool refit = due && modelRefitFits(d.built, b.shape);
+            s.poseRebuilds += due && !refit;
+            s.buildBlas(d.blas, vertices, b.count,
+                        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+                            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE,
+                        frame.retired, false, refit);
+            d.updates = refit ? d.updates + 1 : 0;
+            if (!refit)
+                d.built = b.shape;
+            ++(refit ? s.passStats.blasRefits : s.passStats.blasBuilds);
+            s.modelRefits += refit;
+            b.mesh->blas = d.blas;
+            b.mesh->blasSource = b.source;
+            b.mesh->built = true;
+        }
+    }
+    for (const auto& source : models->instances) {
+        if (source.mesh >= models->meshes.size())
+            throw std::runtime_error("DXR invalid native model instance");
+        const auto& model = models->meshes[source.mesh];
+        if (model->triangles.empty())
+            continue;
+        // Zero-opacity props must not become primary shadow receivers
+        // or consume the bounded transparent reflection traversal.
+        if (!std::isfinite(source.opacity))
+            throw std::runtime_error("DXR invalid native model opacity");
+        const auto opacity = uint32_t(std::clamp(source.opacity, 0.f, 1.f) * 31 + .5f);
+        if (!opacity || cameraShell(*model, source.transform, origin))
+            continue;
+        D3D12_RAYTRACING_INSTANCE_DESC i{};
+        std::memcpy(i.Transform, source.transform, sizeof(i.Transform));
+        i.Transform[0][3] -= origin.x;
+        i.Transform[1][3] -= origin.y;
+        i.Transform[2][3] -= origin.z;
+        i.InstanceID = w.modelOffsets[source.mesh] | (opacity << 19);
+        i.InstanceMask = 1u | kValidatedGeometryMask | (source.nativeShadow ? 0u : kDirectShadowMask);
+        i.AccelerationStructure = s.nativeMeshes.at(model->identity).blas->GetGPUVirtualAddress();
+        instances.push_back(i);
+    }
+}
+
+// The dispatches: sky, then (with GI or material reflections) the half-resolution transport, then the compose pass
+// into the interop output, all bound through one descriptor table. Ends with the submission.
+void RayWater::Impl::recordDispatches(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    const UINT passW = job.width, passH = job.height;
+    const uint32_t effects = w.params.effects[3];
+    // GI (512) or material reflections (1024), unless a diagnostic mode (no AO, no direct light, receiver: 224)
+    // is on.
+    w.transportEnabled = (effects & 1536u) && !(effects & 224u);
+    const bool transportEnabled = w.transportEnabled;
+    if (transportEnabled) {
+        // Frame-owned images cannot be overwritten while an earlier queued pass still samples them.
+        // Allocate lazily: a water/shadow-only pass retains its existing memory and dispatch cost.
+        auto image = [&](ComPtr<ID3D12Resource>& resource) {
+            const UINT halfWidth = (passW + 1) / 2, halfHeight = (passH + 1) / 2;
+            if (resource && resource->GetDesc().Width == halfWidth && resource->GetDesc().Height == halfHeight)
+                return;
+            if (resource)
+                frame.retired.push_back(resource);
+            resource.Reset();
+            D3D12_HEAP_PROPERTIES heap{};
+            heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+            D3D12_RESOURCE_DESC desc{};
+            desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+            desc.Width = halfWidth;
+            desc.Height = halfHeight;
+            desc.DepthOrArraySize = desc.MipLevels = 1;
+            desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            desc.SampleDesc.Count = 1;
+            desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            check(s.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                    IID_PPV_ARGS(&resource)),
+                  "DXR half-resolution transport image");
+        };
+        image(frame.transport);
+        image(frame.transportGuide);
+    }
+    // Interop textures 0 (RGBA16F) and 3 (R32F) are read, 1 (RGBA16F) is the pass output.
+    D3D12_RESOURCE_BARRIER before[] = {
+        transition(s.interop->texture(0), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(s.interop->texture(3), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(s.interop->texture(1), D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS)};
+    s.list->ResourceBarrier(3, before);
+    auto cpu = frame.heap->GetCPUDescriptorHandleForHeapStart();
+    const auto stride = s.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+    srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    s.device->CreateShaderResourceView(s.interop->texture(0), &srv, cpu);
+    cpu.ptr += stride;
+    srv.Format = DXGI_FORMAT_R32_FLOAT;
+    s.device->CreateShaderResourceView(s.interop->texture(3), &srv, cpu);
+    cpu.ptr += stride;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uav.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    s.device->CreateUnorderedAccessView(s.interop->texture(1), nullptr, &uav, cpu);
+    cpu.ptr += stride;
+    s.device->CreateUnorderedAccessView(transportEnabled ? frame.transport.Get() : nullptr, nullptr, &uav, cpu);
+    cpu.ptr += stride;
+    s.device->CreateUnorderedAccessView(transportEnabled ? frame.transportGuide.Get() : nullptr, nullptr, &uav, cpu);
+    ID3D12DescriptorHeap* heaps[] = {frame.heap.Get()};
+    s.list->SetDescriptorHeaps(1, heaps);
+    s.list->SetComputeRootSignature(s.root.Get());
+    s.list->SetComputeRootConstantBufferView(0, frame.constants->GetGPUVirtualAddress());
+    s.list->SetComputeRootShaderResourceView(1, s.tlas->GetGPUVirtualAddress());
+    s.list->SetComputeRootShaderResourceView(2, s.materials->GetGPUVirtualAddress());
+    s.list->SetComputeRootDescriptorTable(3, frame.heap->GetGPUDescriptorHandleForHeapStart());
+    s.list->SetComputeRootUnorderedAccessView(4, s.sky->GetGPUVirtualAddress());
+    timestamp(w, frame, 1);
+    s.list->SetPipelineState(s.skyPipeline.Get());
+    s.list->Dispatch(1, 1, 1);
+    s.barrier(s.sky.Get());
+    timestamp(w, frame, 2);
+    if (transportEnabled) {
+        s.list->SetPipelineState(s.transportPipeline.Get());
+        s.list->Dispatch((passW + 15) / 16, (passH + 15) / 16, 1); // 16x16 thread groups
+        s.barrier(frame.transport.Get());
+        s.barrier(frame.transportGuide.Get());
+    }
+    timestamp(w, frame, 3);
+    // Match waterSurface's coverage guard so the smaller shader only runs where a water hit is impossible.
+    const uint32_t waterFlags = w.params.effects[3];
+    const bool noWaterSurface = !(waterFlags & 3u) || ((waterFlags & 4u) && !(waterFlags & 2u));
+    w.useDryCompose = s.dryComposePipeline && transportEnabled && !job.coverageDebug && noWaterSurface;
+    s.list->SetPipelineState(w.useDryCompose ? s.dryComposePipeline.Get() : s.pipeline.Get());
+    s.list->Dispatch((passW + 7) / 8, (passH + 7) / 8, 1); // 8x8 thread groups
+    timestamp(w, frame, 4);
+    if (w.gpuTiming)
+        s.list->ResolveQueryData(frame.timestamps.Get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, Impl::kGpuTimestamps,
+                                 frame.timestampReadback.Get(), 0);
+    for (auto& b : before)
+        std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+    s.list->ResourceBarrier(3, before);
+    check(s.list->Close(), "DXR list close");
+    ID3D12CommandList* lists[] = {s.list.Get()};
+    s.queue->ExecuteCommandLists(1, lists);
+}
+
+// ---- stage kSubmitted: signal D3D11, check the debug layer, release what this pass no longer uses, report
+void RayWater::Impl::submitPass(Job& job, PassWork& w, Frame& frame) {
+    auto& s = *this;
+    const SceneModels* models = job.models.get();
+    const auto& options = job.options;
+    const uint32_t(&totalCounts)[3] = w.totalCounts;
+    s.setStage(kSubmitted);
+    s.submitted(frame);
+    s.passStats.step(PassStats::kRecord);
+    if (w.gpuTiming) {
+        frame.timedPass = job.consumed;
+        frame.timedWidth = uint32_t(job.width);
+        frame.timedHeight = job.height;
+        frame.timedEffects = w.params.effects[3] | (w.nativeOpaque ? 1u << 17 : 0u);
+        frame.timedRejectedTriangles = w.validatedFrame ? 0 : w.counts[0];
+        frame.timedCachedCompose = w.transportEnabled && s.cachedCompose;
+        frame.timedDryCompose = w.useDryCompose;
+        frame.timedUploadBytes = w.stagingBytes;
+        frame.timedDynamicBytes = 0;
+        for (const auto& [first, end] : w.dynamicDirty)
+            frame.timedDynamicBytes += (end - first) * sizeof(Attribute);
+        frame.timedDynamicTotal = w.colors->size() * sizeof(Attribute); // models and frame triangles
+    }
+    // The D3D11 context waits for this value on the GPU before it copies the output; the CPU continues.
+    s.signalConsumed(job);
+    if (s.debug) {
+        bool errors = false;
+        const UINT64 messages = s.debug->GetNumStoredMessagesAllowedByRetrievalFilter();
+        for (UINT64 i = 0; i < messages; ++i) {
+            SIZE_T bytes = 0;
+            s.debug->GetMessage(i, nullptr, &bytes);
+            std::vector<uint8_t> storage(bytes);
+            auto* message = reinterpret_cast<D3D12_MESSAGE*>(storage.data());
+            if (SUCCEEDED(s.debug->GetMessage(i, message, &bytes)) &&
+                message->Severity <= D3D12_MESSAGE_SEVERITY_ERROR) {
+                std::fprintf(stderr, "[water-d3d12-error] %s\n", message->pDescription);
+                errors = true;
+            }
+        }
+        s.debug->ClearStoredMessages();
+        if (errors)
+            throw std::runtime_error("DXR debug validation reported an error");
+    }
+    for (auto it = s.nativeMeshes.begin(); it != s.nativeMeshes.end();)
+        if (!w.usedMeshes.contains(it->first)) {
+            if (it->second.blas)
+                frame.retired.push_back(it->second.blas);
+            it = s.nativeMeshes.erase(it);
+        } else
+            ++it;
+    std::erase_if(s.modelWelds, [&](const auto& welds) { return !w.usedTopologies.contains(welds.first); });
+    std::erase_if(s.modelWeldVersions, [&](const auto& entry) { return !w.usedTopologies.contains(entry.first); });
+    for (auto it = s.deformables.begin(); it != s.deformables.end();) {
+        auto& slots = it->second;
+        for (auto d = slots.begin(); d != slots.end();)
+            if (d->used + Impl::kDeformableIdle < s.modelPass) {
+                if (d->blas)
+                    frame.retired.push_back(d->blas);
+                d = slots.erase(d);
+            } else
+                ++d;
+        it = slots.empty() ? s.deformables.erase(it) : std::next(it);
+    }
+    s.setStatus(
+        "DXR scene evaluated: " + std::to_string(totalCounts[0]) + " opaque (" + std::to_string(s.staticCounts[0]) +
+        " resident) / " + std::to_string(totalCounts[2]) + " native water / " + std::to_string(totalCounts[1]) +
+        " water coverage triangles; " + std::to_string(w.texturedTriangles) + " textured / " +
+        std::to_string(job.textureCount) + " material textures; " +
+        std::to_string(models ? models->instances.size() : 0) + " resident model instances; " +
+        std::to_string(s.modelRefits) + " model BLAS refits" +
+        (s.poseRebuilds || s.poseInactive ? " (" + std::to_string(s.poseRebuilds) + " rebuilt for a changed shape, " +
+                                                std::to_string(s.poseInactive) + " stretched triangles left out)"
+                                          : std::string()) +
+        "; shadows=" +
+        (options.shadows
+             ? (w.params.effects[2] ? std::to_string(w.params.effects[2]) + " native lights"
+                                    : (models && models->lighting.hasContribution() ? "ambient occlusion only"
+                                                                                    : "waiting for native lighting"))
+             : "off"));
+    const uint32_t diagnostic = rayDiagnosticEffects(runtimeFlags().rayDiagnostic.value_or(""));
+    static std::atomic_flag diagnosticLogged = ATOMIC_FLAG_INIT;
+    if (diagnostic && !diagnosticLogged.test_and_set())
+        std::fprintf(stderr, "[ray-diagnostic] backend=d3d11 mode=%s mask=%u applied in submitted pass\n",
+                     runtimeFlags().rayDiagnostic->c_str(), diagnostic);
 }
 } // namespace gsr::surface
 #else
