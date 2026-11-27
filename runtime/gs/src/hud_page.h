@@ -25,6 +25,10 @@ constexpr bool menuSubmission(bool worldOpen, bool menu, unsigned width, unsigne
 }
 
 constexpr int kPauseScreen = 0x17;
+// Other GUI screens of the game's camera packet (SceneGuideCamera::guiScreen) the renderer tells apart.
+constexpr int kTitleScreen = 8;      // the title / main menu
+constexpr int kLoadingScreen = 14;   // the loading screen (its draw handler at EE 0x43d340)
+constexpr int kInventoryScreen = 21; // the inventory and map pages
 
 // The native page map applies while the host reports a native menu, and also
 // while the draw's own camera packet names the pause menu: the host polls the

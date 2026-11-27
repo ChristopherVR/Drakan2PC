@@ -21,6 +21,7 @@
 
 #include "gs_internal.h"
 #include "gs_backend_shared.h"
+#include "gs_draw_plan.h"
 #include "gs_pipeline_state.h"
 #include "gs_texdecode.h"
 #include "gs_texup.h"
@@ -1038,6 +1039,40 @@ struct D3D11Backend::Impl {
     // drawVelocity while set.
     void drawSegments(const DrawSegment* segments, uint32_t segmentCount, const DrawVertex* v, uint32_t count);
     bool resolveJoined(TexBind& tb);
+    // The phases of draw() (gs_draw.inl), in their order; each fills its part of the plan (gs_draw_plan.h).
+    using Draw = DrawPlan<RT, DepthBuf, TexBind>;
+    bool drawDebugHooks(Draw& d);
+    void decodeTarget(Draw& d);
+    void surfacePickProbe(const Draw& d);
+    void resolveTarget(Draw& d);
+    void noteWorldBoundary(Draw& d);
+    bool clipDraw(Draw& d);
+    bool clipJoinedSegments(Draw& d);
+    void resolveDepth(Draw& d);
+    bool resolveDrawTexture(Draw& d);
+    void applyStartupArtwork(Draw& d);
+    bool drawSpritesOneByOne(Draw& d);
+    void surfaceAuditProbe(const Draw& d);
+    void submitRaySurfaces(Draw& d);
+    void worldPhase(Draw& d);
+    void drawStatistics(const Draw& d);
+    void planWriteMask(Draw& d);
+    bool applyGuiRules(Draw& d);
+    void planBlend(Draw& d);
+    void buildConstants(Draw& d);
+    void prepareDrawDetail(Draw& d);
+    void logConstants(const Draw& d);
+    void mapVertices(Draw& d);
+    void classifyHudDraw(Draw& d);
+    void mapHudVertices(Draw& d, DrawVertex* dv);
+    void mapHudRange(Draw& d, const HudFrame& f, uint32_t b, uint32_t e);
+    void logHudCorners(const Draw& d);
+    void submitDraw(Draw& d);
+    void snapshotDestination(Draw& d, GpuView& texSrv, GpuView& destSrv);
+    void bindDrawTargets(Draw& d, GpuView texSrv, GpuView destSrv);
+    void runDrawPasses(Draw& d);
+    void noteTargetWritten(Draw& d);
+    void dumpTargetAfterDraw(const Draw& d);
     const DrawSegment* joinSegments = nullptr;
     uint32_t joinCount = 0;
     bool joinRefused = false;

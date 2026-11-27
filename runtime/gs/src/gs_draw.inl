@@ -302,18 +302,60 @@ bool GSR_IMPL::resolveJoined(TexBind& tb) {
     return !first;
 }
 
+// ---- draw(): one GS draw, phase by phase ----
+//
+// draw() reads as the list of its phases. Each phase fills its part of the DrawPlan `d` (gs_draw_plan.h) that the
+// later phases read. A phase that returns false ends the draw: it was cut by a debug hook, clipped away, refused (a
+// joined draw), or drawn another way (split into sprites, replaced by a wide image).
 void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex* v, uint32_t count) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::Draw);
     if (!ok || count == 0)
         return;
-    const int64_t di = drawIndex++;
-    if (inventoryLogDelay >= 0 && sceneCamera.guiScreen == 21 && inventoryLogStart == ~uint64_t{0})
+    Draw d(s, clut, v, count);
+    d.index = drawIndex++;
+    if (!drawDebugHooks(d))
+        return;
+    decodeTarget(d);
+    surfacePickProbe(d);
+    resolveTarget(d);
+    noteWorldBoundary(d);
+    if (!clipDraw(d))
+        return;
+    resolveDepth(d);
+    if (!resolveDrawTexture(d))
+        return;
+    applyStartupArtwork(d);
+    if (drawSpritesOneByOne(d))
+        return;
+    surfaceAuditProbe(d);
+    submitRaySurfaces(d);
+    worldPhase(d);
+    drawStatistics(d);
+    planWriteMask(d);
+    if (!applyGuiRules(d))
+        return;
+    planBlend(d);
+    buildConstants(d);
+    prepareDrawDetail(d);
+    logConstants(d);
+    mapVertices(d);
+    submitDraw(d);
+}
+
+// Debug hooks that run before anything is decided: the draw log, the VU trigger, and the draw range cut (drawStop,
+// skipA..skipB) used to bisect a bad draw. False: the draw is cut.
+bool GSR_IMPL::drawDebugHooks(Draw& d) {
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const uint32_t count = d.count;
+    const int64_t di = d.index;
+    if (inventoryLogDelay >= 0 && sceneCamera.guiScreen == hud::kInventoryScreen && inventoryLogStart == ~uint64_t{0})
         inventoryLogStart = frame + (uint64_t)inventoryLogDelay;
-    const bool logThis = (drawLogFirst >= 0 && (int64_t)frame >= drawLogFirst && (int64_t)frame <= drawLogLast) ||
-                         (drawLogTbp >= 0 && (s.flags & DF_TME) && (int64_t)bitsOf(s.tex0, 0, 14) == drawLogTbp) ||
-                         (inventoryLogDelay >= 0 && inventoryLogStart != ~uint64_t{0} && frame >= inventoryLogStart &&
-                          frame - inventoryLogStart < 2);
-    if (logThis) {
+    d.logThis = (drawLogFirst >= 0 && (int64_t)frame >= drawLogFirst && (int64_t)frame <= drawLogLast) ||
+                (drawLogTbp >= 0 && (s.flags & DF_TME) && (int64_t)bitsOf(s.tex0, 0, 14) == drawLogTbp) ||
+                (inventoryLogDelay >= 0 && inventoryLogStart != ~uint64_t{0} && frame >= inventoryLogStart &&
+                 frame - inventoryLogStart < 2);
+    if (d.logThis) {
         std::fprintf(stderr, "#%lld ", (long long)di);
         logDraw(s, v, count);
     }
@@ -338,74 +380,108 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         }
     }
     if (drawStop >= 0 && di >= drawStop)
-        return;
+        return false;
     if (di >= skipA && di <= skipB && skipA >= 0)
-        return;
-    // --- target
-    uint32_t fbp = (uint32_t)bitsOf(s.frame, 0, 9), fbw = (uint32_t)bitsOf(s.frame, 16, 6),
-             fpsm = (uint32_t)bitsOf(s.frame, 24, 6);
-    const uint32_t fbmsk = (uint32_t)(s.frame >> 32);
-    if (fpsm != PSM_CT32 && fpsm != PSM_CT24 && fpsm != PSM_CT16 && fpsm != PSM_CT16S) {
-        if (isZ(fpsm))
-            fpsm = PSM_CT32;
-        else if (!isValidPsm(fpsm))
-            fpsm = PSM_CT32;
-    }
-    const int sx0 = (int)bitsOf(s.scissor, 0, 11), sx1 = (int)bitsOf(s.scissor, 16, 11),
-              sy0 = (int)bitsOf(s.scissor, 32, 11), sy1 = (int)bitsOf(s.scissor, 48, 11);
+        return false;
+    return true;
+}
 
-    // bbox
-    float minx = 1e30f, miny = 1e30f, maxx = -1e30f, maxy = -1e30f;
-    for (uint32_t i = 0; i < count; ++i) {
-        minx = std::min(minx, v[i].x);
-        maxx = std::max(maxx, v[i].x);
-        miny = std::min(miny, v[i].y);
-        maxy = std::max(maxy, v[i].y);
+// The FRAME and SCISSOR registers of the draw, and the bounding box of its vertices.
+void GSR_IMPL::decodeTarget(Draw& d) {
+    const GsDrawState& s = d.s;
+    d.fbp = (uint32_t)bitsOf(s.frame, 0, 9);
+    d.fbw = (uint32_t)bitsOf(s.frame, 16, 6);
+    d.fpsm = (uint32_t)bitsOf(s.frame, 24, 6);
+    d.fbmsk = (uint32_t)(s.frame >> 32);
+    // A target in a depth or unknown format is treated as a CT32 target.
+    if (d.fpsm != PSM_CT32 && d.fpsm != PSM_CT24 && d.fpsm != PSM_CT16 && d.fpsm != PSM_CT16S) {
+        if (isZ(d.fpsm))
+            d.fpsm = PSM_CT32;
+        else if (!isValidPsm(d.fpsm))
+            d.fpsm = PSM_CT32;
     }
-    if (const char* pick = cstr(runtimeFlags().surfacePick)) {
-        const uint64_t wanted = runtimeFlags().surfacePickEpoch;
-        float px = 0, py = 0;
-        if (motionEpoch == wanted && std::sscanf(pick, "%f,%f", &px, &py) == 2 && count % 3 == 0) {
-            for (uint32_t i = 0; i < count; i += 3) {
-                const auto& a = v[i];
-                const auto& b = v[i + 1];
-                const auto& c = v[i + 2];
-                const float d0 = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
-                const float d1 = (c.x - b.x) * (py - b.y) - (c.y - b.y) * (px - b.x);
-                const float d2 = (a.x - c.x) * (py - c.y) - (a.y - c.y) * (px - c.x);
-                if ((d0 > 0 && d1 > 0 && d2 > 0) || (d0 < 0 && d1 < 0 && d2 < 0)) {
-                    std::fprintf(
-                        stderr, "[surface-pick] epoch=%llu world=%d xyoffset=%llx scaleZ=%g offsetZ=%g tex=%llx\n",
-                        (unsigned long long)motionEpoch, int(engineWorldOpen), (unsigned long long)s.xyoffset,
-                        sceneCamera.viewportScale[2], sceneCamera.viewportOffset[2], (unsigned long long)s.tex0);
-                    logDraw(s, v + i, 3);
-                    surface::RasterToWorld audit;
-                    audit.configure(sceneCamera, s.xyoffset);
-                    std::fprintf(stderr, "[surface-pick] waterPhase=%d cameraFrame=%ux%u\n", int(nativeWaterPass),
-                                 sceneCamera.frameWidth, sceneCamera.frameHeight);
-                    for (unsigned j = 0; j < 3; ++j) {
-                        surface::Point p;
-                        audit.point(v[i + j].x, v[i + j].y, v[i + j].z, p);
-                        std::fprintf(stderr, "[surface-pick] world=%g,%g,%g\n", p.x, p.y, p.z);
-                    }
-                    break;
+    d.sx0 = (int)bitsOf(s.scissor, 0, 11);
+    d.sx1 = (int)bitsOf(s.scissor, 16, 11);
+    d.sy0 = (int)bitsOf(s.scissor, 32, 11);
+    d.sy1 = (int)bitsOf(s.scissor, 48, 11);
+
+    float minx = 1e30f, miny = 1e30f, maxx = -1e30f, maxy = -1e30f;
+    for (uint32_t i = 0; i < d.count; ++i) {
+        minx = std::min(minx, d.v[i].x);
+        maxx = std::max(maxx, d.v[i].x);
+        miny = std::min(miny, d.v[i].y);
+        maxy = std::max(maxy, d.v[i].y);
+    }
+    d.minx = minx;
+    d.miny = miny;
+    d.maxx = maxx;
+    d.maxy = maxy;
+}
+
+// Debug (surface_pick setting): print the triangle under a picked screen point and its world position.
+void GSR_IMPL::surfacePickProbe(const Draw& d) {
+    const char* pick = cstr(runtimeFlags().surfacePick);
+    if (!pick)
+        return;
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const uint32_t count = d.count;
+    const uint64_t wanted = runtimeFlags().surfacePickEpoch;
+    float px = 0, py = 0;
+    if (motionEpoch == wanted && std::sscanf(pick, "%f,%f", &px, &py) == 2 && count % 3 == 0) {
+        for (uint32_t i = 0; i < count; i += 3) {
+            const auto& a = v[i];
+            const auto& b = v[i + 1];
+            const auto& c = v[i + 2];
+            const float d0 = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+            const float d1 = (c.x - b.x) * (py - b.y) - (c.y - b.y) * (px - b.x);
+            const float d2 = (a.x - c.x) * (py - c.y) - (a.y - c.y) * (px - c.x);
+            if ((d0 > 0 && d1 > 0 && d2 > 0) || (d0 < 0 && d1 < 0 && d2 < 0)) {
+                std::fprintf(stderr, "[surface-pick] epoch=%llu world=%d xyoffset=%llx scaleZ=%g offsetZ=%g tex=%llx\n",
+                             (unsigned long long)motionEpoch, int(engineWorldOpen), (unsigned long long)s.xyoffset,
+                             sceneCamera.viewportScale[2], sceneCamera.viewportOffset[2], (unsigned long long)s.tex0);
+                logDraw(s, v + i, 3);
+                surface::RasterToWorld audit;
+                audit.configure(sceneCamera, s.xyoffset);
+                std::fprintf(stderr, "[surface-pick] waterPhase=%d cameraFrame=%ux%u\n", int(nativeWaterPass),
+                             sceneCamera.frameWidth, sceneCamera.frameHeight);
+                for (unsigned j = 0; j < 3; ++j) {
+                    surface::Point p;
+                    audit.point(v[i + j].x, v[i + j].y, v[i + j].z, p);
+                    std::fprintf(stderr, "[surface-pick] world=%g,%g,%g\n", p.x, p.y, p.z);
                 }
+                break;
             }
         }
     }
-    const uint32_t needH = (uint32_t)std::max(1, std::min(sy1 + 1, 2048));
-    RT* rt = getRT(fbp, fbw, fpsm, needH);
+}
+
+// The render target of the draw, brought up to date with what the game wrote to its memory since the last draw.
+void GSR_IMPL::resolveTarget(Draw& d) {
+    // Scissor coordinates are 11 bits: a target needs no more than 2048 rows, and no more than the scissor reaches.
+    const uint32_t needH = (uint32_t)std::max(1, std::min(d.sy1 + 1, 2048));
+    RT* rt = getRT(d.fbp, d.fbw, d.fpsm, needH);
+    d.rt = rt;
     if (rt_sync::lazySyncTarget(*rt))
-        syncRows(*rt, rt_sync::drawRows((uint32_t)std::max(sy0, 0), (uint32_t)std::max(sy1, 0), rt->dirty, rt->dy0,
+        syncRows(*rt, rt_sync::drawRows((uint32_t)std::max(d.sy0, 0), (uint32_t)std::max(d.sy1, 0), rt->dirty, rt->dy0,
                                         rt->dy1, rt->pageH(), (uint32_t)rt->rowStamp.size()));
     else
         syncRT(*rt);
     if (gridCapture.open && !gridCapture.rt && rt->w >= 480 && rt->h >= 320)
         gridCaptureStart(*rt); // the first display draw of a captured grid: save what it will cover
+}
+
+// The world-to-HUD boundary: resolve the finished world before the first HUD colour reaches the frame, and let a world
+// draw claim a display-sized target for this world phase.
+void GSR_IMPL::noteWorldBoundary(Draw& d) {
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const uint32_t count = d.count;
+    RT* rt = d.rt;
     // Native EndWorld precedes the final CPU-clipped water packet drain.
     // Resolve at the first actual HUD submission, after those perspective
     // world triangles and before any HUD color reaches the framebuffer.
-    if (pendingTemporalEnd && !engineWorldOpen && rt->w >= 480 && (fbmsk & 0xffffffu) != 0xffffffu) {
+    if (pendingTemporalEnd && !engineWorldOpen && rt->w >= 480 && (d.fbmsk & 0xffffffu) != 0xffffffu) {
         bool perspectiveTail = false;
         if (!(s.flags & (DF_SPRITE | DF_FST)) && (s.flags & DF_TME))
             for (uint32_t i = 0; i < count; ++i)
@@ -415,8 +491,8 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         const bool ui = (s.flags & DF_SPRITE) || (!perspectiveTail && ((s.flags & DF_TME) || !(s.flags & DF_FGE)));
         if (ui) {
             if (runtimeFlags().waterLog && motionEpoch == 200)
-                std::fprintf(stderr, "[world-tail] resolve before HUD flags=%x bounds=%g,%g..%g,%g\n", s.flags, minx,
-                             miny, maxx, maxy);
+                std::fprintf(stderr, "[world-tail] resolve before HUD flags=%x bounds=%g,%g..%g,%g\n", s.flags, d.minx,
+                             d.miny, d.maxx, d.maxy);
             for (auto& target : rts)
                 finalizeNeuralWorld(*target);
             pendingTemporalEnd = false;
@@ -424,7 +500,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     }
     // A world clear/sky draw also owns the new image, even if no eligible
     // temporal geometry follows. Never inherit an earlier NR success tag.
-    if (engineWorldOpen && rt->w >= 480 && rt->h >= 320 && (fbmsk & 0xffffffu) != 0xffffffu) {
+    if (engineWorldOpen && rt->w >= 480 && rt->h >= 320 && (d.fbmsk & 0xffffffu) != 0xffffffu) {
         if (rt->worldPhaseSeen != worldPhaseSerial) {
             rt->worldPhaseSeen = worldPhaseSerial;
             rt->worldEpoch = 0;
@@ -438,76 +514,104 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             (SceneGuideCamera::Valid | SceneGuideCamera::World))
             rt->worldEpoch = motionEpoch;
     }
+}
 
-    int cx0 = std::max(sx0, (int)std::floor(minx)), cx1 = std::min(sx1, (int)std::ceil(maxx));
-    int cy0 = std::max(sy0, (int)std::floor(miny)), cy1 = std::min(sy1, (int)std::ceil(maxy));
+// The pixels the draw can write: its bounding box clipped to the scissor and the target. False: nothing is left.
+bool GSR_IMPL::clipDraw(Draw& d) {
+    const RT* rt = d.rt;
+    int cx0 = std::max(d.sx0, (int)std::floor(d.minx)), cx1 = std::min(d.sx1, (int)std::ceil(d.maxx));
+    int cy0 = std::max(d.sy0, (int)std::floor(d.miny)), cy1 = std::min(d.sy1, (int)std::ceil(d.maxy));
     cx0 = std::max(cx0, 0);
     cy0 = std::max(cy0, 0);
     cx1 = std::min(cx1, (int)rt->w - 1);
     cy1 = std::min(cy1, (int)rt->h - 1);
     if (cx1 < cx0 || cy1 < cy0)
-        return;
-    // A joined draw (drawSegments): each segment is clipped as its own draw was. One that its draw would have left
-    // out is left out (no texture, no draw); the dirty rows are those of the others.
-    uint32_t joinKeptCount = 0;
-    if (joinCount > 1) {
-        joinKept.assign(joinCount, 0);
-        int ux0 = 1 << 30, uy0 = 1 << 30, ux1 = -1, uy1 = -1;
-        for (uint32_t i = 0; i < joinCount; ++i) {
-            const DrawVertex* sv = v + joinSegments[i].first;
-            float mnx = 1e30f, mny = 1e30f, mxx = -1e30f, mxy = -1e30f;
-            for (uint32_t j = 0; j < joinSegments[i].count; ++j) {
-                mnx = std::min(mnx, sv[j].x);
-                mxx = std::max(mxx, sv[j].x);
-                mny = std::min(mny, sv[j].y);
-                mxy = std::max(mxy, sv[j].y);
-            }
-            const int x0 = std::max(std::max(sx0, (int)std::floor(mnx)), 0);
-            const int y0 = std::max(std::max(sy0, (int)std::floor(mny)), 0);
-            const int x1 = std::min(std::min(sx1, (int)std::ceil(mxx)), (int)rt->w - 1);
-            const int y1 = std::min(std::min(sy1, (int)std::ceil(mxy)), (int)rt->h - 1);
-            if (joinSegments[i].count == 0 || x1 < x0 || y1 < y0)
-                continue;
-            joinKept[i] = 1;
-            ++joinKeptCount;
-            ux0 = std::min(ux0, x0);
-            uy0 = std::min(uy0, y0);
-            ux1 = std::max(ux1, x1);
-            uy1 = std::max(uy1, y1);
-        }
-        if (!joinKeptCount)
-            return;
-        cx0 = ux0;
-        cy0 = uy0;
-        cx1 = ux1;
-        cy1 = uy1;
-    }
+        return false;
+    d.cx0 = cx0;
+    d.cy0 = cy0;
+    d.cx1 = cx1;
+    d.cy1 = cy1;
+    if (joinCount > 1)
+        return clipJoinedSegments(d);
+    return true;
+}
 
-    // --- depth
-    const uint32_t zbp = (uint32_t)bitsOf(s.zbuf, 0, 9);
-    const uint32_t zpsm = 0x30u | (uint32_t)bitsOf(s.zbuf, 24, 4);
-    const bool zmsk = (s.zbuf >> 32) & 1;
-    const uint32_t ztst = (uint32_t)bitsOf(s.test, 17, 2);
-    const bool zte = (s.test >> 16) & 1;
+// A joined draw (drawSegments): each segment is clipped as its own draw was. One that its draw would have left
+// out is left out (no texture, no draw); the dirty rows are those of the others.
+bool GSR_IMPL::clipJoinedSegments(Draw& d) {
+    const RT* rt = d.rt;
+    const int sx0 = d.sx0, sy0 = d.sy0, sx1 = d.sx1, sy1 = d.sy1;
+    uint32_t joinKeptCount = 0;
+    joinKept.assign(joinCount, 0);
+    int ux0 = 1 << 30, uy0 = 1 << 30, ux1 = -1, uy1 = -1;
+    for (uint32_t i = 0; i < joinCount; ++i) {
+        const DrawVertex* sv = d.v + joinSegments[i].first;
+        float mnx = 1e30f, mny = 1e30f, mxx = -1e30f, mxy = -1e30f;
+        for (uint32_t j = 0; j < joinSegments[i].count; ++j) {
+            mnx = std::min(mnx, sv[j].x);
+            mxx = std::max(mxx, sv[j].x);
+            mny = std::min(mny, sv[j].y);
+            mxy = std::max(mxy, sv[j].y);
+        }
+        const int x0 = std::max(std::max(sx0, (int)std::floor(mnx)), 0);
+        const int y0 = std::max(std::max(sy0, (int)std::floor(mny)), 0);
+        const int x1 = std::min(std::min(sx1, (int)std::ceil(mxx)), (int)rt->w - 1);
+        const int y1 = std::min(std::min(sy1, (int)std::ceil(mxy)), (int)rt->h - 1);
+        if (joinSegments[i].count == 0 || x1 < x0 || y1 < y0)
+            continue;
+        joinKept[i] = 1;
+        ++joinKeptCount;
+        ux0 = std::min(ux0, x0);
+        uy0 = std::min(uy0, y0);
+        ux1 = std::max(ux1, x1);
+        uy1 = std::max(uy1, y1);
+    }
+    d.joinKeptCount = joinKeptCount;
+    if (!joinKeptCount)
+        return false;
+    d.cx0 = ux0;
+    d.cy0 = uy0;
+    d.cx1 = ux1;
+    d.cy1 = uy1;
+    return true;
+}
+
+// The ZBUF and TEST depth state and the depth buffer of the draw.
+void GSR_IMPL::resolveDepth(Draw& d) {
+    const GsDrawState& s = d.s;
+    d.zbp = (uint32_t)bitsOf(s.zbuf, 0, 9);
+    d.zpsm = 0x30u | (uint32_t)bitsOf(s.zbuf, 24, 4); // ZBUF.PSM holds the low bits of the Z format (0x30..0x3a)
+    d.zmsk = (s.zbuf >> 32) & 1;
+    d.ztst = (uint32_t)bitsOf(s.test, 17, 2);
+    d.zte = (s.test >> 16) & 1;
     if constexpr (kCaps.temporalUpscaler)
         if (tpLog && (upMode || cfg.neuralRendering))
-            logTemporalDraw(*rt, s, fpsm, sx0, sy0, sx1, sy1, zte, ztst);
-    DepthBuf* db = getDepth(zbp, rt->w, rt->h);
-    float zmax = (zpsm == PSM_Z32) ? 4294967295.0f : (zpsm == PSM_Z24 ? 16777215.0f : 65535.0f);
+            logTemporalDraw(*d.rt, s, d.fpsm, d.sx0, d.sy0, d.sx1, d.sy1, d.zte, d.ztst);
+    d.db = getDepth(d.zbp, d.rt->w, d.rt->h);
+    d.zmax = (d.zpsm == PSM_Z32) ? 4294967295.0f : (d.zpsm == PSM_Z24 ? 16777215.0f : 65535.0f);
+}
 
-    // --- texture
-    TexBind tb;
-    const bool tme = s.flags & DF_TME;
-    bool haveTex = false;
-    if (tme)
-        haveTex = joinCount > 1 ? resolveJoined(tb) : resolveTexture(s, clut, tb, oneToOneSprite(s, v, count));
-    if (joinCount > 1 && !haveTex) {
+// The texture of the draw (all the segments' textures for a joined draw). False: a joined draw is refused because
+// one of its textures does not resolve or would bind differently; drawSegments then draws the segments one by one.
+bool GSR_IMPL::resolveDrawTexture(Draw& d) {
+    d.tme = d.s.flags & DF_TME;
+    if (d.tme)
+        d.haveTex =
+            joinCount > 1 ? resolveJoined(d.tb) : resolveTexture(d.s, d.clut, d.tb, oneToOneSprite(d.s, d.v, d.count));
+    if (joinCount > 1 && !d.haveTex) {
         joinRefused = true;
-        return;
+        return false;
     }
-    const auto title =
-        startupTitle.select(haveTex && tb.titleArtwork, rt->w, rt->h, nativeMenu && nativeMenuScreen == 8,
-                            cfg.forcedAspect, cfg.stretchToWindow, swapH ? float(swapW) / float(swapH) : 4.0f / 3);
+    return true;
+}
+
+// The retail title and menu artwork identify the first GUI draws of the game: the title switches the presentation to
+// the title page, and menu artwork closes a world phase that startup opened before the first menu tick.
+void GSR_IMPL::applyStartupArtwork(Draw& d) {
+    const RT* rt = d.rt;
+    const auto title = startupTitle.select(d.haveTex && d.tb.titleArtwork, rt->w, rt->h,
+                                           nativeMenu && nativeMenuScreen == hud::kTitleScreen, cfg.forcedAspect,
+                                           cfg.stretchToWindow, swapH ? float(swapW) / float(swapH) : 4.0f / 3);
     if (title.apply) {
         if (std::getenv("GSR_BACKDROP_LOG"))
             std::fprintf(stderr, "[backdrop] first title artwork: frame=%llu previous gui=%d menu=%d aspect=%.3f\n",
@@ -517,41 +621,57 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         hudScale = title.foreground;
         hudSize = 1.0f;
         nativeMenu = true;
-        nativeMenuScreen = 8;
-        sceneCamera.guiScreen = 8;
+        nativeMenuScreen = hud::kTitleScreen;
+        sceneCamera.guiScreen = hud::kTitleScreen;
     }
     // Startup may have opened a generic world phase before the first
     // menu handler tick. Exact retail artwork identifies this first GUI
     // draw without waiting a frame or classifying arbitrary world images.
-    if (nativeMenu && haveTex && tb.menuArtwork && rt->w >= 480 && rt->h >= 320) {
+    if (nativeMenu && d.haveTex && d.tb.menuArtwork && rt->w >= 480 && rt->h >= 320) {
         engineWorldOpen = false;
         sceneCamera.flags = 0;
     }
-    const bool clampSpriteFootprint = spriteFootprint && !engineWorldOpen && (scale > 1 || cfg.textureFilter == 2) &&
-                                      haveTex && rt->w >= 480 && (s.flags & DF_SPRITE) && bitsOf(s.tex1, 2, 3) == 0 &&
-                                      bitsOf(s.tex1, 5, 4) == 0;
+}
+
+// A point-sampled UI sprite drawn with bilinear filtering (or at a higher internal scale) is clamped to its native
+// atlas cell (spriteBounds). True: a batch of such sprites was drawn one sprite at a time instead (each needs its own
+// bounds), so this draw is done.
+bool GSR_IMPL::drawSpritesOneByOne(Draw& d) {
+    const GsDrawState& s = d.s;
+    const RT* rt = d.rt;
+    d.clampSpriteFootprint = spriteFootprint && !engineWorldOpen && (scale > 1 || cfg.textureFilter == 2) &&
+                             d.haveTex && rt->w >= 480 && (s.flags & DF_SPRITE) && bitsOf(s.tex1, 2, 3) == 0 &&
+                             bitsOf(s.tex1, 5, 4) == 0;
     // Endpoint bounds belong to each sprite, not an entire GS batch. Keep
     // the original order and split only batches whose every member has a
     // validated native footprint (the health frame/highlight uses two).
-    if (clampSpriteFootprint && count > 6 && count % 6 == 0) {
+    constexpr uint32_t kSpriteVertices = 6; // a sprite reaches the backend as two triangles
+    if (d.clampSpriteFootprint && d.count > kSpriteVertices && d.count % kSpriteVertices == 0) {
         bool valid = true;
         const float tw = (float)(1u << std::min<uint64_t>(bitsOf(s.tex0, 26, 4), 10));
         const float th = (float)(1u << std::min<uint64_t>(bitsOf(s.tex0, 30, 4), 10));
-        for (uint32_t i = 0; i < count && valid; i += 6)
-            valid = sprite_footprint::bounds(v + i, 6, (s.flags & DF_FST) != 0, tw, th,
-                                             tb.isRT ? (unsigned)scale : tb.factor)
+        for (uint32_t i = 0; i < d.count && valid; i += kSpriteVertices)
+            valid = sprite_footprint::bounds(d.v + i, kSpriteVertices, (s.flags & DF_FST) != 0, tw, th,
+                                             d.tb.isRT ? (unsigned)scale : d.tb.factor)
                         .valid;
         if (valid) {
-            for (uint32_t i = 0; i < count; i += 6)
-                draw(s, clut, v + i, 6);
-            return;
+            for (uint32_t i = 0; i < d.count; i += kSpriteVertices)
+                draw(s, d.clut, d.v + i, kSpriteVertices);
+            return true;
         }
     }
-    // Opt-in semantic audit: reconstruct candidate horizontal transparent
-    // surfaces using the captured engine camera, never screen color guesses.
+    return false;
+}
+
+// Opt-in semantic audit: reconstruct candidate horizontal transparent
+// surfaces using the captured engine camera, never screen color guesses.
+void GSR_IMPL::surfaceAuditProbe(const Draw& d) {
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const uint32_t count = d.count;
     if (runtimeFlags().surfaceAudit && engineWorldOpen && sceneCamera.guiScreen < 0 && (s.flags & DF_ABE) &&
-        (s.flags & DF_TME) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT | DF_FST)) && zte && ztst >= 2 &&
-        rt->w >= 480 && haveTex && count % 3 == 0) {
+        (s.flags & DF_TME) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT | DF_FST)) && d.zte && d.ztst >= 2 &&
+        d.rt->w >= 480 && d.haveTex && count % 3 == 0) {
         if (surfaceCameraSerial != sceneCamera.serial || surfaceXY != s.xyoffset) {
             surfaceCamera.configure(sceneCamera, s.xyoffset);
             surfaceCameraSerial = sceneCamera.serial;
@@ -566,11 +686,11 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
                 std::fprintf(stderr,
                              "[surface-audit] epoch=%llu tex0=%llx zmask=%d alpha=%llx rt=%d rgb=%g,%g,%g y=%g "
                              "extent=%g screen=%g,%g..%g,%g vertexAlpha=%g\n",
-                             (unsigned long long)motionEpoch, (unsigned long long)s.tex0, int(zmsk),
-                             (unsigned long long)s.alpha, int(tb.isRT), v[i].r, v[i].g, v[i].b, a.y,
-                             surface::length(surface::sub(b, a)), minx, miny, maxx, maxy, v[i].a);
+                             (unsigned long long)motionEpoch, (unsigned long long)s.tex0, int(d.zmsk),
+                             (unsigned long long)s.alpha, int(d.tb.isRT), v[i].r, v[i].g, v[i].b, a.y,
+                             surface::length(surface::sub(b, a)), d.minx, d.miny, d.maxx, d.maxy, v[i].a);
                 Image im;
-                if (tb.srv && readBoundTexture(tb, im)) {
+                if (d.tb.srv && readBoundTexture(d.tb, im)) {
                     char path[2048];
                     std::snprintf(path, sizeof(path), "%s/material-%llx.png", runtimeFlags().surfaceAudit->c_str(),
                                   (unsigned long long)s.tex0);
@@ -579,6 +699,13 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             }
         }
     }
+}
+
+// World geometry for the ray passes (modern water, ray shadows, reflections, GI): the draw's triangles go to the
+// surface builder (surface_builder.h) in world space.
+void GSR_IMPL::submitRaySurfaces(Draw& d) {
+    const GsDrawState& s = d.s;
+    RT* rt = d.rt;
     // The native preview viewport (0x1e97a0) is published once per gameplay frame inside the open world and
     // replaces the scene camera without Valid/World until the world viewport is published again. The water scope
     // often falls in that window, but its EE-transformed draws stay in the world camera's screen space.
@@ -589,7 +716,8 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) &&
         (engineWorldOpen || pendingTemporalEnd) && surface::surfaceCameraAccepted(surfaceSource, pendingTemporalEnd) &&
         rt->w >= surfaceSource.frameWidth && rt->h >= surfaceSource.frameHeight &&
-        (nativeWaterPass || (zte && ztst >= 2)) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && count % 3 == 0) {
+        (nativeWaterPass || (d.zte && d.ztst >= 2)) && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) &&
+        d.count % 3 == 0) {
         CpuProfile::Scope surfaceProfile(cpuProfile, CpuProfile::DrawSurface);
         surface::DrawInput in;
         in.list = &rt->surface;
@@ -599,31 +727,39 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         in.cameraSerial = surfaceSource.serial;
         in.s = s;
         in.nativeWaterPass = nativeWaterPass;
-        in.haveTex = haveTex;
-        in.texIsRT = tb.isRT;
+        in.haveTex = d.haveTex;
+        in.texIsRT = d.tb.isRT;
         in.residentWater = residentScene.waterCount != 0;
-        in.texMinimumAlpha = tb.minimumAlpha;
-        in.reflectionTexture = tb.reflectionTexture;
+        in.texMinimumAlpha = d.tb.minimumAlpha;
+        in.reflectionTexture = d.tb.reflectionTexture;
         // From here the target's list belongs to this world, whether or not this draw is eligible (the submission
         // starts it at the first draw that reaches it).
         rt->surfaceSubmittedEpoch = motionEpoch;
-        submitSurface(in, v, count);
+        submitSurface(in, d.v, d.count);
     }
-    // --- temporal upscaler: is this a 3D world draw (rendered into the reduced render rectangle) or a full
-    // resolution one?
+}
+
+// The world phase: is this a 3D world draw (rendered into the reduced, jittered render rectangle of the temporal
+// upscaler or neural renderer) or a full resolution one? Sets the render pixels per native pixel (dsx, dsy).
+void GSR_IMPL::worldPhase(Draw& d) {
+    const GsDrawState& s = d.s;
+    RT* rt = d.rt;
+    const bool zte = d.zte;
+    const uint32_t ztst = d.ztst;
+    const int sx0 = d.sx0, sy0 = d.sy0, sx1 = d.sx1, sy1 = d.sy1;
     float dsx = (float)scale, dsy = (float)scale; // render pixels per native pixel of this draw
     bool worldDraw = false;
     if constexpr (kCaps.temporalUpscaler)
         if (upActive()) {
-            if (haveTex && tb.isRT && tb.rt != rt && tb.rt->wstate == 1)
-                finalizeWorld(*tb.rt); // sampled as a texture: needs its final full resolution content
+            if (d.haveTex && d.tb.isRT && d.tb.rt != rt && d.tb.rt->wstate == 1)
+                finalizeWorld(*d.tb.rt); // sampled as a texture: needs its final full resolution content
             const bool frameSized = (sx1 - sx0 + 1) >= 480 && (sy1 - sy0 + 1) >= 320 && rt->w >= 480 && rt->cls == 0;
             const bool depthGE = zte && ztst >= 2;
-            const float area = (maxx - minx) * (maxy - miny);
+            const float area = (d.maxx - d.minx) * (d.maxy - d.miny);
             const bool backdrop =
                 !(s.flags & DF_SPRITE) && area > 0.2f * (float)(sx1 - sx0 + 1) * (float)(sy1 - sy0 + 1);
             const bool isWorld = frameSized && (depthGE || backdrop);
-            worldDraw = upscalePhase(*rt, *db, isWorld, depthGE, zbp, zmax, sx1, sy1);
+            worldDraw = upscalePhase(*rt, *d.db, isWorld, depthGE, d.zbp, d.zmax, sx1, sy1);
             if (worldDraw) {
                 dsx = (float)rt->wgeom.renderW / (float)rt->wgeom.frameW;
                 dsy = (float)rt->wgeom.renderH / (float)rt->wgeom.frameH;
@@ -649,7 +785,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             rt->neuralState = 0;
         // The engine EndWorld packet resolves all world draws before native HUD callbacks.
         if (!rt->neuralState && fullFrame && depthWorld && !(s.flags & DF_SPRITE)) {
-            enterTemporalWorld(*rt, zbp, zmax, s.xyoffset);
+            enterTemporalWorld(*rt, d.zbp, d.zmax, s.xyoffset);
         }
         if (rt->neuralState == 1 && rt->temporalSR) {
             worldDraw = true;
@@ -657,33 +793,44 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             dsy = (float)rt->wgeom.renderH / rt->wgeom.frameH;
         }
     }
-    if (lodStat && haveTex && !tb.isRT)
-        accumulateLod(s, v, count);
-    if (logThis && haveTex && !tb.isRT && runtimeFlags().rtList)
+    d.dsx = dsx;
+    d.dsy = dsy;
+    d.worldDraw = worldDraw;
+}
+
+// Debug statistics: GSR_LODSTAT, and the target list of a logged draw.
+void GSR_IMPL::drawStatistics(const Draw& d) {
+    if (lodStat && d.haveTex && !d.tb.isRT)
+        accumulateLod(d.s, d.v, d.count);
+    if (d.logThis && d.haveTex && !d.tb.isRT && runtimeFlags().rtList)
         for (auto& r : rts)
             std::fprintf(stderr, "    rt fbp=%u(blk %x) fbw=%u cls=%u psm=%x %ux%u dirty=%d dy=%u..%u lastUse=%llu\n",
                          r->fbp, r->base(), r->fbw, r->cls, r->psm, r->w, r->h, (int)r->dirty, r->dy0, r->dy1,
                          (unsigned long long)r->lastUse);
+}
 
-    // --- blend plan
-    const bool abe = s.flags & DF_ABE;
-    const uint32_t A = (uint32_t)bitsOf(s.alpha, 0, 2), B = (uint32_t)bitsOf(s.alpha, 2, 2),
-                   C = (uint32_t)bitsOf(s.alpha, 4, 2), D = (uint32_t)bitsOf(s.alpha, 6, 2),
-                   FIX = (uint32_t)bitsOf(s.alpha, 32, 8);
-    const bool is16 = rt->cls == 1;
+// The ALPHA register and the colour channels the draw writes (FBMSK in target space).
+void GSR_IMPL::planWriteMask(Draw& d) {
+    const GsDrawState& s = d.s;
+    const uint32_t fbmsk = d.fbmsk;
+    d.abe = s.flags & DF_ABE;
+    d.A = (uint32_t)bitsOf(s.alpha, 0, 2);
+    d.B = (uint32_t)bitsOf(s.alpha, 2, 2);
+    d.C = (uint32_t)bitsOf(s.alpha, 4, 2);
+    d.D = (uint32_t)bitsOf(s.alpha, 6, 2);
+    d.FIX = (uint32_t)bitsOf(s.alpha, 32, 8);
+    d.is16 = d.rt->cls == 1;
     uint32_t maskBytes = fbmsk; // RGBA byte mask in target space
-    if (is16) {
-        const uint32_t r = ((fbmsk & 31) << 3) | ((fbmsk & 31) ? 7 : 0);
-        const uint32_t g = (((fbmsk >> 5) & 31) << 3) | (((fbmsk >> 5) & 31) ? 7 : 0);
-        const uint32_t b = (((fbmsk >> 10) & 31) << 3) | (((fbmsk >> 10) & 31) ? 7 : 0);
+    if (d.is16) {
+        // A 16-bit target masks 5:5:5:1 channels: widen each to the byte the shader compares.
         const uint32_t a = (fbmsk & 0x8000) ? 0xFFu : 0u;
-        maskBytes = r | (g << 8) | (b << 16) | (a << 24);
         // only fully-masked 5-bit channels count as byte-masked
         auto full = [&](uint32_t sh) {
             return ((fbmsk >> sh) & 31) == 31 ? 0xFFu : (((fbmsk >> sh) & 31) ? 0x7Fu : 0u);
         };
         maskBytes = full(0) | (full(5) << 8) | (full(10) << 16) | (a << 24);
     }
+    d.maskBytes = maskBytes;
     bool partial = false;
     uint8_t writeMask = 0xF;
     for (int c = 0; c < 4; ++c) {
@@ -693,31 +840,41 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         else if (m != 0)
             partial = true;
     }
-    if (fpsm == PSM_CT24)
-        writeMask &= 0x7;
+    if (d.fpsm == PSM_CT24)
+        writeMask &= 0x7; // CT24 has no alpha to write
+    d.partial = partial;
+    d.writeMask = writeMask;
     inventoryHudFrame.observe(frame, sceneCamera.guiScreen, (sceneCamera.flags & SceneGuideCamera::CentredPage) != 0);
+}
+
+// The GUI rules decided by the screen and the texture: the inventory page and its font shadow, the menu and title
+// canvas clears, and the loading screen's title tiles. False: the draw is replaced by a wide image already drawn.
+bool GSR_IMPL::applyGuiRules(Draw& d) {
+    const RT* rt = d.rt;
+    const uint8_t writeMask = d.writeMask;
+    const bool haveTex = d.haveTex;
     // Alpha-only DATE masks occupy the same page coordinates as RGB.
     // A depth-only clear has no framebuffer writes and stays native.
-    const bool inventoryPageDraw = inventoryHudFrame.applies(engineWorldOpen, rt->w) && (writeMask & 0xf);
+    d.inventoryPageDraw = inventoryHudFrame.applies(engineWorldOpen, rt->w) && (writeMask & 0xf);
     // The native inventory submits black glyph shadows two native pixels
     // below/right of their foreground. With the sharper host font this is
     // an oversized opaque duplicate. Keep a one-pixel, translucent shadow.
     // Explicit font metadata excludes black panel art, masks and world draws.
-    const bool inventoryFontShadow = inventoryPageDraw && haveTex && tb.fontAtlas && abe && (writeMask & 7);
-    if (logThis)
+    d.inventoryFontShadow = d.inventoryPageDraw && haveTex && d.tb.fontAtlas && d.abe && (writeMask & 7);
+    if (d.logThis)
         std::fprintf(stderr, "    ui: screen=%d world=%d inventory=%d bbox=%g,%g..%g,%g scissor=%d,%d..%d,%d\n",
-                     sceneCamera.guiScreen, (int)engineWorldOpen, (int)inventoryPageDraw, minx, miny, maxx, maxy, sx0,
-                     sy0, sx1, sy1);
+                     sceneCamera.guiScreen, (int)engineWorldOpen, (int)d.inventoryPageDraw, d.minx, d.miny, d.maxx,
+                     d.maxy, d.sx0, d.sy0, d.sx1, d.sy1);
     // Current left-anchored policy returns no margins. Retain the guarded
     // canvas path for layouts with margins; never clear the live preview.
-    if (inventoryPageDraw && (writeMask & 0x7))
-        clearInventoryCanvas(*rt);
-    if (!engineWorldOpen && nativeMenu && haveTex && tb.menuArtwork && rt->w >= 480 && (writeMask & 7)) {
-        clearInventoryCanvas(*rt, true);
+    if (d.inventoryPageDraw && (writeMask & 0x7))
+        clearInventoryCanvas(*d.rt);
+    if (!engineWorldOpen && nativeMenu && haveTex && d.tb.menuArtwork && rt->w >= 480 && (writeMask & 7)) {
+        clearInventoryCanvas(*d.rt, true);
         if (wideReplaceFrame == frame && wideReplaceRT == rt)
-            return; // a wide image drew the whole picture
+            return false; // a wide image drew the whole picture
     }
-    if (haveTex && tb.titleArtwork && rt->w >= 480 && (writeMask & 7)) {
+    if (haveTex && d.tb.titleArtwork && rt->w >= 480 && (writeMask & 7)) {
         static const bool log = std::getenv("GSR_BACKDROP_LOG") != nullptr;
         static int left = 400;
         if (log && left > 0) {
@@ -731,50 +888,65 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         }
     }
     // Any other screen (the intro movie, the world) ends the title: a later loading screen shows no title art.
-    if (sceneCamera.guiScreen >= 0 && sceneCamera.guiScreen != 8 && sceneCamera.guiScreen != 14)
+    if (sceneCamera.guiScreen >= 0 && sceneCamera.guiScreen != hud::kTitleScreen &&
+        sceneCamera.guiScreen != hud::kLoadingScreen)
         titleBackdropAt = {};
     // Loading after the title: the engine redraws the grabbed title page as large tiles (stretched 4:3 art); draw the
     // wide title image instead and skip them. The bar and text are smaller draws and stay.
-    if (!engineWorldOpen && nativeMenu && sceneCamera.guiScreen == 14 && haveTex && titleBackdropRecent() &&
-        (writeMask & 7) && rt->w >= 480 && maxx - minx >= 120.0f && maxy - miny >= 120.0f) {
-        clearInventoryCanvas(*rt, true);
+    if (!engineWorldOpen && nativeMenu && sceneCamera.guiScreen == hud::kLoadingScreen && haveTex &&
+        titleBackdropRecent() && (writeMask & 7) && rt->w >= 480 && d.maxx - d.minx >= 120.0f &&
+        d.maxy - d.miny >= 120.0f) {
+        clearInventoryCanvas(*d.rt, true);
         if (wideReplaceFrame == frame && wideReplaceRT == rt)
-            return;
+            return false;
     }
-    const bool date = (s.test >> 14) & 1;
-    const bool pabe = s.flags & DF_PABE;
-    bool useHw = !partial && !date && fixedFunctionBlend();
-    rhi::BlendOp bop = rhi::BlendOp::Add;
-    rhi::BlendFactor sf = rhi::BlendFactor::One, df = rhi::BlendFactor::Zero;
-    bool bEnable = false;
-    if (abe) {
-        if (!draw_blend::fixedForm(s, bop, sf, df))
-            useHw = false;
-        bEnable = useHw;
-    }
-    const bool needDest = !useHw;
+    return true;
+}
 
-    // --- constants
-    PSConsts k{};
+// Where the blend runs: the fixed-function blender when it can reproduce the GS blend exactly, else the shader, which
+// then reads a copy of the destination (needDest). DATE and partly masked channels also need the destination.
+void GSR_IMPL::planBlend(Draw& d) {
+    const GsDrawState& s = d.s;
+    d.date = (s.test >> 14) & 1;
+    d.pabe = s.flags & DF_PABE;
+    d.useHw = !d.partial && !d.date && fixedFunctionBlend();
+    if (d.abe) {
+        if (!draw_blend::fixedForm(s, d.bop, d.sf, d.df))
+            d.useHw = false;
+        d.bEnable = d.useHw;
+    }
+    d.needDest = !d.useHw;
+}
+
+// The constants block of the draw (PSConsts, read by the pixel program in gs_shaders.h / gs_shaders_wgsl.h).
+void GSR_IMPL::buildConstants(Draw& d) {
+    const GsDrawState& s = d.s;
+    const RT* rt = d.rt;
+    const bool haveTex = d.haveTex;
+    const TexBind& tb = d.tb;
+    PSConsts& k = d.k;
     k.rt[0] = (float)rt->w;
     k.rt[1] = (float)rt->h;
-    k.rt[2] = zmax;
+    k.rt[2] = d.zmax;
     // Some CPU-clipped ripple triangles reach the GS after the native water scope closes.
     // The native ripple pass uses a repeating 64x64 CT16 texture and the same masked depth and blend state.
     const uint32_t rippleFlags = DF_TME | DF_FGE | DF_ABE;
+    constexpr uint64_t kRippleTest = 0x5002d; // ATE, ATST GREATER, AREF 2, ZTE, ZTST GEQUAL
+    constexpr uint64_t kRippleAlpha = 0x44;   // (Cs - Cd) * As + Cd
+    constexpr uint64_t kRippleTexSize = 0x66; // TEX0 TW = TH = 6 (64x64)
     const bool lateWaterRipple = waterWorldCamera.flags & SceneGuideCamera::World && haveTex && !tb.isRT &&
                                  (s.flags & (rippleFlags | DF_FST | DF_SPRITE | DF_LINE | DF_POINT)) == rippleFlags &&
-                                 s.test == 0x5002d && s.alpha == 0x44 && (s.clamp & 0xf) == 0 &&
-                                 bitsOf(s.tex0, 20, 6) == PSM_CT16 && bitsOf(s.tex0, 26, 8) == 0x66 &&
+                                 s.test == kRippleTest && s.alpha == kRippleAlpha && (s.clamp & 0xf) == 0 &&
+                                 bitsOf(s.tex0, 20, 6) == PSM_CT16 && bitsOf(s.tex0, 26, 8) == kRippleTexSize &&
                                  bitsOf(s.tex0, 34, 3) == 1;
     // The shore and water can cover the same plane with different triangle edges. The GS rounds their raster
     // coordinates to sixteenths of a pixel before interpolation, so the depth error can exceed a few Z units.
     // Bias only the water colour pass toward the far plane. The depth buffer and ray geometry keep their depths.
-    if ((nativeWaterPass || lateWaterRipple) && abe && zmsk && zte && ztst >= 2)
+    if ((nativeWaterPass || lateWaterRipple) && d.abe && d.zmsk && d.zte && d.ztst >= 2)
         k.rt[2] *= 1.0f + 0x1p-11f;
-    k.rt[3] = dsx;
+    k.rt[3] = d.dsx;
     uint32_t fl = 0;
-    if (tme && haveTex)
+    if (d.tme && haveTex)
         fl |= PF_TME;
     if (s.flags & DF_FGE)
         fl |= PF_FGE;
@@ -783,19 +955,20 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     if (bitsOf(s.tex0, 34, 1))
         fl |= PF_TCC;
     fl |= (uint32_t)bitsOf(s.tex0, 35, 2) << 4;
-    const bool ate = (s.test & 1);
-    const uint32_t atst = (uint32_t)bitsOf(s.test, 1, 3), afail = (uint32_t)bitsOf(s.test, 12, 2);
-    if (ate)
+    d.ate = (s.test & 1);
+    d.atst = (uint32_t)bitsOf(s.test, 1, 3);
+    d.afail = (uint32_t)bitsOf(s.test, 12, 2);
+    if (d.ate)
         fl |= PF_ATE;
-    fl |= atst << 7;
-    fl |= afail << 10;
-    if (date)
+    fl |= d.atst << 7;
+    fl |= d.afail << 10;
+    if (d.date)
         fl |= PF_DATE;
     if ((s.test >> 15) & 1)
         fl |= PF_DATM;
-    if (abe)
+    if (d.abe)
         fl |= PF_ABE;
-    if (pabe)
+    if (d.pabe)
         fl |= PF_PABE;
     if (s.flags & DF_DTHE)
         fl |= PF_DTHE;
@@ -803,15 +976,15 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         fl |= PF_CCLAMP;
     if (s.fba)
         fl |= PF_FBA;
-    if (is16)
+    if (d.is16)
         fl |= PF_FB16;
     if (haveTex && tb.isRT)
         fl |= PF_TEXRT;
     k.a[0] = fl;
     k.a[1] = (uint32_t)bitsOf(s.test, 4, 8);
-    k.a[2] = A | (B << 2) | (C << 4) | (D << 6);
-    k.a[3] = FIX;
-    k.b[0] = needDest ? maskBytes : 0;
+    k.a[2] = d.A | (d.B << 2) | (d.C << 4) | (d.D << 6);
+    k.a[3] = d.FIX;
+    k.b[0] = d.needDest ? d.maskBytes : 0;
     k.b[1] = 1u << std::min<uint64_t>(bitsOf(s.tex0, 26, 4), 10);
     k.b[2] = 1u << std::min<uint64_t>(bitsOf(s.tex0, 30, 4), 10);
     k.b[3] = (uint32_t)bitsOf(s.clamp, 0, 2) | ((uint32_t)bitsOf(s.clamp, 2, 2) << 2);
@@ -826,6 +999,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     const uint32_t lcm = (uint32_t)bitsOf(s.tex1, 0, 1), mxl = (uint32_t)bitsOf(s.tex1, 2, 3),
                    mmag = (uint32_t)bitsOf(s.tex1, 5, 1), mmin = (uint32_t)bitsOf(s.tex1, 6, 3),
                    L = (uint32_t)bitsOf(s.tex1, 19, 2);
+    // TEX1.K: the LOD bias, a signed 12-bit fixed-point number with 4 fraction bits
     int32_t kk = (int32_t)bitsOf(s.tex1, 32, 12);
     if (kk & 0x800)
         kk -= 0x1000;
@@ -851,19 +1025,19 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     k.f[3] = std::log2(k.f[0]);
     // world draws: footprint LOD is measured in (fewer) render pixels; the bias is upscale::lodBias of the plan
     // (RT::wgeom, 0 on a backend whose world is drawn at full resolution)
-    k.g[0] = userMipBias + (worldDraw ? rt->wgeom.lodBias : 0.0f);
-    if (worldDraw) // sub-pixel jitter in NDC (render pixels -> NDC; the viewport spans the whole target)
+    k.g[0] = userMipBias + (d.worldDraw ? rt->wgeom.lodBias : 0.0f);
+    if (d.worldDraw) // sub-pixel jitter in NDC (render pixels -> NDC; the viewport spans the whole target)
     {
-        k.g[1] = 2.0f * rt->wjx / (float)(rt->w * dsx);
-        k.g[2] = -2.0f * rt->wjy / (float)(rt->h * dsy);
+        k.g[1] = 2.0f * rt->wjx / (float)(rt->w * d.dsx);
+        k.g[2] = -2.0f * rt->wjy / (float)(rt->h * d.dsy);
     }
-    k.h[0] = worldDraw ? rt->wjx : 0;
-    k.h[1] = worldDraw ? rt->wjy : 0;
+    k.h[0] = d.worldDraw ? rt->wjx : 0;
+    k.h[1] = d.worldDraw ? rt->wjy : 0;
     k.h[2] = 16384;
     // Keep an originally point-sampled UI sprite inside its native atlas cell even when the player forces bilinear.
     // Compute the endpoints before applying HUD scaling.
-    if (clampSpriteFootprint && count == 6) {
-        const auto b = sprite_footprint::bounds(v, count, (s.flags & DF_FST) != 0, (float)k.b[1], (float)k.b[2],
+    if (d.clampSpriteFootprint && d.count == 6) {
+        const auto b = sprite_footprint::bounds(d.v, d.count, (s.flags & DF_FST) != 0, (float)k.b[1], (float)k.b[2],
                                                 tb.isRT ? (unsigned)scale : tb.factor);
         if (b.valid) {
             k.a[0] |= 1u << 24;
@@ -873,10 +1047,17 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             k.spriteBounds[3] = b.v1;
         }
     }
+}
+
+// The optional per-draw detail that adds to the constants: terrain layers, object motion vectors, and the sampling
+// rectangle of a render target texture.
+void GSR_IMPL::prepareDrawDetail(Draw& d) {
+    const GsDrawState& s = d.s;
+    RT* rt = d.rt;
+    PSConsts& k = d.k;
     // Terrain layers: world-space shading and optional side projection of steep faces.
     if constexpr (kCaps.terrainDetail)
-        k.a[0] |= prepareTerrain(s, v, count, haveTex, haveTex && tb.isRT, *rt, zmsk, dsx, dsy, k);
-    bool drawMotion = false;
+        k.a[0] |= prepareTerrain(s, d.v, d.count, d.haveTex, d.haveTex && d.tb.isRT, *rt, d.zmsk, d.dsx, d.dsy, k);
     if constexpr (kCaps.motionVectors) {
         CpuProfile::Scope motionProfile(cpuProfile, CpuProfile::DrawObjectMotion);
         // [vertex programs] a batch of records has its own history and previous stream
@@ -884,44 +1065,60 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         if constexpr (kCaps.vertexPrograms)
             records = programBatch;
         if (!records)
-            drawMotion = prepareObjectMotion(*rt, s, v, count, dsx, dsy);
+            d.drawMotion = prepareObjectMotion(*rt, s, d.v, d.count, d.dsx, d.dsy);
         else if constexpr (kCaps.vertexPrograms)
-            drawMotion = prepareProgramMotion(*rt, s, *records, dsx, dsy);
+            d.drawMotion = prepareProgramMotion(*rt, s, *records, d.dsx, d.dsy);
     }
-    if (haveTex && tb.isRT) {
+    if (d.haveTex && d.tb.isRT) {
+        const TexBind& tb = d.tb;
         k.src[0] = tb.ox;
         k.src[1] = tb.oy;
+        // A world image still in its reduced render rectangle is sampled through that rectangle.
         const bool reduced = tb.rt->wstate == 1 || (tb.rt->neuralState == 1 && tb.rt->temporalSR);
         k.src[2] = 1.0f / (float)tb.rt->w *
                    (reduced ? (float)tb.rt->wgeom.renderW / (float)tb.rt->wgeom.frameW / (float)scale : 1.0f);
         k.src[3] = 1.0f / (float)tb.rt->h *
                    (reduced ? (float)tb.rt->wgeom.renderH / (float)tb.rt->wgeom.frameH / (float)scale : 1.0f);
     }
+}
 
-    if (logThis)
-        std::fprintf(stderr,
-                     "    consts: haveTex=%d isRT=%d useHw=%d needDest=%d bEnable=%d fl=%08x aref/ate=%u abcd=%02x "
-                     "fix=%u maskB=%08x tex=%ux%u wm=%u clampc=%u,%u,%u,%u d0=%08x e=(%.2f,%.1f) fba=%u fbmsk=%08x "
-                     "src=(%.1f,%.1f,%g,%g) rtdim=%ux%u\n",
-                     (int)haveTex, (int)(haveTex && tb.isRT), (int)useHw, (int)needDest, (int)bEnable, k.a[0], k.a[1],
-                     k.a[2], k.a[3], k.b[0], k.b[1], k.b[2], k.b[3], k.c[0], k.c[1], k.c[2], k.c[3], k.d[0], k.e[0],
-                     k.e[1], (unsigned)s.fba, fbmsk, k.src[0], k.src[1], k.src[2], k.src[3], rt->w, rt->h);
-    // --- vertices: a writable copy (the HUD / menu maps below rewrite positions), handed to the GPU by endVertices
-    std::optional<CpuProfile::Scope> uploadProfile(std::in_place, cpuProfile, CpuProfile::DrawVertexUpload);
+void GSR_IMPL::logConstants(const Draw& d) {
+    if (!d.logThis)
+        return;
+    const PSConsts& k = d.k;
+    std::fprintf(stderr,
+                 "    consts: haveTex=%d isRT=%d useHw=%d needDest=%d bEnable=%d fl=%08x aref/ate=%u abcd=%02x "
+                 "fix=%u maskB=%08x tex=%ux%u wm=%u clampc=%u,%u,%u,%u d0=%08x e=(%.2f,%.1f) fba=%u fbmsk=%08x "
+                 "src=(%.1f,%.1f,%g,%g) rtdim=%ux%u\n",
+                 (int)d.haveTex, (int)(d.haveTex && d.tb.isRT), (int)d.useHw, (int)d.needDest, (int)d.bEnable, k.a[0],
+                 k.a[1], k.a[2], k.a[3], k.b[0], k.b[1], k.b[2], k.b[3], k.c[0], k.c[1], k.c[2], k.c[3], k.d[0], k.e[0],
+                 k.e[1], (unsigned)d.s.fba, d.fbmsk, k.src[0], k.src[1], k.src[2], k.src[3], d.rt->w, d.rt->h);
+}
+
+// The vertices: a writable copy (the HUD / menu maps rewrite positions), handed to the GPU by endVertices. Fixes for
+// native quirks first, then the GUI classification and the HUD maps.
+void GSR_IMPL::mapVertices(Draw& d) {
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const uint32_t count = d.count;
+    const RT* rt = d.rt;
+    const PSConsts& k = d.k;
+    const bool haveTex = d.haveTex;
+    CpuProfile::Scope uploadProfile(cpuProfile, CpuProfile::DrawVertexUpload);
     DrawVertex* const mapped = beginVertices(v, count);
     // The guest clipper can truncate a vertex on the right plane into the final 12.4 subpixels.
     // At high internal scales that can exclude a raster sample and expose the sky behind a wall.
     const float rightEdge = static_cast<float>(rt->w);
     constexpr float clipGuard = 2.0f / 16.0f;
-    if (engineWorldOpen && zte && ztst >= 2 && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && sx0 == 0 &&
-        sx1 + 1 == static_cast<int>(rt->w) && maxx >= rightEdge - clipGuard) {
+    if (engineWorldOpen && d.zte && d.ztst >= 2 && !(s.flags & (DF_SPRITE | DF_LINE | DF_POINT)) && d.sx0 == 0 &&
+        d.sx1 + 1 == static_cast<int>(rt->w) && d.maxx >= rightEdge - clipGuard) {
         for (uint32_t i = 0; i < count; ++i) {
             float& x = mapped[i].x;
             if (x >= rightEdge - clipGuard && x < rightEdge)
                 x = rightEdge;
         }
     }
-    if (inventoryFontShadow) {
+    if (d.inventoryFontShadow) {
         // Native batching can combine colored foregrounds and black
         // shadows in the same draw. Classify complete glyph triangles.
         auto* glyph = mapped;
@@ -948,10 +1145,12 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         // sprite to the measured text width, but the rendered glyphs reach about one texel further right (the heat
         // map has content up to column 98, the sprite samples 2.5 .. 97.5), so the last letter of a highlighted row
         // ("New Game") was cut. Extend the right edge by 2 texels (position and S together, 1:1 stays 1:1).
+        constexpr uint64_t kAdditiveAlpha = 0x48; // ALPHA (Cs - 0) * As + Cd
+        constexpr uint64_t kSize128Log2 = 7;      // TEX0 TW = TH = 7 (128x128)
         const uint32_t hpsm = (uint32_t)bitsOf(s.tex0, 20, 6);
-        if (haveTex && (s.flags & DF_SPRITE) && (s.flags & DF_ABE) && (s.alpha & 0xFF) == 0x48 &&
-            bitsOf(s.tex0, 26, 4) == 7 && bitsOf(s.tex0, 30, 4) == 7 && (hpsm == PSM_T8 || hpsm == PSM_CT16) &&
-            (s.flags & DF_FST) == 0 && count % 3 == 0) {
+        if (haveTex && (s.flags & DF_SPRITE) && (s.flags & DF_ABE) && (s.alpha & 0xFF) == kAdditiveAlpha &&
+            bitsOf(s.tex0, 26, 4) == kSize128Log2 && bitsOf(s.tex0, 30, 4) == kSize128Log2 &&
+            (hpsm == PSM_T8 || hpsm == PSM_CT16) && (s.flags & DF_FST) == 0 && count % 3 == 0) {
             DrawVertex* mv = mapped;
             float maxx = mv[0].x;
             for (uint32_t i = 1; i < count; ++i)
@@ -963,6 +1162,20 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
                 }
         }
     }
+    classifyHudDraw(d);
+    mapHudVertices(d, mapped);
+    logHudCorners(d);
+    endVertices();
+}
+
+// Which GUI map the draw's vertices take: the inventory page, a menu page, a gameplay HUD corner, or the legacy HUD
+// cluster map. A perspective triangle is world geometry whatever the phase.
+void GSR_IMPL::classifyHudDraw(Draw& d) {
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const uint32_t count = d.count;
+    const RT* rt = d.rt;
+    const bool haveTex = d.haveTex;
     // Engine world boundaries are ordered with GIF submissions, including
     // when temporal features are off. Outside an explicit menu, reject fogged triangles:
     // small sky triangles use the same ALWAYS/ZMSK state as menu quads.
@@ -983,20 +1196,20 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
         !(s.flags & DF_SPRITE) &&
         (perspectiveTriangle || ((s.flags & DF_FGE) && !hud::screenTextTriangles(haveTex && !(s.flags & DF_FST),
                                                                                  perspectiveTriangle, minFog)));
-    const auto inventoryMap = hud::inventoryMap(rt->w, hudScale, inventoryHudFrame.centred);
+    d.inventoryMap = hud::inventoryMap(rt->w, hudScale, inventoryHudFrame.centred);
     // The map view's world shade stays unmapped: it covers the whole output, not the centred 4:3 window.
-    const bool inventoryShade =
-        inventoryPageDraw &&
-        hud::inventoryViewShade(inventoryHudFrame.centred, !haveTex || (k.b[1] <= 32 && k.b[2] <= 32), minx, miny, maxx,
-                                maxy, (float)rt->w, (float)std::min(rt->h, 512u));
-    const auto menuMap = hud::menuMap(rt->w, hudScale);
+    d.inventoryShade =
+        d.inventoryPageDraw &&
+        hud::inventoryViewShade(inventoryHudFrame.centred, !haveTex || (d.k.b[1] <= 32 && d.k.b[2] <= 32), d.minx,
+                                d.miny, d.maxx, d.maxy, (float)rt->w, (float)std::min(rt->h, 512u));
+    d.menuMap = hud::menuMap(rt->w, hudScale);
     // Corner pieces may be RT-backed triangle lists with depth state unlike
     // their rings, including a retained FGE bit. Once the engine has closed
     // the world, classify each triangle before legacy UI state exclusions.
     bool menuPageDraw = hud::menuSubmission(engineWorldOpen, hud::nativeMenuDraw(nativeMenu, sceneCamera.guiScreen),
-                                            rt->w, rt->h, (writeMask & 0x7) != 0, perspectiveTriangle);
-    if (menuPageDraw && hud::pauseHudDraw(hud::pauseScreen(sceneCamera.guiScreen, nativeMenu, nativeMenuScreen), minx,
-                                          miny, maxx, maxy, (float)rt->w, (float)std::min(rt->h, 512u)))
+                                            rt->w, rt->h, (d.writeMask & 0x7) != 0, perspectiveTriangle);
+    if (menuPageDraw && hud::pauseHudDraw(hud::pauseScreen(sceneCamera.guiScreen, nativeMenu, nativeMenuScreen), d.minx,
+                                          d.miny, d.maxx, d.maxy, (float)rt->w, (float)std::min(rt->h, 512u)))
         menuPageDraw = false;
     if (menuPageDraw && hud::pauseScreen(sceneCamera.guiScreen, nativeMenu, nativeMenuScreen)) {
         // GSR_PAUSE_HUD_LOG=1: the scale each frame's first pause page draw gets (hud_page.h pauseTransitionHudScale).
@@ -1014,305 +1227,343 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
                 nativeMenuScreen, pauseHud.active ? ", override" : "");
         }
     }
-    const bool cornerHudDraw = !menuPageDraw && !perspectiveTriangle &&
-                               hud::gameplayCornerSubmission(engineWorldOpen, inventoryPageDraw, rt->w, rt->h);
-    const float cornerFrameW = (float)rt->w;
-    const float cornerFrameH = (float)std::min(rt->h, 512u);
-    const bool legacyHudDraw =
-        !hudWorldTriangle && ((s.flags & DF_SPRITE) || (zmsk && zte && ztst == 1)) && !(zte && ztst >= 2);
-    float hudClipX0 = (float)sx0, hudClipY0 = (float)sy0;
-    float hudClipX1 = (float)(sx1 + 1), hudClipY1 = (float)(sy1 + 1);
-    uint32_t cornerLeft = 0, cornerRight = 0, cornerUnmapped = 0;
-    if (!engineWorldOpen &&
-        (hudScale < 0.999f || std::fabs(hudSize - 1.0f) > 0.001f || inventoryFontShadow ||
-         sceneCamera.guiScreen == 14) &&
-        ((writeMask & 0x7) || inventoryPageDraw) &&
-        (inventoryPageDraw || menuPageDraw || cornerHudDraw || legacyHudDraw)) {
-        // HUD de-stretch / resize (anamorphic widescreen, hud_scale): a UI sprite drawn into the full display-sized
-        // frame. Sprites are grouped into clusters (overlapping / touching UI sprites of the previous frame, e.g.
-        // an orb's fill, ring and highlights), and a cluster is anchored by its bounding box: x' = a + (x - a) * k
-        // * size, y' = ay + (y - ay) * size, a = nearest screen edge / centre. Every sprite of a cluster uses the
-        // same map, so the pieces stay together and edge anchored elements stay on screen.
-        const float frameW = (float)(sx1 - sx0 + 1), frameH = (float)(sy1 - sy0 + 1);
-        if (inventoryPageDraw || menuPageDraw || cornerHudDraw ||
-            (frameW >= 480.0f && frameH >= 320.0f && rt->w >= 480)) {
-            const float fx0 = (float)sx0, fy0 = (float)sy0;
-            DrawVertex* dv = mapped;
-            auto anchor = [](float lo, float hi, float f0, float F) {
-                const float t = (0.5f * (lo + hi) - f0) / F;
-                return t < 0.4f ? f0 : (t > 0.6f ? f0 + F : f0 + 0.5f * F);
-            };
-            // one range = one sprite (6 vertices) of a batch, or the whole draw for triangle quads
-            auto doRange = [&](uint32_t b, uint32_t e) {
-                if (nativeSubtitleOpen) {
-                    const auto map = hud::subtitleMap(cornerFrameW, cornerFrameH, hudScale, hudSize);
-                    float lo = 1e30f, hi = -1e30f, top = 1e30f, bottom = -1e30f;
-                    for (uint32_t i = b; i < e; ++i) {
-                        lo = std::min(lo, v[i].x);
-                        hi = std::max(hi, v[i].x);
-                        top = std::min(top, v[i].y);
-                        bottom = std::max(bottom, v[i].y);
-                    }
-                    // Native solid-color UI uses the 32x32 white tile,
-                    // rather than an untextured GS rectangle.
-                    const bool solid = !haveTex || (k.b[1] <= 32 && k.b[2] <= 32);
-                    const bool band = solid && hi - lo >= .85f * cornerFrameW && top >= .6f * cornerFrameH &&
-                                      bottom - top < .4f * cornerFrameH;
-                    if (band)
-                        nativeSubtitleBounds.set(top, bottom);
-                    // Only native font cells inside the observed subtitle
-                    // band may follow its delayed DMA tail. Orb artwork
-                    // and subsequent HUD packets keep their own anchors.
-                    const bool glyph = haveTex && nativeSubtitleBounds.glyph(k.b[1], k.b[2], top, bottom);
-                    if (band || glyph) {
-                        for (uint32_t i = b; i < e; ++i) {
-                            // Only the background stays full width. A long
-                            // text batch must share the map of its shadows
-                            // and individual glyph packets too.
-                            if (!band)
-                                dv[i].x = map.x(dv[i].x);
-                            dv[i].y = map.y(dv[i].y);
-                        }
-                        // Clip and destination reads follow the same map.
-                        hudClipX0 = std::min(hudClipX0, map.x((float)sx0));
-                        hudClipX1 = std::max(hudClipX1, map.x((float)(sx1 + 1)));
-                        hudClipY0 = std::min(hudClipY0, map.y((float)sy0));
-                        hudClipY1 = std::max(hudClipY1, map.y((float)(sy1 + 1)));
-                        st.hudSprites++;
-                        return;
-                    }
-                }
-                // Every post-world inventory component shares this exact
-                // native-coordinate map: RT fills, rings, tiled panels,
-                // clipped text, and preview geometry. No source/size
-                // heuristic proves that a draw is a world snapshot, so
-                // none is exempted here. Keep page Y and size native.
-                if (inventoryPageDraw) {
-                    for (uint32_t i = b; i < e && !inventoryShade; ++i) {
-                        dv[i].x = inventoryMap.x(dv[i].x);
-                    }
-                    st.hudSprites++;
-                    return;
-                }
-                float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
-                for (uint32_t i = b; i < e; ++i) {
-                    x0 = std::min(x0, v[i].x);
-                    x1 = std::max(x1, v[i].x);
-                    y0 = std::min(y0, v[i].y);
-                    y1 = std::max(y1, v[i].y);
-                }
-                if (!menuPageDraw && legacyHudDraw && hud::tutorialBand(y0, y1, cornerFrameH) &&
-                    (hud::tutorialBandDraw(minx, maxx, cornerFrameW) || tutorialBandRows.covers(y1))) {
-                    tutorialBandRows.note(x0, x1, y1, cornerFrameW);
-                    const auto map = hud::tutorialMap(cornerFrameW, hudScale, hudSize);
-                    for (uint32_t i = b; i < e; ++i) {
-                        // Keep the full-width background band full width.
-                        if (x1 - x0 < 0.85f * cornerFrameW)
-                            dv[i].x = map.x(dv[i].x);
-                        dv[i].y = map.y(dv[i].y);
-                    }
-                    st.hudSprites++;
-                    return;
-                }
-                const auto corner =
-                    cornerHudDraw ? hud::gameplayCorner(x0, y0, x1, y1, cornerFrameW, cornerFrameH) : hud::Corner::None;
-                if (corner != hud::Corner::None) {
-                    (corner == hud::Corner::Left ? cornerLeft : cornerRight) += (e - b) / 3;
-                    const auto map = hud::cornerMap(corner, cornerFrameW, cornerFrameH, hudScale, hudSize);
-                    for (uint32_t i = b; i < e; ++i) {
-                        dv[i].x = map.x(dv[i].x);
-                        dv[i].y = map.y(dv[i].y);
-                    }
-                    // One draw can contain both corners. Conservatively
-                    // cover both mapped clip rectangles for destination reads.
-                    hudClipX0 = std::min(hudClipX0, map.x((float)sx0));
-                    hudClipY0 = std::min(hudClipY0, map.y((float)sy0));
-                    hudClipX1 = std::max(hudClipX1, map.x((float)(sx1 + 1)));
-                    hudClipY1 = std::max(hudClipY1, map.y((float)(sy1 + 1)));
-                    st.hudSprites++;
-                    return;
-                }
-                if (cornerHudDraw)
-                    cornerUnmapped += (e - b) / 3;
-                const float w = x1 - x0, h = y1 - y0;
-                const bool tile128 =
-                    w >= 127.0f && h >= 127.0f && std::fmod(x0 - fx0 + 0.5f, 128.0f) < 1.0f &&
-                    std::fmod(y0 - fy0 + 0.5f, 128.0f) < 1.0f && std::fabs(std::fmod(w + 0.5f, 128.0f)) < 1.0f &&
-                    std::fabs(std::fmod(h + 0.5f, 128.0f)) < 1.0f; // screen-grab tiles redrawn as backdrop
-                if (menuPageDraw) {
-                    // Menu foreground candidates share one centered map;
-                    // never inherit gameplay cluster anchors or HUD size.
-                    // Captured world tiles and full-page backdrops fill the
-                    // selected aspect. The guest's UI projection stays native.
-                    const bool columnBackdrop =
-                        hud::menuColumnBackdrop(x0, y0, x1, y1, (float)rt->w, haveTex && (s.flags & DF_SPRITE));
-                    const bool authoredArt = haveTex && tb.menuArtwork;
-                    if (authoredArt || hud::menuForeground(w, (float)rt->w, tile128 || columnBackdrop)) {
-                        float loadingOffset = 0;
-                        if (sceneCamera.guiScreen == 14 && sceneCamera.sourcePc == 0x43d340u) {
-                            std::memcpy(&loadingOffset, &sceneCamera.reserved, sizeof(loadingOffset));
-                            if (!std::isfinite(loadingOffset) || std::fabs(loadingOffset) > 256)
-                                loadingOffset = 0;
-                        }
-                        for (uint32_t i = b; i < e; ++i)
-                            dv[i].x = menuMap.x(dv[i].x - loadingOffset);
-                        hudClipX0 = std::min(hudClipX0, menuMap.x((float)sx0));
-                        hudClipX1 = std::max(hudClipX1, menuMap.x((float)(sx1 + 1)));
-                        st.hudSprites++;
-                    }
-                    return;
-                }
-                if (!legacyHudDraw)
-                    return;
-                // the sky dome (and similar big backdrops) is drawn with ZTST ALWAYS / ZMSK like UI quads when the
-                // camera looks up: a large triangle draw is not UI (it would be squeezed into a 4:3 rectangle and
-                // merge the HUD clusters into one centred 'page') a draw that samples a render target (screen grab
-                // / full-frame effect) is UI only when it is small: the HP / mana orb gem is textured from memory
-                // that aliases a render target while the camera looks up at the sky, and must move with its ring
-                const bool rtGrab = haveTex && tb.isRT && (w > 0.3f * frameW || h > 0.3f * frameH);
-                const bool bigBackdrop = rtGrab || (!(s.flags & DF_SPRITE) && w * h > 0.2f * frameW * frameH);
-                if (w < 0.85f * frameW && !tile128 && !bigBackdrop) {
-                    if (hudCur.size() < 600)
-                        hudCur.push_back({x0, y0, x1, y1});
-                    HudBox c{x0, y0, x1, y1};
-                    const float mx = 0.5f * (x0 + x1), my = 0.5f * (y0 + y1);
-                    float best = 1e30f;
-                    for (const HudBox& bx : hudPrev)
-                        if (mx >= bx.x0 && mx <= bx.x1 && my >= bx.y0 && my <= bx.y1 &&
-                            (bx.x1 - bx.x0) * (bx.y1 - bx.y0) < best) {
-                            best = (bx.x1 - bx.x0) * (bx.y1 - bx.y0);
-                            c = bx;
-                        }
-                    const bool big = (c.x1 - c.x0) * (c.y1 - c.y0) > 0.07f * frameW * frameH;
-                    const float ax = big ? fx0 + 0.5f * frameW : hud::clusterAnchorX(c.x0, c.x1, fx0, frameW),
-                                ay = anchor(c.y0, c.y1, fy0, frameH);
-                    // menus / pages / popups (big clusters, centred) keep their size (only the aspect squeeze
-                    // applies): the menu mouse maps through that squeeze
-                    const float sz = big ? 1.0f : hudSize;
-                    const float kx = hudScale * sz, ky = sz;
-                    for (uint32_t i = b; i < e; ++i) {
-                        dv[i].x = ax + (dv[i].x - ax) * kx;
-                        dv[i].y = ay + (dv[i].y - ay) * ky;
-                    }
-                    st.hudSprites++;
-                } else if (!tile128 && !rtGrab && h < 0.4f * frameH && w >= 0.85f * frameW &&
-                           std::fabs(hudSize - 1.0f) > 0.001f) {
-                    // full-width band (subtitle bar): resized vertically about the nearest vertical edge
-                    const float ay = anchor(y0, y1, fy0, frameH);
-                    for (uint32_t i = b; i < e; ++i)
-                        dv[i].y = ay + (dv[i].y - ay) * hudSize;
-                }
-            };
-            if ((s.flags & DF_SPRITE) && count % 6 == 0)
-                for (uint32_t b = 0; b < count; b += 6)
-                    doRange(b, b + 6);
-            else if ((menuPageDraw ||
-                      (cornerHudDraw && hud::splitCornerBatch(minx, miny, maxx, maxy, cornerFrameW, cornerFrameH))) &&
-                     count % 3 == 0)
-                for (uint32_t b = 0; b < count; b += 3)
-                    doRange(b, b + 3);
-            else
-                doRange(0, count);
+    d.menuPageDraw = menuPageDraw;
+    d.cornerHudDraw = !menuPageDraw && !perspectiveTriangle &&
+                      hud::gameplayCornerSubmission(engineWorldOpen, d.inventoryPageDraw, rt->w, rt->h);
+    d.legacyHudDraw =
+        !hudWorldTriangle && ((s.flags & DF_SPRITE) || (d.zmsk && d.zte && d.ztst == 1)) && !(d.zte && d.ztst >= 2);
+    d.hudClipX0 = (float)d.sx0;
+    d.hudClipY0 = (float)d.sy0;
+    d.hudClipX1 = (float)(d.sx1 + 1);
+    d.hudClipY1 = (float)(d.sy1 + 1);
+}
 
-            // Shader blending/DATE reads destination pixels at the moved
-            // raster positions. Retain conservative original bounds too,
-            // but include every transformed vertex in snapshot/dirty rows.
-            const bool pageMapped = inventoryPageDraw && !inventoryShade;
-            const int hudClipLeft = (int)std::floor(pageMapped ? inventoryMap.x((float)sx0) : hudClipX0);
-            const int hudClipRight = (int)std::ceil(pageMapped ? inventoryMap.x((float)(sx1 + 1)) : hudClipX1) - 1;
-            for (uint32_t i = 0; i < count; ++i) {
-                cx0 = std::min(cx0, std::max(std::max(hudClipLeft, 0), (int)std::floor(dv[i].x)));
-                cy0 = std::min(cy0, std::max(std::max((int)std::floor(hudClipY0), 0), (int)std::floor(dv[i].y)));
-                cx1 = std::max(cx1, std::min(std::min(hudClipRight, (int)rt->w - 1), (int)std::ceil(dv[i].x)));
-                cy1 = std::max(
-                    cy1, std::min(std::min((int)std::ceil(hudClipY1) - 1, (int)rt->h - 1), (int)std::ceil(dv[i].y)));
+// HUD de-stretch / resize (anamorphic widescreen, hud_scale): a UI sprite drawn into the full display-sized frame is
+// moved by the map of its GUI class, one range (a sprite, a triangle, or the whole draw) at a time. Widens the dirty
+// rectangle (cx0..cy1) to the moved vertices.
+void GSR_IMPL::mapHudVertices(Draw& d, DrawVertex* dv) {
+    const GsDrawState& s = d.s;
+    const uint32_t count = d.count;
+    const RT* rt = d.rt;
+    const int sx0 = d.sx0, sy0 = d.sy0, sx1 = d.sx1, sy1 = d.sy1;
+    const float cornerFrameW = (float)rt->w;
+    const float cornerFrameH = (float)std::min(rt->h, 512u); // the native display is at most 512 lines high
+    if (!(!engineWorldOpen &&
+          (hudScale < 0.999f || std::fabs(hudSize - 1.0f) > 0.001f || d.inventoryFontShadow ||
+           sceneCamera.guiScreen == hud::kLoadingScreen) &&
+          ((d.writeMask & 0x7) || d.inventoryPageDraw) &&
+          (d.inventoryPageDraw || d.menuPageDraw || d.cornerHudDraw || d.legacyHudDraw)))
+        return;
+    // Sprites are grouped into clusters (overlapping / touching UI sprites of the previous frame, e.g. an orb's fill,
+    // ring and highlights), and a cluster is anchored by its bounding box: x' = a + (x - a) * k * size,
+    // y' = ay + (y - ay) * size, a = nearest screen edge / centre. Every sprite of a cluster uses the same map, so
+    // the pieces stay together and edge anchored elements stay on screen.
+    const float frameW = (float)(sx1 - sx0 + 1), frameH = (float)(sy1 - sy0 + 1);
+    if (!(d.inventoryPageDraw || d.menuPageDraw || d.cornerHudDraw ||
+          (frameW >= 480.0f && frameH >= 320.0f && rt->w >= 480)))
+        return;
+    const HudFrame f{dv, (float)sx0, (float)sy0, frameW, frameH, cornerFrameW, cornerFrameH};
+    // one range = one sprite (6 vertices) of a batch, or one triangle, or the whole draw for triangle quads
+    if ((s.flags & DF_SPRITE) && count % 6 == 0)
+        for (uint32_t b = 0; b < count; b += 6)
+            mapHudRange(d, f, b, b + 6);
+    else if ((d.menuPageDraw ||
+              (d.cornerHudDraw && hud::splitCornerBatch(d.minx, d.miny, d.maxx, d.maxy, cornerFrameW, cornerFrameH))) &&
+             count % 3 == 0)
+        for (uint32_t b = 0; b < count; b += 3)
+            mapHudRange(d, f, b, b + 3);
+    else
+        mapHudRange(d, f, 0, count);
+
+    // Shader blending/DATE reads destination pixels at the moved
+    // raster positions. Retain conservative original bounds too,
+    // but include every transformed vertex in snapshot/dirty rows.
+    const bool pageMapped = d.inventoryPageDraw && !d.inventoryShade;
+    const int hudClipLeft = (int)std::floor(pageMapped ? d.inventoryMap.x((float)sx0) : d.hudClipX0);
+    const int hudClipRight = (int)std::ceil(pageMapped ? d.inventoryMap.x((float)(sx1 + 1)) : d.hudClipX1) - 1;
+    for (uint32_t i = 0; i < count; ++i) {
+        d.cx0 = std::min(d.cx0, std::max(std::max(hudClipLeft, 0), (int)std::floor(dv[i].x)));
+        d.cy0 = std::min(d.cy0, std::max(std::max((int)std::floor(d.hudClipY0), 0), (int)std::floor(dv[i].y)));
+        d.cx1 = std::max(d.cx1, std::min(std::min(hudClipRight, (int)rt->w - 1), (int)std::ceil(dv[i].x)));
+        d.cy1 = std::max(d.cy1,
+                         std::min(std::min((int)std::ceil(d.hudClipY1) - 1, (int)rt->h - 1), (int)std::ceil(dv[i].y)));
+    }
+}
+
+// The HUD map of one range [b, e) of the draw's vertices. The first rule that claims the range wins: subtitles, the
+// inventory page, the tutorial band, a gameplay corner, a menu page, then the legacy cluster map.
+void GSR_IMPL::mapHudRange(Draw& d, const HudFrame& f, uint32_t b, uint32_t e) {
+    const GsDrawState& s = d.s;
+    const DrawVertex* v = d.v;
+    const RT* rt = d.rt;
+    const PSConsts& k = d.k;
+    const bool haveTex = d.haveTex;
+    const int sx0 = d.sx0, sy0 = d.sy0, sx1 = d.sx1, sy1 = d.sy1;
+    DrawVertex* dv = f.dv;
+    const float fx0 = f.fx0, fy0 = f.fy0, frameW = f.frameW, frameH = f.frameH;
+    const float cornerFrameW = f.cornerW, cornerFrameH = f.cornerH;
+    auto anchor = [](float lo, float hi, float f0, float F) {
+        const float t = (0.5f * (lo + hi) - f0) / F;
+        return t < 0.4f ? f0 : (t > 0.6f ? f0 + F : f0 + 0.5f * F);
+    };
+    if (nativeSubtitleOpen) {
+        const auto map = hud::subtitleMap(cornerFrameW, cornerFrameH, hudScale, hudSize);
+        float lo = 1e30f, hi = -1e30f, top = 1e30f, bottom = -1e30f;
+        for (uint32_t i = b; i < e; ++i) {
+            lo = std::min(lo, v[i].x);
+            hi = std::max(hi, v[i].x);
+            top = std::min(top, v[i].y);
+            bottom = std::max(bottom, v[i].y);
+        }
+        // Native solid-color UI uses the 32x32 white tile,
+        // rather than an untextured GS rectangle.
+        const bool solid = !haveTex || (k.b[1] <= 32 && k.b[2] <= 32);
+        const bool band =
+            solid && hi - lo >= .85f * cornerFrameW && top >= .6f * cornerFrameH && bottom - top < .4f * cornerFrameH;
+        if (band)
+            nativeSubtitleBounds.set(top, bottom);
+        // Only native font cells inside the observed subtitle
+        // band may follow its delayed DMA tail. Orb artwork
+        // and subsequent HUD packets keep their own anchors.
+        const bool glyph = haveTex && nativeSubtitleBounds.glyph(k.b[1], k.b[2], top, bottom);
+        if (band || glyph) {
+            for (uint32_t i = b; i < e; ++i) {
+                // Only the background stays full width. A long
+                // text batch must share the map of its shadows
+                // and individual glyph packets too.
+                if (!band)
+                    dv[i].x = map.x(dv[i].x);
+                dv[i].y = map.y(dv[i].y);
             }
+            // Clip and destination reads follow the same map.
+            d.hudClipX0 = std::min(d.hudClipX0, map.x((float)sx0));
+            d.hudClipX1 = std::max(d.hudClipX1, map.x((float)(sx1 + 1)));
+            d.hudClipY0 = std::min(d.hudClipY0, map.y((float)sy0));
+            d.hudClipY1 = std::max(d.hudClipY1, map.y((float)(sy1 + 1)));
+            st.hudSprites++;
+            return;
         }
     }
-    // Opt-in and bounded per renderer. Counts partition the submitted
-    // triangles; correlate draw/flags/source/bounds to verify every ring
-    // piece rather than inferring success from one mapped fill.
-    if (runtimeFlags().hudCornerLog && cornerHudDraw && (writeMask & 0x7) &&
+    // Every post-world inventory component shares this exact
+    // native-coordinate map: RT fills, rings, tiled panels,
+    // clipped text, and preview geometry. No source/size
+    // heuristic proves that a draw is a world snapshot, so
+    // none is exempted here. Keep page Y and size native.
+    if (d.inventoryPageDraw) {
+        for (uint32_t i = b; i < e && !d.inventoryShade; ++i) {
+            dv[i].x = d.inventoryMap.x(dv[i].x);
+        }
+        st.hudSprites++;
+        return;
+    }
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (uint32_t i = b; i < e; ++i) {
+        x0 = std::min(x0, v[i].x);
+        x1 = std::max(x1, v[i].x);
+        y0 = std::min(y0, v[i].y);
+        y1 = std::max(y1, v[i].y);
+    }
+    if (!d.menuPageDraw && d.legacyHudDraw && hud::tutorialBand(y0, y1, cornerFrameH) &&
+        (hud::tutorialBandDraw(d.minx, d.maxx, cornerFrameW) || tutorialBandRows.covers(y1))) {
+        tutorialBandRows.note(x0, x1, y1, cornerFrameW);
+        const auto map = hud::tutorialMap(cornerFrameW, hudScale, hudSize);
+        for (uint32_t i = b; i < e; ++i) {
+            // Keep the full-width background band full width.
+            if (x1 - x0 < 0.85f * cornerFrameW)
+                dv[i].x = map.x(dv[i].x);
+            dv[i].y = map.y(dv[i].y);
+        }
+        st.hudSprites++;
+        return;
+    }
+    const auto corner =
+        d.cornerHudDraw ? hud::gameplayCorner(x0, y0, x1, y1, cornerFrameW, cornerFrameH) : hud::Corner::None;
+    if (corner != hud::Corner::None) {
+        (corner == hud::Corner::Left ? d.cornerLeft : d.cornerRight) += (e - b) / 3;
+        const auto map = hud::cornerMap(corner, cornerFrameW, cornerFrameH, hudScale, hudSize);
+        for (uint32_t i = b; i < e; ++i) {
+            dv[i].x = map.x(dv[i].x);
+            dv[i].y = map.y(dv[i].y);
+        }
+        // One draw can contain both corners. Conservatively
+        // cover both mapped clip rectangles for destination reads.
+        d.hudClipX0 = std::min(d.hudClipX0, map.x((float)sx0));
+        d.hudClipY0 = std::min(d.hudClipY0, map.y((float)sy0));
+        d.hudClipX1 = std::max(d.hudClipX1, map.x((float)(sx1 + 1)));
+        d.hudClipY1 = std::max(d.hudClipY1, map.y((float)(sy1 + 1)));
+        st.hudSprites++;
+        return;
+    }
+    if (d.cornerHudDraw)
+        d.cornerUnmapped += (e - b) / 3;
+    const float w = x1 - x0, h = y1 - y0;
+    const bool tile128 = w >= 127.0f && h >= 127.0f && std::fmod(x0 - fx0 + 0.5f, 128.0f) < 1.0f &&
+                         std::fmod(y0 - fy0 + 0.5f, 128.0f) < 1.0f && std::fabs(std::fmod(w + 0.5f, 128.0f)) < 1.0f &&
+                         std::fabs(std::fmod(h + 0.5f, 128.0f)) < 1.0f; // screen-grab tiles redrawn as backdrop
+    if (d.menuPageDraw) {
+        // Menu foreground candidates share one centered map;
+        // never inherit gameplay cluster anchors or HUD size.
+        // Captured world tiles and full-page backdrops fill the
+        // selected aspect. The guest's UI projection stays native.
+        const bool columnBackdrop =
+            hud::menuColumnBackdrop(x0, y0, x1, y1, (float)rt->w, haveTex && (s.flags & DF_SPRITE));
+        const bool authoredArt = haveTex && d.tb.menuArtwork;
+        if (authoredArt || hud::menuForeground(w, (float)rt->w, tile128 || columnBackdrop)) {
+            // The loading screen's packet carries the horizontal offset of its art in its payload word.
+            float loadingOffset = 0;
+            if (isLoadingScreenPacket(sceneCamera)) {
+                std::memcpy(&loadingOffset, &sceneCamera.reserved, sizeof(loadingOffset));
+                if (!std::isfinite(loadingOffset) || std::fabs(loadingOffset) > 256)
+                    loadingOffset = 0;
+            }
+            for (uint32_t i = b; i < e; ++i)
+                dv[i].x = d.menuMap.x(dv[i].x - loadingOffset);
+            d.hudClipX0 = std::min(d.hudClipX0, d.menuMap.x((float)sx0));
+            d.hudClipX1 = std::max(d.hudClipX1, d.menuMap.x((float)(sx1 + 1)));
+            st.hudSprites++;
+        }
+        return;
+    }
+    if (!d.legacyHudDraw)
+        return;
+    // the sky dome (and similar big backdrops) is drawn with ZTST ALWAYS / ZMSK like UI quads when the
+    // camera looks up: a large triangle draw is not UI (it would be squeezed into a 4:3 rectangle and
+    // merge the HUD clusters into one centred 'page') a draw that samples a render target (screen grab
+    // / full-frame effect) is UI only when it is small: the HP / mana orb gem is textured from memory
+    // that aliases a render target while the camera looks up at the sky, and must move with its ring
+    const bool rtGrab = haveTex && d.tb.isRT && (w > 0.3f * frameW || h > 0.3f * frameH);
+    const bool bigBackdrop = rtGrab || (!(s.flags & DF_SPRITE) && w * h > 0.2f * frameW * frameH);
+    if (w < 0.85f * frameW && !tile128 && !bigBackdrop) {
+        if (hudCur.size() < 600)
+            hudCur.push_back({x0, y0, x1, y1});
+        HudBox c{x0, y0, x1, y1};
+        const float mx = 0.5f * (x0 + x1), my = 0.5f * (y0 + y1);
+        float best = 1e30f;
+        for (const HudBox& bx : hudPrev)
+            if (mx >= bx.x0 && mx <= bx.x1 && my >= bx.y0 && my <= bx.y1 && (bx.x1 - bx.x0) * (bx.y1 - bx.y0) < best) {
+                best = (bx.x1 - bx.x0) * (bx.y1 - bx.y0);
+                c = bx;
+            }
+        const bool big = (c.x1 - c.x0) * (c.y1 - c.y0) > 0.07f * frameW * frameH;
+        const float ax = big ? fx0 + 0.5f * frameW : hud::clusterAnchorX(c.x0, c.x1, fx0, frameW),
+                    ay = anchor(c.y0, c.y1, fy0, frameH);
+        // menus / pages / popups (big clusters, centred) keep their size (only the aspect squeeze
+        // applies): the menu mouse maps through that squeeze
+        const float sz = big ? 1.0f : hudSize;
+        const float kx = hudScale * sz, ky = sz;
+        for (uint32_t i = b; i < e; ++i) {
+            dv[i].x = ax + (dv[i].x - ax) * kx;
+            dv[i].y = ay + (dv[i].y - ay) * ky;
+        }
+        st.hudSprites++;
+    } else if (!tile128 && !rtGrab && h < 0.4f * frameH && w >= 0.85f * frameW && std::fabs(hudSize - 1.0f) > 0.001f) {
+        // full-width band (subtitle bar): resized vertically about the nearest vertical edge
+        const float ay = anchor(y0, y1, fy0, frameH);
+        for (uint32_t i = b; i < e; ++i)
+            dv[i].y = ay + (dv[i].y - ay) * hudSize;
+    }
+}
+
+// Opt-in and bounded per renderer. Counts partition the submitted
+// triangles; correlate draw/flags/source/bounds to verify every ring
+// piece rather than inferring success from one mapped fill.
+void GSR_IMPL::logHudCorners(const Draw& d) {
+    const GsDrawState& s = d.s;
+    if (runtimeFlags().hudCornerLog && d.cornerHudDraw && (d.writeMask & 0x7) &&
         (hudScale < 0.999f || std::fabs(hudSize - 1.0f) > 0.001f) &&
-        (cornerLeft || cornerRight || (s.flags & DF_FGE)) && hudCornerLogLines < 128 &&
+        (d.cornerLeft || d.cornerRight || (s.flags & DF_FGE)) && hudCornerLogLines < 128 &&
         frame >= runtimeFlags().hudCornerFrom) {
         ++hudCornerLogLines;
         std::fprintf(stderr,
                      "[hud-corner] f=%llu draw=%lld flags=%03x n=%u rtSource=%d world=%d page=%d target=%ux%u "
                      "native=(%g,%g)..(%g,%g) mappedL=%u mappedR=%u unmapped=%u scale=%g,%g\n",
-                     (unsigned long long)frame, (long long)di, s.flags, count, (int)(haveTex && tb.isRT),
-                     (int)motionWorldOpen, (int)inventoryPageDraw, rt->w, rt->h, minx, miny, maxx, maxy, cornerLeft,
-                     cornerRight, cornerUnmapped, hudScale * hudSize, hudSize);
+                     (unsigned long long)frame, (long long)d.index, s.flags, d.count, (int)(d.haveTex && d.tb.isRT),
+                     (int)motionWorldOpen, (int)d.inventoryPageDraw, d.rt->w, d.rt->h, d.minx, d.miny, d.maxx, d.maxy,
+                     d.cornerLeft, d.cornerRight, d.cornerUnmapped, hudScale * hudSize, hudSize);
     }
-    endVertices();
-    uploadProfile.reset();
+}
 
-    // --- dest / feedback snapshot
+// Submit: the destination / feedback snapshot, the bindings, the colour (and alpha-failure) passes with their motion
+// vectors, and what the target remembers afterwards.
+void GSR_IMPL::submitDraw(Draw& d) {
     CpuProfile::Scope submitProfile(cpuProfile, CpuProfile::DrawSubmit);
-    GpuView destSrv = nullptr;
-    GpuView texSrv = haveTex ? tb.srv : nullptr;
+    GpuView texSrv = nullptr, destSrv = nullptr;
+    snapshotDestination(d, texSrv, destSrv);
+    bindDrawTargets(d, texSrv, destSrv);
+    runDrawPasses(d);
+    noteTargetWritten(d);
+    dumpTargetAfterDraw(d);
+}
+
+// The views the draw samples: its texture (a render target it samples is read through a copy when it is also the
+// draw's own target) and, for a shader blend, a copy of the destination.
+void GSR_IMPL::snapshotDestination(Draw& d, GpuView& texSrv, GpuView& destSrv) {
+    RT* rt = d.rt;
+    const TexBind& tb = d.tb;
+    const bool haveTex = d.haveTex;
+    destSrv = nullptr;
+    texSrv = haveTex ? tb.srv : nullptr;
     const bool feedback = haveTex && tb.isRT && tb.rt == rt;
-    uint32_t box[4] = {(uint32_t)std::floor(cx0 * dsx), (uint32_t)std::floor(cy0 * dsy),
-                       (uint32_t)std::ceil((cx1 + 1) * dsx), (uint32_t)std::ceil((cy1 + 1) * dsy)}; // x0 y0 x1 y1
+    uint32_t box[4] = {(uint32_t)std::floor(d.cx0 * d.dsx), (uint32_t)std::floor(d.cy0 * d.dsy),
+                       (uint32_t)std::ceil((d.cx1 + 1) * d.dsx),
+                       (uint32_t)std::ceil((d.cy1 + 1) * d.dsy)}; // x0 y0 x1 y1
     box[2] = std::min<uint32_t>(box[2], rt->w * scale);
     box[3] = std::min<uint32_t>(box[3], rt->h * scale);
-    std::optional<CpuProfile::Scope> destProfile(std::in_place, cpuProfile, CpuProfile::DrawDest);
-    if (feedback) {
-        destSrv = snapshot(*rt, nullptr);
-        texSrv = destSrv;
-        if (needDest)
-            destSrv = rt->copyView();
-    } else {
-        if (haveTex && tb.isRT)
-            texSrv = tb.rt->view();
-        if (needDest)
-            destSrv = snapshot(*rt, box);
+    {
+        CpuProfile::Scope destProfile(cpuProfile, CpuProfile::DrawDest);
+        if (feedback) {
+            destSrv = snapshot(*rt, nullptr);
+            texSrv = destSrv;
+            if (d.needDest)
+                destSrv = rt->copyView();
+        } else {
+            if (haveTex && tb.isRT)
+                texSrv = tb.rt->view();
+            if (d.needDest)
+                destSrv = snapshot(*rt, box);
+        }
     }
-    destProfile.reset();
     if (haveTex && tb.isRT && !feedback)
         tb.rt->lastUse = frame;
-    if (needDest)
+    if (d.needDest)
         st.shaderBlendDraws++;
     else
         st.hwBlendDraws++;
+}
 
-    // --- pipeline
-    rhi::Compare zf = rhi::Compare::Always;
-    if (zte) {
-        static const rhi::Compare fm[4] = {rhi::Compare::Never, rhi::Compare::Always, rhi::Compare::GreaterEqual,
-                                           rhi::Compare::Greater};
-        zf = fm[ztst];
-    }
-
-    auto setup = [&](uint32_t passMode, uint8_t wm, bool zw) {
-        k.d[1] = passMode;
-        rhi::BlendState blend;
-        blend.enable = alpha::blendForPass(bEnable, wm);
-        blend.op = bop;
-        blend.src = sf;
-        blend.dst = df;
-        blend.writeMask = wm;
-        setPass(k, blend, {true, zf, zw});
-    };
-
+// Targets, programs, textures, viewport and scissor (the scissor follows the HUD maps of the vertex phase).
+void GSR_IMPL::bindDrawTargets(Draw& d, GpuView texSrv, GpuView destSrv) {
+    RT* rt = d.rt;
+    const float dsx = d.dsx, dsy = d.dsy;
+    const int sx0 = d.sx0, sy0 = d.sy0, sx1 = d.sx1, sy1 = d.sy1;
     int32_t sr[4] = {(int32_t)std::floor(sx0 * dsx), (int32_t)std::floor(sy0 * dsy),
                      (int32_t)std::ceil((sx1 + 1) * dsx), (int32_t)std::ceil((sy1 + 1) * dsy)}; // left top right bottom
-    if (inventoryPageDraw && !inventoryShade) {
-        sr[0] = std::max<int32_t>(0, (int32_t)std::floor(inventoryMap.x((float)sx0) * dsx));
-        sr[2] = std::max<int32_t>(0, (int32_t)std::ceil(inventoryMap.x((float)(sx1 + 1)) * dsx));
-    } else if (cornerHudDraw || menuPageDraw) {
-        sr[0] = std::max<int32_t>(0, (int32_t)std::floor(hudClipX0 * dsx));
-        sr[1] = std::max<int32_t>(0, (int32_t)std::floor(hudClipY0 * dsy));
-        sr[2] = (int32_t)std::ceil(hudClipX1 * dsx);
-        sr[3] = (int32_t)std::ceil(hudClipY1 * dsy);
+    if (d.inventoryPageDraw && !d.inventoryShade) {
+        sr[0] = std::max<int32_t>(0, (int32_t)std::floor(d.inventoryMap.x((float)sx0) * dsx));
+        sr[2] = std::max<int32_t>(0, (int32_t)std::ceil(d.inventoryMap.x((float)(sx1 + 1)) * dsx));
+    } else if (d.cornerHudDraw || d.menuPageDraw) {
+        sr[0] = std::max<int32_t>(0, (int32_t)std::floor(d.hudClipX0 * dsx));
+        sr[1] = std::max<int32_t>(0, (int32_t)std::floor(d.hudClipY0 * dsy));
+        sr[2] = (int32_t)std::ceil(d.hudClipX1 * dsx);
+        sr[3] = (int32_t)std::ceil(d.hudClipY1 * dsy);
     }
     sr[2] = std::min<int32_t>(sr[2], rt->w * scale);
     sr[3] = std::min<int32_t>(sr[3], rt->h * scale);
     {
         CpuProfile::Scope bindProfile(cpuProfile, CpuProfile::DrawBind);
-        bindDraw(*rt, *db, useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr, haveTex && tb.isRT,
-                 k.a[0]);
+        bindDraw(*rt, *d.db, d.useHw, texSrv, destSrv, (float)rt->w * dsx, (float)rt->h * dsy, sr,
+                 d.haveTex && d.tb.isRT, d.k.a[0]);
     }
+}
+
+// The passes: the colour pass, then (when the alpha test keeps some channels of failing pixels: TEST.AFAIL) a
+// second pass for the failing pixels, each followed by its motion vectors.
+void GSR_IMPL::runDrawPasses(Draw& d) {
+    RT* rt = d.rt;
+    PSConsts& k = d.k;
+    const uint8_t writeMask = d.writeMask;
+    const bool zmsk = d.zmsk;
+    const uint32_t count = d.count;
     // A joined draw: drawVertices and drawVelocity draw the kept segments in order, each with its own texture.
     joinDraws.clear();
     if (joinCount > 1)
@@ -1323,28 +1574,45 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     // nothing unless the setting is on and the bound HD texture has a material map.
     bool materialDraw = false;
     if constexpr (kCaps.materialDetail)
-        materialDraw = haveTex && tb.materialSrv &&
-                       prepareMaterial(s, tb.materialSrv, tb.materialClass, haveTex, tb.isRT, *rt, zte && ztst >= 2,
-                                       k.a[0], dsx, dsy, useHw);
+        materialDraw = d.haveTex && d.tb.materialSrv &&
+                       prepareMaterial(d.s, d.tb.materialSrv, d.tb.materialClass, d.haveTex, d.tb.isRT, *rt,
+                                       d.zte && d.ztst >= 2, k.a[0], d.dsx, d.dsy, d.useHw);
     // [vertex programs] the batch's own vertices and vertex program replace the stand-ins bindDraw has bound
     const VertexProgramBatch* records = nullptr;
     if constexpr (kCaps.vertexPrograms) {
         records = programBatch;
         if (records)
-            bindProgramDraw(s, *records);
+            bindProgramDraw(d.s, *records);
     }
+
+    // TEST.ZTST: never, always, greater-equal, greater (the GS depth grows toward the camera)
+    rhi::Compare zf = rhi::Compare::Always;
+    if (d.zte) {
+        static const rhi::Compare fm[4] = {rhi::Compare::Never, rhi::Compare::Always, rhi::Compare::GreaterEqual,
+                                           rhi::Compare::Greater};
+        zf = fm[d.ztst];
+    }
+    auto setup = [&](uint32_t passMode, uint8_t wm, bool zw) {
+        k.d[1] = passMode;
+        rhi::BlendState blend;
+        blend.enable = alpha::blendForPass(d.bEnable, wm);
+        blend.op = d.bop;
+        blend.src = d.sf;
+        blend.dst = d.df;
+        blend.writeMask = wm;
+        setPass(k, blend, {true, zf, zw});
+    };
     const auto drawPass = [&] {
         if (!records)
             drawVertices(count);
         else if constexpr (kCaps.vertexPrograms)
             drawProgramVertices(*records);
     };
-
     // The motion vectors of the pass just drawn (kCaps.motionVectors). restore: another color pass of this draw
     // follows and needs the color pipeline back.
     auto velocityPass = [&](uint32_t passMode, uint8_t wm, bool zw, bool restore) {
         if constexpr (kCaps.motionVectors) {
-            if (!drawMotion || !(wm & 7))
+            if (!d.drawMotion || !(wm & 7))
                 return;
             CpuProfile::Scope velocityProfile(cpuProfile, CpuProfile::DrawVelocity);
             // GREATER has ambiguous coplanar replays after a depth write. Do
@@ -1352,15 +1620,16 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             k.h[3] = (wm & 7) == 7 && !(zw && zf == rhi::Compare::Greater) ? 1.0f : 0.0f;
             setup(passMode, wm, zw);
             if (!records)
-                drawVelocity(*rt, *db, count, zw ? rhi::Compare::Equal : zf, restore, materialDraw, useHw);
+                drawVelocity(*rt, *d.db, count, zw ? rhi::Compare::Equal : zf, restore, materialDraw, d.useHw);
             else if constexpr (kCaps.vertexPrograms) // [vertex programs]
-                drawProgramVelocity(*rt, *db, *records, zw ? rhi::Compare::Equal : zf, restore, materialDraw, useHw);
+                drawProgramVelocity(*rt, *d.db, *records, zw ? rhi::Compare::Equal : zf, restore, materialDraw,
+                                    d.useHw);
             // The next pass's setup() uploads its constants and blend/depth state.
         }
     };
 
     // pass 0
-    const bool failPass = ate && afail != 0 && atst != 1;
+    const bool failPass = d.ate && d.afail != 0 && d.atst != 1; // ATST 1 = ALWAYS: no pixel fails
     {
         CpuProfile::Scope passProfile(cpuProfile, CpuProfile::DrawPass);
         setup(0, writeMask, !zmsk);
@@ -1368,7 +1637,7 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     }
     velocityPass(0, writeMask, !zmsk, failPass);
     if (failPass) {
-        const auto fail = alpha::failurePass(afail, writeMask, !zmsk);
+        const auto fail = alpha::failurePass(d.afail, writeMask, !zmsk);
         {
             CpuProfile::Scope passProfile(cpuProfile, CpuProfile::DrawPass);
             setup(1, fail.colorMask, fail.depthWrite);
@@ -1382,28 +1651,36 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
     }
 
     if (joinCount > 1) {
-        st.drawCalls += joinKeptCount; // as many as the segments' own draws
+        st.drawCalls += d.joinKeptCount; // as many as the segments' own draws
         st.joinedDraws++;
-        st.joinedPasses += joinKeptCount;
+        st.joinedPasses += d.joinKeptCount;
         joinDraws.clear();
     } else
         st.drawCalls++;
+}
+
+// What the target remembers after the draw: its dirty rows (read back when the game reads that memory), the solid
+// colour mirror, and the readback prefetch.
+void GSR_IMPL::noteTargetWritten(Draw& d) {
+    const GsDrawState& s = d.s;
+    RT* rt = d.rt;
+    const uint8_t writeMask = d.writeMask;
     // Constant-colour sprites into a clean scratch target are written to memory as well, so the game's next read of
     // those blocks needs no GPU readback (one blocking readback per gameplay frame without it): gs_solid_mirror.h.
     const auto mirrored = planSolidMirror(
-        s, v, count, haveTex, *rt, uploadActive,
-        dsx == scale && dsy == scale && k.h[0] == 0 && k.h[1] == 0 && writeMask == 15, rts,
+        s, d.v, d.count, d.haveTex, *rt, uploadActive,
+        d.dsx == scale && d.dsy == scale && d.k.h[0] == 0 && d.k.h[1] == 0 && writeMask == 15, rts,
         [&](const RT& other, uint32_t y0, uint32_t y1, uint32_t& lo, uint32_t& hi) { rowSpan(other, y0, y1, lo, hi); });
     if (writeMask) {
         ++rt->writes;
         rt->drawFrame = frame;
         if (!rt->dirty) {
             rt->dirty = true;
-            rt->dy0 = (uint32_t)cy0;
-            rt->dy1 = (uint32_t)cy1 + 1;
+            rt->dy0 = (uint32_t)d.cy0;
+            rt->dy1 = (uint32_t)d.cy1 + 1;
         } else {
-            rt->dy0 = std::min(rt->dy0, (uint32_t)cy0);
-            rt->dy1 = std::max(rt->dy1, (uint32_t)cy1 + 1);
+            rt->dy0 = std::min(rt->dy0, (uint32_t)d.cy0);
+            rt->dy1 = std::max(rt->dy1, (uint32_t)d.cy1 + 1);
         }
     }
     rt->copyValid = false;
@@ -1422,36 +1699,39 @@ void GSR_IMPL::draw(const GsDrawState& s, const ClutBuf& clut, const DrawVertex*
             frame <= rt->readbackFrame + 2 && uint64_t(rt->w) * (rt->dy1 - rt->dy0) <= 16384) {
             --readbackDrawsLeft;
             std::fprintf(stderr, "[rb-draw] target=%x rows=%u..%u scissor=%llx writeMask=%x zmsk=%u\n", rt->fbp,
-                         rt->dy0, rt->dy1, (unsigned long long)s.scissor, writeMask, unsigned(zmsk));
-            logDraw(s, v, count);
+                         rt->dy0, rt->dy1, (unsigned long long)s.scissor, writeMask, unsigned(d.zmsk));
+            logDraw(s, d.v, d.count);
         }
         if (writeMask)
             prefetchReadback(*rt);
     }
-    if ((!rtDump.empty() && rtDump.count(di)) ||
-        (rtDumpFrame >= 0 && (int64_t)frame >= rtDumpFrame && (int64_t)frame <= rtDumpFrameLast)) {
-        // debug: GSR_RTDUMP=<draw>[,<draw>...] writes the scissor area of the target as rtdump_<draw>.png
-        // (GSR_RTDUMP_DIR, default cwd) right after that draw
-        Image im;
-        const uint32_t w = (uint32_t)(sx1 + 1) - (uint32_t)sx0, h = (uint32_t)(sy1 + 1) - (uint32_t)sy0;
+}
+
+// debug: GSR_RTDUMP=<draw>[,<draw>...] writes the scissor area of the target as rtdump_<draw>.png
+// (GSR_RTDUMP_DIR, default cwd) right after that draw
+void GSR_IMPL::dumpTargetAfterDraw(const Draw& d) {
+    const int64_t di = d.index;
+    if (!((!rtDump.empty() && rtDump.count(di)) ||
+          (rtDumpFrame >= 0 && (int64_t)frame >= rtDumpFrame && (int64_t)frame <= rtDumpFrameLast)))
+        return;
+    RT* rt = d.rt;
+    const int sy1 = d.sy1;
+    Image im;
+    if (readTarget(*rt, rt->w * scale,
+                   std::min<uint32_t>(rt->h, std::max<uint32_t>((uint32_t)(sy1 + 1), dumpRows)) * scale, im)) {
+        const char* dir = runtimeFlags().rtDumpDir.c_str();
+        char name[512];
+        std::snprintf(name, sizeof(name), "%s/rtdump_%lld.png", dir, (long long)di);
+        writePng(name, im);
         if (readTarget(*rt, rt->w * scale,
-                       std::min<uint32_t>(rt->h, std::max<uint32_t>((uint32_t)(sy1 + 1), dumpRows)) * scale, im)) {
-            (void)w;
-            (void)h;
-            const char* d = runtimeFlags().rtDumpDir.c_str();
-            char name[512];
-            std::snprintf(name, sizeof(name), "%s/rtdump_%lld.png", d, (long long)di);
-            writePng(name, im);
-            if (readTarget(*rt, rt->w * scale,
-                           std::min<uint32_t>(rt->h, std::max<uint32_t>((uint32_t)(sy1 + 1), dumpRows)) * scale, im,
-                           true)) {
-                for (size_t i = 0; i < im.rgba.size(); i += 4) {
-                    im.rgba[i] = im.rgba[i + 1] = im.rgba[i + 2] = im.rgba[i + 3];
-                    im.rgba[i + 3] = 255;
-                }
-                std::snprintf(name, sizeof(name), "%s/rtdump_%lld_alpha.png", d ? d : ".", (long long)di);
-                writePng(name, im);
+                       std::min<uint32_t>(rt->h, std::max<uint32_t>((uint32_t)(sy1 + 1), dumpRows)) * scale, im,
+                       true)) {
+            for (size_t i = 0; i < im.rgba.size(); i += 4) {
+                im.rgba[i] = im.rgba[i + 1] = im.rgba[i + 2] = im.rgba[i + 3];
+                im.rgba[i + 3] = 255;
             }
+            std::snprintf(name, sizeof(name), "%s/rtdump_%lld_alpha.png", dir ? dir : ".", (long long)di);
+            writePng(name, im);
         }
     }
 }
