@@ -833,8 +833,10 @@ void register_code_generator_tests() {
             std::string generated = gen.generateFunction(func, instructions, false);
             printGeneratedCode("jumps to known symbols call by name", generated);
 
-            t.IsTrue(generated.find("target_func(rdram, ctx, runtime); return;") != std::string::npos,
-                     "jump to known function should emit direct call");
+            // Tail jumps go through the function table so runtime overrides of the target apply.
+            t.IsTrue(generated.find("g_ps2RecompiledFunctionTable[(0x5000u - PS2_FNTAB_BASE) >> 2](rdram, ctx, "
+                                    "runtime); return;") != std::string::npos,
+                     "jump to known function should call through the function table");
         });
 
         tc.Run("jump to unknown target sets pc", [](TestCase& t) {
@@ -920,8 +922,9 @@ void register_code_generator_tests() {
 
             t.IsTrue(generated.find("void ps2___is_pointer(") != std::string::npos,
                      "definition should use sanitized name");
-            t.IsTrue(generated.find("ps2___is_pointer(rdram, ctx, runtime); return;") != std::string::npos,
-                     "call should use sanitized name but got: " + generated);
+            t.IsTrue(generated.find("g_ps2RecompiledFunctionTable[(0x9000u - PS2_FNTAB_BASE) >> 2](rdram, ctx, "
+                                    "runtime); return;") != std::string::npos,
+                     "tail jump should call through the function table but got: " + generated);
         });
 
         tc.Run("COP0 MFC0/MTC0 translate to COP0 register access", [](TestCase& t) {
