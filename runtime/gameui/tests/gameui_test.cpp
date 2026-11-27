@@ -215,14 +215,25 @@ void testShopAndGuards() {
     CHECK(s.shop.stock.category == ItemCategory::SpellScroll && !s.shop.stock.equipped);
     CHECK(s.items.size() == 5);
 
-    // Dragon: stats only.
+    // Dragon: the inventory opened on Arokh holds Rynn's player data (screen 0x15), also under a native box.
     const uint32_t dragon = w.g.alloc(0x100);
     w.g.w16(dragon + addr::actor::kResIndex, static_cast<uint16_t>(w.g.resource(addr::cls::kDragon, w.g.props())));
     w.g.w32(FakeGame::kCtx + addr::ctx::kPlayerActor, dragon);
     Snapshot s2;
     const FlatGuestMemory m = w.g.mem();
-    CHECK(readSnapshot(m, st, s2) == ReadStatus::Dragon);
+    CHECK(readSnapshot(m, st, s2) == ReadStatus::Ok);
+    CHECK(s2.native.valid && s2.native.onDragon && s2.items.size() == 5);
+    const uint32_t helpBox = w.g.alloc(0x200);
+    w.g.w32(helpBox + addr::screen::kId, 0x1);
+    w.g.w32(addr::kTopScreenPtr, helpBox);
+    CHECK(readSnapshot(w.g.mem(), st, s2) == ReadStatus::Ok && s2.native.valid && s2.items.size() == 5);
+    // Closed: stats only (the kept player data is dropped with the inventory).
+    w.g.w32(addr::kStatsBlock + addr::stats::kInventoryOpen, 0);
+    CHECK(readSnapshot(w.g.mem(), st, s2) == ReadStatus::Dragon);
     CHECK(!s2.native.valid && s2.native.onDragon && s2.stats.gold == 376 && s2.items.empty());
+    w.g.w32(addr::kStatsBlock + addr::stats::kInventoryOpen, 1);
+    CHECK(readSnapshot(w.g.mem(), st, s2) == ReadStatus::Dragon && st.mountedPlayer == 0);
+    w.g.w32(addr::kTopScreenPtr, w.g.screen);
 
     // No context.
     w.g.w32(addr::kContextPtr, 0);

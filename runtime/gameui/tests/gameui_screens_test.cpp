@@ -139,6 +139,8 @@ void testReaderQuests() {
     const uint32_t dragon = w.g.alloc(0x100);
     w.g.w16(dragon + addr::actor::kResIndex, static_cast<uint16_t>(w.g.resource(addr::cls::kDragon, w.g.props())));
     w.g.w32(gameui::test::FakeGame::kCtx + addr::ctx::kPlayerActor, dragon);
+    w.g.w32(addr::kTopScreenPtr, 0);
+    w.g.w32(addr::kStatsBlock + addr::stats::kInventoryOpen, 0);
     s = w.read();
     CHECK(s.native.onDragon && !s.native.valid && s.items.empty() && s.quests.size() == 7 && !s.regions.empty());
 }

@@ -97,11 +97,17 @@ ReadStatus findRoots(const IGuestMemory& m, GuestRoots& r) {
         r.topScreenId = m.read32(r.topScreen + a::screen::kId);
 
     const uint32_t actor = m.read32(r.ctx + a::ctx::kPlayerActor);
-    if (isRamPointer(actor) && resourceClass(m, r.res, m.read16(actor + a::actor::kResIndex)) == a::cls::kDragon)
-        return ReadStatus::Dragon;
+    r.onDragon =
+        isRamPointer(actor) && resourceClass(m, r.res, m.read16(actor + a::actor::kResIndex)) == a::cls::kDragon;
 
     if (r.topScreenId == a::screen::kInventoryId)
         r.player = m.read32(r.topScreen + a::screen::kPlayer);
+    // Riding Arokh: the controlled actor is the dragon, but the inventory screen still holds Rynn's player data
+    // (Ravenshold mounted, build/harness/dragontab1 ram_open: screen+0x14c != the dragon's instance data).
+    if (r.onDragon && !isRamPointer(r.player)) {
+        r.player = 0;
+        return ReadStatus::Dragon;
+    }
     if (!isRamPointer(r.player) && isRamPointer(actor)) {
         const uint32_t inst = m.read32(actor + a::actor::kInstance);
         if (isRamPointer(inst))
@@ -353,7 +359,7 @@ ReadStatus readSnapshot(const IGuestMemory& m, ReaderState& state, Snapshot& out
     out.details.clear();
 
     GuestRoots r;
-    const ReadStatus st = findRoots(m, r);
+    ReadStatus st = findRoots(m, r);
     out.native.topScreen = r.topScreen;
     out.native.topScreenId = r.topScreenId;
     if (st == ReadStatus::NoContext)
@@ -364,9 +370,16 @@ ReadStatus readSnapshot(const IGuestMemory& m, ReaderState& state, Snapshot& out
     // The quest table and region names are globals: the pause and map screens need them on the dragon too.
     readQuests(m, r, out.quests);
     readRegions(m, out.regions);
-    if (st == ReadStatus::Dragon) {
-        out.native.onDragon = true;
-        return st;
+    out.native.onDragon = r.onDragon;
+    if (!out.native.inventoryOpen)
+        state.mountedPlayer = 0;
+    else if (st == ReadStatus::Ok && r.onDragon)
+        state.mountedPlayer = r.player;
+    if (st == ReadStatus::Dragon && out.native.inventoryOpen && isRamPointer(state.mountedPlayer)) {
+        // A native box (help, Yes / No) is stacked on the inventory opened on the dragon: its player data still holds.
+        r.player = state.mountedPlayer;
+        r.ctl = r.player + a::player::kController;
+        st = ReadStatus::Ok;
     }
     if (st != ReadStatus::Ok)
         return st;

@@ -28,6 +28,9 @@ bool isItemHandle(const IGuestMemory& m, uint32_t h);
 // State kept across reads (owned by the game side, one per reader).
 struct ReaderState {
     uint64_t sequence = 0;
+    // Riding Arokh with the inventory open: the player data of screen 0x15 (Rynn's, the controlled actor is the
+    // dragon), kept while a native box is stacked on it. Cleared when the inventory closes.
+    uint32_t mountedPlayer = 0;
     // Native details lines by item handle / spell index, cached whenever that item / spell is the native selection.
     std::unordered_map<uint32_t, std::vector<std::string>> itemDetails;
     std::unordered_map<int, std::vector<std::string>> spellDetails;
@@ -37,7 +40,7 @@ enum class ReadStatus {
     Ok,
     NoContext, // ctx pointer not set up (boot, loading)
     NoPlayer,  // no player data object
-    Dragon,    // riding Arokh: the stats are read, the inventory is not
+    Dragon,    // riding Arokh outside the inventory screen: the stats are read, the inventory is not
 };
 const char* readStatusName(ReadStatus s);
 
@@ -49,8 +52,10 @@ struct GuestRoots {
     uint32_t ctx = 0, res = 0, strings = 0, key = 0;
     uint32_t player = 0, ctl = 0;
     uint32_t topScreen = 0, topScreenId = 0;
+    bool onDragon = false; // the controlled actor is Arokh
 };
-// ctx / res / string manager / key, and the player from the top screen (when it is 0x15) or ctx+0x4b0.
+// ctx / res / string manager / key, and the player from the top screen (when it is 0x15) or ctx+0x4b0. On the
+// dragon only screen 0x15 holds Rynn's player data (Dragon otherwise).
 ReadStatus findRoots(const IGuestMemory& m, GuestRoots& r);
 
 // Resident string `id` from the string cache (no load is ever requested). nullopt when not resident.
