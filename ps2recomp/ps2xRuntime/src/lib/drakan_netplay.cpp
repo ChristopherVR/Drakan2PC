@@ -16,6 +16,7 @@
 #include "net/ServerBrowser.h"
 #include "net/UdpTransport.h"
 #include "ps2_runtime.h"
+#include "runtime/guest_access.h"
 #include "world/Pose.h"
 
 #include <algorithm>
@@ -67,25 +68,7 @@ uint64_t fnv64(const std::string& s) {
     return h ? h : 1ull;
 }
 
-class RdramMemory final : public world::IGuestMemory {
-public:
-    explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
-    uint8_t read8(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        return a < PS2_RAM_SIZE ? ram_[a] : 0;
-    }
-    uint32_t read32(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        if (a + 4 > PS2_RAM_SIZE)
-            return 0;
-        uint32_t v;
-        std::memcpy(&v, ram_ + a, 4);
-        return v;
-    }
-
-private:
-    const uint8_t* ram_;
-};
+using RdramMemory = guest::RamView<world::IGuestMemory>;
 
 constexpr uint32_t kSendIntervalMs = 50; // 20 Hz
 constexpr uint64_t kStaleLocalMs = 1000; // the EE thread stopped publishing (loading): tell the others "level 0"

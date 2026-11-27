@@ -16,6 +16,7 @@
 #if defined(PS2X_HAVE_DRAKAN_INPUT) || defined(PS2X_HAVE_PORTABLE_UI)
 #include "runtime/ee_no_preempt.h"
 #include "ps2_runtime.h"
+#include "runtime/guest_access.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
 
@@ -282,16 +283,10 @@ public:
         m_rt->requestStop();
 #endif
     }
-    uint8_t read8(uint32_t a) override { return m_rdram[a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)]; }
-    uint32_t read32(uint32_t a) override {
-        uint32_t v;
-        std::memcpy(&v, m_rdram + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), 4);
-        return v;
-    }
-    void write8(uint32_t a, uint8_t v) override { m_rdram[a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)] = v; }
-    void write32(uint32_t a, uint32_t v) override {
-        std::memcpy(m_rdram + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), &v, 4);
-    }
+    uint8_t read8(uint32_t a) override { return guest::read8(m_rdram, a); }
+    uint32_t read32(uint32_t a) override { return guest::read32(m_rdram, a); }
+    void write8(uint32_t a, uint8_t v) override { guest::write8(m_rdram, a, v); }
+    void write32(uint32_t a, uint32_t v) override { guest::write32(m_rdram, a, v); }
     std::optional<uint32_t> callImmediate(const GuestCall& c) override {
         const auto& input = module();
         if (drakan_region::supports(drakan_region::Feature::AdvancedInput) &&

@@ -5,6 +5,7 @@
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 
 #include <atomic>
 #include <cstdio>
@@ -21,17 +22,9 @@ constexpr uint32_t kHpField = 0xcu;
 PS2Runtime::RecompiledFunction g_origSetter = nullptr;
 std::atomic<bool> g_pending{false};
 
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint32_t v = 0;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 4);
-    return v;
-}
-
 int32_t storedHp(const uint8_t* rdram) {
-    const uint32_t raw = rd32(rdram, drakan_region::guestAddress(kStatsBlock) + kHpField) ^
-                         rd32(rdram, drakan_region::guestAddress(kHpKey));
+    const uint32_t raw = guest::read32(rdram, drakan_region::guestAddress(kStatsBlock) + kHpField) ^
+                         guest::read32(rdram, drakan_region::guestAddress(kHpKey));
     return static_cast<int32_t>((raw >> 8) | (raw << 24));
 }
 

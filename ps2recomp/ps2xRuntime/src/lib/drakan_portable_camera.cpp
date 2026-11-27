@@ -8,6 +8,7 @@
 #include "input/DrakanInput.h"
 #include "input/QuickSlots.h"
 #include "ps2_runtime.h"
+#include "runtime/guest_access.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
 
@@ -50,19 +51,14 @@ class CameraGuest final : public drakan_input::IGuest {
     uint8_t* memory_;
     R5900Context* context_;
     PS2Runtime* runtime_;
-    static constexpr uint32_t kMask = PS2_RAM_MASK;
 
 public:
     CameraGuest(uint8_t* memory, R5900Context* context, PS2Runtime* runtime)
         : memory_(memory), context_(context), runtime_(runtime) {}
-    uint8_t read8(uint32_t address) override { return memory_[address & kMask]; }
-    uint32_t read32(uint32_t address) override {
-        uint32_t value;
-        std::memcpy(&value, memory_ + (address & kMask), 4);
-        return value;
-    }
-    void write8(uint32_t address, uint8_t value) override { memory_[address & kMask] = value; }
-    void write32(uint32_t address, uint32_t value) override { std::memcpy(memory_ + (address & kMask), &value, 4); }
+    uint8_t read8(uint32_t address) override { return guest::read8(memory_, address); }
+    uint32_t read32(uint32_t address) override { return guest::read32(memory_, address); }
+    void write8(uint32_t address, uint8_t value) override { guest::write8(memory_, address, value); }
+    void write32(uint32_t address, uint32_t value) override { guest::write32(memory_, address, value); }
     std::optional<uint32_t> callImmediate(const drakan_input::GuestCall& call) override {
         if (g_quickInventory.intercept(
                 *this, call, !g_controls.menuActive() && g_controls.frame().focused && !g_controls.suspended(),

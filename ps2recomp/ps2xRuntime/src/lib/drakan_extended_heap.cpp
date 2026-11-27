@@ -5,6 +5,7 @@
 #include "drakan_texture_budget.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "world/ExtendedHeap.h"
 
 #include <algorithm>
@@ -47,20 +48,11 @@ uint32_t g_extPeak = 0, g_extReported = 0, g_retailPeak = 0, g_retailReported = 
 uint64_t g_extFailures = 0, g_trims = 0;
 std::atomic<int> g_probeDepth{0}; // 1 while the start-up heap probe runs
 
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    uint32_t v;
-    std::memcpy(&v, ram + a, 4);
-    return v;
-}
-void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
-    std::memcpy(ram + a, &v, 4);
-}
-
 void hookEvictTerrainPages(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == kEvictTerrainPages && drakan_texture_budget::convertedLevel()) {
-        const uint32_t current = rd32(ram, kSplatCacheBudget);
+        const uint32_t current = guest::read32(ram, kSplatCacheBudget);
         if (current < g_terrainBudget) {
-            wr32(ram, kSplatCacheBudget, g_terrainBudget);
+            guest::write32(ram, kSplatCacheBudget, g_terrainBudget);
             static uint32_t lastReported = ~0u;
             if (current != lastReported) {
                 std::fprintf(stderr, "[terrain-pages] converted-level cache budget %u -> %u bytes\n", current,
@@ -115,13 +107,13 @@ void hookSbrk(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     }
     const int32_t increment = static_cast<int32_t>(GPR_U32(c, 4));
     std::lock_guard<std::mutex> lock(g_heapMutex);
-    const uint32_t old = rd32(ram, kBreak);
+    const uint32_t old = guest::read32(ram, kBreak);
     const uint32_t lowEnd = g_lowEnd ? g_lowEnd : rt->guestHeapLimit();
     rules::SbrkAnswer a = rules::decideSbrk(old, increment, lowEnd, kExtBase, g_extLimit, g_probeDepth.load() != 0);
     if (a.result != rules::kSbrkFail && a.brk > old && a.brk > kExtBase && !hostRam(rt).commitTo(a.brk))
         a = rules::SbrkAnswer{}; // the host is out of memory: the allocator sees a full heap as before
     if (a.result != rules::kSbrkFail) {
-        wr32(ram, kBreak, a.brk);
+        guest::write32(ram, kBreak, a.brk);
         noteRetailLocked(a.brk);
         if (a.continued)
             reportHeapLocked(rt, "continued", a.brk);

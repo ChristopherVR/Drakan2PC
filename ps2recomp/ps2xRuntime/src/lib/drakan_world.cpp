@@ -6,6 +6,7 @@
 #include "drakan_region.h"
 #include "imgui.h"
 #include "ps2_runtime.h"
+#include "runtime/guest_access.h"
 #include "world/Exchange.h"
 #include "world/Json.h"
 #include "world/Reader.h"
@@ -26,25 +27,7 @@
 namespace drakan_world {
 namespace {
 
-class RdramMemory final : public world::IGuestMemory {
-public:
-    explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
-    uint8_t read8(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        return a < PS2_RAM_SIZE ? ram_[a] : 0;
-    }
-    uint32_t read32(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        if (a + 4 > PS2_RAM_SIZE)
-            return 0;
-        uint32_t v;
-        std::memcpy(&v, ram_ + a, 4);
-        return v;
-    }
-
-private:
-    const uint8_t* ram_;
-};
+using RdramMemory = guest::RamView<world::IGuestMemory>;
 
 std::atomic<bool> g_enabled{false};
 world::Globals g_globals; // EE thread (set once in configure, before the first sample)

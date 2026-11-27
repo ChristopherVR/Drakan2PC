@@ -22,6 +22,7 @@
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 
 #include <algorithm>
 #include <chrono>
@@ -71,17 +72,9 @@ uint64_t g_ringN = 0;
 
 constexpr uint32_t kRamMask = 0x1fffffffu;
 
+// `n` bytes at guest address `a` (KSEG pointers accepted) lie in the guest heap window.
 bool inRam(uint32_t a, uint32_t n) {
-    a &= kRamMask;
-    return a >= 0x100000u && static_cast<uint64_t>(a) + n <= PS2_RAM_SIZE;
-}
-uint32_t rd32(const uint8_t* rdram, uint32_t a) {
-    uint32_t v;
-    std::memcpy(&v, rdram + (a & kRamMask), 4);
-    return v;
-}
-void wr32(uint8_t* rdram, uint32_t a, uint32_t v) {
-    std::memcpy(rdram + (a & kRamMask), &v, 4);
+    return guest::isHeapPtr(guest::phys(a), n);
 }
 
 // Average of the 2x2 block per channel (the guest's masks / shifts), for one row of `Word` bit pixels.
@@ -114,21 +107,21 @@ struct Geometry {
 };
 
 bool geometry(const uint8_t* rdram, uint32_t fp, Geometry& g) {
-    const uint32_t dst = rd32(rdram, fp + fDst), src = rd32(rdram, fp + fSrc);
-    g.bpp = rd32(rdram, fp + fBpp);
-    g.rx = rd32(rdram, fp + fRatio);
-    g.dw = rd32(rdram, dst + 0x24);
-    g.dh = rd32(rdram, dst + 0x28);
-    g.sw = rd32(rdram, src + 0x24);
-    g.sh = rd32(rdram, src + 0x28);
-    g.spitch = rd32(rdram, src + 0x34);
-    g.dpitch = rd32(rdram, dst + 0x34);
-    g.dbase = rd32(rdram, fp + kOutPtr);
-    g.sbase = rd32(rdram, fp + kInPtr);
+    const uint32_t dst = guest::read32(rdram, fp + fDst), src = guest::read32(rdram, fp + fSrc);
+    g.bpp = guest::read32(rdram, fp + fBpp);
+    g.rx = guest::read32(rdram, fp + fRatio);
+    g.dw = guest::read32(rdram, dst + 0x24);
+    g.dh = guest::read32(rdram, dst + 0x28);
+    g.sw = guest::read32(rdram, src + 0x24);
+    g.sh = guest::read32(rdram, src + 0x28);
+    g.spitch = guest::read32(rdram, src + 0x34);
+    g.dpitch = guest::read32(rdram, dst + 0x34);
+    g.dbase = guest::read32(rdram, fp + kOutPtr);
+    g.sbase = guest::read32(rdram, fp + kInPtr);
     g.bytes = g.bpp >> 3;
     for (int k = 0; k < 4; ++k) {
-        g.shifts[k] = rd32(rdram, fp + fBuf + 0x08 + 0x08 * k);
-        g.masks[k] = rd32(rdram, fp + fBuf + 0x28 + 4 * k);
+        g.shifts[k] = guest::read32(rdram, fp + fBuf + 0x08 + 0x08 * k);
+        g.masks[k] = guest::read32(rdram, fp + fBuf + 0x28 + 4 * k);
     }
     if (g_log2)
         std::fprintf(stderr, "[texscale] locked dst %x src %x\n", g.dbase, g.sbase);
@@ -269,18 +262,18 @@ void callStep(R5900Context* c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a
 
 // vtable call fn(obj + adjust, a1, a2) where fn = vt[slot], adjust = vt[slot - 4]; false when the table is unreadable.
 bool callVirtual(uint8_t* rdram, R5900Context* c, uint32_t obj, uint32_t slot, uint32_t a1, uint32_t a2) {
-    const uint32_t vt = rd32(rdram, obj + 0x18);
+    const uint32_t vt = guest::read32(rdram, obj + 0x18);
     if (!inRam(vt, 0xa8))
         return false;
-    const int32_t adjust = static_cast<int16_t>(rd32(rdram, vt + slot - 4) & 0xffffu);
-    callStep(c, rd32(rdram, vt + slot), obj + static_cast<uint32_t>(adjust), a1, a2);
+    const int32_t adjust = static_cast<int16_t>(guest::read32(rdram, vt + slot - 4) & 0xffffu);
+    callStep(c, guest::read32(rdram, vt + slot), obj + static_cast<uint32_t>(adjust), a1, a2);
     return true;
 }
 
 void finish(uint8_t* rdram, R5900Context* c, uint32_t fp) {
-    const uint32_t ra = rd32(rdram, fp + fRa);
-    SET_GPR_U32(c, 2, rd32(rdram, fp + fResult));
-    SET_GPR_U32(c, 29, rd32(rdram, fp + fSp));
+    const uint32_t ra = guest::read32(rdram, fp + fRa);
+    SET_GPR_U32(c, 2, guest::read32(rdram, fp + fResult));
+    SET_GPR_U32(c, 29, guest::read32(rdram, fp + fSp));
     SET_GPR_U32(c, 31, ra);
     c->pc = ra;
     c->in_delay_slot = false;
@@ -292,13 +285,13 @@ enum Stage : uint32_t { Masks = 1, LockDst, LockSrc, Rows, UnlockSrc, UnlockDst 
 // then resumes at the trampoline with the row cursor in the frame).
 bool runRows(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp) {
     Geometry g;
-    if (rd32(rdram, fp + fOk) == 0 || !geometry(rdram, fp, g))
+    if (guest::read32(rdram, fp + fOk) == 0 || !geometry(rdram, fp, g))
         return true;
     const uint32_t rowCost = g_cyclesPerPixel * (g.dw + 1u);
-    for (uint32_t y = rd32(rdram, fp + fRow); y < g.dh; ++y) {
+    for (uint32_t y = guest::read32(rdram, fp + fRow); y < g.dh; ++y) {
         filterRow(rdram, g, y);
         if (rowCost && rt->cpTick(rowCost) && y + 1 < g.dh) { // the scheduler wants this thread off the CPU
-            wr32(rdram, fp + fRow, y + 1);
+            guest::write32(rdram, fp + fRow, y + 1);
             c->pc = g_tramp;
             c->in_delay_slot = false;
             return false;
@@ -310,13 +303,13 @@ bool runRows(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp) {
 }
 
 void step(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp, uint32_t stage) {
-    const uint32_t dst = rd32(rdram, fp + fDst), src = rd32(rdram, fp + fSrc);
+    const uint32_t dst = guest::read32(rdram, fp + fDst), src = guest::read32(rdram, fp + fSrc);
     const uint32_t v0 = getRegU32(c, 2);
     auto go = [&](Stage next, bool ok) {
         if (ok) {
-            wr32(rdram, fp + fStage, next);
+            guest::write32(rdram, fp + fStage, next);
         } else { // unreadable vtable: nothing more can be done safely, report failure
-            wr32(rdram, fp + fResult, 0);
+            guest::write32(rdram, fp + fResult, 0);
             finish(rdram, c, fp);
         }
     };
@@ -326,7 +319,7 @@ void step(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp, uint32_t
             break;
         case LockDst:
             if (!v0) {
-                wr32(rdram, fp + fResult, 0); // the guest returns 0 and does not unlock
+                guest::write32(rdram, fp + fResult, 0); // the guest returns 0 and does not unlock
                 finish(rdram, c, fp);
                 break;
             }
@@ -334,14 +327,14 @@ void step(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp, uint32_t
             break;
         case LockSrc: {
             if (!v0) { // the guest still unlocks the destination (and returns 0)
-                wr32(rdram, fp + fResult, 0);
+                guest::write32(rdram, fp + fResult, 0);
                 go(UnlockDst, callVirtual(rdram, c, dst, 0xa4, 0, 0));
                 break;
             }
             Geometry g;
             const bool ok = geometry(rdram, fp, g);
-            wr32(rdram, fp + fOk, ok ? 1 : 0);
-            wr32(rdram, fp + fRow, 0);
+            guest::write32(rdram, fp + fOk, ok ? 1 : 0);
+            guest::write32(rdram, fp + fRow, 0);
             if (ok) {
                 g_ring[g_ringN % kRing] = {g.dbase & kRamMask, g.dpitch * g.dh, g.sbase & kRamMask, g.spitch * g.sh,
                                            g_ringN};
@@ -349,17 +342,18 @@ void step(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp, uint32_t
             }
             if (ok && g_verify)
                 verifyBegin(rdram, fp, g);
-            wr32(rdram, fp + fStage, Rows);
+            guest::write32(rdram, fp + fStage, Rows);
         }
             [[fallthrough]];
         case Rows: {
             if (!runRows(rdram, c, rt, fp))
                 break; // unwound: the trampoline resumes here
-            const uint32_t rx = rd32(rdram, fp + fRatio);
-            wr32(rdram, dst + 0x2c, rd32(rdram, src + 0x2c) / rx);
-            wr32(rdram, dst + 0x30,
-                 rd32(rdram, src + 0x30) / rx); // the guest divides by the vertical ratio (== rx here)
-            wr32(rdram, fp + fResult, rd32(rdram, fp + fOk) ? 1 : 0);
+            const uint32_t rx = guest::read32(rdram, fp + fRatio);
+            guest::write32(rdram, dst + 0x2c, guest::read32(rdram, src + 0x2c) / rx);
+            guest::write32(rdram, dst + 0x30,
+                           guest::read32(rdram, src + 0x30) /
+                               rx); // the guest divides by the vertical ratio (== rx here)
+            guest::write32(rdram, fp + fResult, guest::read32(rdram, fp + fOk) ? 1 : 0);
             go(UnlockSrc, callVirtual(rdram, c, src, 0xa4, 0, 0));
             break;
         }
@@ -381,7 +375,7 @@ void step(uint8_t* rdram, R5900Context* c, PS2Runtime* rt, uint32_t fp, uint32_t
 void trampoline(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t fp = getRegU32(c, 29);
     // Masks stage: entered after 0x1be858 returned; the other stages after their guest step (Rows: after an unwind).
-    step(rdram, c, rt, fp, rd32(rdram, fp + fStage));
+    step(rdram, c, rt, fp, guest::read32(rdram, fp + fStage));
 }
 
 // true when the sequence started (the context now runs the first guest step), false to run the guest code.
@@ -389,12 +383,12 @@ bool begin(uint8_t* rdram, R5900Context* c) {
     const uint32_t dst = getRegU32(c, 4), src = getRegU32(c, 5), sp = getRegU32(c, 29);
     if (!g_tramp || !inRam(dst, 0x40) || !inRam(src, 0x40) || !inRam(sp, 0x400))
         return false;
-    const uint32_t bpp = rd32(rdram, dst + 0x38);
+    const uint32_t bpp = guest::read32(rdram, dst + 0x38);
     if ((bpp != 16 && bpp != 24 && bpp != 32) || !(g_bppMask & (bpp == 16 ? 1u : bpp == 24 ? 2u : 4u)))
         return false;
-    const uint32_t dw = rd32(rdram, dst + 0x24), dh = rd32(rdram, dst + 0x28);
-    const uint32_t sw = rd32(rdram, src + 0x24), sh = rd32(rdram, src + 0x28);
-    if (!dw || !dh || sw < dw || sh < dh || rd32(rdram, src + 0x38) != bpp)
+    const uint32_t dw = guest::read32(rdram, dst + 0x24), dh = guest::read32(rdram, dst + 0x28);
+    const uint32_t sw = guest::read32(rdram, src + 0x24), sh = guest::read32(rdram, src + 0x28);
+    if (!dw || !dh || sw < dw || sh < dh || guest::read32(rdram, src + 0x38) != bpp)
         return false;
     const uint32_t rx = sw / dw, ry = sh / dh;
     if (rx != ry || !(rx == 1 || rx == 2 || rx == 4 || rx == 8 || rx == 16))
@@ -408,18 +402,18 @@ bool begin(uint8_t* rdram, R5900Context* c) {
         return false;
     }
     const uint32_t fp = (sp - kFrame) & ~0xfu;
-    wr32(rdram, fp + fStage, Masks);
-    wr32(rdram, fp + fRa, getRegU32(c, 31));
-    wr32(rdram, fp + fDst, dst);
-    wr32(rdram, fp + fSrc, src);
-    wr32(rdram, fp + fBpp, bpp);
-    wr32(rdram, fp + fRatio, rx);
-    wr32(rdram, fp + fResult, 0);
-    wr32(rdram, fp + fSp, sp);
-    wr32(rdram, fp + fRow, 0);
-    wr32(rdram, fp + fOk, 0);
-    wr32(rdram, fp + kOutPtr, 0);
-    wr32(rdram, fp + kInPtr, 0);
+    guest::write32(rdram, fp + fStage, Masks);
+    guest::write32(rdram, fp + fRa, getRegU32(c, 31));
+    guest::write32(rdram, fp + fDst, dst);
+    guest::write32(rdram, fp + fSrc, src);
+    guest::write32(rdram, fp + fBpp, bpp);
+    guest::write32(rdram, fp + fRatio, rx);
+    guest::write32(rdram, fp + fResult, 0);
+    guest::write32(rdram, fp + fSp, sp);
+    guest::write32(rdram, fp + fRow, 0);
+    guest::write32(rdram, fp + fOk, 0);
+    guest::write32(rdram, fp + kOutPtr, 0);
+    guest::write32(rdram, fp + kInPtr, 0);
     SET_GPR_U32(c, 29, fp);
     // 0x1be858(dst, buffer): the four channels' shifts and masks
     callStep(c, drakan_region::guestAddress(kFnMasks), dst, fp + fBuf, 0);
@@ -434,8 +428,8 @@ void reportBadNode(const uint8_t* rdram, uint32_t owner, uint32_t node, uint32_t
     std::fprintf(stderr, "[texscale-heap] %s: allocator %x node %x (previous %x, step %d) ra=%x, native calls %llu\n",
                  why, owner, node, prev, steps, ra, static_cast<unsigned long long>(g_ringN));
     if (inRam(node, 16))
-        std::fprintf(stderr, "[texscale-heap]   node words %08x %08x %08x %08x\n", rd32(rdram, node),
-                     rd32(rdram, node + 4), rd32(rdram, node + 8), rd32(rdram, node + 12));
+        std::fprintf(stderr, "[texscale-heap]   node words %08x %08x %08x %08x\n", guest::read32(rdram, node),
+                     guest::read32(rdram, node + 4), guest::read32(rdram, node + 8), guest::read32(rdram, node + 12));
     const uint32_t lo = (node & kRamMask);
     const uint64_t n = std::min<uint64_t>(g_ringN, kRing);
     for (uint64_t i = 0; i < n; ++i) {
@@ -454,7 +448,7 @@ void reportBadNode(const uint8_t* rdram, uint32_t owner, uint32_t node, uint32_t
 void checkHeap(const uint8_t* rdram, uint32_t owner, uint32_t ra) {
     if (!inRam(owner, 0x60))
         return;
-    uint32_t node = rd32(rdram, owner + 0x34), prev = owner + 0x34;
+    uint32_t node = guest::read32(rdram, owner + 0x34), prev = owner + 0x34;
     uint32_t slow = node;
     for (int steps = 0; node; ++steps) {
         if (!inRam(node, 16) || (node & 3u)) {
@@ -462,9 +456,9 @@ void checkHeap(const uint8_t* rdram, uint32_t owner, uint32_t ra) {
             return;
         }
         prev = node;
-        node = rd32(rdram, node + 12);
+        node = guest::read32(rdram, node + 12);
         if ((steps & 1) && node) { // Floyd: the slow pointer advances every second step
-            slow = rd32(rdram, slow + 12);
+            slow = guest::read32(rdram, slow + 12);
             if (slow == node) {
                 reportBadNode(rdram, owner, node, prev, steps, "free-list cycle", ra);
                 return;
@@ -504,9 +498,11 @@ void hook(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         std::fprintf(stderr,
                      "[texscale] #%llu guest src %ux%u bpp %u -> dst %ux%u bpp %u  %.2f ms (guest total %.2f s, %llu "
                      "native)\n",
-                     static_cast<unsigned long long>(g_calls), rd32(rdram, src + 0x24), rd32(rdram, src + 0x28),
-                     rd32(rdram, src + 0x38), rd32(rdram, dst + 0x24), rd32(rdram, dst + 0x28), rd32(rdram, dst + 0x38),
-                     s * 1000.0, g_seconds, static_cast<unsigned long long>(g_nativeCalls));
+                     static_cast<unsigned long long>(g_calls), guest::read32(rdram, src + 0x24),
+                     guest::read32(rdram, src + 0x28), guest::read32(rdram, src + 0x38),
+                     guest::read32(rdram, dst + 0x24), guest::read32(rdram, dst + 0x28),
+                     guest::read32(rdram, dst + 0x38), s * 1000.0, g_seconds,
+                     static_cast<unsigned long long>(g_nativeCalls));
 }
 } // namespace
 

@@ -7,6 +7,7 @@
 #include "input/GuestInterface.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 
 #include <atomic>
 #include <bit>
@@ -90,44 +91,27 @@ void logf(const char* fmt, ...) {
     va_end(ap);
 }
 
+// This file follows pointer chains through objects that may not exist yet: pointers are accepted through KSEG
+// too, and a null / low pointer reads 0 instead of low RAM (the strict guest accessors).
 bool ramPtr(uint32_t p, uint32_t n = 4) {
-    const uint32_t a = p & 0x1fffffffu;
-    return a >= 0x100000u && a + n <= PS2_RAM_SIZE;
-}
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    if (!ramPtr(a))
-        return 0;
-    uint32_t v;
-    std::memcpy(&v, ram + (a & 0x1fffffffu), 4);
-    return v;
-}
-uint16_t rd16(const uint8_t* ram, uint32_t a) {
-    if (!ramPtr(a, 2))
-        return 0;
-    uint16_t v;
-    std::memcpy(&v, ram + (a & 0x1fffffffu), 2);
-    return v;
-}
-void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
-    if (ramPtr(a))
-        std::memcpy(ram + (a & 0x1fffffffu), &v, 4);
+    return guest::isHeapPtr(guest::phys(p), n);
 }
 
 uint32_t resourceRecord(const uint8_t* ram, uint32_t ctx, uint32_t index) {
-    const uint32_t res = ramPtr(ctx) ? rd32(ram, ctx + 0x320u) : 0;
-    if (!ramPtr(res, 0x14) || index == 0xffffu || index > rd32(ram, res + 0x10u))
+    const uint32_t res = ramPtr(ctx) ? guest::readHeap32(ram, ctx + 0x320u) : 0;
+    if (!ramPtr(res, 0x14) || index == 0xffffu || index > guest::readHeap32(ram, res + 0x10u))
         return 0;
-    return rd32(ram, res + 8u) + index * 0x24u;
+    return guest::readHeap32(ram, res + 8u) + index * 0x24u;
 }
 
 uint32_t actorResource(const uint8_t* ram, uint32_t handle) {
     if (!ramPtr(handle, 0x100))
         return 0;
-    return resourceRecord(ram, rd32(ram, kContextPtr), rd16(ram, handle + 0x10u));
+    return resourceRecord(ram, guest::readHeap32(ram, kContextPtr), guest::readHeap16(ram, handle + 0x10u));
 }
 
 uint32_t classOf(const uint8_t* ram, uint32_t handle) {
-    return rd32(ram, actorResource(ram, handle) + 8u);
+    return guest::readHeap32(ram, actorResource(ram, handle) + 8u);
 }
 
 bool isCloseMountedFireBallBurst(const uint8_t* ram, const R5900Context* c) {
@@ -138,21 +122,23 @@ bool isCloseMountedFireBallBurst(const uint8_t* ram, const R5900Context* c) {
             visual = &effect;
     if (!visual || drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
         return false;
-    const uint32_t game = rd32(ram, kContextPtr);
-    if (classOf(ram, rd32(ram, game + 0x4b0u)) != kDragonClass)
+    const uint32_t game = guest::readHeap32(ram, kContextPtr);
+    if (classOf(ram, guest::readHeap32(ram, game + 0x4b0u)) != kDragonClass)
         return false;
     const uint32_t projectile = actorResource(ram, getRegU32(c, 5));
     const uint32_t effect = resourceRecord(ram, game, getRegU32(c, 9));
-    if ((rd32(ram, projectile) & 0xffffu) != kFireBall || rd32(ram, projectile + 8u) != kProjectileClass ||
-        (rd32(ram, effect) & 0xffffu) != visual->resource || rd32(ram, effect + 8u) != visual->engine)
+    if ((guest::readHeap32(ram, projectile) & 0xffffu) != kFireBall ||
+        guest::readHeap32(ram, projectile + 8u) != kProjectileClass ||
+        (guest::readHeap32(ram, effect) & 0xffffu) != visual->resource ||
+        guest::readHeap32(ram, effect + 8u) != visual->engine)
         return false;
     const uint32_t impact = getRegU32(c, 6);
     if (!ramPtr(impact, 12))
         return false;
     float distanceSq = 0;
     for (uint32_t i = 0; i < 12; i += 4) {
-        const float d =
-            std::bit_cast<float>(rd32(ram, impact + i)) - std::bit_cast<float>(rd32(ram, kCameraPosition + i));
+        const float d = std::bit_cast<float>(guest::readHeap32(ram, impact + i)) -
+                        std::bit_cast<float>(guest::readHeap32(ram, kCameraPosition + i));
         distanceSq += d * d;
     }
     return distanceSq < kNearBurstDistance * kNearBurstDistance;
@@ -167,30 +153,31 @@ void spawnEffect(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         return;
     }
     const bool spawningPiece = c == g_breakupContext && c->pc == kFactory && getRegU32(c, 31) == kSpawnGeneratorChild;
-    const uint32_t piece = spawningPiece ? rd32(ram, resourceRecord(ram, getRegU32(c, 4), getRegU32(c, 9))) : 0;
+    const uint32_t piece =
+        spawningPiece ? guest::readHeap32(ram, resourceRecord(ram, getRegU32(c, 4), getRegU32(c, 9))) : 0;
     g_factory(ram, c, rt);
     if (piece >= kFirstWartokPiece && piece <= kLastWartokPiece && c->pc == kSpawnGeneratorChild && getRegU32(c, 2))
         g_breakupSpawnedPiece = true;
 }
 uint32_t dataOf(const uint8_t* ram, uint32_t handle) {
-    const uint32_t holder = ramPtr(handle, 0x100) ? rd32(ram, handle + 0xfcu) : 0;
-    return ramPtr(holder, 0x14) ? rd32(ram, holder + 0x10u) : 0;
+    const uint32_t holder = ramPtr(handle, 0x100) ? guest::readHeap32(ram, handle + 0xfcu) : 0;
+    return ramPtr(holder, 0x14) ? guest::readHeap32(ram, holder + 0x10u) : 0;
 }
 
 // A class ID can omit the database number. Multiple matches are ambiguous.
 uint32_t findResource(const uint8_t* ram, uint32_t id, uint32_t engine) {
-    const uint32_t ctx = rd32(ram, kContextPtr);
-    const uint32_t res = ramPtr(ctx) ? rd32(ram, ctx + 0x320u) : 0;
+    const uint32_t ctx = guest::readHeap32(ram, kContextPtr);
+    const uint32_t res = ramPtr(ctx) ? guest::readHeap32(ram, ctx + 0x320u) : 0;
     if (!ramPtr(res, 0x14))
         return 0xffffffffu;
-    const uint32_t table = rd32(ram, res + 8u), count = rd32(ram, res + 0x10u);
+    const uint32_t table = guest::readHeap32(ram, res + 8u), count = guest::readHeap32(ram, res + 0x10u);
     if (!ramPtr(table) || count > 0x20000u)
         return 0xffffffffu;
     const uint32_t mask = id <= 0xffffu ? 0xffffu : 0xffffffffu;
     uint32_t found = 0xffffffffu;
     for (uint32_t i = 0; i <= count; ++i) {
         const uint32_t rec = table + i * 0x24u;
-        if ((rd32(ram, rec) & mask) == id && rd32(ram, rec + 8u) == engine) {
+        if ((guest::readHeap32(ram, rec) & mask) == id && guest::readHeap32(ram, rec + 8u) == engine) {
             if (found != 0xffffffffu)
                 return 0xffffffffu;
             found = i;
@@ -224,17 +211,19 @@ void queueFlameBreakup(const uint8_t* ram, const R5900Context* c) {
     // At this call site the native damage handler has applied damage. Its frame keeps the message payload at +0x44,
     // the return address at +0xf0, the source actor in s4 and the health before the hit in fp.
     const uint32_t sp = getRegU32(c, 29), data = getRegU32(c, 4);
-    if (rd32(ram, sp + 0xf0u) != kDamageHandlerReturn || rd16(ram, rd32(ram, sp + 0x44u)) != kBurnDamage ||
-        std::bit_cast<int32_t>(getRegU32(c, 30)) <= 0 || std::bit_cast<int32_t>(rd32(ram, data + kNpcHealth)) > 0)
+    if (guest::readHeap32(ram, sp + 0xf0u) != kDamageHandlerReturn ||
+        guest::readHeap16(ram, guest::readHeap32(ram, sp + 0x44u)) != kBurnDamage ||
+        std::bit_cast<int32_t>(getRegU32(c, 30)) <= 0 ||
+        std::bit_cast<int32_t>(guest::readHeap32(ram, data + kNpcHealth)) > 0)
         return;
     const uint32_t source = actorResource(ram, getRegU32(c, 20));
-    if (rd32(ram, source) != kFlameBurnEffect || rd32(ram, source + 8u) != kBurnEffectClass)
+    if (guest::readHeap32(ram, source) != kFlameBurnEffect || guest::readHeap32(ram, source + 8u) != kBurnEffectClass)
         return;
-    const uint32_t actor = rd32(ram, data + kNpcActor), record = actorResource(ram, actor),
-                   resource = rd32(ram, record);
-    if (isWartok(resource) && rd32(ram, record + 8u) == kWartokClass && dataOf(ram, actor) == data &&
+    const uint32_t actor = guest::readHeap32(ram, data + kNpcActor), record = actorResource(ram, actor),
+                   resource = guest::readHeap32(ram, record);
+    if (isWartok(resource) && guest::readHeap32(ram, record + 8u) == kWartokClass && dataOf(ram, actor) == data &&
         g_breakups.size() < 16)
-        g_breakups.push_back({actor, data, resource, rd16(ram, actor + 0x12u)});
+        g_breakups.push_back({actor, data, resource, guest::readHeap16(ram, actor + 0x12u)});
 }
 
 void npcDeath(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
@@ -243,11 +232,13 @@ void npcDeath(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 }
 
 bool isSameDeadWartok(const uint8_t* ram, const Breakup& victim) {
-    return canBreakUpWartok() && victim.registryRef != 0 && rd16(ram, victim.actor + 0x12u) == victim.registryRef &&
-           rd32(ram, actorResource(ram, victim.actor)) == victim.resource && dataOf(ram, victim.actor) == victim.data &&
-           rd32(ram, victim.data + kNpcActor) == victim.actor &&
-           (rd32(ram, victim.actor + 4u) & (kActorEnabled | kActorDying)) == kActorEnabled &&
-           std::bit_cast<int32_t>(rd32(ram, victim.data + kNpcHealth)) <= 0;
+    return canBreakUpWartok() && victim.registryRef != 0 &&
+           guest::readHeap16(ram, victim.actor + 0x12u) == victim.registryRef &&
+           guest::readHeap32(ram, actorResource(ram, victim.actor)) == victim.resource &&
+           dataOf(ram, victim.actor) == victim.data &&
+           guest::readHeap32(ram, victim.data + kNpcActor) == victim.actor &&
+           (guest::readHeap32(ram, victim.actor + 4u) & (kActorEnabled | kActorDying)) == kActorEnabled &&
+           std::bit_cast<int32_t>(guest::readHeap32(ram, victim.data + kNpcHealth)) <= 0;
 }
 
 // The dispatcher can run the one-shot generator inline. In that case its factory return is zero even when it
@@ -263,15 +254,15 @@ void startBreakup(uint8_t* ram, R5900Context* c, PS2Runtime*) {
 
     const uint32_t sp = getRegU32(c, 29) - kFrame, transform = sp + 0x10u;
     std::memcpy(ram + (transform & PS2_RAM_MASK), ram + ((victim.actor + 0x14u) & PS2_RAM_MASK), 0x30);
-    const float y = std::bit_cast<float>(rd32(ram, transform + 4u)) + kPieceOriginLift;
-    wr32(ram, transform + 4u, std::bit_cast<uint32_t>(y));
-    wr32(ram, sp + 0x40u, getRegU32(c, 31));
-    wr32(ram, sp + 0x44u, victim.actor);
-    wr32(ram, sp + 0x48u, victim.data);
-    wr32(ram, sp + 0x4cu, victim.resource);
-    wr32(ram, sp + 0x50u, victim.registryRef);
+    const float y = std::bit_cast<float>(guest::readHeap32(ram, transform + 4u)) + kPieceOriginLift;
+    guest::writeHeap32(ram, transform + 4u, std::bit_cast<uint32_t>(y));
+    guest::writeHeap32(ram, sp + 0x40u, getRegU32(c, 31));
+    guest::writeHeap32(ram, sp + 0x44u, victim.actor);
+    guest::writeHeap32(ram, sp + 0x48u, victim.data);
+    guest::writeHeap32(ram, sp + 0x4cu, victim.resource);
+    guest::writeHeap32(ram, sp + 0x50u, victim.registryRef);
     SET_GPR_U32(c, 29, sp);
-    SET_GPR_U32(c, 4, rd32(ram, kContextPtr));
+    SET_GPR_U32(c, 4, guest::readHeap32(ram, kContextPtr));
     SET_GPR_U32(c, 5, victim.actor);
     SET_GPR_U32(c, 6, transform);
     SET_GPR_U32(c, 7, 0u);
@@ -284,11 +275,12 @@ void startBreakup(uint8_t* ram, R5900Context* c, PS2Runtime*) {
 }
 
 void finishBreakup(uint8_t* ram, R5900Context* c, PS2Runtime*) {
-    const uint32_t sp = getRegU32(c, 29), ra = rd32(ram, sp + 0x40u);
+    const uint32_t sp = getRegU32(c, 29), ra = guest::readHeap32(ram, sp + 0x40u);
     SET_GPR_U32(c, 29, sp + kFrame);
     SET_GPR_U32(c, 31, ra);
     c->pc = ra;
-    const Breakup victim{rd32(ram, sp + 0x44u), rd32(ram, sp + 0x48u), rd32(ram, sp + 0x4cu), rd16(ram, sp + 0x50u)};
+    const Breakup victim{guest::readHeap32(ram, sp + 0x44u), guest::readHeap32(ram, sp + 0x48u),
+                         guest::readHeap32(ram, sp + 0x4cu), guest::readHeap16(ram, sp + 0x50u)};
     const bool generated = getRegU32(c, 2) || (g_breakupContext == c && g_breakupSpawnedPiece);
     g_breakupContext = nullptr;
     g_breakupSpawnedPiece = false;
@@ -345,17 +337,17 @@ void stage2(uint8_t*, R5900Context* c, PS2Runtime*) {
 }
 
 void releaseRider(uint8_t* rdram, uint32_t ctx, uint32_t dragon) {
-    const uint16_t ref = rd16(rdram, dragon + kRider);
-    if (!ref || ref > rd32(rdram, ctx + 0x84u) + 1u)
+    const uint16_t ref = guest::readHeap16(rdram, dragon + kRider);
+    if (!ref || ref > guest::readHeap32(rdram, ctx + 0x84u) + 1u)
         return;
-    const uint32_t rider = rd32(rdram, rd32(rdram, ctx + 0x7cu) + (ref - 1u) * 8u);
+    const uint32_t rider = guest::readHeap32(rdram, guest::readHeap32(rdram, ctx + 0x7cu) + (ref - 1u) * 8u);
     if (classOf(rdram, rider) != kRynnClass)
         return;
     const uint32_t data = dataOf(rdram, rider);
-    const uint32_t f = rd32(rdram, data + kFlags2);
+    const uint32_t f = guest::readHeap32(rdram, data + kFlags2);
     if (!ramPtr(data, kFlags2 + 4) || (f & (kMounted | kAttackBusy)) != (kMounted | kAttackBusy))
         return;
-    wr32(rdram, data + kFlags2, f & ~kAttackBusy);
+    guest::writeHeap32(rdram, data + kFlags2, f & ~kAttackBusy);
     if (g_riderLogged != rider) {
         g_riderLogged = rider;
         logf("rider %x: stale attack state cleared (+0x94 %x -> %x), the breath key reaches the dragon", rider, f,
@@ -407,8 +399,10 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
     if (g_inFlight && g_serial.load() != g_inflightSerial) {
         g_inFlight = false;
         const uint32_t d = dataOf(rdram, g_tried);
-        logf("dragon %x: stand-in breath given, list count %u, entry %x / %x", g_tried, rd32(rdram, d + kBreathCount),
-             rd32(rdram, rd32(rdram, d + kBreathList)), rd32(rdram, rd32(rdram, d + kBreathList) + 4u));
+        logf("dragon %x: stand-in breath given, list count %u, entry %x / %x", g_tried,
+             guest::readHeap32(rdram, d + kBreathCount),
+             guest::readHeap32(rdram, guest::readHeap32(rdram, d + kBreathList)),
+             guest::readHeap32(rdram, guest::readHeap32(rdram, d + kBreathList) + 4u));
     }
     if (g_inFlight && !guest.postBusy() && g_ticks > g_postTick + 4)
         g_inFlight = false;
@@ -425,8 +419,8 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
         if (guest.post(call))
             g_breakups.pop_front();
     }
-    const uint32_t ctx = rd32(rdram, kContextPtr);
-    const uint32_t h = ramPtr(ctx, 0x4b4) ? rd32(rdram, ctx + 0x4b0u) : 0;
+    const uint32_t ctx = guest::readHeap32(rdram, kContextPtr);
+    const uint32_t h = ramPtr(ctx, 0x4b4) ? guest::readHeap32(rdram, ctx + 0x4b0u) : 0;
     if (classOf(rdram, h) != kDragonClass)
         return;
     const uint32_t dragon = dataOf(rdram, h);
@@ -437,8 +431,8 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
     if (!g_give || g_inFlight || guest.postBusy() || h == g_tried ||
         drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
         return;
-    if (rd32(rdram, dragon + kBreathCount) != 0 || rd32(rdram, dragon + kBreathList) != 0 ||
-        rd32(rdram, dragon + kBreathChosen) != 0xffffffffu)
+    if (guest::readHeap32(rdram, dragon + kBreathCount) != 0 || guest::readHeap32(rdram, dragon + kBreathList) != 0 ||
+        guest::readHeap32(rdram, dragon + kBreathChosen) != 0xffffffffu)
         return;
     g_tried = h;
     const uint32_t weapon = findResource(rdram, kFireBall, kProjectileClass);

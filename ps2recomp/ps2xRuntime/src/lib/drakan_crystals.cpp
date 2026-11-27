@@ -6,6 +6,7 @@
 #include "input/GuestInterface.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 
 #include <atomic>
 #include <cstdarg>
@@ -56,48 +57,35 @@ void logf(const char* fmt, ...) {
     va_end(ap);
 }
 
+// This file follows pointer chains through objects that may not exist yet: pointers are accepted through KSEG
+// too, and a null / low pointer reads 0 instead of low RAM (the strict guest accessors).
 bool ramPtr(uint32_t p, uint32_t n = 4) {
-    const uint32_t a = p & 0x1fffffffu;
-    return a >= 0x100000u && a + n <= PS2_RAM_SIZE;
-}
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    if (!ramPtr(a))
-        return 0;
-    uint32_t v;
-    std::memcpy(&v, ram + (a & 0x1fffffffu), 4);
-    return v;
-}
-uint16_t rd16(const uint8_t* ram, uint32_t a) {
-    if (!ramPtr(a, 2))
-        return 0;
-    uint16_t v;
-    std::memcpy(&v, ram + (a & 0x1fffffffu), 2);
-    return v;
+    return guest::isHeapPtr(guest::phys(p), n);
 }
 
 // The resource record of an actor handle (world-model.md: handle +0x10 = u16 record index into ctx+0x320).
 uint32_t recordOf(const uint8_t* ram, uint32_t handle) {
-    const uint32_t ctx = rd32(ram, kContextPtr);
-    const uint32_t res = ramPtr(ctx) ? rd32(ram, ctx + 0x320u) : 0;
+    const uint32_t ctx = guest::readHeap32(ram, kContextPtr);
+    const uint32_t res = ramPtr(ctx) ? guest::readHeap32(ram, ctx + 0x320u) : 0;
     if (!ramPtr(handle, 0x14) || !ramPtr(res, 0x14))
         return 0;
-    const uint16_t idx = rd16(ram, handle + 0x10u);
-    if (idx == 0xffffu || idx > rd32(ram, res + 0x10u))
+    const uint16_t idx = guest::readHeap16(ram, handle + 0x10u);
+    if (idx == 0xffffu || idx > guest::readHeap32(ram, res + 0x10u))
         return 0;
-    const uint32_t rec = rd32(ram, res + 8u) + idx * 0x24u;
+    const uint32_t rec = guest::readHeap32(ram, res + 8u) + idx * 0x24u;
     return ramPtr(rec, 0x24) ? rec : 0;
 }
 
 uint32_t findResourceIndex(const uint8_t* ram, uint32_t resId) {
-    const uint32_t ctx = rd32(ram, kContextPtr);
-    const uint32_t res = ramPtr(ctx) ? rd32(ram, ctx + 0x320u) : 0;
+    const uint32_t ctx = guest::readHeap32(ram, kContextPtr);
+    const uint32_t res = ramPtr(ctx) ? guest::readHeap32(ram, ctx + 0x320u) : 0;
     if (!ramPtr(res, 0x14))
         return 0xffffffffu;
-    const uint32_t table = rd32(ram, res + 8u), count = rd32(ram, res + 0x10u);
+    const uint32_t table = guest::readHeap32(ram, res + 8u), count = guest::readHeap32(ram, res + 0x10u);
     if (!ramPtr(table) || count > 0x20000u)
         return 0xffffffffu;
     for (uint32_t i = 0; i <= count; ++i)
-        if (rd32(ram, table + i * 0x24u) == resId)
+        if (guest::readHeap32(ram, table + i * 0x24u) == resId)
             return i;
     return 0xffffffffu;
 }
@@ -105,15 +93,17 @@ uint32_t findResourceIndex(const uint8_t* ram, uint32_t resId) {
 void hookUse(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == kUseHandler && g_enabled) {
         const uint32_t item = getRegU32(c, 4), msg = getRegU32(c, 5);
-        const uint32_t idPtr = rd32(ram, msg + 4u);
+        const uint32_t idPtr = guest::readHeap32(ram, msg + 4u);
         if (g_trace) {
-            const uint32_t handle = rd32(ram, item + 0xcu), rec = recordOf(ram, handle);
+            const uint32_t handle = guest::readHeap32(ram, item + 0xcu), rec = recordOf(ram, handle);
             logf("trace: item %x handle %x resource %x message %x id %x user %x", item, handle,
-                 rec ? rd32(ram, rec) : 0, msg, rd16(ram, idPtr), rd32(ram, msg));
+                 rec ? guest::readHeap32(ram, rec) : 0, msg, guest::readHeap16(ram, idPtr),
+                 guest::readHeap32(ram, msg));
         }
-        if (ramPtr(item, 0x10) && ramPtr(msg, 8) && isUseMessage(rd16(ram, idPtr), rd32(ram, msg))) {
-            const uint32_t handle = rd32(ram, item + 0xcu), rec = recordOf(ram, handle);
-            const uint32_t resId = rec ? rd32(ram, rec) : 0;
+        if (ramPtr(item, 0x10) && ramPtr(msg, 8) &&
+            isUseMessage(guest::readHeap16(ram, idPtr), guest::readHeap32(ram, msg))) {
+            const uint32_t handle = guest::readHeap32(ram, item + 0xcu), rec = recordOf(ram, handle);
+            const uint32_t resId = rec ? guest::readHeap32(ram, rec) : 0;
             std::lock_guard<std::mutex> lock(g_mutex);
             const auto it = g_table.find(resId);
             if (it != g_table.end()) {
@@ -135,7 +125,7 @@ void stage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t sp = g_flight.savedSp - kFrame, xf = sp + 0x10u;
     std::memcpy(rdram + (xf & PS2_RAM_MASK), g_flight.xform, sizeof g_flight.xform);
     SET_GPR_U32(c, 29, sp);
-    SET_GPR_U32(c, 4, rd32(rdram, kContextPtr));
+    SET_GPR_U32(c, 4, guest::readHeap32(rdram, kContextPtr));
     SET_GPR_U32(c, 5, g_flight.owner);
     SET_GPR_U32(c, 6, xf);
     SET_GPR_U32(c, 7, 0u);
@@ -219,10 +209,10 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
         effect = g_pending.front();
         g_pending.pop_front();
     }
-    const uint32_t ctx = rd32(rdram, kContextPtr);
-    const uint32_t player = ramPtr(ctx) ? rd32(rdram, ctx + 0x4b0u) : 0;
+    const uint32_t ctx = guest::readHeap32(rdram, kContextPtr);
+    const uint32_t player = ramPtr(ctx) ? guest::readHeap32(rdram, ctx + 0x4b0u) : 0;
     const uint32_t rec = recordOf(rdram, player);
-    if (!rec || rd32(rdram, rec + 8u) != kRynnClass) {
+    if (!rec || guest::readHeap32(rdram, rec + 8u) != kRynnClass) {
         logf("effect %x dropped: the controlled actor is not Rynn", effect);
         return;
     }

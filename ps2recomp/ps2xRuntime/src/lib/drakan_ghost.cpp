@@ -12,6 +12,7 @@
 #include "input/GuestInterface.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "world/Pose.h"
 
 #include <algorithm>
@@ -261,33 +262,19 @@ uint32_t g_dragonClipHi =
 bool g_dragonClipHiForced = false;     // the env override is set: it wins over the level's own SYSTEM index
 std::atomic<uint32_t> g_levelSysHi{0}; // the level's SYSTEM database index << 16 (0x20000 Surdana, 0x40000 Ravenshold)
 
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint32_t v = 0;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 4);
-    return v;
-}
-void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
-    a &= PS2_RAM_MASK;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(ram + a, &v, 4);
-}
-bool ramPtr(uint32_t p) {
-    return p >= 0x100000u && p < PS2_RAM_SIZE;
-}
-
 // The rider <-> dragon link (data+0x4d8 of the instance data of both ends, coop-characters.md section 3): the
 // controlled actor's value, and the value at the other end (the registry slot of that ref).
 uint32_t linkOf(const uint8_t* ram, uint32_t actor) {
-    const uint32_t inner = ramPtr(actor) ? rd32(ram, actor + 0xfc) : 0;
-    const uint32_t data = ramPtr(inner) ? rd32(ram, inner + 0x10) : 0;
-    return ramPtr(data) ? rd32(ram, data + 0x4d8) : 0;
+    const uint32_t inner = guest::isHeapPtr(actor) ? guest::read32(ram, actor + 0xfc) : 0;
+    const uint32_t data = guest::isHeapPtr(inner) ? guest::read32(ram, inner + 0x10) : 0;
+    return guest::isHeapPtr(data) ? guest::read32(ram, data + 0x4d8) : 0;
 }
 uint32_t linkedActor(const uint8_t* ram, uint32_t ctx, uint32_t ref) {
-    const uint32_t table = rd32(ram, ctx + 0x7c);
+    const uint32_t table = guest::read32(ram, ctx + 0x7c);
     ref &= 0xffffu;
-    return ref && ramPtr(table) && ref <= rd32(ram, ctx + 0x84) + 1 ? rd32(ram, table + (ref - 1u) * 8u) : 0;
+    return ref && guest::isHeapPtr(table) && ref <= guest::read32(ram, ctx + 0x84) + 1
+               ? guest::read32(ram, table + (ref - 1u) * 8u)
+               : 0;
 }
 
 // Spawn trampoline, stage 1 (a postGuestCall target on a guest dispatcher thread): put the transform on the stack, set
@@ -302,12 +289,12 @@ void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t sp = g_flight.savedSp - kFrame, xf = sp + 0x10;
     std::memcpy(rdram + (xf & PS2_RAM_MASK), g_flight.xform, sizeof g_flight.xform);
     if (g_flight.camModeAddr) {
-        g_flight.oldMode = rd32(rdram, g_flight.camModeAddr);
-        wr32(rdram, g_flight.camModeAddr, 7u);
+        g_flight.oldMode = guest::read32(rdram, g_flight.camModeAddr);
+        guest::write32(rdram, g_flight.camModeAddr, 7u);
     }
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-    g_flight.player = rd32(rdram, ctx + 0x4b0);
-    g_flight.camera = rd32(rdram, ctx + 0x4b4);
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+    g_flight.player = guest::read32(rdram, ctx + 0x4b0);
+    g_flight.camera = guest::read32(rdram, ctx + 0x4b4);
     g_flight.linkA = linkOf(rdram, g_flight.player);
     g_flight.partner = linkedActor(rdram, ctx, g_flight.linkA);
     g_flight.linkB = linkOf(rdram, g_flight.partner);
@@ -326,10 +313,11 @@ void finishSpawn(uint8_t* rdram, R5900Context* c, uint32_t actor) {
     // Rynn's init took the camera-mode-7 early out, which skips the world insert (the engine's free-cam body is
     // inserted by its own handler): do it here the way event 1 does, through the level object's vtable +0x74 (this
     // adjusted by the +0x70 offset).
-    const uint32_t world = rd32(rdram, rd32(rdram, guestAddress(kContextPtr)) + 0x31c);
-    const uint32_t vt = ramPtr(world) && (!g_flight.npc || g_npcInsert) ? rd32(rdram, world + 0x24b4) : 0;
-    const uint32_t fn = ramPtr(vt) ? rd32(rdram, vt + 0x74) : 0;
-    if (ramPtr(actor) && fn) {
+    const uint32_t world = guest::read32(rdram, guest::read32(rdram, guestAddress(kContextPtr)) + 0x31c);
+    const uint32_t vt =
+        guest::isHeapPtr(world) && (!g_flight.npc || g_npcInsert) ? guest::read32(rdram, world + 0x24b4) : 0;
+    const uint32_t fn = guest::isHeapPtr(vt) ? guest::read32(rdram, vt + 0x74) : 0;
+    if (guest::isHeapPtr(actor) && fn) {
         uint16_t adj = 0;
         std::memcpy(&adj, rdram + ((vt + 0x70) & PS2_RAM_MASK), 2);
         SET_GPR_U32(c, 4, world + static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(adj))));
@@ -349,9 +337,9 @@ void finishSpawn(uint8_t* rdram, R5900Context* c, uint32_t actor) {
 }
 
 void spawnChannelDone(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
-    const uint32_t sk = rd32(rdram, g_flight.actor + world::skel::kHandleSkeleton);
+    const uint32_t sk = guest::read32(rdram, g_flight.actor + world::skel::kHandleSkeleton);
     std::fprintf(stderr, "[character-motion] split torso channel: actor %x skeleton %x channels %u\n", g_flight.actor,
-                 sk, rd32(rdram, sk + world::skel::kChannelCount));
+                 sk, guest::read32(rdram, sk + world::skel::kChannelCount));
     finishSpawn(rdram, c, g_flight.actor);
 }
 
@@ -360,14 +348,14 @@ void spawnChannelDone(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
 void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t actor = getRegU32(c, 2);
     if (g_flight.camModeAddr)
-        wr32(rdram, g_flight.camModeAddr, g_flight.oldMode);
+        guest::write32(rdram, g_flight.camModeAddr, g_flight.oldMode);
     {
-        const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-        const uint32_t p = rd32(rdram, ctx + 0x4b0), cam = rd32(rdram, ctx + 0x4b4);
+        const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+        const uint32_t p = guest::read32(rdram, ctx + 0x4b0), cam = guest::read32(rdram, ctx + 0x4b4);
         std::fprintf(stderr, "[ghost] after factory: ctx+4b0 %x -> %x, ctx+4b4 %x -> %x (mode word now %x)\n",
-                     g_flight.player, p, g_flight.camera, cam, rd32(rdram, g_flight.camModeAddr));
-        wr32(rdram, ctx + 0x4b0, g_flight.player);
-        wr32(rdram, ctx + 0x4b4, g_flight.camera);
+                     g_flight.player, p, g_flight.camera, cam, guest::read32(rdram, g_flight.camModeAddr));
+        guest::write32(rdram, ctx + 0x4b0, g_flight.player);
+        guest::write32(rdram, ctx + 0x4b4, g_flight.camera);
         // The local player's own dragon link (rider <-> Arokh, data+0x4d8 at both ends) must survive the spawn.
         const uint32_t a = linkOf(rdram, g_flight.player), pa = linkedActor(rdram, ctx, a), b = linkOf(rdram, pa);
         std::fprintf(
@@ -380,17 +368,17 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     std::lock_guard<std::mutex> l(g_m);
     auto it =
         std::find_if(g_ghosts.begin(), g_ghosts.end(), [](const Ghost& g) { return g.info.id == g_flight.ghostId; });
-    if (ramPtr(actor)) {
-        const uint32_t inner = rd32(rdram, actor + 0xfc);
-        if (ramPtr(inner)) {
+    if (guest::isHeapPtr(actor)) {
+        const uint32_t inner = guest::read32(rdram, actor + 0xfc);
+        if (guest::isHeapPtr(inner)) {
             if (g_flight.npc) {
                 std::lock_guard<std::mutex> lo(g_om);
                 g_origHandler.erase(std::remove_if(g_origHandler.begin(), g_origHandler.end(),
                                                    [&](const auto& e) { return e.first == actor; }),
                                     g_origHandler.end());
-                g_origHandler.emplace_back(actor, rd32(rdram, inner + 0x14));
+                g_origHandler.emplace_back(actor, guest::read32(rdram, inner + 0x14));
             }
-            wr32(rdram, inner + 0x14, g_handlerSlot);
+            guest::write32(rdram, inner + 0x14, g_handlerSlot);
         }
         if (it != g_ghosts.end()) {
             uint16_t ref = 0, res = 0;
@@ -417,8 +405,8 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
             g_ghosts.erase(it);
     }
     g_flight.actor = actor;
-    const uint32_t sk = ramPtr(actor) ? rd32(rdram, actor + world::skel::kHandleSkeleton) : 0;
-    if (g_flight.npc && ramPtr(sk) && g_channelDone) {
+    const uint32_t sk = guest::isHeapPtr(actor) ? guest::read32(rdram, actor + world::skel::kHandleSkeleton) : 0;
+    if (g_flight.npc && guest::isHeapPtr(sk) && g_channelDone) {
         // Channel creation may allocate / yield: enter through the spawn trampoline, never a nested call.
         // All curated rigs share torso node 2; root retains the independent locomotion channel.
         SET_GPR_U32(c, 4, sk);
@@ -459,7 +447,7 @@ void weaponStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t sp = g_wf.savedSp - kFrame, xf = sp + 0x10;
     std::memcpy(rdram + (xf & PS2_RAM_MASK), g_wf.xform, sizeof g_wf.xform);
     SET_GPR_U32(c, 29, sp);
-    SET_GPR_U32(c, 4, rd32(rdram, guestAddress(kContextPtr)));
+    SET_GPR_U32(c, 4, guest::read32(rdram, guestAddress(kContextPtr)));
     SET_GPR_U32(c, 5, 0u);
     SET_GPR_U32(c, 6, xf);
     SET_GPR_U32(c, 7, 0u);
@@ -479,21 +467,21 @@ void weaponFinish(R5900Context* c, uint32_t result) {
 
 void weaponStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t item = getRegU32(c, 2);
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
     bool attach = false;
     {
         std::lock_guard<std::mutex> l(g_m);
         auto it =
             std::find_if(g_ghosts.begin(), g_ghosts.end(), [](const Ghost& g) { return g.info.id == g_wf.ghostId; });
-        if (ramPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
+        if (guest::isHeapPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
             it->weapon[g_wf.hand] = item;
             it->haveRec[g_wf.hand] = g_wf.rec;
             // Owner: take a reference on the ghost's registry entry (the part of 0x168388 that cannot allocate).
-            const uint32_t data = rd32(rdram, rd32(rdram, item + 0xfc) + 0x10);
+            const uint32_t data = guest::read32(rdram, guest::read32(rdram, item + 0xfc) + 0x10);
             uint16_t ref = 0;
             std::memcpy(&ref, rdram + ((g_wf.model + 0x12) & PS2_RAM_MASK), 2);
-            const uint32_t table = rd32(rdram, ctx + 0x7c);
-            if (ramPtr(data) && ref && ramPtr(table)) {
+            const uint32_t table = guest::read32(rdram, ctx + 0x7c);
+            if (guest::isHeapPtr(data) && ref && guest::isHeapPtr(table)) {
                 const uint32_t e = table + (ref - 1u) * 8u + 4u;
                 uint16_t n = 0;
                 std::memcpy(&n, rdram + (e & PS2_RAM_MASK), 2);
@@ -501,10 +489,10 @@ void weaponStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
                 std::memcpy(rdram + (e & PS2_RAM_MASK), &n, 2);
                 std::memcpy(rdram + ((data + kWeaponOwner) & PS2_RAM_MASK), &ref, 2);
             }
-            attach = ramPtr(data);
-        } else if (!ramPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
+            attach = guest::isHeapPtr(data);
+        } else if (!guest::isHeapPtr(item) && it != g_ghosts.end() && it->info.handle == g_wf.model) {
             it->haveRec[g_wf.hand] = g_wf.rec; // the factory refused this record: do not retry it every tick
-        } else if (ramPtr(item)) {
+        } else if (guest::isHeapPtr(item)) {
             // The ghost vanished meanwhile: do not leave an orphan item behind.
             std::fprintf(stderr, "[ghost] weapon %x spawned for a vanished ghost: left to the level teardown\n", item);
         }
@@ -647,18 +635,18 @@ void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                 uint32_t emitter = 0;
                 if (getRegU32(c, 31) == guestAddress(0x10d1c0u)) {
                     const uint32_t slot = getRegU32(c, 16);
-                    emitter = ramPtr(slot) ? rd32(ram, slot + 8) : 0;
+                    emitter = guest::isHeapPtr(slot) ? guest::read32(ram, slot + 8) : 0;
                 }
                 for (const VoiceOwner& o : owners)
                     if (emitter && o.actor == emitter)
                         who = &o;
                 const uint32_t pos = getRegU32(c, 6);
-                if (!who && !emitter && ramPtr(pos)) {
+                if (!who && !emitter && guest::isHeapPtr(pos)) {
                     float p[3];
                     std::memcpy(p, ram + (pos & PS2_RAM_MASK), sizeof p);
                     float best = 256.0f * 256.0f;
                     for (const VoiceOwner& o : owners) {
-                        if (!ramPtr(o.actor))
+                        if (!guest::isHeapPtr(o.actor))
                             continue;
                         float q[3];
                         std::memcpy(q, ram + ((o.actor + 0x14u) & PS2_RAM_MASK), sizeof q);
@@ -694,9 +682,9 @@ void hookPlaySound(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
     if (g.character && g.rawSet) { // stand-in character: its own clips; channel 0 (locomotion) lower, the others upper
         const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
-        const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
-        const uint32_t n = ramPtr(sk) ? guest.read32(sk + world::skel::kChannelCount) : 0;
-        if (!ramPtr(ch) || n == 0 || n > world::skel::kMaxChannels)
+        const uint32_t ch = guest::isHeapPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+        const uint32_t n = guest::isHeapPtr(sk) ? guest.read32(sk + world::skel::kChannelCount) : 0;
+        if (!guest::isHeapPtr(ch) || n == 0 || n > world::skel::kMaxChannels)
             return 0;
         const bool split = g.rawLower.clip != g.rawUpper.clip;
         const auto lo = drakan_coop_character::mapClip(g.character, g.rawLower.clip, g.rawLower.time);
@@ -719,11 +707,11 @@ int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
     if (!g.animSet)
         return 0;
     const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
-    if (!ramPtr(sk))
+    if (!guest::isHeapPtr(sk))
         return 0;
     const uint32_t ch = guest.read32(sk + world::skel::kChannels);
     const uint32_t n = guest.read32(sk + world::skel::kChannelCount);
-    if (!ramPtr(ch) || n == 0 || n > world::skel::kMaxChannels)
+    if (!guest::isHeapPtr(ch) || n == 0 || n > world::skel::kMaxChannels)
         return 0;
     int written = 0;
     for (uint32_t i = 0; i < n; ++i)
@@ -745,9 +733,9 @@ int writeAnim(drakan_input::IGuest& guest, const Ghost& g) {
 // the ghost moved since the last update.
 void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
     const uint32_t world = guest.read32(ctx + 0x31c);
-    const uint32_t vt = ramPtr(world) ? guest.read32(world + 0x24b4) : 0;
-    const uint32_t fn = ramPtr(vt) ? guest.read32(vt + 0x84) : 0;
-    if (!ramPtr(fn))
+    const uint32_t vt = guest::isHeapPtr(world) ? guest.read32(world + 0x24b4) : 0;
+    const uint32_t fn = guest::isHeapPtr(vt) ? guest.read32(vt + 0x84) : 0;
+    if (!guest::isHeapPtr(fn))
         return;
     const auto adjusted = [&](uint32_t off) {
         const uint32_t a = guest.read32(vt + off) & 0xffffu;
@@ -760,7 +748,7 @@ void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
     if (f104 & 0x10000000u)
         guest.call(drakan_input::GuestCall(fn).arg(adjusted(0x80)).arg(h));
     guest.write32(h + 0x104, guest.read32(h + 0x104) & ~0x800u);
-    if (const uint32_t refile = guest.read32(vt + 0x8c); ramPtr(refile))
+    if (const uint32_t refile = guest.read32(vt + 0x8c); guest::isHeapPtr(refile))
         guest.call(drakan_input::GuestCall(refile).arg(adjusted(0x88)).arg(h));
     if (static_cast<int32_t>(guest.read32(h + 0x7c)) == -1) {
         // The engine's refile returns at once for an actor whose cell is -1, so an actor created where no cell was
@@ -768,7 +756,7 @@ void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
         // list for good and a blade sweep never finds it. File it by hand: the cell lookup the refile uses (vtable
         // +0x6c: old cell, flags 5, the position), then the refile proper, which now links it into that cell.
         const uint32_t lookup = guest.read32(vt + 0x6c);
-        if (ramPtr(lookup)) {
+        if (guest::isHeapPtr(lookup)) {
             const uint32_t cell = guest.call(drakan_input::GuestCall(lookup)
                                                  .arg(adjusted(0x68))
                                                  .arg(0xffffffffu)
@@ -778,7 +766,7 @@ void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
                                                  .argf(guest.readF(h + 0x1c)));
             if (static_cast<int32_t>(cell) >= 0 && cell < guest.read32(world + 0x10)) {
                 guest.write32(h + 0x7c, cell);
-                if (const uint32_t refile = guest.read32(vt + 0x8c); ramPtr(refile))
+                if (const uint32_t refile = guest.read32(vt + 0x8c); guest::isHeapPtr(refile))
                     guest.call(drakan_input::GuestCall(refile).arg(adjusted(0x88)).arg(h));
                 if (g_log)
                     std::fprintf(stderr, "[ghost] actor %x had no collision cell: filed in cell %u (now %d)\n", h, cell,
@@ -791,12 +779,12 @@ void refileHandle(drakan_input::IGuest& guest, uint32_t ctx, uint32_t h) {
 // Collision and visibility share cell membership. Expose the cosmetic body to those lists only while the engine
 // renders a world, allowing its normal material / skinning / culling preparation without a gameplay collider.
 void localRenderCell(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t body, bool insert) {
-    if (!ramPtr(body) || rd32(ram, body) != guestAddress(kHandleVtable))
+    if (!guest::isHeapPtr(body) || guest::read32(ram, body) != guestAddress(kHandleVtable))
         return;
-    const uint32_t ctx = rd32(ram, guestAddress(kContextPtr));
-    const uint32_t world = ramPtr(ctx) ? rd32(ram, ctx + 0x31c) : 0;
-    const uint32_t vt = ramPtr(world) ? rd32(ram, world + 0x24b4) : 0;
-    if (!ramPtr(vt))
+    const uint32_t ctx = guest::read32(ram, guestAddress(kContextPtr));
+    const uint32_t world = guest::isHeapPtr(ctx) ? guest::read32(ram, ctx + 0x31c) : 0;
+    const uint32_t vt = guest::isHeapPtr(world) ? guest::read32(ram, world + 0x24b4) : 0;
+    if (!guest::isHeapPtr(vt))
         return;
     drakan_lifecycle::Event e;
     e.rdram = ram;
@@ -805,18 +793,18 @@ void localRenderCell(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t bod
     if (insert) {
         const auto& view = drakan_local_character::g_view;
         const uint32_t source = view.poseSource ? view.poseSource : view.controller;
-        if (!ramPtr(source))
+        if (!guest::isHeapPtr(source))
             return;
-        wr32(ram, body + 0x7c, rd32(ram, source + 0x7c));
-        wr32(ram, body + 0x104, rd32(ram, body + 0x104) & ~0x800u);
-        const int16_t adjust = static_cast<int16_t>(rd32(ram, vt + 0x88) & 0xffffu);
-        drakan_lifecycle::callGuest(e, rd32(ram, vt + 0x8c), world + adjust, body);
+        guest::write32(ram, body + 0x7c, guest::read32(ram, source + 0x7c));
+        guest::write32(ram, body + 0x104, guest::read32(ram, body + 0x104) & ~0x800u);
+        const int16_t adjust = static_cast<int16_t>(guest::read32(ram, vt + 0x88) & 0xffffu);
+        drakan_lifecycle::callGuest(e, guest::read32(ram, vt + 0x8c), world + adjust, body);
     } else {
-        if (rd32(ram, body + 0x104) & 0x10000000u) {
-            const int16_t adjust = static_cast<int16_t>(rd32(ram, vt + 0x80) & 0xffffu);
-            drakan_lifecycle::callGuest(e, rd32(ram, vt + 0x84), world + adjust, body);
+        if (guest::read32(ram, body + 0x104) & 0x10000000u) {
+            const int16_t adjust = static_cast<int16_t>(guest::read32(ram, vt + 0x80) & 0xffffu);
+            drakan_lifecycle::callGuest(e, guest::read32(ram, vt + 0x84), world + adjust, body);
         }
-        wr32(ram, body + 0x7c, 0xffffffffu);
+        guest::write32(ram, body + 0x7c, 0xffffffffu);
     }
 }
 
@@ -829,9 +817,10 @@ void hookRenderWorld(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                 bool live = false;
                 // Native stand-in bodies can clear actor+0x12 after spawning while remaining alive and visible.
                 // Their controller and resource identify this binding; a registry ref is not a liveness invariant.
-                if (ramPtr(body))
-                    live = view.matchesBody(rd32(ram, body), rd32(ram, body + 4), rd32(ram, body + 0x50),
-                                            rd32(ram, body + 8), guestAddress(kHandleVtable));
+                if (guest::isHeapPtr(body))
+                    live = view.matchesBody(guest::read32(ram, body), guest::read32(ram, body + 4),
+                                            guest::read32(ram, body + 0x50), guest::read32(ram, body + 8),
+                                            guestAddress(kHandleVtable));
                 if (!live)
                     clearLocalCharacterView();
             }
@@ -843,7 +832,7 @@ void hookRenderWorld(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
             const uint32_t source = view.poseSource ? view.poseSource : view.controller;
             // Sample the completed gameplay transform, not the preceding PadMgr pose. This keeps the visible avatar
             // on the real movement / collision position even when the game advances several updates per present.
-            if (ramPtr(source) && rd32(ram, source) == guestAddress(kHandleVtable)) {
+            if (guest::isHeapPtr(source) && guest::read32(ram, source) == guestAddress(kHandleVtable)) {
                 std::memcpy(ram + g_localWorldBody + 0x14, ram + source + 0x14, 0x30);
             }
             localRenderCell(ram, c, rt, g_localWorldBody, true);
@@ -956,10 +945,10 @@ void resetLocalCharacter() {
 
 uint32_t localReference(drakan_input::IGuest& guest, uint32_t ctx, uint32_t ref) {
     const uint32_t table = guest.read32(ctx + 0x7c);
-    if (!ref || ref > guest.read32(ctx + 0x84) + 1 || !ramPtr(table))
+    if (!ref || ref > guest.read32(ctx + 0x84) + 1 || !guest::isHeapPtr(table))
         return 0;
     const uint32_t h = guest.read32(table + (ref - 1) * 8u);
-    return ramPtr(h) && guest.read32(h) == guestAddress(kHandleVtable) && guest.read16(h + 0x12) == ref &&
+    return guest::isHeapPtr(h) && guest.read32(h) == guestAddress(kHandleVtable) && guest.read16(h + 0x12) == ref &&
                    !(guest.read32(h + 4) & 0x80000000u)
                ? h
                : 0;
@@ -986,8 +975,8 @@ bool localCharacterUpdate(drakan_input::IGuest& guest, uint32_t ctx) {
     uint32_t source = pose.handle;
     if (pose.mounted) {
         const uint32_t inner = guest.read32(source + 0xfc);
-        const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
-        source = ramPtr(data) ? localReference(guest, ctx, guest.read16(data + 0x4d8)) : 0;
+        const uint32_t data = guest::isHeapPtr(inner) ? guest.read32(inner + 0x10) : 0;
+        source = guest::isHeapPtr(data) ? localReference(guest, ctx, guest.read16(data + 0x4d8)) : 0;
         if (!source) {
             resetLocalCharacter();
             return false;
@@ -997,8 +986,8 @@ bool localCharacterUpdate(drakan_input::IGuest& guest, uint32_t ctx) {
         for (int i = 0; i < 9; ++i)
             pose.rotation[i] = guest.readF(source + 0x20 + 4u * i);
         const uint32_t sk = guest.read32(source + 0x50);
-        const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
-        if (!ramPtr(ch))
+        const uint32_t ch = guest::isHeapPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+        if (!guest::isHeapPtr(ch))
             return !drakan_local_character::g_view.body;
         pose.lower =
             pose.upper = {guest.read32(ch + world::skel::kChannelClip), guest.readF(ch + world::skel::kChannelTime)};
@@ -1031,7 +1020,7 @@ bool localCharacterUpdate(drakan_input::IGuest& guest, uint32_t ctx) {
     it->wantRec[0] = pose.weaponRight;
     it->wantRec[1] = pose.weaponLeft;
     const uint32_t h = it->info.handle;
-    if (!h || !ramPtr(guest.read32(h + 0x50)))
+    if (!h || !guest::isHeapPtr(guest.read32(h + 0x50)))
         return true; // the selected body is loading (applyLocalHide decides whether the original model shows)
     if (!drakan_local_character::g_view.body)
         std::fprintf(stderr, "[local-character] visible %04x: body %x replaces model %x (render only)\n", character, h,
@@ -1045,11 +1034,11 @@ bool localCharacterUpdate(drakan_input::IGuest& guest, uint32_t ctx) {
     view.bodyWeapons[0] = it->weapon[0];
     view.bodyWeapons[1] = it->weapon[1];
     const uint32_t inner = guest.read32(source + 0xfc);
-    const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
-    if (ramPtr(data)) {
+    const uint32_t data = guest::isHeapPtr(inner) ? guest.read32(inner + 0x10) : 0;
+    if (guest::isHeapPtr(data)) {
         const uint32_t visual = guest.read32(data + 0x80);
-        if (ramPtr(visual) && guest.read32(visual) == guestAddress(kHandleVtable) &&
-            ramPtr(guest.read32(visual + 0x50)))
+        if (guest::isHeapPtr(visual) && guest.read32(visual) == guestAddress(kHandleVtable) &&
+            guest::isHeapPtr(guest.read32(visual + 0x50)))
             view.controller = visual;
         if (!drakan_local_character::g_view.body)
             std::fprintf(stderr, "[local-character] binding: actor %x, native visual %x, suppressed model %x\n", source,
@@ -1057,7 +1046,7 @@ bool localCharacterUpdate(drakan_input::IGuest& guest, uint32_t ctx) {
         if (!drakan_local_character::g_view.body)
             std::fprintf(stderr, "[local-character] native shadow mode %u\n", guest.read32(guestAddress(0x4df434u)));
     }
-    if (ramPtr(data))
+    if (guest::isHeapPtr(data))
         for (unsigned hand = 0; hand < 2; ++hand)
             if (it->weapon[hand]) {
                 const uint32_t holder = hand ? world::playerdata::kLeftHolder : world::playerdata::kRightHolder;
@@ -1106,30 +1095,30 @@ void applyLocalHide(drakan_input::IGuest& guest, uint32_t ctx, bool bodyPending)
     if (!view.body) {
         // No selected body yet (or Rynn is the choice): name the original model and its held items directly.
         const uint32_t player = guest.read32(ctx + 0x4b0);
-        if (!ramPtr(player) || guest.read32(player) != guestAddress(kHandleVtable))
+        if (!guest::isHeapPtr(player) || guest.read32(player) != guestAddress(kHandleVtable))
             return;
         const uint32_t inner = guest.read32(player + 0xfc);
-        const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
+        const uint32_t data = guest::isHeapPtr(inner) ? guest.read32(inner + 0x10) : 0;
         const uint32_t db = guest.read32(ctx + 0x320);
-        const uint32_t records = ramPtr(db) ? guest.read32(db + 8) : 0;
+        const uint32_t records = guest::isHeapPtr(db) ? guest.read32(db + 8) : 0;
         const uint32_t res = guest.read16(player + 0x10);
-        if (!ramPtr(data) || !ramPtr(records) || res == 0xffffu ||
+        if (!guest::isHeapPtr(data) || !guest::isHeapPtr(records) || res == 0xffffu ||
             guest.read32(records + res * 0x24u + 8) != kRynnClass)
             return; // mounted (the dragon is controlled) or not Rynn: leave everything visible
         drakan_local_character::View v;
         v.poseSource = player;
         v.controller = player;
         const uint32_t visual = guest.read32(data + 0x80);
-        if (ramPtr(visual) && guest.read32(visual) == guestAddress(kHandleVtable))
+        if (guest::isHeapPtr(visual) && guest.read32(visual) == guestAddress(kHandleVtable))
             v.controller = visual;
         for (unsigned hand = 0; hand < 2; ++hand)
             v.weapons[hand] = heldItem(guest, ctx, data, hand);
         view = v;
-    } else if (const uint32_t source = view.poseSource ? view.poseSource : view.controller; ramPtr(source)) {
+    } else if (const uint32_t source = view.poseSource ? view.poseSource : view.controller; guest::isHeapPtr(source)) {
         // The original held items are named only once the selected body holds its own: name them for hiding too.
         const uint32_t inner = guest.read32(source + 0xfc);
-        const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
-        if (ramPtr(data))
+        const uint32_t data = guest::isHeapPtr(inner) ? guest.read32(inner + 0x10) : 0;
+        if (guest::isHeapPtr(data))
             for (unsigned hand = 0; hand < 2; ++hand)
                 if (!view.weapons[hand])
                     view.weapons[hand] = heldItem(guest, ctx, data, hand);
@@ -1431,7 +1420,7 @@ void setWeapons(int id, uint32_t rightRecordId, uint32_t leftRecordId) {
 
 void refileActor(drakan_input::IGuest& guest, uint32_t actor) {
     const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
-    if (ramPtr(ctx) && ramPtr(actor))
+    if (guest::isHeapPtr(ctx) && guest::isHeapPtr(actor))
         refileHandle(guest, ctx, actor);
 }
 
@@ -1469,8 +1458,8 @@ void forEach(const std::function<void(const Info&)>& fn) {
 // id at +0). 0xffff when absent.
 uint32_t recordIndex(drakan_input::IGuest& guest, uint32_t ctx, uint32_t rec) {
     const uint32_t db = guest.read32(ctx + 0x320);
-    const uint32_t records = ramPtr(db) ? guest.read32(db + 8) : 0;
-    if (!ramPtr(records))
+    const uint32_t records = guest::isHeapPtr(db) ? guest.read32(db + 8) : 0;
+    if (!guest::isHeapPtr(records))
         return 0xffffu;
     const uint32_t count = std::min<uint32_t>(guest.read32(db + 0x10), 0x2000u);
     for (uint32_t i = 0; i <= count; ++i)
@@ -1493,8 +1482,8 @@ bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held 
                 if (g.character)
                     return kNpcWeaponJoint[hand];
                 const uint32_t pb = guest.read32(g.info.handle + 0x54);
-                const uint32_t props = ramPtr(pb) ? guest.read32(pb + 4) : 0;
-                return ramPtr(props) ? guest.read32(props + kPropHand[hand] * 4u) : 0xffffffffu;
+                const uint32_t props = guest::isHeapPtr(pb) ? guest.read32(pb + 4) : 0;
+                return guest::isHeapPtr(props) ? guest.read32(props + kPropHand[hand] * 4u) : 0xffffffffu;
             }();
             if (g.weapon[hand]) {
                 if (bone < 0x100u)
@@ -1543,7 +1532,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         if (const int id = newestId())
             destroy(id);
     const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
-    if (!ramPtr(ctx))
+    if (!guest::isHeapPtr(ctx))
         return;
     std::lock_guard<std::mutex> l(g_m);
 
@@ -1553,14 +1542,15 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         Ghost& g = g_ghosts[i];
         const uint32_t h = g.info.handle;
         const bool standIn = g.character || g.dragon;
-        if (h && ramPtr(h) && standIn) {
+        if (h && guest::isHeapPtr(h) && standIn) {
             // A stand-in body is created by another class's init: report what it looks like once (and pick up a ref
             // that was not set yet at the end of the spawn).
             if (!g.info.ref)
                 g.info.ref = guest.read16(h + 0x12);
             if (!g.standInLogged) {
                 g.standInLogged = true;
-                const uint32_t slot = g.info.ref && ramPtr(table) ? guest.read32(table + (g.info.ref - 1u) * 8u) : 0;
+                const uint32_t slot =
+                    g.info.ref && guest::isHeapPtr(table) ? guest.read32(table + (g.info.ref - 1u) * 8u) : 0;
                 std::fprintf(stderr,
                              "[ghost] id %d stand-in %x: vtable %x flags+4 %x type %x res %x ref %x table[ref] %x\n",
                              g.info.id, h, guest.read32(h), guest.read32(h + 4), guest.read32(h + 0xc),
@@ -1569,9 +1559,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         }
         // Stand-ins: the vtable and a live (not dying) flag word are the test (a level change destroys them through
         // drakan_lifecycle first); Rynn-class ghosts also need their registry slot.
-        const bool live = !h || (ramPtr(h) && guest.read32(h) == guestAddress(kHandleVtable) && ramPtr(table) &&
-                                 (standIn ? !(guest.read32(h + 4) & 0x80000000u)
-                                          : g.info.ref && guest.read32(table + (g.info.ref - 1u) * 8u) == h));
+        const bool live =
+            !h || (guest::isHeapPtr(h) && guest.read32(h) == guestAddress(kHandleVtable) && guest::isHeapPtr(table) &&
+                   (standIn ? !(guest.read32(h + 4) & 0x80000000u)
+                            : g.info.ref && guest.read32(table + (g.info.ref - 1u) * 8u) == h));
         if (!live) {
             std::fprintf(stderr, "[ghost] id %d (%x) is gone (destroyed or level change)\n", g.info.id, h);
             if (g.info.id == g_localId)
@@ -1683,7 +1674,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         for (Ghost& g : g_ghosts)
             if (g.info.handle) {
                 const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
-                if (ramPtr(sk)) {
+                if (guest::isHeapPtr(sk)) {
                     const uint32_t lod = guest.read32(sk + 0x10);
                     if (lod != g.loggedLod) {
                         g.loggedLod = lod;
@@ -1699,8 +1690,8 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         for (const Ghost& g : g_ghosts)
             if (g.info.handle && g.animSet) {
                 const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
-                const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
-                if (ramPtr(ch)) {
+                const uint32_t ch = guest::isHeapPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+                if (guest::isHeapPtr(ch)) {
                     const uint32_t n = guest.read32(sk + world::skel::kChannelCount);
                     std::fprintf(stderr, "[ghost] id %d channels", g.info.id);
                     for (uint32_t i = 0; i < n && i < world::skel::kMaxChannels; ++i)
@@ -1708,7 +1699,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                                      guest.read32(ch + i * world::skel::kChannelStride + world::skel::kChannelClip));
                     std::fputc('\n', stderr);
                 }
-                if (ramPtr(ch))
+                if (guest::isHeapPtr(ch))
                     std::fprintf(stderr, "[ghost] id %d ch0 clip %x time %g (we wrote %x %g)\n", g.info.id,
                                  guest.read32(ch + world::skel::kChannelClip),
                                  static_cast<double>(guest.readF(ch + world::skel::kChannelTime)), g.animClip[0],
@@ -1719,7 +1710,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         for (const Ghost& g : g_ghosts)
             if (g.info.handle && g.animSet) {
                 const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
-                const uint32_t ch = ramPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
+                const uint32_t ch = guest::isHeapPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
                 const uint32_t pl = guest.read32(ctx + 0x4b0);
                 std::fprintf(
                     stderr,
@@ -1727,7 +1718,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                     g_tick, nowSeconds(), static_cast<double>(engineDt),
                     static_cast<double>(guest.readF(g.info.handle + 0x14)),
                     static_cast<double>(guest.readF(g.info.handle + 0x1c)),
-                    ramPtr(ch) ? static_cast<double>(guest.readF(ch + world::skel::kChannelTime)) : -1.0,
+                    guest::isHeapPtr(ch) ? static_cast<double>(guest.readF(ch + world::skel::kChannelTime)) : -1.0,
                     static_cast<double>(g.animTime[0]), g.animClip[0], static_cast<double>(guest.readF(pl + 0x14)),
                     static_cast<double>(guest.readF(pl + 0x1c)));
             }
@@ -1766,11 +1757,11 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                     // Keep the cosmetic body out of collision / blade-sweep cells during simulation. RenderWorld
                     // temporarily files it for the native visibility / skinning pipeline, then unfiles it again.
                     const uint32_t world = guest.read32(ctx + 0x31c);
-                    const uint32_t vt = ramPtr(world) ? guest.read32(world + 0x24b4) : 0;
-                    if (ramPtr(vt) && (guest.read32(g.info.handle + 0x104) & 0x10000000u)) {
+                    const uint32_t vt = guest::isHeapPtr(world) ? guest.read32(world + 0x24b4) : 0;
+                    if (guest::isHeapPtr(vt) && (guest.read32(g.info.handle + 0x104) & 0x10000000u)) {
                         const uint32_t remove = guest.read32(vt + 0x84);
                         const int16_t adjust = static_cast<int16_t>(guest.read16(vt + 0x80));
-                        if (ramPtr(remove))
+                        if (guest::isHeapPtr(remove))
                             guest.call(drakan_input::GuestCall(remove).arg(world + adjust).arg(g.info.handle));
                     }
                     guest.write32(g.info.handle + 0x7c, 0xffffffffu);
@@ -1812,11 +1803,12 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         return;
     }
     const uint32_t player = guest.read32(ctx + 0x4b0);
-    uint32_t res = ramPtr(player) ? guest.read16(player + 0x10) : 0xffffu;
+    uint32_t res = guest::isHeapPtr(player) ? guest.read16(player + 0x10) : 0xffffu;
     const uint32_t db = guest.read32(ctx + 0x320);
-    const uint32_t records = ramPtr(db) ? guest.read32(db + 8) : 0;
-    const uint32_t playerClass =
-        ramPtr(player) && ramPtr(records) && res != 0xffffu ? guest.read32(records + res * 0x24u + 8) : 0;
+    const uint32_t records = guest::isHeapPtr(db) ? guest.read32(db + 8) : 0;
+    const uint32_t playerClass = guest::isHeapPtr(player) && guest::isHeapPtr(records) && res != 0xffffu
+                                     ? guest.read32(records + res * 0x24u + 8)
+                                     : 0;
     // Rynn is the controlled actor on foot; a rider on Arokh controls the dragon (class 0x1001c): the bodies of a
     // partner are still wanted then (a Rynn ghost needs Rynn's record index, not the dragon's).
     if (playerClass != kRynnClass && playerClass != kDragonClass) {
@@ -1873,9 +1865,9 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
     }
     // Camera mode word: *(*(ctx+0x4b4)+0xfc)+0x10 = camera instance data, +0x14c
     const uint32_t cam = guest.read32(ctx + 0x4b4);
-    const uint32_t inner = ramPtr(cam) ? guest.read32(cam + 0xfc) : 0;
-    const uint32_t data = ramPtr(inner) ? guest.read32(inner + 0x10) : 0;
-    g_flight.camModeAddr = ramPtr(data) && (!g_flight.npc || g_flight.dragon) ? data + 0x14c : 0;
+    const uint32_t inner = guest::isHeapPtr(cam) ? guest.read32(cam + 0xfc) : 0;
+    const uint32_t data = guest::isHeapPtr(inner) ? guest.read32(inner + 0x10) : 0;
+    g_flight.camModeAddr = guest::isHeapPtr(data) && (!g_flight.npc || g_flight.dragon) ? data + 0x14c : 0;
     g_busy.store(true);
     std::fprintf(stderr, "[ghost] spawning id %d: res %u at %.0f %.0f %.0f (camera mode word %x)\n", want->info.id, res,
                  static_cast<double>(t.pos[0]), static_cast<double>(t.pos[1]), static_cast<double>(t.pos[2]),

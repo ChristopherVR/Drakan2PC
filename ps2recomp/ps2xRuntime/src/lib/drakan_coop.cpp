@@ -13,6 +13,7 @@
 #include "net/Transport.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "world/Inventory.h"
 #include "world/Reader.h"
 
@@ -75,25 +76,7 @@ uint32_t mixKey(uint32_t resId, uint32_t ordinal) {
     return h;
 }
 
-class RdramMemory final : public world::IGuestMemory {
-public:
-    explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
-    uint8_t read8(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        return a < PS2_RAM_SIZE ? ram_[a] : 0;
-    }
-    uint32_t read32(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        if (a + 4 > PS2_RAM_SIZE)
-            return 0;
-        uint32_t v;
-        std::memcpy(&v, ram_ + a, 4);
-        return v;
-    }
-
-private:
-    const uint8_t* ram_;
-};
+using RdramMemory = guest::RamView<world::IGuestMemory>;
 
 // ----------------------------------------------------------------------------------------------------- wire format
 // The co-op logic keeps its own compact datagram form internally (type, level hash, payload; little endian, memcpy'd:
@@ -471,81 +454,47 @@ struct Stats {
              aiGhostTicks = 0, refiled = 0, hurtSwallowed = 0;
 } g_st;
 
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint32_t v = 0;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 4);
-    return v;
-}
-uint16_t rd16(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint16_t v = 0;
-    if (a + 2 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 2);
-    return v;
-}
-void wr32(uint8_t* ram, uint32_t a, uint32_t v) {
-    a &= PS2_RAM_MASK;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(ram + a, &v, 4);
-}
-void wrF(uint8_t* ram, uint32_t a, float v) {
-    uint32_t u;
-    std::memcpy(&u, &v, 4);
-    wr32(ram, a, u);
-}
-float rdF(const uint8_t* ram, uint32_t a) {
-    const uint32_t u = rd32(ram, a);
-    float f;
-    std::memcpy(&f, &u, 4);
-    return f;
-}
-bool ramPtr(uint32_t p) {
-    return world::isRamPointer(p) && p < PS2_RAM_SIZE;
-}
-
 uint32_t engineCtx(const uint8_t* rdram) {
-    return rd32(rdram, g_globals.contextPtr);
+    return guest::read32(rdram, g_globals.contextPtr);
 }
 uint32_t controlled(const uint8_t* rdram) {
     const uint32_t ctx = engineCtx(rdram);
-    return ramPtr(ctx) ? rd32(rdram, ctx + 0x4b0) : 0;
+    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x4b0) : 0;
 }
 uint32_t creatureData(const uint8_t* rdram, uint32_t h) {
-    const uint32_t inner = rd32(rdram, h + 0xfc);
-    const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + world::handle::kInnerData) : 0;
-    return ramPtr(q) && rd32(rdram, q + world::handle::kCreatureSelf) == h ? q : 0;
+    const uint32_t inner = guest::read32(rdram, h + 0xfc);
+    const uint32_t q = guest::isHeapPtr(inner) ? guest::read32(rdram, inner + world::handle::kInnerData) : 0;
+    return guest::isHeapPtr(q) && guest::read32(rdram, q + world::handle::kCreatureSelf) == h ? q : 0;
 }
 int32_t creatureHp(const uint8_t* rdram, uint32_t h) {
     const uint32_t q = creatureData(rdram, h);
-    return q ? static_cast<int32_t>(rd32(rdram, q + world::handle::kCreatureHp)) : 0;
+    return q ? static_cast<int32_t>(guest::read32(rdram, q + world::handle::kCreatureHp)) : 0;
 }
 void setCreatureHp(uint8_t* rdram, uint32_t h, int32_t hp) {
     if (const uint32_t q = creatureData(rdram, h))
-        wr32(rdram, q + world::handle::kCreatureHp, static_cast<uint32_t>(hp));
+        guest::write32(rdram, q + world::handle::kCreatureHp, static_cast<uint32_t>(hp));
 }
 
 // The weapon actors in the local player's hands: the damage message's sender is the weapon actor of the attacker, not
 // the attacker (right holder at data+0xeb4, left at +0xe90, the holder's actor ref at +0x1c; registry slot = ref - 1).
 uint32_t registryObject(const uint8_t* rdram, uint32_t ref) {
     const uint32_t ctx = engineCtx(rdram);
-    if (!ramPtr(ctx) || !ref || ref > rd32(rdram, ctx + 0x84) + 1)
+    if (!guest::isHeapPtr(ctx) || !ref || ref > guest::read32(rdram, ctx + 0x84) + 1)
         return 0;
-    return rd32(rdram, rd32(rdram, ctx + 0x7c) + (ref - 1) * 8);
+    return guest::read32(rdram, guest::read32(rdram, ctx + 0x7c) + (ref - 1) * 8);
 }
 bool isLocalAttacker(const uint8_t* rdram, uint32_t sender) {
     const uint32_t me = controlled(rdram);
-    if (!sender || !ramPtr(me))
+    if (!sender || !guest::isHeapPtr(me))
         return false;
     if (sender == me)
         return true;
-    const uint32_t inner = rd32(rdram, me + 0xfc);
-    const uint32_t data = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
-    if (!ramPtr(data))
+    const uint32_t inner = guest::read32(rdram, me + 0xfc);
+    const uint32_t data = guest::isHeapPtr(inner) ? guest::read32(rdram, inner + 0x10) : 0;
+    if (!guest::isHeapPtr(data))
         return false;
     for (uint32_t holder : {0xeb4u, 0xe90u})
-        if (registryObject(rdram, rd16(rdram, data + holder + 0x1c)) == sender)
+        if (registryObject(rdram, guest::read16(rdram, data + holder + 0x1c)) == sender)
             return true;
     return false;
 }
@@ -626,16 +575,16 @@ uint32_t rotl8(uint32_t x) {
     return (x << 8) | (x >> 24);
 }
 int32_t playerHp(const uint8_t* rdram) {
-    return static_cast<int32_t>(
-        rotr8(rd32(rdram, drakan_region::guestAddress(kStatsBlock) + 0xc) ^ rd32(rdram, g_globals.hpKey)));
+    return static_cast<int32_t>(rotr8(guest::read32(rdram, drakan_region::guestAddress(kStatsBlock) + 0xc) ^
+                                      guest::read32(rdram, g_globals.hpKey)));
 }
 int32_t playerHpMax(const uint8_t* rdram) {
-    return static_cast<int32_t>(
-        rotr8(rd32(rdram, drakan_region::guestAddress(kStatsBlock) + 0x10) ^ rd32(rdram, g_globals.hpKey)));
+    return static_cast<int32_t>(rotr8(guest::read32(rdram, drakan_region::guestAddress(kStatsBlock) + 0x10) ^
+                                      guest::read32(rdram, g_globals.hpKey)));
 }
 void setPlayerHp(uint8_t* rdram, int32_t hp) {
-    wr32(rdram, drakan_region::guestAddress(kStatsBlock) + 0xc,
-         rotl8(static_cast<uint32_t>(hp)) ^ rd32(rdram, g_globals.hpKey));
+    guest::write32(rdram, drakan_region::guestAddress(kStatsBlock) + 0xc,
+                   rotl8(static_cast<uint32_t>(hp)) ^ guest::read32(rdram, g_globals.hpKey));
 }
 
 void deadHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
@@ -650,15 +599,15 @@ void deadHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 
 void startDeath(uint8_t* rdram) {
     const uint32_t actor = controlled(rdram);
-    const uint32_t inner = ramPtr(actor) ? rd32(rdram, actor + 0xfc) : 0;
-    if (!ramPtr(inner) || !g_deadSlot)
+    const uint32_t inner = guest::isHeapPtr(actor) ? guest::read32(rdram, actor + 0xfc) : 0;
+    if (!guest::isHeapPtr(inner) || !g_deadSlot)
         return;
     g_life = Life();
     g_life.dead = true;
     g_life.actor = actor;
     g_life.diedMs = nowMs();
-    g_savedHandler.store(rd32(rdram, inner + 0x14));
-    wr32(rdram, inner + 0x14, g_deadSlot);
+    g_savedHandler.store(guest::read32(rdram, inner + 0x14));
+    guest::write32(rdram, inner + 0x14, g_deadSlot);
     setPlayerHp(rdram, 1);
     pushReliable(kMsgPlayerDied, nullptr, 0);
     coopLog("client: the local player died (host enemies): frozen with the death clip, waiting for the host's respawn");
@@ -666,9 +615,9 @@ void startDeath(uint8_t* rdram) {
 
 void endDeath(uint8_t* rdram) {
     const uint32_t actor = controlled(rdram);
-    const uint32_t inner = ramPtr(actor) && actor == g_life.actor ? rd32(rdram, actor + 0xfc) : 0;
-    if (ramPtr(inner) && g_savedHandler.load())
-        wr32(rdram, inner + 0x14, g_savedHandler.load());
+    const uint32_t inner = guest::isHeapPtr(actor) && actor == g_life.actor ? guest::read32(rdram, actor + 0xfc) : 0;
+    if (guest::isHeapPtr(inner) && g_savedHandler.load())
+        guest::write32(rdram, inner + 0x14, g_savedHandler.load());
     g_savedHandler.store(0);
 }
 
@@ -685,7 +634,7 @@ struct HostSafe {
 
 void tickHostLife(drakan_input::IGuest& guest, uint8_t* rdram) {
     const uint32_t me = controlled(rdram);
-    if (!ramPtr(me))
+    if (!guest::isHeapPtr(me))
         return;
     if (g_hostSafe.actor != me) { // a new level / actor: the remembered position belongs to the old one
         g_hostSafe = HostSafe();
@@ -704,7 +653,7 @@ void tickHostLife(drakan_input::IGuest& guest, uint8_t* rdram) {
     } else if (++g_hostSafe.ticks % 30 == 0 && playerHp(rdram) > 1) {
         float p[3];
         for (int i = 0; i < 3; ++i)
-            p[i] = rdF(rdram, me + 0x14 + 4u * i);
+            p[i] = guest::readF(rdram, me + 0x14 + 4u * i);
         if (std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]) &&
             (!g_hostSafe.have || p[1] > g_hostSafe.pos[1] - 250.0f)) {
             std::memcpy(g_hostSafe.pos, p, sizeof p);
@@ -726,15 +675,15 @@ void tickLife(drakan_input::IGuest& guest, uint8_t* rdram) {
         if (!(dt > 0.0f && dt < 0.25f))
             dt = 1.0f / 60.0f;
         g_life.clipTime += dt;
-        const uint32_t sk = rd32(rdram, me + 0x50);
-        const uint32_t ch = ramPtr(sk) ? rd32(rdram, sk + 0xe8) : 0;
-        const uint32_t n = ramPtr(sk) ? rd32(rdram, sk + 0xf0) : 0;
-        if (ramPtr(ch) && n && n <= 32)
+        const uint32_t sk = guest::read32(rdram, me + 0x50);
+        const uint32_t ch = guest::isHeapPtr(sk) ? guest::read32(rdram, sk + 0xe8) : 0;
+        const uint32_t n = guest::isHeapPtr(sk) ? guest::read32(rdram, sk + 0xf0) : 0;
+        if (guest::isHeapPtr(ch) && n && n <= 32)
             for (uint32_t i = 0; i < n; ++i) {
                 guest.write32(ch + i * 0x80u + 0x50u, kDeathClip);
                 guest.writeF(ch + i * 0x80u + 0x58u, std::min(g_life.clipTime, kDeathClipHold));
             }
-        if (g_life.respawnReq && ramPtr(me)) {
+        if (g_life.respawnReq && guest::isHeapPtr(me)) {
             endDeath(rdram);
             // Beside the creature world's owner (its ghost), else beside any other player that is shown.
             uint32_t g = handleOfPlayer(drakan_netplay::coopLink().authority);
@@ -744,9 +693,9 @@ void tickLife(drakan_input::IGuest& guest, uint8_t* rdram) {
                     g = gs.front();
             }
             if (g) {
-                g_life.target[0] = rdF(rdram, g + 0x14) + 200.0f;
-                g_life.target[1] = rdF(rdram, g + 0x18) + 20.0f;
-                g_life.target[2] = rdF(rdram, g + 0x1c);
+                g_life.target[0] = guest::readF(rdram, g + 0x14) + 200.0f;
+                g_life.target[1] = guest::readF(rdram, g + 0x18) + 20.0f;
+                g_life.target[2] = guest::readF(rdram, g + 0x1c);
                 for (int i = 0; i < 3; ++i)
                     guest.writeF(me + 0x14 + 4u * i, g_life.target[i]);
                 drakan_ghost::refileActor(guest, me);
@@ -765,9 +714,9 @@ void tickLife(drakan_input::IGuest& guest, uint8_t* rdram) {
     }
     if (g_life.checking && ++g_life.checkTicks == 90) {
         g_life.checking = false;
-        if (ramPtr(me)) {
-            const float d =
-                std::hypot(rdF(rdram, me + 0x14) - g_life.target[0], rdF(rdram, me + 0x1c) - g_life.target[2]);
+        if (guest::isHeapPtr(me)) {
+            const float d = std::hypot(guest::readF(rdram, me + 0x14) - g_life.target[0],
+                                       guest::readF(rdram, me + 0x1c) - g_life.target[2]);
             coopLog("client: 90 ticks after the respawn the player is %.0f units from the host spot (%s)", d,
                     d < 600 ? "stayed" : "put back by the engine");
         }
@@ -832,13 +781,14 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (event == 4 && g_retarget) {
         ++g_st.aiTicks;
         ctxAddr = engineCtx(rdram);
-        saved = ramPtr(ctxAddr) ? rd32(rdram, ctxAddr + 0x4b0) : 0;
-        if (ramPtr(saved)) {
-            const float cp[3] = {rdF(rdram, actor + 0x14), rdF(rdram, actor + 0x18), rdF(rdram, actor + 0x1c)};
+        saved = guest::isHeapPtr(ctxAddr) ? guest::read32(rdram, ctxAddr + 0x4b0) : 0;
+        if (guest::isHeapPtr(saved)) {
+            const float cp[3] = {guest::readF(rdram, actor + 0x14), guest::readF(rdram, actor + 0x18),
+                                 guest::readF(rdram, actor + 0x1c)};
             auto d2 = [&](uint32_t h) {
                 float s = 0;
                 for (int i = 0; i < 3; ++i) {
-                    const float d = rdF(rdram, h + 0x14 + 4 * i) - cp[i];
+                    const float d = guest::readF(rdram, h + 0x14 + 4 * i) - cp[i];
                     s += d * d;
                 }
                 return s;
@@ -854,7 +804,7 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             uint32_t bestG = 0;
             bool lastSeen = false; // the creature's current ghost target is still a candidate
             for (uint32_t g : ghostHandles()) {
-                if (!ramPtr(rd32(rdram, g + 0xfc)) || g == saved || handleDown(g))
+                if (!guest::isHeapPtr(guest::read32(rdram, g + 0xfc)) || g == saved || handleDown(g))
                     continue;
                 const float dg = d2(g);
                 if (dg >= kRange2)
@@ -896,8 +846,8 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // A door the host reported open (late join catch-up): its tick sees "the player" standing at the door.
     if (event == 4 && !g_forceOpen.empty() && g_forceOpen.count(actor)) {
         ctxAddr = engineCtx(rdram);
-        saved = ramPtr(ctxAddr) ? rd32(rdram, ctxAddr + 0x4b0) : 0;
-        if (ramPtr(saved))
+        saved = guest::isHeapPtr(ctxAddr) ? guest::read32(rdram, ctxAddr + 0x4b0) : 0;
+        if (guest::isHeapPtr(saved))
             alt = actor;
     }
     // The tick runs with the local player's body standing where the partner's ghost is (position and rotation, 0x30
@@ -913,7 +863,7 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // Resume at the original handler's entry, as a checkpoint there would.
     static bool yieldTarget = std::getenv("DRAKAN_COOP_TEST_TARGET_YIELD") != nullptr;
     const bool yieldNow = yieldTarget && g_st.aiGhostTicks > 60 && playerOfHandle(alt) > 0 &&
-                          std::abs(rdF(rdram, saved + 0x14) - rdF(rdram, alt + 0x14)) > 3000.0f;
+                          std::abs(guest::readF(rdram, saved + 0x14) - guest::readF(rdram, alt + 0x14)) > 3000.0f;
     try {
         ScopedAiTarget target(rdram + saved + 0x14, rdram + alt + 0x14, g_aiSwapActive);
         if (yieldNow) {
@@ -931,19 +881,19 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 }
 
 bool swapHandlerTo(uint8_t* rdram, uint32_t actor, uint32_t slot) {
-    const uint32_t inner = rd32(rdram, actor + 0xfc);
-    if (!ramPtr(inner) || !slot)
+    const uint32_t inner = guest::read32(rdram, actor + 0xfc);
+    if (!guest::isHeapPtr(inner) || !slot)
         return false;
-    const uint32_t cur = rd32(rdram, inner + 0x14);
+    const uint32_t cur = guest::read32(rdram, inner + 0x14);
     if (cur == slot)
         return true;
-    if (!ramPtr(cur))
+    if (!guest::isHeapPtr(cur))
         return false;
     {
         std::lock_guard<std::mutex> l(g_origM);
         g_orig[actor] = cur;
     }
-    wr32(rdram, inner + 0x14, slot);
+    guest::write32(rdram, inner + 0x14, slot);
     return true;
 }
 
@@ -957,10 +907,10 @@ bool restoreHandler(uint8_t* rdram, uint32_t actor) {
             return false;
         orig = it->second;
     }
-    const uint32_t inner = rd32(rdram, actor + 0xfc);
-    if (!ramPtr(inner))
+    const uint32_t inner = guest::read32(rdram, actor + 0xfc);
+    if (!guest::isHeapPtr(inner))
         return false;
-    wr32(rdram, inner + 0x14, orig);
+    guest::write32(rdram, inner + 0x14, orig);
     return true;
 }
 
@@ -1079,9 +1029,9 @@ void keyCreatures(const world::Snapshot& s) {
         const uint32_t me = controlled(g_rdramForLog);
         std::vector<std::pair<float, const world::EntitySnapshot*>> near;
         for (const auto& e : s.entities)
-            if (ramPtr(me) && (e.classId == kChestClass || isPickupEntity(e)))
-                near.push_back({std::hypot(e.position.x - rdF(g_rdramForLog, me + 0x14),
-                                           e.position.z - rdF(g_rdramForLog, me + 0x1c)),
+            if (guest::isHeapPtr(me) && (e.classId == kChestClass || isPickupEntity(e)))
+                near.push_back({std::hypot(e.position.x - guest::readF(g_rdramForLog, me + 0x14),
+                                           e.position.z - guest::readF(g_rdramForLog, me + 0x1c)),
                                 &e});
         std::sort(near.begin(), near.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         for (size_t i = 0; i < near.size() && i < 10; ++i)
@@ -1097,7 +1047,7 @@ bool refreshSnapshot(const uint8_t* rdram) {
 
 void destroyActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t eng = engineCtx(rdram);
-    if (!ramPtr(eng) || !ramPtr(actor))
+    if (!guest::isHeapPtr(eng) || !guest::isHeapPtr(actor))
         return;
     // The local copy may have been collected before the peer's ObjGone arrived. Never
     // leave a cell or hand pointing into the actor that the frame tail will free.
@@ -1107,7 +1057,7 @@ void destroyActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         world::readEntity(RdramMemory(rdram), g_globals, eng, me, owner) && owner.classId == world::kClassRynn;
     const uint32_t player = nativePlayer ? creatureData(rdram, me) : 0;
     const unsigned detached = world::detachInventoryItem(
-        owner.classId, player, actor, [&](uint32_t address) { return rd32(rdram, address); },
+        owner.classId, player, actor, [&](uint32_t address) { return guest::read32(rdram, address); },
         [&](uint32_t address, uint32_t value) { guest.write32(address, value); });
     if (detached)
         coopLog("pickup copy %08x: cleared %u inventory references before removal", actor, detached);
@@ -1122,12 +1072,12 @@ bool sendEngineMessage(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t sen
     constexpr uint32_t kScratchMsg =
         0x5b84c0u; // inside the speech controller's idle text buffer (drakan_pvp's scratch)
     const uint32_t ctx = engineCtx(rdram);
-    const uint32_t obj = ramPtr(ctx) ? rd32(rdram, ctx + 0x33c) : 0;
-    const uint32_t vt = ramPtr(obj) ? rd32(rdram, obj) : 0;
-    if (!ramPtr(vt) || guest.postBusy())
+    const uint32_t obj = guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x33c) : 0;
+    const uint32_t vt = guest::isHeapPtr(obj) ? guest::read32(rdram, obj) : 0;
+    if (!guest::isHeapPtr(vt) || guest.postBusy())
         return false;
-    const uint32_t fn = rd32(rdram, vt + 0x14);
-    const int16_t adj = static_cast<int16_t>(rd16(rdram, vt + 0x10));
+    const uint32_t fn = guest::read32(rdram, vt + 0x14);
+    const int16_t adj = static_cast<int16_t>(guest::read16(rdram, vt + 0x10));
     const uint32_t scratch = drakan_region::guestAddress(kScratchMsg);
     if (!fn || !scratch)
         return false;
@@ -1164,15 +1114,16 @@ void suppressFor(uint32_t key, uint16_t type, uint64_t ms) {
 // sync; object messages in the replay set give the door / lever sync.
 void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t sender = getRegU32(c, 5), target = getRegU32(c, 6), msg = getRegU32(c, 7);
-    if (!g_enabled.load(std::memory_order_relaxed) || !ramPtr(msg) || !ramPtr(target) || g_levelHash.load() == 0) {
+    if (!g_enabled.load(std::memory_order_relaxed) || !guest::isHeapPtr(msg) || !guest::isHeapPtr(target) ||
+        g_levelHash.load() == 0) {
         g_origSend(rdram, c, rt);
         return;
     }
-    const uint16_t type = rd16(rdram, msg);
+    const uint16_t type = guest::read16(rdram, msg);
     int32_t hpBefore = 0;
     uint32_t restoreHp = 0;
     if (type == kMsgDamage) {
-        int32_t dmg = static_cast<int32_t>(rd32(rdram, msg + 0x10));
+        int32_t dmg = static_cast<int32_t>(guest::read32(rdram, msg + 0x10));
         const uint32_t me = controlled(rdram);
         if (g_probe) {
             static uint32_t logged = 0;
@@ -1184,7 +1135,7 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         if (g_host) {
             if (g_damageScale != 1.0f && isLocalAttacker(rdram, sender) && g_keyed.count(target)) {
                 dmg = static_cast<int32_t>(dmg * g_damageScale);
-                wr32(rdram, msg + 0x10, static_cast<uint32_t>(dmg)); // test aid
+                guest::write32(rdram, msg + 0x10, static_cast<uint32_t>(dmg)); // test aid
             }
             if (g_aiSwapActive.load() && target == me) {
                 // The creature attacks the partner: the local player's body is standing on the ghost for this tick and
@@ -1230,8 +1181,8 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             const uint32_t cls = g_obj.count(target) ? g_obj[target].classId : 0;
             if (seen.insert({type, cls && cls != kChestClass ? cls : target}).second && seen.size() < 400)
                 coopLog("msg %04x sender %08x target %08x watched-class %x w8 %x wc %x w10 %x w14 %x", type, sender,
-                        target, cls, rd32(rdram, msg + 8), rd32(rdram, msg + 0xc), rd32(rdram, msg + 0x10),
-                        rd32(rdram, msg + 0x14));
+                        target, cls, guest::read32(rdram, msg + 8), guest::read32(rdram, msg + 0xc),
+                        guest::read32(rdram, msg + 0x10), guest::read32(rdram, msg + 0x14));
         }
         if (type == kMsgTaken && sender == target && it != g_obj.end() && it->second.pickup && !it->second.gone &&
             !g_aiSwapActive.load()) {
@@ -1254,8 +1205,8 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 } p{it->second.key,
                     type,
                     0,
-                    {int32_t(rd32(rdram, msg + 8)), int32_t(rd32(rdram, msg + 0xc)), int32_t(rd32(rdram, msg + 0x10)),
-                     int32_t(rd32(rdram, msg + 0x14))}};
+                    {int32_t(guest::read32(rdram, msg + 8)), int32_t(guest::read32(rdram, msg + 0xc)),
+                     int32_t(guest::read32(rdram, msg + 0x10)), int32_t(guest::read32(rdram, msg + 0x14))}};
                 pushReliable(kMsgObjMsg, &p, sizeof p);
                 ++g_st.msgSent;
                 coopLog("%s: object message %04x to %08x (class %x key %08x) -> peer", g_host ? "host" : "client", type,
@@ -1266,7 +1217,7 @@ void hookSend(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     }
     g_origSend(rdram, c, rt);
     if (restoreHp)
-        wr32(rdram, restoreHp + world::handle::kCreatureHp, static_cast<uint32_t>(hpBefore));
+        guest::write32(rdram, restoreHp + world::handle::kCreatureHp, static_cast<uint32_t>(hpBefore));
 }
 
 // -------------------------------------------------------------------------------------------------- per tick work
@@ -1308,8 +1259,8 @@ void hostEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
         else {
             // The claimant must be near: its own ghost within 3000 units of the creature (when that ghost exists).
             const uint32_t g = handleOfPlayer(cl.player);
-            if (g && std::hypot(rdF(rdram, g + 0x14) - rdF(rdram, h + 0x14),
-                                rdF(rdram, g + 0x1c) - rdF(rdram, h + 0x1c)) > 3000.0f)
+            if (g && std::hypot(guest::readF(rdram, g + 0x14) - guest::readF(rdram, h + 0x14),
+                                guest::readF(rdram, g + 0x1c) - guest::readF(rdram, h + 0x1c)) > 3000.0f)
                 why = "claimant too far";
         }
         if (why) {
@@ -1504,9 +1455,9 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
 void clientEvents(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (g_pendingHurt > 0 && !g_life.dead && !guest.postBusy()) {
         const uint32_t me = controlled(rdram);
-        const uint32_t inner = ramPtr(me) ? rd32(rdram, me + 0xfc) : 0;
-        const uint32_t data = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
-        if (ramPtr(data)) {
+        const uint32_t inner = guest::isHeapPtr(me) ? guest::read32(rdram, me + 0xfc) : 0;
+        const uint32_t data = guest::isHeapPtr(inner) ? guest::read32(rdram, inner + 0x10) : 0;
+        if (guest::isHeapPtr(data)) {
             // The engine's own death reloads the last save, so a damage that would kill is a co-op death instead
             // (startDeath); anything smaller goes through the engine's damage method (flinch, sound, HUD).
             const int32_t hp = playerHp(rdram);
@@ -1573,12 +1524,13 @@ void scanNewObjects() {
         coopLog("%s: new pickup %08x class %x type %u res %x at %.0f %.0f %.0f -> key %08x", g_host ? "host" : "client",
                 e.handle, e.classId, e.type, e.resourceId, e.position.x, e.position.y, e.position.z, o.key);
         if (g_probe && g_rdramForLog) { // what the loot is: the first words of its instance data (the gold amount)
-            const uint32_t in = rd32(g_rdramForLog, e.handle + 0xfc);
-            const uint32_t q = ramPtr(in) ? rd32(g_rdramForLog, in + 0x10) : 0;
-            if (ramPtr(q))
-                coopLog("  loot key %08x data: %08x %08x %08x %08x %08x %08x", o.key, rd32(g_rdramForLog, q + 0x10),
-                        rd32(g_rdramForLog, q + 0x14), rd32(g_rdramForLog, q + 0x18), rd32(g_rdramForLog, q + 0x1c),
-                        rd32(g_rdramForLog, q + 0x20), rd32(g_rdramForLog, q + 0x24));
+            const uint32_t in = guest::read32(g_rdramForLog, e.handle + 0xfc);
+            const uint32_t q = guest::isHeapPtr(in) ? guest::read32(g_rdramForLog, in + 0x10) : 0;
+            if (guest::isHeapPtr(q))
+                coopLog("  loot key %08x data: %08x %08x %08x %08x %08x %08x", o.key,
+                        guest::read32(g_rdramForLog, q + 0x10), guest::read32(g_rdramForLog, q + 0x14),
+                        guest::read32(g_rdramForLog, q + 0x18), guest::read32(g_rdramForLog, q + 0x1c),
+                        guest::read32(g_rdramForLog, q + 0x20), guest::read32(g_rdramForLog, q + 0x24));
         }
     }
 }
@@ -1598,9 +1550,9 @@ void probeDoors(const uint8_t* rdram) {
     uint32_t nearest = 0, nearestChest = 0;
     float best = 1e30f, bestChest = 1e30f;
     for (auto& [h, o] : g_obj)
-        if ((o.classId == 0x10013u || o.classId == kChestClass) && ramPtr(me)) {
-            const float d =
-                std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14), rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c));
+        if ((o.classId == 0x10013u || o.classId == kChestClass) && guest::isHeapPtr(me)) {
+            const float d = std::hypot(guest::readF(rdram, h + 0x14) - guest::readF(rdram, me + 0x14),
+                                       guest::readF(rdram, h + 0x1c) - guest::readF(rdram, me + 0x1c));
             float& b = o.classId == kChestClass ? bestChest : best;
             uint32_t& n = o.classId == kChestClass ? nearestChest : nearest;
             if (d < b) {
@@ -1611,23 +1563,23 @@ void probeDoors(const uint8_t* rdram) {
     for (auto& [h, o] : g_obj) {
         if ((o.classId != 0x10013u && o.classId != kChestClass) || (h != nearest && h != nearestChest))
             continue; // only the door and the chest nearest to the player are watched (the rest is noise)
-        const uint32_t inner = rd32(rdram, h + 0xfc);
-        const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
+        const uint32_t inner = guest::read32(rdram, h + 0xfc);
+        const uint32_t q = guest::isHeapPtr(inner) ? guest::read32(rdram, inner + 0x10) : 0;
         auto it = g_doorProbe.find(h);
         if (it == g_doorProbe.end()) {
             DoorProbe d;
             for (uint32_t i = 0; i < 0x40; ++i)
-                d.h.push_back(rd32(rdram, h + i * 4));
-            if (ramPtr(q))
+                d.h.push_back(guest::read32(rdram, h + i * 4));
+            if (guest::isHeapPtr(q))
                 for (uint32_t i = 0; i < 0x80; ++i)
-                    d.q.push_back(rd32(rdram, q + i * 4));
+                    d.q.push_back(guest::read32(rdram, q + i * 4));
             d.qaddr = q;
             g_doorProbe[h] = d;
             continue;
         }
         DoorProbe& d = it->second;
         for (uint32_t i = 0; i < d.h.size() && budget; ++i) {
-            const uint32_t v = rd32(rdram, h + i * 4);
+            const uint32_t v = guest::read32(rdram, h + i * 4);
             if (v != d.h[i]) {
                 if (++d.changes[i * 4] > 4) {
                     d.h[i] = v;
@@ -1641,7 +1593,7 @@ void probeDoors(const uint8_t* rdram) {
             }
         }
         for (uint32_t i = 0; i < d.q.size() && budget && q == d.qaddr; ++i) {
-            const uint32_t v = rd32(rdram, q + i * 4);
+            const uint32_t v = guest::read32(rdram, q + i * 4);
             if (v != d.q[i]) {
                 if (++d.changes[0x10000u | i * 4] > 4) {
                     d.q[i] = v;
@@ -1679,9 +1631,9 @@ constexpr uint64_t kSpewWaitMs = 10000;  // client: how long a spew waits for th
 
 // The chest component of a chest actor (actor+0xfc), or 0.
 uint32_t chestComp(const uint8_t* rdram, uint32_t actor) {
-    const uint32_t comp = rd32(rdram, actor + 0xfc);
-    if (!ramPtr(comp) || rd32(rdram, comp + 0xc) != drakan_region::guestAddress(kChestVtbl) ||
-        rd32(rdram, comp + 8) != actor)
+    const uint32_t comp = guest::read32(rdram, actor + 0xfc);
+    if (!guest::isHeapPtr(comp) || guest::read32(rdram, comp + 0xc) != drakan_region::guestAddress(kChestVtbl) ||
+        guest::read32(rdram, comp + 8) != actor)
         return 0;
     return comp;
 }
@@ -1689,44 +1641,44 @@ uint32_t chestComp(const uint8_t* rdram, uint32_t actor) {
 // The chest's gold budget cell in the generator's table (12-byte entries {actor, budget, ?}), or 0.
 uint32_t goldBudgetCell(const uint8_t* rdram, uint32_t actor) {
     const uint32_t gen = drakan_region::guestAddress(kGoldGen);
-    const uint32_t tab = rd32(rdram, gen + 0x18);
-    const int32_t n = static_cast<int32_t>(rd32(rdram, gen + 0x20));
-    if (!ramPtr(tab) || n <= 0 || n > 4096)
+    const uint32_t tab = guest::read32(rdram, gen + 0x18);
+    const int32_t n = static_cast<int32_t>(guest::read32(rdram, gen + 0x20));
+    if (!guest::isHeapPtr(tab) || n <= 0 || n > 4096)
         return 0;
     for (int32_t i = 0; i < n; ++i)
-        if (rd32(rdram, tab + i * 12u) == actor)
+        if (guest::read32(rdram, tab + i * 12u) == actor)
             return tab + i * 12u + 4;
     return 0;
 }
 
 uint32_t rngStateAddr(const uint8_t* rdram) {
-    const uint32_t blk = rd32(rdram, drakan_region::guestAddress(kRngPtr));
-    return ramPtr(blk) ? blk + 0x58 : 0;
+    const uint32_t blk = guest::read32(rdram, drakan_region::guestAddress(kRngPtr));
+    return guest::isHeapPtr(blk) ? blk + 0x58 : 0;
 }
 
 // Items near a chest that opens fly out of it: their start position is not where "taken" is measured from.
 void rebaseLoot(const uint8_t* rdram, uint32_t chest, uint64_t now) {
     for (auto& [h, o] : g_obj)
         if (o.pickup && !o.gone &&
-            std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, chest + 0x14),
-                       rdF(rdram, h + 0x1c) - rdF(rdram, chest + 0x1c)) < 3000.0f)
+            std::hypot(guest::readF(rdram, h + 0x14) - guest::readF(rdram, chest + 0x14),
+                       guest::readF(rdram, h + 0x1c) - guest::readF(rdram, chest + 0x1c)) < 3000.0f)
             o.rebaseUntilMs = now + 10000;
 }
 
 // Probe: the gold generator's denomination table (12-byte entries {?, flag, amount}) as one log line.
 void logGoldTable(const uint8_t* rdram, const char* who, uint32_t key) {
     const uint32_t gen = drakan_region::guestAddress(kGoldGen);
-    const uint32_t tab = rd32(rdram, gen);
-    const int32_t n = static_cast<int32_t>(rd32(rdram, gen + 8));
-    if (!ramPtr(tab) || n <= 0 || n > 64)
+    const uint32_t tab = guest::read32(rdram, gen);
+    const int32_t n = static_cast<int32_t>(guest::read32(rdram, gen + 8));
+    if (!guest::isHeapPtr(tab) || n <= 0 || n > 64)
         return;
     char buf[300];
     int len = std::snprintf(buf, sizeof buf, "%s: gold table at chest %08x (%d entries, carry %d):", who, key, n,
-                            static_cast<int32_t>(rd32(rdram, gen + 0x24)));
+                            static_cast<int32_t>(guest::read32(rdram, gen + 0x24)));
     for (int32_t i = 0; i < n && len < 260; ++i)
-        len +=
-            std::snprintf(buf + len, sizeof buf - len, " %d/%d", static_cast<int32_t>(rd32(rdram, tab + i * 12u + 4)),
-                          static_cast<int32_t>(rd32(rdram, tab + i * 12u + 8)));
+        len += std::snprintf(buf + len, sizeof buf - len, " %d/%d",
+                             static_cast<int32_t>(guest::read32(rdram, tab + i * 12u + 4)),
+                             static_cast<int32_t>(guest::read32(rdram, tab + i * 12u + 8)));
     coopLog("%s", buf);
 }
 
@@ -1751,14 +1703,14 @@ void addChild(uint32_t handle, uint32_t chestKey, uint32_t ordinal, uint32_t ref
 }
 
 void keyChestChildren(const uint8_t* rdram, uint32_t chest, uint32_t chestKey) {
-    const uint32_t refs = rd32(rdram, chest + 0x90);
-    const int32_t n = static_cast<int32_t>(rd32(rdram, chest + 0x98));
+    const uint32_t refs = guest::read32(rdram, chest + 0x90);
+    const int32_t n = static_cast<int32_t>(guest::read32(rdram, chest + 0x98));
     const uint32_t ctx = engineCtx(rdram);
-    if (!ramPtr(refs) || n <= 0 || n > 64 || !ramPtr(ctx))
+    if (!guest::isHeapPtr(refs) || n <= 0 || n > 64 || !guest::isHeapPtr(ctx))
         return;
     for (int32_t i = 0; i < n; ++i) {
-        const uint32_t child = registryObject(rdram, rd16(rdram, refs + 2u * i));
-        if (!ramPtr(child) || rd32(rdram, child + 0xc) != 11)
+        const uint32_t child = registryObject(rdram, guest::read16(rdram, refs + 2u * i));
+        if (!guest::isHeapPtr(child) || guest::read32(rdram, child + 0xc) != 11)
             continue;
         world::EntitySnapshot e;
         if (!world::readEntity(RdramMemory(rdram), g_globals, ctx, child, e))
@@ -1832,10 +1784,10 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (g_host) {
         if (!cs.firstCall && seedAt) {
             cs.firstCall = true;
-            const uint32_t cell = goldBudgetCell(rdram, rd32(rdram, comp + 8));
-            cs.seed = rd32(rdram, seedAt);
-            cs.carry = rd32(rdram, carryAt);
-            cs.budget = cell ? static_cast<int32_t>(rd32(rdram, cell)) : kNoBudget;
+            const uint32_t cell = goldBudgetCell(rdram, guest::read32(rdram, comp + 8));
+            cs.seed = guest::read32(rdram, seedAt);
+            cs.carry = guest::read32(rdram, carryAt);
+            cs.budget = cell ? static_cast<int32_t>(guest::read32(rdram, cell)) : kNoBudget;
             cs.seq = ++g_spewSeq;
             sendSpew(key, cs.seed, cs.carry, cs.budget, cs.seq);
             if (g_probe)
@@ -1844,13 +1796,13 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                     cs.seed, int32_t(cs.carry), cs.budget);
         }
         runSpew(rdram, c, rt);
-        keyChestChildren(rdram, rd32(rdram, comp + 8), key);
+        keyChestChildren(rdram, guest::read32(rdram, comp + 8), key);
         if (g_probe) {
             static uint32_t shown = 0;
             if (shown++ < 40)
                 coopLog("host: chest key %08x spew call: %s, result %u, %d children listed", key,
                         c->pc == ra ? "returned" : "preempted", getRegU32(c, 2),
-                        static_cast<int32_t>(rd32(rdram, rd32(rdram, comp + 8) + 0x98)));
+                        static_cast<int32_t>(guest::read32(rdram, guest::read32(rdram, comp + 8) + 0x98)));
         }
         if (c->pc == ra && getRegU32(c, 2) != 0)
             cs.spewDone = true;
@@ -1892,15 +1844,15 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (apply) {
         cs.applied = true;
         cs.appliedMs = nowMs();
-        wr32(rdram, seedAt, cs.seed);
-        wr32(rdram, carryAt, cs.carry);
+        guest::write32(rdram, seedAt, cs.seed);
+        guest::write32(rdram, carryAt, cs.carry);
         // The gold each chest holds was dealt out with the engine's RNG: the host's number wins (none: no gold).
         const int32_t want = cs.budget == kNoBudget ? 0 : cs.budget;
-        if (const uint32_t cell = goldBudgetCell(rdram, rd32(rdram, comp + 8))) {
-            if (static_cast<int32_t>(rd32(rdram, cell)) != want)
+        if (const uint32_t cell = goldBudgetCell(rdram, guest::read32(rdram, comp + 8))) {
+            if (static_cast<int32_t>(guest::read32(rdram, cell)) != want)
                 coopLog("client: chest key %08x: gold budget %d here, %d on the host: using the host's", key,
-                        static_cast<int32_t>(rd32(rdram, cell)), want);
-            wr32(rdram, cell, static_cast<uint32_t>(want));
+                        static_cast<int32_t>(guest::read32(rdram, cell)), want);
+            guest::write32(rdram, cell, static_cast<uint32_t>(want));
         } else if (want) {
             coopLog("client: chest key %08x: no gold budget entry here (the host had %d)", key, want);
         }
@@ -1910,7 +1862,7 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                 int32_t(cs.carry), cs.budget);
     }
     runSpew(rdram, c, rt);
-    keyChestChildren(rdram, rd32(rdram, comp + 8), key);
+    keyChestChildren(rdram, guest::read32(rdram, comp + 8), key);
     // The RNG state is left as the spew made it: a preempted spew carries on later with it (putting the local state
     // back now would hand the rest of the loot to the wrong random stream), and the stream stays random either way.
     if (g_probe) {
@@ -1927,16 +1879,17 @@ void hookSpew(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // origin) is thrown out by asking the spew again: the gold generator has nothing left to do, the launch loop takes
 // every child of the chest.
 int parkedLoot(const uint8_t* rdram, uint32_t chest) {
-    const uint32_t refs = rd32(rdram, chest + 0x90);
-    const int32_t n = static_cast<int32_t>(rd32(rdram, chest + 0x98));
-    if (!ramPtr(refs) || n <= 0 || n > 64)
+    const uint32_t refs = guest::read32(rdram, chest + 0x90);
+    const int32_t n = static_cast<int32_t>(guest::read32(rdram, chest + 0x98));
+    if (!guest::isHeapPtr(refs) || n <= 0 || n > 64)
         return 0;
     int parked = 0;
     for (int32_t i = 0; i < n; ++i) {
-        const uint32_t child = registryObject(rdram, rd16(rdram, refs + 2u * i));
-        if (!ramPtr(child) || rd32(rdram, child + 0xc) != 11)
+        const uint32_t child = registryObject(rdram, guest::read16(rdram, refs + 2u * i));
+        if (!guest::isHeapPtr(child) || guest::read32(rdram, child + 0xc) != 11)
             continue;
-        if (std::fabs(rdF(rdram, child + 0x14)) < 20000.0f && std::fabs(rdF(rdram, child + 0x1c)) < 20000.0f)
+        if (std::fabs(guest::readF(rdram, child + 0x14)) < 20000.0f &&
+            std::fabs(guest::readF(rdram, child + 0x1c)) < 20000.0f)
             ++parked;
     }
     return parked;
@@ -1989,7 +1942,7 @@ void pollChests(drakan_input::IGuest& guest, uint8_t* rdram) {
         if (cs.firstCall || cs.applied)
             spewed.emplace_back(h, o.key);
         healChest(guest, rdram, h, comp, cs, o.key);
-        const int32_t st = static_cast<int32_t>(rd32(rdram, comp + 0x10));
+        const int32_t st = static_cast<int32_t>(guest::read32(rdram, comp + 0x10));
         if (!cs.inited) {
             cs.inited = true;
             if (st == kStateChestOpen)
@@ -1997,9 +1950,9 @@ void pollChests(drakan_input::IGuest& guest, uint8_t* rdram) {
             if (g_probe) {
                 const uint32_t cell = goldBudgetCell(rdram, h);
                 coopLog("chest %08x key %08x: state %d, lid ref %u, side vector %.2f %.2f %.2f, delay %.2f, gold %d", h,
-                        o.key, st, rd32(rdram, comp + 0x18) & 0xffffu, rdF(rdram, comp + 0x1c), rdF(rdram, comp + 0x20),
-                        rdF(rdram, comp + 0x24), rdF(rdram, comp + 0x14),
-                        cell ? static_cast<int32_t>(rd32(rdram, cell)) : -1);
+                        o.key, st, guest::read32(rdram, comp + 0x18) & 0xffffu, guest::readF(rdram, comp + 0x1c),
+                        guest::readF(rdram, comp + 0x20), guest::readF(rdram, comp + 0x24),
+                        guest::readF(rdram, comp + 0x14), cell ? static_cast<int32_t>(guest::read32(rdram, cell)) : -1);
             }
         }
         if (st == kStateChestOpen && !cs.openSeen) {
@@ -2037,11 +1990,11 @@ void pollDoors(const uint8_t* rdram) {
     for (auto& [h, o] : g_obj) {
         if (o.classId != 0x10013u || !world::isLiveHandle(mem, g_globals, h, o.ref - 1))
             continue;
-        const uint32_t inner = rd32(rdram, h + 0xfc);
-        const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
-        if (!ramPtr(q))
+        const uint32_t inner = guest::read32(rdram, h + 0xfc);
+        const uint32_t q = guest::isHeapPtr(inner) ? guest::read32(rdram, inner + 0x10) : 0;
+        if (!guest::isHeapPtr(q))
             continue;
-        const int now = rd32(rdram, q + 0x10) == static_cast<uint32_t>(kStateDoorOpen) ? 1 : 0;
+        const int now = guest::read32(rdram, q + 0x10) == static_cast<uint32_t>(kStateDoorOpen) ? 1 : 0;
         if (o.doorState >= 0 && now != o.doorState) {
             coopLog("%s: door %08x (key %08x) %s", g_host ? "host" : "client", h, o.key,
                     now ? "opened" : "closed again");
@@ -2086,7 +2039,8 @@ void watchObjects(const uint8_t* rdram) {
         const char* how = "left the registry";
         if (world::isLiveHandle(mem, g_globals, h, o.ref - 1)) {
             // A loose item that was picked up is not destroyed: it goes into the inventory (moved far away).
-            const float p[3] = {rdF(rdram, h + 0x14), rdF(rdram, h + 0x18), rdF(rdram, h + 0x1c)};
+            const float p[3] = {guest::readF(rdram, h + 0x14), guest::readF(rdram, h + 0x18),
+                                guest::readF(rdram, h + 0x1c)};
             if (!std::isfinite(p[0]))
                 continue;
             if (o.pos0[0] == 0.0f && o.pos0[1] == 0.0f && o.pos0[2] == 0.0f) { // spawned at the origin, not placed yet
@@ -2141,9 +2095,9 @@ void hostTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash) {
                 ++deaths;
             }
         for (auto& [h, o] : g_obj) {
-            const uint32_t inner = rd32(rdram, h + 0xfc);
-            const uint32_t q = ramPtr(inner) ? rd32(rdram, inner + 0x10) : 0;
-            if (o.classId == 0x10013u && ramPtr(q) && rd32(rdram, q + 0x10) == 1 &&
+            const uint32_t inner = guest::read32(rdram, h + 0xfc);
+            const uint32_t q = guest::isHeapPtr(inner) ? guest::read32(rdram, inner + 0x10) : 0;
+            if (o.classId == 0x10013u && guest::isHeapPtr(q) && guest::read32(rdram, q + 0x10) == 1 &&
                 world::isLiveHandle(RdramMemory(rdram), g_globals, h, o.ref - 1)) {
                 struct {
                     uint32_t key;
@@ -2322,7 +2276,8 @@ void clientTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash,
             ++dead;
             continue;
         }
-        const float pos[3] = {rdF(rdram, h + 0x14), rdF(rdram, h + 0x18), rdF(rdram, h + 0x1c)};
+        const float pos[3] = {guest::readF(rdram, h + 0x14), guest::readF(rdram, h + 0x18),
+                              guest::readF(rdram, h + 0x1c)};
         const float err =
             std::sqrt((pos[0] - e.pos[0]) * (pos[0] - e.pos[0]) + (pos[2] - e.pos[2]) * (pos[2] - e.pos[2]));
         if (!k.matched) {
@@ -2357,12 +2312,12 @@ void clientTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t levelHash,
         ++swapped;
         const float a = err > 3000.0f ? 1.0f : alpha;
         for (int i = 0; i < 3; ++i)
-            wrF(rdram, h + 0x14 + 4 * i, pos[i] + (e.pos[i] - pos[i]) * a);
+            guest::writeF(rdram, h + 0x14 + 4 * i, pos[i] + (e.pos[i] - pos[i]) * a);
         // Pure yaw rotation, the reader's convention (yaw = atan2(m[0][2], m[0][0])).
         const float cs = std::cos(e.yaw), sn = std::sin(e.yaw);
         const float rot[9] = {cs, 0, sn, 0, 1, 0, -sn, 0, cs};
         for (int i = 0; i < 9; ++i)
-            wrF(rdram, h + 0x20 + 4 * i, rot[i]);
+            guest::writeF(rdram, h + 0x20 + 4 * i, rot[i]);
         setCreatureHp(rdram, h, e.hp);
         // A host write of the position does not move the actor in the collision cells; the player's blade only finds
         // actors in the cell lists (the same fix as for ghosts, pvp.md), so a proxy that moved is filed again.
@@ -2421,14 +2376,14 @@ uint64_t g_lastTestClaim = 0, g_lastForcedLog = 0;
 void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (g_god) {
         const uint32_t S = drakan_region::guestAddress(0x4fbac8u);
-        const uint32_t key = rd32(rdram, g_globals.hpKey);
+        const uint32_t key = guest::read32(rdram, g_globals.hpKey);
         auto dec = [&](uint32_t off) {
-            const uint32_t raw = rd32(rdram, S + off) ^ key;
+            const uint32_t raw = guest::read32(rdram, S + off) ^ key;
             return (raw >> 8) | (raw << 24);
         };
         const uint32_t mx = dec(0x10);
         if (mx && mx < 100000u)
-            wr32(rdram, S + 0xc, ((mx << 8) | (mx >> 24)) ^ key);
+            guest::write32(rdram, S + 0xc, ((mx << 8) | (mx >> 24)) ^ key);
     }
     static uint32_t fileTick = 0;
     ++fileTick;
@@ -2438,8 +2393,8 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
         static float prev[2] = {};
         static bool havePrev = false;
         const uint32_t me = controlled(rdram);
-        if (ramPtr(me)) {
-            const float x = rdF(rdram, me + 0x14), z = rdF(rdram, me + 0x1c);
+        if (guest::isHeapPtr(me)) {
+            const float x = guest::readF(rdram, me + 0x14), z = guest::readF(rdram, me + 0x1c);
             const float dx = x - prev[0], dz = z - prev[1], d = std::hypot(dx, dz);
             if (havePrev && d > 3.0f && d < 400.0f) {
                 g_moveDir[0] = dx / d;
@@ -2459,7 +2414,7 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
         }
     if (go) {
         const uint32_t me = controlled(rdram);
-        if (ramPtr(me)) {
+        if (guest::isHeapPtr(me)) {
             for (int i = 0; i < 3; ++i)
                 guest.writeF(me + 0x14 + 4u * i, g_goto.p[i]);
             drakan_ghost::refileActor(guest, me);
@@ -2480,10 +2435,10 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
             uint32_t bestH = 0;
             float best = 1e30f;
             for (auto& [h, o] : g_obj)
-                if (ramPtr(me) && o.classId == g_to.cls && !o.gone && (!g_to.key || o.key == g_to.key) &&
+                if (guest::isHeapPtr(me) && o.classId == g_to.cls && !o.gone && (!g_to.key || o.key == g_to.key) &&
                     world::isLiveHandle(mem, g_globals, h, o.ref - 1)) {
-                    const float d = std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14),
-                                               rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c));
+                    const float d = std::hypot(guest::readF(rdram, h + 0x14) - guest::readF(rdram, me + 0x14),
+                                               guest::readF(rdram, h + 0x1c) - guest::readF(rdram, me + 0x1c));
                     if (d < best) {
                         best = d;
                         bestH = h;
@@ -2491,7 +2446,7 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
                 }
             if (bestH) {
                 // The player's forward axis is row 2 of her matrix (+0x38 / +0x40): she ends up facing the object.
-                float fx = rdF(rdram, me + 0x38), fz = rdF(rdram, me + 0x40);
+                float fx = guest::readF(rdram, me + 0x38), fz = guest::readF(rdram, me + 0x40);
                 float fl = std::max(1e-3f, std::hypot(fx, fz));
                 fx /= fl;
                 fz /= fl;
@@ -2501,25 +2456,26 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
                 }
                 if (const uint32_t comp = g_to.cls == kChestClass ? chestComp(rdram, bestH) : 0) {
                     // A chest opens for a player on its open side (the component's vector, +0x1c): stand along it.
-                    const float vx = rdF(rdram, comp + 0x1c), vz = rdF(rdram, comp + 0x24);
+                    const float vx = guest::readF(rdram, comp + 0x1c), vz = guest::readF(rdram, comp + 0x24);
                     const float vl = std::hypot(vx, vz);
                     if (vl > 1e-3f) {
                         fx = vx / vl;
                         fz = vz / vl;
                     }
                 }
-                guest.writeF(me + 0x14, rdF(rdram, bestH + 0x14) + g_to.dist * fx);
-                guest.writeF(me + 0x18, rdF(rdram, bestH + 0x18) + 60.0f);
-                guest.writeF(me + 0x1c, rdF(rdram, bestH + 0x1c) + g_to.dist * fz);
+                guest.writeF(me + 0x14, guest::readF(rdram, bestH + 0x14) + g_to.dist * fx);
+                guest.writeF(me + 0x18, guest::readF(rdram, bestH + 0x18) + 60.0f);
+                guest.writeF(me + 0x1c, guest::readF(rdram, bestH + 0x1c) + g_to.dist * fz);
                 drakan_ghost::refileActor(guest, me);
                 coopLog("test: stood %.0f units in front of %08x (class %x, was %.0f away)", g_to.dist, bestH, g_to.cls,
                         best);
                 coopLog("test: chest at %.0f %.0f, me at %.0f %.0f, moveDir %d %.2f %.2f, row0 %.2f %.2f %.2f row2 "
                         "%.2f %.2f %.2f",
-                        rdF(rdram, bestH + 0x14), rdF(rdram, bestH + 0x1c), rdF(rdram, me + 0x14),
-                        rdF(rdram, me + 0x1c), g_haveMoveDir, g_moveDir[0], g_moveDir[1], rdF(rdram, me + 0x20),
-                        rdF(rdram, me + 0x24), rdF(rdram, me + 0x28), rdF(rdram, me + 0x38), rdF(rdram, me + 0x3c),
-                        rdF(rdram, me + 0x40));
+                        guest::readF(rdram, bestH + 0x14), guest::readF(rdram, bestH + 0x1c),
+                        guest::readF(rdram, me + 0x14), guest::readF(rdram, me + 0x1c), g_haveMoveDir, g_moveDir[0],
+                        g_moveDir[1], guest::readF(rdram, me + 0x20), guest::readF(rdram, me + 0x24),
+                        guest::readF(rdram, me + 0x28), guest::readF(rdram, me + 0x38), guest::readF(rdram, me + 0x3c),
+                        guest::readF(rdram, me + 0x40));
                 g_to.done = true;
                 g_to.lastMs = nowMs();
             }
@@ -2533,17 +2489,17 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
             const uint32_t me = controlled(rdram);
             const auto gs = ghostHandles();
             int moved = 0;
-            if (ramPtr(me))
+            if (guest::isHeapPtr(me))
                 for (auto& [h, k] : g_keyed) {
                     if (moved >= g_summon.count || k.resId != g_summon.res || creatureHp(rdram, h) <= 0)
                         continue;
                     const uint32_t anchor = (moved % 2 == 1 && !gs.empty()) ? gs.front() : me;
                     // In front of the anchor (its matrix row 2 is the forward axis), 450 units away.
-                    const float fx = rdF(rdram, anchor + 0x38), fz = rdF(rdram, anchor + 0x40);
+                    const float fx = guest::readF(rdram, anchor + 0x38), fz = guest::readF(rdram, anchor + 0x40);
                     const float fl = std::max(1e-3f, std::hypot(fx, fz));
-                    guest.writeF(h + 0x14, rdF(rdram, anchor + 0x14) + 450.0f * fx / fl);
-                    guest.writeF(h + 0x18, rdF(rdram, anchor + 0x18) + 20.0f);
-                    guest.writeF(h + 0x1c, rdF(rdram, anchor + 0x1c) + 450.0f * fz / fl);
+                    guest.writeF(h + 0x14, guest::readF(rdram, anchor + 0x14) + 450.0f * fx / fl);
+                    guest.writeF(h + 0x18, guest::readF(rdram, anchor + 0x18) + 20.0f);
+                    guest.writeF(h + 0x1c, guest::readF(rdram, anchor + 0x1c) + 450.0f * fz / fl);
                     drakan_ghost::refileActor(guest, h);
                     coopLog("test: creature %08x (key %08x, hp %d) moved beside %s", h, k.key, creatureHp(rdram, h),
                             anchor == me ? "the local player" : "the partner's ghost");
@@ -2559,10 +2515,11 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
         const uint32_t me = controlled(rdram);
         for (uint32_t h : g_forced)
             coopLog("test: forced creature %08x at %.0f %.0f %.0f hp %d, %.0f units from the local player, target %s",
-                    h, rdF(rdram, h + 0x14), rdF(rdram, h + 0x18), rdF(rdram, h + 0x1c), creatureHp(rdram, h),
-                    ramPtr(me) ? std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14),
-                                            rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c))
-                               : -1.0,
+                    h, guest::readF(rdram, h + 0x14), guest::readF(rdram, h + 0x18), guest::readF(rdram, h + 0x1c),
+                    creatureHp(rdram, h),
+                    guest::isHeapPtr(me) ? std::hypot(guest::readF(rdram, h + 0x14) - guest::readF(rdram, me + 0x14),
+                                                      guest::readF(rdram, h + 0x1c) - guest::readF(rdram, me + 0x1c))
+                                         : -1.0,
                     g_aiLast.count(h) && g_aiLast[h] ? "ghost" : "player");
     }
     if (!g_takeFile.empty() && !g_takeDone && g_keyedThisLevel && fileTick % 20 == 3) {
@@ -2586,10 +2543,10 @@ void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
         float best = 1e30f;
         uint32_t bk = 0, bh = 0;
         for (auto& [h, k] : g_keyed) {
-            if (!k.swapped || k.dying || !ramPtr(me))
+            if (!k.swapped || k.dying || !guest::isHeapPtr(me))
                 continue;
-            const float d =
-                std::hypot(rdF(rdram, h + 0x14) - rdF(rdram, me + 0x14), rdF(rdram, h + 0x1c) - rdF(rdram, me + 0x1c));
+            const float d = std::hypot(guest::readF(rdram, h + 0x14) - guest::readF(rdram, me + 0x14),
+                                       guest::readF(rdram, h + 0x1c) - guest::readF(rdram, me + 0x1c));
             if (d < best) {
                 best = d;
                 bk = k.key;

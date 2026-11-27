@@ -12,6 +12,7 @@
 #include "hle/SaveUpgrade.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "settings/Hud.h"
 
 #include <algorithm>
@@ -271,17 +272,9 @@ void hookValidate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     c->pc = getRegU32(c, 31);
 }
 
-uint32_t rd32(const uint8_t* rdram, uint32_t a) {
-    uint32_t v;
-    std::memcpy(&v, rdram + (a & PS2_RAM_MASK & ~3u), 4);
-    return v;
-}
-void wr32(uint8_t* rdram, uint32_t a, uint32_t v) {
-    std::memcpy(rdram + (a & PS2_RAM_MASK & ~3u), &v, 4);
-}
+// A screen / message box object (KSEG pointers accepted): the 0x200 bytes the hooks touch lie in guest RAM.
 bool okPtr(uint32_t a) {
-    a &= 0x1fffffffu;
-    return a >= 0x100000u && a < PS2_RAM_SIZE - 0x200u;
+    return guest::isHeapPtr(guest::phys(a), 0x200u);
 }
 
 // 43d028(screen, widget): Load screen confirm. A refused save never reaches the in-game question or the load: the
@@ -289,12 +282,12 @@ bool okPtr(uint32_t a) {
 void hookLoadAsk(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t screen = getRegU32(c, 4) & 0x1fffffffu;
     if (c->pc != drakan_region::guestAddress(kLoadAsk) || !okPtr(screen) || g_box.busy || !g_trampoline ||
-        rd32(rdram, screen + kScreenId) != kScreenLoad) {
+        guest::read32(rdram, screen + kScreenId) != kScreenLoad) {
         g_origLoadAsk(rdram, c, rt);
         return;
     }
-    const uint32_t sel = rd32(rdram, screen + kSelection), count = rd32(rdram, screen + kCount);
-    const uint32_t entries = rd32(rdram, screen + kEntries) & 0x1fffffffu;
+    const uint32_t sel = guest::read32(rdram, screen + kSelection), count = guest::read32(rdram, screen + kCount);
+    const uint32_t entries = guest::read32(rdram, screen + kEntries) & 0x1fffffffu;
     if (sel >= count || sel >= 4 || !okPtr(entries)) {
         g_origLoadAsk(rdram, c, rt);
         return;
@@ -312,7 +305,7 @@ void hookLoadAsk(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     std::memcpy(&flags, rdram + screen + kFlags, 2);
     flags |= 2u; // a box is up (as 43d028 marks its question): the screen's own card check waits for it
     std::memcpy(rdram + screen + kFlags, &flags, 2);
-    wr32(rdram, screen + kBoxState, 0); // its answer arms nothing (not 5 = load, not 2 = close the screen)
+    guest::write32(rdram, screen + kBoxState, 0); // its answer arms nothing (not 5 = load, not 2 = close the screen)
     g_box = {true, screen, getRegU32(c, 31)};
     const uint32_t minusOne = 0xbf800000u;
     std::memcpy(&c->f[12], &minusOne, 4);
@@ -325,8 +318,8 @@ void hookLoadAsk(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 void trampoline(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t box = getRegU32(c, 2) & 0x1fffffffu;
     if (g_box.busy && okPtr(box)) {
-        wr32(rdram, box + kBoxCardMode, 2);
-        wr32(rdram, box + kBoxCallback, g_box.screen + kCallbackNode);
+        guest::write32(rdram, box + kBoxCardMode, 2);
+        guest::write32(rdram, box + kBoxCallback, g_box.screen + kCallbackNode);
     } else {
         std::fprintf(stderr, "[saves] native Load screen: the message box was not created\n");
     }

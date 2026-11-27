@@ -13,6 +13,7 @@
 #include "net/WeaponTable.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 
 #include <algorithm>
 #include <atomic>
@@ -90,30 +91,6 @@ struct RespawnReq {
     uint16_t health = 100;
 } g_resp;
 
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint32_t v = 0;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 4);
-    return v;
-}
-uint16_t rd16(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint16_t v = 0;
-    if (a + 2 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 2);
-    return v;
-}
-float rdf(const uint8_t* ram, uint32_t a) {
-    const uint32_t v = rd32(ram, a);
-    float f;
-    std::memcpy(&f, &v, 4);
-    return f;
-}
-bool ramPtr(uint32_t p) {
-    return p >= 0x100000u && p < PS2_RAM_SIZE;
-}
-
 uint32_t rotr8(uint32_t x) {
     return (x >> 8) | (x << 24);
 }
@@ -124,14 +101,14 @@ uint32_t rotl8(uint32_t x) {
 // Local player's HP block: dec(S+0xc) / dec(S+0x10) (max), dec(x) = rotr32(x ^ key, 8), enc(v) = rotl32(v, 8) ^ key.
 int32_t playerHp(const uint8_t* rdram) {
     return static_cast<int32_t>(
-        rotr8(rd32(rdram, guestAddress(kStatsBlock) + 0xc) ^ rd32(rdram, guestAddress(kHpKey))));
+        rotr8(guest::read32(rdram, guestAddress(kStatsBlock) + 0xc) ^ guest::read32(rdram, guestAddress(kHpKey))));
 }
 int32_t playerHpMax(const uint8_t* rdram) {
     return static_cast<int32_t>(
-        rotr8(rd32(rdram, guestAddress(kStatsBlock) + 0x10) ^ rd32(rdram, guestAddress(kHpKey))));
+        rotr8(guest::read32(rdram, guestAddress(kStatsBlock) + 0x10) ^ guest::read32(rdram, guestAddress(kHpKey))));
 }
 void setPlayerHp(uint8_t* rdram, int32_t hp) {
-    const uint32_t raw = rotl8(static_cast<uint32_t>(hp)) ^ rd32(rdram, guestAddress(kHpKey));
+    const uint32_t raw = rotl8(static_cast<uint32_t>(hp)) ^ guest::read32(rdram, guestAddress(kHpKey));
     std::memcpy(rdram + ((guestAddress(kStatsBlock) + 0xc) & PS2_RAM_MASK), &raw, 4);
 }
 // The server counts health on a 100 point bar (MatchConfig.startHealth); Rynn's own maximum is whatever her level
@@ -142,19 +119,19 @@ int engineUnits(const uint8_t* rdram, int serverPoints) {
 }
 
 uint32_t registryObject(const uint8_t* rdram, uint32_t ref) {
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-    if (!ref || ref > rd32(rdram, ctx + 0x84) + 1)
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+    if (!ref || ref > guest::read32(rdram, ctx + 0x84) + 1)
         return 0;
-    return rd32(rdram, rd32(rdram, ctx + 0x7c) + (ref - 1) * 8);
+    return guest::read32(rdram, guest::read32(rdram, ctx + 0x7c) + (ref - 1) * 8);
 }
 // An actor's data object (Cam_GetObjFromHandle): *(*(h+0xfc)+0x10).
 uint32_t dataOf(const uint8_t* rdram, uint32_t h) {
-    const uint32_t p = ramPtr(h) ? rd32(rdram, h + 0xfc) : 0;
-    return ramPtr(p) ? rd32(rdram, p + 0x10) : 0;
+    const uint32_t p = guest::isHeapPtr(h) ? guest::read32(rdram, h + 0xfc) : 0;
+    return guest::isHeapPtr(p) ? guest::read32(rdram, p + 0x10) : 0;
 }
 uint32_t controlledActor(const uint8_t* rdram) {
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-    return ramPtr(ctx) ? rd32(rdram, ctx + 0x4b0) : 0;
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x4b0) : 0;
 }
 
 bool isGhost(uint32_t handle, int* id = nullptr) {
@@ -172,10 +149,11 @@ bool isGhost(uint32_t handle, int* id = nullptr) {
 // Which hand a blade (weapon data object) belongs to: 0 right holder, 1 left holder, 2 unknown.
 uint8_t handOfBlade(const uint8_t* rdram, uint32_t blade) {
     const uint32_t player = dataOf(rdram, controlledActor(rdram));
-    if (!ramPtr(player))
+    if (!guest::isHeapPtr(player))
         return 2;
-    const uint32_t right = dataOf(rdram, registryObject(rdram, rd16(rdram, player + kRightHolder + kHolderRef)));
-    const uint32_t left = dataOf(rdram, registryObject(rdram, rd16(rdram, player + kLeftHolder + kHolderRef)));
+    const uint32_t right =
+        dataOf(rdram, registryObject(rdram, guest::read16(rdram, player + kRightHolder + kHolderRef)));
+    const uint32_t left = dataOf(rdram, registryObject(rdram, guest::read16(rdram, player + kLeftHolder + kHolderRef)));
     if (blade && blade == right)
         return 0;
     if (blade && blade == left)
@@ -188,19 +166,19 @@ uint8_t handOfBlade(const uint8_t* rdram, uint32_t blade) {
 // native hit lists and damage messages remain native; no global faction / mask table is changed.
 void hookBladeSweepProbe(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t blade = getRegU32(c, 4);
-    const bool active =
-        g_probe && c->pc == guestAddress(0x4979a8u) && ramPtr(blade) && (rd32(rdram, blade + 0x1cu) & 8u);
+    const bool active = g_probe && c->pc == guestAddress(0x4979a8u) && guest::isHeapPtr(blade) &&
+                        (guest::read32(rdram, blade + 0x1cu) & 8u);
     static unsigned logged = 0;
     const bool report = active && logged < 16;
     const uint64_t calls = g_bladeMaskCalls, ghosts = g_bladeGhostCandidates;
     g_origBladeSweep(rdram, c, rt);
     if (report) {
         ++logged;
-        std::fprintf(stderr,
-                     "[pvp] blade query probe: blade=%x source=%x owner=%x controlled=%x maskcalls=%llu ghosts=%llu\n",
-                     blade, rd32(rdram, blade + 0xcu), registryObject(rdram, rd16(rdram, blade + 0x60u)),
-                     controlledActor(rdram), static_cast<unsigned long long>(g_bladeMaskCalls - calls),
-                     static_cast<unsigned long long>(g_bladeGhostCandidates - ghosts));
+        std::fprintf(
+            stderr, "[pvp] blade query probe: blade=%x source=%x owner=%x controlled=%x maskcalls=%llu ghosts=%llu\n",
+            blade, guest::read32(rdram, blade + 0xcu), registryObject(rdram, guest::read16(rdram, blade + 0x60u)),
+            controlledActor(rdram), static_cast<unsigned long long>(g_bladeMaskCalls - calls),
+            static_cast<unsigned long long>(g_bladeGhostCandidates - ghosts));
     }
 }
 
@@ -209,11 +187,12 @@ void hookMeleeCandidateClass(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const uint32_t ra = getRegU32(c, 31);
         if (ra >= guestAddress(0x124400u) && ra < guestAddress(0x124900u)) {
             const uint32_t query = getRegU32(c, 20), candidate = getRegU32(c, 18);
-            const uint32_t source = ramPtr(query) ? rd32(rdram, query + 0x564u) : 0;
+            const uint32_t source = guest::isHeapPtr(query) ? guest::read32(rdram, query + 0x564u) : 0;
             const uint32_t blade = dataOf(rdram, source);
-            const uint32_t owner = ramPtr(blade) ? registryObject(rdram, rd16(rdram, blade + 0x60u)) : 0;
-            const uint32_t context = rd32(rdram, guestAddress(kContextPtr));
-            const uint32_t bladeQuery = ramPtr(context) ? rd32(rdram, context + 0x348u) : 0;
+            const uint32_t owner =
+                guest::isHeapPtr(blade) ? registryObject(rdram, guest::read16(rdram, blade + 0x60u)) : 0;
+            const uint32_t context = guest::read32(rdram, guestAddress(kContextPtr));
+            const uint32_t bladeQuery = guest::isHeapPtr(context) ? guest::read32(rdram, context + 0x348u) : 0;
             int ghost = 0;
             static unsigned logged = 0;
             const bool bladeCall = query == bladeQuery;
@@ -228,7 +207,8 @@ void hookMeleeCandidateClass(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                              "[pvp] mask probe: ra=%x class=%x ghost=%d player=%d query=%x source=%x type=%x "
                              "blade=%x owner=%x controlled=%x\n",
                              ra, getRegU32(c, 5), ghost, drakan_netplay::playerOfGhost(ghost), query, source,
-                             ramPtr(source) ? rd32(rdram, source + 0xcu) : 0, blade, owner, controlledActor(rdram));
+                             guest::isHeapPtr(source) ? guest::read32(rdram, source + 0xcu) : 0, blade, owner,
+                             controlledActor(rdram));
             }
         }
     }
@@ -238,9 +218,9 @@ void hookMeleeCandidateClass(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         getRegU32(c, 5) == 0x1009du && !drakan_netplay::coopMatch()) {
         // PAL FUN_1242d8: s2 is the candidate actor, s4 the query object; +564 is the source weapon actor.
         const uint32_t query = getRegU32(c, 20), candidate = getRegU32(c, 18);
-        const uint32_t source = ramPtr(query) ? rd32(rdram, query + 0x564u) : 0;
+        const uint32_t source = guest::isHeapPtr(query) ? guest::read32(rdram, query + 0x564u) : 0;
         const uint32_t blade = dataOf(rdram, source);
-        const uint32_t owner = ramPtr(blade) ? registryObject(rdram, rd16(rdram, blade + 0x60u)) : 0;
+        const uint32_t owner = guest::isHeapPtr(blade) ? registryObject(rdram, guest::read16(rdram, blade + 0x60u)) : 0;
         const uint32_t controlled = controlledActor(rdram);
         int ghost = 0;
         const int remote =
@@ -266,16 +246,16 @@ void hookMeleeCandidateClass(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // hit list accepted (its count grows: one per victim and swing) becomes a claim for the server.
 void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t blade = getRegU32(c, 4), contact = getRegU32(c, 5);
-    const uint32_t victim = ramPtr(contact) ? rd32(rdram, contact + 0x20) : 0;
+    const uint32_t victim = guest::isHeapPtr(contact) ? guest::read32(rdram, contact + 0x20) : 0;
     int gid = 0;
     // Co-op: the partner's ghost is not a target (drakan_coop owns the hits of that mode).
-    if (drakan_netplay::coopMatch() || !ramPtr(victim) || !isGhost(victim, &gid)) {
+    if (drakan_netplay::coopMatch() || !guest::isHeapPtr(victim) || !isGhost(victim, &gid)) {
         g_origBladeHit(rdram, c, rt);
         return;
     }
     const int32_t hpBefore = playerHp(rdram);
-    const uint32_t hitsBefore = rd32(rdram, blade + kBladeHitCount);
-    const int32_t damage = static_cast<int32_t>(rd32(rdram, contact));
+    const uint32_t hitsBefore = guest::read32(rdram, blade + kBladeHitCount);
+    const int32_t damage = static_cast<int32_t>(guest::read32(rdram, contact));
     g_origBladeHit(rdram, c, rt);
     const int32_t hpAfter = playerHp(rdram);
     if (hpAfter != hpBefore) { // the swallowed handler should make this impossible: undo, never hurt ourselves
@@ -283,7 +263,7 @@ void hookBladeHit(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                      hpBefore, hpAfter);
         setPlayerHp(rdram, hpBefore);
     }
-    const bool isNew = rd32(rdram, blade + kBladeHitCount) > hitsBefore;
+    const bool isNew = guest::read32(rdram, blade + kBladeHitCount) > hitsBefore;
     const int player = drakan_netplay::playerOfGhost(gid);
     // A blade neither holder owns (a two-handed weapon is carried by one holder, but the lookup can miss it mid-swing):
     // the right hand's record limits the claim on the server.
@@ -324,59 +304,60 @@ unsigned g_projTick = 0;
 // Item property `index` of actor `h` (the property block's accessor: vtable +0x1c, this adjust at +0x18), 0 when
 // absent. The accessor only indexes a table: safe to call nested.
 uint32_t actorProperty(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t h, uint32_t index) {
-    const uint32_t block = rd32(rdram, h + 0x54), vt = ramPtr(block) ? rd32(rdram, block + 8) : 0;
-    if (!ramPtr(vt))
+    const uint32_t block = guest::read32(rdram, h + 0x54),
+                   vt = guest::isHeapPtr(block) ? guest::read32(rdram, block + 8) : 0;
+    if (!guest::isHeapPtr(vt))
         return 0;
-    const uint32_t fn = rd32(rdram, vt + 0x1c);
-    if (!ramPtr(fn))
+    const uint32_t fn = guest::read32(rdram, vt + 0x1c);
+    if (!guest::isHeapPtr(fn))
         return 0;
-    const auto off = static_cast<int16_t>(rd32(rdram, vt + 0x18) & 0xffffu);
+    const auto off = static_cast<int16_t>(guest::read32(rdram, vt + 0x18) & 0xffffu);
     const uint32_t pp = guest.call(drakan_input::GuestCall(fn)
                                        .arg(block + static_cast<uint32_t>(static_cast<int32_t>(off)))
                                        .arg(index)
                                        .arg(0xffffffffu));
-    return ramPtr(pp) ? rd32(rdram, pp) : 0;
+    return guest::isHeapPtr(pp) ? guest::read32(rdram, pp) : 0;
 }
 
 void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player) {
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-    if (!ramPtr(ctx))
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+    if (!guest::isHeapPtr(ctx))
         return;
-    const uint32_t table = rd32(rdram, ctx + 0x7c), res = rd32(rdram, ctx + 0x320);
-    const uint32_t n = std::min<uint32_t>(rd32(rdram, ctx + 0x84), 20000u),
-                   recs = ramPtr(res) ? rd32(rdram, res + 8) : 0;
-    if (!ramPtr(table) || !ramPtr(recs))
+    const uint32_t table = guest::read32(rdram, ctx + 0x7c), res = guest::read32(rdram, ctx + 0x320);
+    const uint32_t n = std::min<uint32_t>(guest::read32(rdram, ctx + 0x84), 20000u),
+                   recs = guest::isHeapPtr(res) ? guest::read32(rdram, res + 8) : 0;
+    if (!guest::isHeapPtr(table) || !guest::isHeapPtr(recs))
         return;
     std::vector<detail::ProjectileTarget> targets;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (i.handle)
-            targets.push_back(
-                {i.id,
-                 drakan_netplay::playerOfGhost(i.id),
-                 {rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x18), rdf(rdram, i.handle + 0x1c)}});
+            targets.push_back({i.id,
+                               drakan_netplay::playerOfGhost(i.id),
+                               {guest::readF(rdram, i.handle + 0x14), guest::readF(rdram, i.handle + 0x18),
+                                guest::readF(rdram, i.handle + 0x1c)}});
     });
     float me[3];
     for (int k = 0; k < 3; ++k)
-        me[k] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
+        me[k] = guest::readF(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
     ++g_projTick;
     std::vector<uint32_t> alive;
     for (uint32_t i = 0; i < n; ++i) {
-        const uint32_t h = rd32(rdram, table + i * 8);
-        if (!ramPtr(h) || h == player || rd32(rdram, h) != guestAddress(0x51b8b0u))
+        const uint32_t h = guest::read32(rdram, table + i * 8);
+        if (!guest::isHeapPtr(h) || h == player || guest::read32(rdram, h) != guestAddress(0x51b8b0u))
             continue;
-        const uint32_t type = rd32(rdram, h + 0xc);
+        const uint32_t type = guest::read32(rdram, h + 0xc);
         if (type != 9 && type != 12 && type != 13)
             continue;
-        const uint16_t ix = rd16(rdram, h + 0x10);
+        const uint16_t ix = guest::read16(rdram, h + 0x10);
         if (ix == 0xffff)
             continue;
-        const uint32_t cls = rd32(rdram, recs + ix * 0x24u + 8);
+        const uint32_t cls = guest::read32(rdram, recs + ix * 0x24u + 8);
         if (cls != kArrowClass && cls != kSpellClass)
             continue;
         alive.push_back(h);
         float p[3];
         for (int k = 0; k < 3; ++k)
-            p[k] = rdf(rdram, h + 0x14 + 4u * static_cast<uint32_t>(k));
+            p[k] = guest::readF(rdram, h + 0x14 + 4u * static_cast<uint32_t>(k));
         if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]))
             continue;
         auto it = g_proj.find(h);
@@ -388,7 +369,8 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
             pr.damage = cls == kArrowClass ? drakan::net::kArrowDamage : kSpellDamage;
             // Projectile class 0x1005f: property 0 is Damage; property 0x1a is Armor Piercing, not damage.
             const uint32_t data = dataOf(rdram, h);
-            const uint32_t owner = ramPtr(data) ? registryObject(rdram, rd16(rdram, data + 0x130u)) : 0;
+            const uint32_t owner =
+                guest::isHeapPtr(data) ? registryObject(rdram, guest::read16(rdram, data + 0x130u)) : 0;
             const bool ours = owner ? owner == player : std::sqrt(dx * dx + dy * dy + dz * dz) <= kProjSpawnRadius;
             const uint32_t own = actorProperty(guest, rdram, h, 0u);
             if (own >= 1u && own <= drakan::net::kMaxProjectileDamage)
@@ -428,10 +410,11 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
 
 // Class id of an actor (registry record +8), 0 when unknown.
 uint32_t classOfActor(const uint8_t* rdram, uint32_t h) {
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-    const uint32_t res = ramPtr(ctx) ? rd32(rdram, ctx + 0x320) : 0, recs = ramPtr(res) ? rd32(rdram, res + 8) : 0;
-    const uint16_t ix = ramPtr(h) ? rd16(rdram, h + 0x10) : 0xffff;
-    return ramPtr(recs) && ix != 0xffff ? rd32(rdram, recs + ix * 0x24u + 8) : 0;
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+    const uint32_t res = guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x320) : 0,
+                   recs = guest::isHeapPtr(res) ? guest::read32(rdram, res + 8) : 0;
+    const uint16_t ix = guest::isHeapPtr(h) ? guest::read16(rdram, h + 0x10) : 0xffff;
+    return guest::isHeapPtr(recs) && ix != 0xffff ? guest::read32(rdram, recs + ix * 0x24u + 8) : 0;
 }
 bool controlledIsDragon(const uint8_t* rdram) {
     return classOfActor(rdram, controlledActor(rdram)) == kDragonClass;
@@ -469,8 +452,8 @@ std::vector<BreathTarget> breathTargets(const uint8_t* rdram, uint32_t dragon) {
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (!i.handle)
             return;
-        const float d[3] = {rdf(rdram, i.handle + 0x14) - m[0], rdf(rdram, i.handle + 0x18) - m[1],
-                            rdf(rdram, i.handle + 0x1c) - m[2]};
+        const float d[3] = {guest::readF(rdram, i.handle + 0x14) - m[0], guest::readF(rdram, i.handle + 0x18) - m[1],
+                            guest::readF(rdram, i.handle + 0x1c) - m[2]};
         const float along = d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2];
         if (!(along > 0.0f && along < kBreathRange))
             return;
@@ -553,7 +536,7 @@ void spawnFlame(uint8_t* rdram, uint32_t dragon) {
 // Called every boundary while the local player is alive and rides a dragon.
 void scanBreath(uint8_t* rdram, uint32_t dragon) {
     const uint32_t data = dataOf(rdram, dragon);
-    const bool attack = ramPtr(data) && (rd32(rdram, data + 0x90) & 2u) != 0;
+    const bool attack = guest::isHeapPtr(data) && (guest::read32(rdram, data + 0x90) & 2u) != 0;
     const bool edge = attack && !g_breath.held;
     g_breath.held = attack;
     if (attack)
@@ -572,7 +555,7 @@ void scanBreath(uint8_t* rdram, uint32_t dragon) {
 void setDragonHp(drakan_input::IGuest& guest, const uint8_t* rdram, int serverPoints) {
     const uint32_t dragon = controlledIsDragon(rdram) ? controlledActor(rdram) : drakan_arena::ownedDragon();
     const uint32_t data = dataOf(rdram, dragon);
-    if (ramPtr(data))
+    if (guest::isHeapPtr(data))
         guest.writeF(data + kDragonHp, static_cast<float>(std::clamp(serverPoints, 1, 100)));
 }
 
@@ -581,27 +564,28 @@ void setDragonHp(drakan_input::IGuest& guest, const uint8_t* rdram, int serverPo
 void probeNewActors(const uint8_t* rdram, uint32_t player) {
     static std::map<uint32_t, uint32_t> seen; // handle -> class
     static bool seeded = false;
-    const uint32_t ctx = rd32(rdram, guestAddress(kContextPtr));
-    const uint32_t table = rd32(rdram, ctx + 0x7c);
-    const uint32_t n = std::min<uint32_t>(rd32(rdram, ctx + 0x84), 20000u);
-    if (!ramPtr(table))
+    const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
+    const uint32_t table = guest::read32(rdram, ctx + 0x7c);
+    const uint32_t n = std::min<uint32_t>(guest::read32(rdram, ctx + 0x84), 20000u);
+    if (!guest::isHeapPtr(table))
         return;
     std::map<uint32_t, uint32_t> now;
     for (uint32_t i = 0; i < n; ++i) {
-        const uint32_t h = rd32(rdram, table + i * 8);
-        if (!ramPtr(h))
+        const uint32_t h = guest::read32(rdram, table + i * 8);
+        if (!guest::isHeapPtr(h))
             continue;
-        const bool isActor = rd32(rdram, h) == guestAddress(0x51b8b0u);
-        const uint32_t cls = isActor ? classOfActor(rdram, h) : 0xdead0000u + (rd32(rdram, h) & 0xffffu);
+        const bool isActor = guest::read32(rdram, h) == guestAddress(0x51b8b0u);
+        const uint32_t cls = isActor ? classOfActor(rdram, h) : 0xdead0000u + (guest::read32(rdram, h) & 0xffffu);
         now[h] = cls;
         auto it = seen.find(h);
         if (seeded && (it == seen.end() || it->second != cls))
-            std::fprintf(stderr, "[pvp] dragon probe: new object %x type %u class %x\n", h, rd32(rdram, h + 0xc), cls);
+            std::fprintf(stderr, "[pvp] dragon probe: new object %x type %u class %x\n", h,
+                         guest::read32(rdram, h + 0xc), cls);
     }
     seen.swap(now);
     seeded = true;
     static uint32_t lastFlags = 0xffffffffu;
-    const uint32_t fl = rd32(rdram, dataOf(rdram, player) + 0x90);
+    const uint32_t fl = guest::read32(rdram, dataOf(rdram, player) + 0x90);
     if (fl != lastFlags) {
         std::fprintf(stderr, "[pvp] dragon probe: flags90 %x -> %x\n", lastFlags, fl);
         lastFlags = fl;
@@ -615,7 +599,7 @@ void probeNewActors(const uint8_t* rdram, uint32_t player) {
 // a nested call that has to wait hangs the guest (seen). The HP block is set afterwards (g_pendingHp).
 void hurtLocal(drakan_input::IGuest& guest, uint8_t* rdram, int engineDamage) {
     const uint32_t data = dataOf(rdram, controlledActor(rdram));
-    if (!ramPtr(data))
+    if (!guest::isHeapPtr(data))
         return;
     const int32_t hp = playerHp(rdram);
     const int d = std::clamp(engineDamage, 0, std::max(0, hp - 1));
@@ -643,11 +627,11 @@ void deadHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // the death clip until the server's Respawn.
 void startDeath(uint8_t* rdram) {
     const uint32_t actor = controlledActor(rdram);
-    const uint32_t inner = ramPtr(actor) ? rd32(rdram, actor + 0xfc) : 0;
-    if (!ramPtr(inner) || !g_deadHandlerSlot)
+    const uint32_t inner = guest::isHeapPtr(actor) ? guest::read32(rdram, actor + 0xfc) : 0;
+    if (!guest::isHeapPtr(inner) || !g_deadHandlerSlot)
         return;
     g_deadActor = actor;
-    g_savedHandler.store(rd32(rdram, inner + 0x14));
+    g_savedHandler.store(guest::read32(rdram, inner + 0x14));
     const uint32_t slot = g_deadHandlerSlot;
     std::memcpy(rdram + ((inner + 0x14) & PS2_RAM_MASK), &slot, 4);
     g_deathTime = 0.0f;
@@ -657,8 +641,8 @@ void startDeath(uint8_t* rdram) {
 
 void endDeath(uint8_t* rdram) {
     const uint32_t actor = controlledActor(rdram);
-    const uint32_t inner = ramPtr(actor) && actor == g_deadActor ? rd32(rdram, actor + 0xfc) : 0;
-    if (ramPtr(inner) && g_savedHandler.load()) {
+    const uint32_t inner = guest::isHeapPtr(actor) && actor == g_deadActor ? guest::read32(rdram, actor + 0xfc) : 0;
+    if (guest::isHeapPtr(inner) && g_savedHandler.load()) {
         const uint32_t h = g_savedHandler.load();
         std::memcpy(rdram + ((inner + 0x14) & PS2_RAM_MASK), &h, 4);
     }
@@ -718,10 +702,10 @@ void showDeath(drakan_input::IGuest& guest, const uint8_t* rdram, float dt) {
         fallDragon(guest, rdram, actor, dt);
         return;
     }
-    const uint32_t sk = rd32(rdram, actor + 0x50);
-    const uint32_t ch = ramPtr(sk) ? rd32(rdram, sk + 0xe8) : 0;
-    const uint32_t n = ramPtr(sk) ? rd32(rdram, sk + 0xf0) : 0;
-    if (!ramPtr(ch) || n == 0 || n > 32)
+    const uint32_t sk = guest::read32(rdram, actor + 0x50);
+    const uint32_t ch = guest::isHeapPtr(sk) ? guest::read32(rdram, sk + 0xe8) : 0;
+    const uint32_t n = guest::isHeapPtr(sk) ? guest::read32(rdram, sk + 0xf0) : 0;
+    if (!guest::isHeapPtr(ch) || n == 0 || n > 32)
         return;
     const float t = std::min(g_deathTime, kDeathClipHold);
     for (uint32_t i = 0; i < n; ++i) {
@@ -764,7 +748,7 @@ void reviveLocal(drakan_input::IGuest& guest, uint8_t* rdram) {
     float spawn[3];
     if (drakan_arena::placeAtSpawn(guest, rdram, g_resp.spawn)) {
         // the arena's spawn point (the server's choice, farthest from the other players): placed and refiled
-    } else if (ramPtr(player) && pickSpawn(g_resp.spawn, spawn)) {
+    } else if (guest::isHeapPtr(player) && pickSpawn(g_resp.spawn, spawn)) {
         for (int k = 0; k < 3; ++k) {
             const float v = k == 1 ? spawn[k] + 20.0f : spawn[k];
             guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), v);
@@ -782,7 +766,7 @@ void reviveLocal(drakan_input::IGuest& guest, uint8_t* rdram) {
 void recordCrumb(const uint8_t* rdram, uint32_t player) {
     float p[3];
     for (int k = 0; k < 3; ++k)
-        p[k] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
+        p[k] = guest::readF(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
     if (!std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2]))
         return;
     if (!g_crumbs.empty()) {
@@ -1029,7 +1013,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (!g_enabled.load() || drakan_netplay::coopMatch())
         return;
     const uint32_t player = controlledActor(rdram);
-    if (!ramPtr(player) || !ramPtr(dataOf(rdram, player)))
+    if (!guest::isHeapPtr(player) || !guest::isHeapPtr(dataOf(rdram, player)))
         return;
     if (!drakan_ghost::ready() &&
         g_life.load() != static_cast<int>(Life::Dying)) // cut scene level / a load in progress
@@ -1041,8 +1025,8 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
     std::vector<Crumb> enemies;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (i.handle && drakan_netplay::playerOfGhost(i.id) > 0)
-            enemies.push_back(
-                {{rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x18), rdf(rdram, i.handle + 0x1c)}});
+            enemies.push_back({{guest::readF(rdram, i.handle + 0x14), guest::readF(rdram, i.handle + 0x18),
+                                guest::readF(rdram, i.handle + 0x1c)}});
     });
     testPlaceGhosts(rdram, player, g_ready);
     static const bool dragonProbe = std::getenv("DRAKAN_PVP_DRAGON_PROBE") != nullptr;
@@ -1075,7 +1059,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
             break;
         case Life::Dying: {
             ++g_lifeTicks;
-            float dt = guest.readF(rd32(rdram, guestAddress(kContextPtr)) + 0x24);
+            float dt = guest.readF(guest::read32(rdram, guestAddress(kContextPtr)) + 0x24);
             if (!(dt > 0.0f && dt < 0.25f))
                 dt = 1.0f / 60.0f;
             showDeath(guest, rdram, dt);

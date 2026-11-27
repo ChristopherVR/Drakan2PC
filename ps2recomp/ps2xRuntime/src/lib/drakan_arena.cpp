@@ -15,6 +15,7 @@
 #include "net/Protocol.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "gsr/gsr.h"
 #include "world/Inventory.h"
 #include "world/Json.h"
@@ -99,42 +100,7 @@ void arenaLog(const char* fmt, ...) {
     std::fprintf(stderr, "[arena] %s\n", buf);
 }
 
-class RdramMemory final : public world::IGuestMemory {
-public:
-    explicit RdramMemory(const uint8_t* ram) : ram_(ram) {}
-    uint8_t read8(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        return a < PS2_RAM_SIZE ? ram_[a] : 0;
-    }
-    uint32_t read32(uint32_t a) const override {
-        a &= PS2_RAM_MASK;
-        if (a + 4 > PS2_RAM_SIZE)
-            return 0;
-        uint32_t v;
-        std::memcpy(&v, ram_ + a, 4);
-        return v;
-    }
-
-private:
-    const uint8_t* ram_;
-};
-
-uint32_t rd32(const uint8_t* ram, uint32_t a) {
-    a &= PS2_RAM_MASK;
-    uint32_t v = 0;
-    if (a + 4 <= PS2_RAM_SIZE)
-        std::memcpy(&v, ram + a, 4);
-    return v;
-}
-float rdf(const uint8_t* ram, uint32_t a) {
-    const uint32_t v = rd32(ram, a);
-    float f;
-    std::memcpy(&f, &v, 4);
-    return f;
-}
-bool ramPtr(uint32_t p) {
-    return p >= 0x100000u && p < PS2_RAM_SIZE;
-}
+using RdramMemory = guest::RamView<world::IGuestMemory>;
 
 // ---------------------------------------------------------------------------------------------------- catalog
 
@@ -328,18 +294,18 @@ std::string g_loadedLevel;         // g_levelM: the level the last load opened (
 std::atomic<bool> g_defFits{true}; // the session's map belongs to the level that is loaded (else it is a plain level)
 
 uint32_t engineCtx(const uint8_t* rdram) {
-    return rd32(rdram, g_globals.contextPtr);
+    return guest::read32(rdram, g_globals.contextPtr);
 }
 uint32_t controlledActor(const uint8_t* rdram) {
     const uint32_t ctx = engineCtx(rdram);
-    return ramPtr(ctx) ? rd32(rdram, ctx + 0x4b0) : 0;
+    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x4b0) : 0;
 }
 
 void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle);
 
 void killActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t eng = engineCtx(rdram);
-    if (ramPtr(eng) && ramPtr(actor)) {
+    if (guest::isHeapPtr(eng) && guest::isHeapPtr(actor)) {
         // Campaign sweeps also remove items: a touch may already have filed this copy
         // into Rynn's inventory before the sweep's snapshot is consumed.
         dropFromInventory(guest, rdram, actor);
@@ -350,8 +316,8 @@ void killActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
 // The data object of an actor handle (handle +0xfc -> inner +0x10): Rynn's carries the inventory controller (+0x584)
 // and the equipment slots (+0xa48).
 uint32_t dataOf(const uint8_t* rdram, uint32_t h) {
-    const uint32_t p = ramPtr(h) ? rd32(rdram, h + 0xfc) : 0;
-    return ramPtr(p) ? rd32(rdram, p + 0x10) : 0;
+    const uint32_t p = guest::isHeapPtr(h) ? guest::read32(rdram, h + 0xfc) : 0;
+    return guest::isHeapPtr(p) ? guest::read32(rdram, p + 0x10) : 0;
 }
 
 uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle);
@@ -363,11 +329,11 @@ void moveActorWithQuickSpeed(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runt
         const uint32_t actor = controlledActor(rdram);
         const uint32_t data = dataOf(rdram, actor);
         const uint32_t delta = getRegU32(ctx, 5);
-        if (ramPtr(data) && itemClassOf(rdram, actor) == world::kClassRynn && ramPtr(delta) &&
-            getRegU32(ctx, 4) == rd32(rdram, data + 0x80)) {
+        if (guest::isHeapPtr(data) && itemClassOf(rdram, actor) == world::kClassRynn && guest::isHeapPtr(delta) &&
+            getRegU32(ctx, 4) == guest::read32(rdram, data + 0x80)) {
             constexpr float scale = 2.0f;
             for (const uint32_t offset : {0u, 8u}) {
-                const float boosted = scale * rdf(rdram, delta + offset);
+                const float boosted = scale * guest::readF(rdram, delta + offset);
                 std::memcpy(rdram + ((delta + offset) & PS2_RAM_MASK), &boosted, sizeof boosted);
             }
         }
@@ -384,12 +350,12 @@ uint32_t inventoryRider(const uint8_t* rdram) {
     if (actorClass != kClassDragon)
         return 0;
     const uint32_t data = dataOf(rdram, actor);
-    const uint32_t ref = ramPtr(data) ? rd32(rdram, data + 0x4d8) & 0xffffu : 0;
+    const uint32_t ref = guest::isHeapPtr(data) ? guest::read32(rdram, data + 0x4d8) & 0xffffu : 0;
     const uint32_t ctx = engineCtx(rdram);
-    const uint32_t table = rd32(rdram, ctx + world::ctx::kRegistryTable);
-    if (!ref || ref > rd32(rdram, ctx + world::ctx::kRegistryCapacity) || !ramPtr(table))
+    const uint32_t table = guest::read32(rdram, ctx + world::ctx::kRegistryTable);
+    if (!ref || ref > guest::read32(rdram, ctx + world::ctx::kRegistryCapacity) || !guest::isHeapPtr(table))
         return 0;
-    const uint32_t rider = rd32(rdram, table + (ref - 1) * 8u);
+    const uint32_t rider = guest::read32(rdram, table + (ref - 1) * 8u);
     return world::isLiveHandle(RdramMemory(rdram), g_globals, rider, ref - 1) &&
                    itemClassOf(rdram, rider) == world::kClassRynn
                ? rider
@@ -418,14 +384,14 @@ float dist2xz(const world::Vec3& a, const float b[3]) {
 // The resource index of resource id `resId` (record +0), or 0xffffffff.
 uint32_t findResourceIndex(const uint8_t* rdram, uint32_t resId) {
     const uint32_t ctx = engineCtx(rdram);
-    const uint32_t res = ramPtr(ctx) ? rd32(rdram, ctx + 0x320) : 0;
-    if (!ramPtr(res))
+    const uint32_t res = guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x320) : 0;
+    if (!guest::isHeapPtr(res))
         return 0xffffffffu;
-    const uint32_t table = rd32(rdram, res + 8), count = rd32(rdram, res + 0x10);
-    if (!ramPtr(table) || count > 0x20000u)
+    const uint32_t table = guest::read32(rdram, res + 8), count = guest::read32(rdram, res + 0x10);
+    if (!guest::isHeapPtr(table) || count > 0x20000u)
         return 0xffffffffu;
     for (uint32_t i = 0; i <= count; ++i)
-        if (rd32(rdram, table + i * 0x24u) == resId)
+        if (guest::read32(rdram, table + i * 0x24u) == resId)
             return i;
     return 0xffffffffu;
 }
@@ -448,7 +414,7 @@ void itemStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
     const uint32_t sp = g_item.savedSp - kItemFrame, xf = sp + 0x10;
     std::memcpy(rdram + (xf & PS2_RAM_MASK), g_item.xform, sizeof g_item.xform);
     SET_GPR_U32(c, 29, sp);
-    SET_GPR_U32(c, 4, rd32(rdram, g_globals.contextPtr));
+    SET_GPR_U32(c, 4, guest::read32(rdram, g_globals.contextPtr));
     SET_GPR_U32(c, 31, g_itemSlot2);
     SET_GPR_U32(c, 5, g_item.owner);
     SET_GPR_U32(c, 6, xf);
@@ -492,7 +458,7 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
             const uint32_t potion = dataOf(rdram, handle);
             const uint32_t rider = inventoryRider(rdram);
             // Native magic potion application reads the effect type and duration from the item.
-            if (ramPtr(potion) && rider && itemClassOf(rdram, handle) == 0x10059u) {
+            if (guest::isHeapPtr(potion) && rider && itemClassOf(rdram, handle) == 0x10059u) {
                 g_calls.push_back(drakan_input::GuestCall(guestAddress(0x3df550u)).arg(potion).arg(rider));
                 arenaLog("pickup: applying native potion resource index %u", g_item.idx);
             }
@@ -500,15 +466,18 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
                 g_effects.push_back({handle, g_ticks + 40, g_item.idx});
         } else if (g_inflightPickup < 0) {
             arenaLog("loadout: the factory returned actor %x (vtable %x flags %x type %u ref %x)", handle,
-                     ramPtr(handle) ? rd32(rdram, handle) : 0u, ramPtr(handle) ? rd32(rdram, handle + 4) : 0u,
-                     ramPtr(handle) ? rd32(rdram, handle + 0xc) : 0u, ramPtr(handle) ? rd32(rdram, handle + 0x10) : 0u);
-            if (handle && ramPtr(player))
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle) : 0u,
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle + 4) : 0u,
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle + 0xc) : 0u,
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle + 0x10) : 0u);
+            if (handle && guest::isHeapPtr(player))
                 g_pendingStow.push_back({handle, g_ticks});
         } else if (static_cast<size_t>(g_inflightPickup) < g_picks.size()) {
             g_picks[static_cast<size_t>(g_inflightPickup)].spawnHandle = handle;
             arenaLog("pickup %d: the factory returned actor %x (vtable %x type %u ref %x)", g_inflightPickup, handle,
-                     ramPtr(handle) ? rd32(rdram, handle) : 0u, ramPtr(handle) ? rd32(rdram, handle + 0xc) : 0u,
-                     ramPtr(handle) ? rd32(rdram, handle + 0x10) : 0u);
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle) : 0u,
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle + 0xc) : 0u,
+                     guest::isHeapPtr(handle) ? guest::read32(rdram, handle + 0x10) : 0u);
             if (!handle) {
                 Pick& p = g_picks[static_cast<size_t>(g_inflightPickup)];
                 arenaLog("pickup %d: the factory refused the spawn (try %d)", g_inflightPickup, p.spawnTries + 1);
@@ -534,23 +503,24 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
         // Inventory-only items (notably the starting dagger) are fully constructed but deliberately have no world
         // registry reference. Stow is the native path that takes ownership; waiting for a world snapshot deadlocks
         // the loadout after campaign placements have been stripped before initialization.
-        const uint32_t type = ramPtr(ps.handle) ? rd32(rdram, ps.handle + 0xc) : 0;
-        if (!live && ramPtr(ps.handle) && rd32(rdram, ps.handle) == g_globals.handleVtable &&
-            !(rd32(rdram, ps.handle + 4) & 0x80000000u) && ramPtr(dataOf(rdram, ps.handle)) &&
+        const uint32_t type = guest::isHeapPtr(ps.handle) ? guest::read32(rdram, ps.handle + 0xc) : 0;
+        if (!live && guest::isHeapPtr(ps.handle) && guest::read32(rdram, ps.handle) == g_globals.handleVtable &&
+            !(guest::read32(rdram, ps.handle + 4) & 0x80000000u) && guest::isHeapPtr(dataOf(rdram, ps.handle)) &&
             (type == world::type::kWeapon || type == world::type::kUsable)) {
             live = true;
             arenaLog("loadout: constructed private item %x accepted for native inventory stow", ps.handle);
         }
-        if (live && ramPtr(player)) {
-            arenaLog("loadout: inventory UI listener player+0xa28 = %x, stow state %x", rd32(rdram, player + 0xa28),
-                     rd32(rdram, player + 0x584 + 0x20));
+        if (live && guest::isHeapPtr(player)) {
+            arenaLog("loadout: inventory UI listener player+0xa28 = %x, stow state %x",
+                     guest::read32(rdram, player + 0xa28), guest::read32(rdram, player + 0x584 + 0x20));
             g_pendingStow.pop_front();
             g_calls.push_back(drakan_input::GuestCall(guestAddress(kStow)).arg(player).arg(ps.handle));
         } else if (g_ticks > ps.since + 1200) { // a bow's model may still be loading
             arenaLog("loadout: actor %x never became a live actor, dropped (now vtable %x flags %x type %u ref %x "
                      "selfref %x, snapshot %s with %zu entities)",
-                     ps.handle, rd32(rdram, ps.handle), rd32(rdram, ps.handle + 4), rd32(rdram, ps.handle + 0xc),
-                     rd32(rdram, ps.handle + 0x10), (rd32(rdram, ps.handle + (world::handle::kSelfRef & ~3u)) >> 16),
+                     ps.handle, guest::read32(rdram, ps.handle), guest::read32(rdram, ps.handle + 4),
+                     guest::read32(rdram, ps.handle + 0xc), guest::read32(rdram, ps.handle + 0x10),
+                     (guest::read32(rdram, ps.handle + (world::handle::kSelfRef & ~3u)) >> 16),
                      g_worldOk ? "ok" : "failed", g_snap.entities.size());
             g_pendingStow.pop_front();
         }
@@ -575,7 +545,7 @@ void pumpSpawns(drakan_input::IGuest& guest, uint8_t* rdram) {
             return;
     }
     const uint32_t ctx = engineCtx(rdram);
-    if (!ramPtr(ctx))
+    if (!guest::isHeapPtr(ctx))
         return;
     if (!g_itemSlot1 || !g_itemSlot2)
         return;
@@ -726,10 +696,10 @@ bool g_noFilter = false; // test aid DRAKAN_ARENA_NOFILTER=1: place players and 
 // JALR at 0x341548 that ended the guest thread). Clear every reference to the handle before the actor goes.
 void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle) {
     const uint32_t player = dataOf(rdram, inventoryRider(rdram));
-    if (!ramPtr(player) || !handle)
+    if (!guest::isHeapPtr(player) || !handle)
         return;
     const unsigned n = world::detachInventoryItem(
-        world::kClassRynn, player, handle, [&](uint32_t address) { return rd32(rdram, address); },
+        world::kClassRynn, player, handle, [&](uint32_t address) { return guest::read32(rdram, address); },
         [&](uint32_t address, uint32_t value) { guest.write32(address, value); });
     if (n) {
         arenaLog("pickup copy %x was already in our inventory: %u reference(s) cleared before it is removed", handle,
@@ -762,8 +732,9 @@ unsigned removeCampaign(drakan_input::IGuest& guest, uint8_t* rdram, bool sweepI
             const float d = dist2xz(e.position, g_startPos);
             const bool startingGear = !g_ootfLevel && g_haveStart && d < kKeepRadius;
             item = !startingGear && !nearAnyPickup(e) &&
-                   !world::inventoryReferencesItem(world::kClassRynn, ramPtr(ownerData) ? ownerData : 0, e.handle,
-                                                   [&](uint32_t address) { return rd32(rdram, address); });
+                   !world::inventoryReferencesItem(world::kClassRynn, guest::isHeapPtr(ownerData) ? ownerData : 0,
+                                                   e.handle,
+                                                   [&](uint32_t address) { return guest::read32(rdram, address); });
         }
         if (!creature && !storyObj && !item)
             continue;
@@ -897,8 +868,8 @@ void teleport(drakan_input::IGuest& guest, uint32_t player, const float pos[3], 
 
 void placementTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player) {
     if (!g_place.active && g_placeHoldUntil > g_ticks && g_place.index >= 0) {
-        const float hx = rdf(rdram, player + 0x14) - g_place.target[0],
-                    hz = rdf(rdram, player + 0x1c) - g_place.target[2];
+        const float hx = guest::readF(rdram, player + 0x14) - g_place.target[0],
+                    hz = guest::readF(rdram, player + 0x1c) - g_place.target[2];
         const float hd = std::sqrt(hx * hx + hz * hz);
         if (hd > kPlaceTolerance) {
             arenaLog("pulled %.0f units away from spawn %d right after the placement: placing again",
@@ -912,7 +883,8 @@ void placementTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t p
     }
     if (!g_place.active || g_ticks < g_place.nextTick)
         return;
-    const float dx = rdf(rdram, player + 0x14) - g_place.target[0], dz = rdf(rdram, player + 0x1c) - g_place.target[2];
+    const float dx = guest::readF(rdram, player + 0x14) - g_place.target[0],
+                dz = guest::readF(rdram, player + 0x1c) - g_place.target[2];
     const float d = std::sqrt(dx * dx + dz * dz);
     if (d <= kPlaceTolerance) {
         arenaLog("placement of spawn %d took after %u %s (%.0f units from the point)", g_place.index, g_place.tries,
@@ -940,7 +912,7 @@ void placementTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t p
 // gear.
 void captureStart(const uint8_t* rdram, uint32_t player) {
     for (int k = 0; k < 3; ++k)
-        g_startPos[k] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
+        g_startPos[k] = guest::readF(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
     g_haveStart = true;
 }
 
@@ -991,9 +963,10 @@ void firstPass(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
         dumpWorld("before");
     if (g_dumpWanted)
         for (uint32_t a = guestAddress(0x4fca40u); a < guestAddress(0x4fd184u); a += 12) {
-            const uint32_t id = rd32(rdram, a);
+            const uint32_t id = guest::read32(rdram, a);
             if (id == 0x1000eu || id == 0x1000au || id == 0x1004fu || id == 0x10059u)
-                arenaLog("class %x handler %x instance size %x", id, rd32(rdram, a + 4), rd32(rdram, a + 8));
+                arenaLog("class %x handler %x instance size %x", id, guest::read32(rdram, a + 4),
+                         guest::read32(rdram, a + 8));
         }
     arenaLog("level up: %zu actors, player at %.0f %.0f %.0f", g_snap.entities.size(),
              static_cast<double>(g_startPos[0]), static_cast<double>(g_startPos[1]),
@@ -1180,7 +1153,7 @@ bool postDragonControl(drakan_input::IGuest& guest, uint32_t data, bool mount) {
         return false;
     // The native controller switches from the supplied instance to its linked partner and attaches the camera.
     const uint32_t switchControl = guestAddress(0x44d3b0u);
-    return switchControl && ramPtr(data) &&
+    return switchControl && guest::isHeapPtr(data) &&
            guest.post(drakan_input::GuestCall(switchControl).arg(data).arg(mount ? 1 : 0));
 }
 
@@ -1194,15 +1167,15 @@ void dragonOwnershipTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t p
     const bool mounted = player == dragon.handle;
     const uint32_t data = dataOf(rdram, player);
     // Native proximity mounting needs a Rynn-to-dragon link. The owner keeps it so she can dismount and remount.
-    if (!mounted && ramPtr(data)) {
-        const uint32_t linked = rd32(rdram, data + 0x4d8);
+    if (!mounted && guest::isHeapPtr(data)) {
+        const uint32_t linked = guest::read32(rdram, data + 0x4d8);
         const uint32_t wanted = (linked & 0xffff0000u) | (mount ? dragon.ref : 0u);
         if (linked != wanted)
             guest.write32(data + 0x4d8, wanted);
     }
     if (dragon.appliedOwner != g_soulOwner) {
         if (mount == mounted) {
-            if (mounted && ramPtr(data))
+            if (mounted && guest::isHeapPtr(data))
                 guest.writeF(data + 0x6b4u, 100.0f); // the native dragon health bar is a percentage
             if (mounted && dragon.handoff) {
                 const auto& pos = *dragon.handoff;
@@ -1249,7 +1222,7 @@ void neutralDragonTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t pla
     float moved = 0;
     for (uint32_t i = 0; i < state->pos.size(); ++i) {
         const uint32_t addr = dragon.handle + 0x14 + i * 4;
-        moved += std::abs(rdf(rdram, addr) - state->pos[i]);
+        moved += std::abs(guest::readF(rdram, addr) - state->pos[i]);
         guest.writeF(addr, state->pos[i]);
     }
     if (moved > 1)
@@ -1300,10 +1273,12 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
             reward && (p.state == PState::Touch || reward->kind != drakan::net::ArenaReward::Kind::Item)) {
             using Kind = drakan::net::ArenaReward::Kind;
             const bool dragon = reward->kind == Kind::DragonHealth || reward->kind == Kind::DragonProtection;
-            if (p.serverTaken || g_ticks < p.nextClaimTick || !ramPtr(owner) || dragon != (ownerClass == kClassDragon))
+            if (p.serverTaken || g_ticks < p.nextClaimTick || !guest::isHeapPtr(owner) ||
+                dragon != (ownerClass == kClassDragon))
                 continue;
-            const float dx = rdf(rdram, owner + 0x14) - p.def.pos[0], dy = rdf(rdram, owner + 0x18) - p.def.pos[1],
-                        dz = rdf(rdram, owner + 0x1c) - p.def.pos[2];
+            const float dx = guest::readF(rdram, owner + 0x14) - p.def.pos[0],
+                        dy = guest::readF(rdram, owner + 0x18) - p.def.pos[1],
+                        dz = guest::readF(rdram, owner + 0x1c) - p.def.pos[2];
             constexpr float radius = 1100.0f;
             if (dx * dx + dy * dy + dz * dz <= radius * radius) {
                 p.nextClaimTick = g_ticks + 45;
@@ -1321,14 +1296,14 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                 bool here = liveAt(rdram, p);
                 // A newly spawned item may be collected while its initial position is
                 // still settling. Inventory ownership outranks following that position.
-                if (here &&
-                    world::inventoryReferencesItem(world::kClassRynn, ramPtr(ownerData) ? ownerData : 0, p.handle,
-                                                   [&](uint32_t address) { return rd32(rdram, address); }))
+                if (here && world::inventoryReferencesItem(
+                                world::kClassRynn, guest::isHeapPtr(ownerData) ? ownerData : 0, p.handle,
+                                [&](uint32_t address) { return guest::read32(rdram, address); }))
                     here = false;
                 if (here) {
                     float pos[3];
                     for (int k = 0; k < 3; ++k)
-                        pos[k] = rdf(rdram, p.handle + 0x14 + 4u * static_cast<uint32_t>(k));
+                        pos[k] = guest::readF(rdram, p.handle + 0x14 + 4u * static_cast<uint32_t>(k));
                     if (g_ticks < p.boundTick + 150) // still settling (a spawned item falls to the ground): follow it
                         std::memcpy(p.home, pos, sizeof pos);
                     const float dx = pos[0] - p.home[0], dz = pos[2] - p.home[2];
@@ -1338,13 +1313,15 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                     // Never refile an item already moved into inventory or claimed by a peer.
                     if (p.resource() &&
                         p.spatialRegistration.service(
-                            g_ticks, here && !p.serverTaken && !(rd32(rdram, p.handle + 4) & 0x80000000u),
-                            static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu)), attemptedSpatialRegistration, [&] {
+                            g_ticks, here && !p.serverTaken && !(guest::read32(rdram, p.handle + 4) & 0x80000000u),
+                            static_cast<int32_t>(guest::read32(rdram, p.handle + 0x7cu)), attemptedSpatialRegistration,
+                            [&] {
                                 drakan_ghost::refileActor(guest, p.handle);
-                                return static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu));
+                                return static_cast<int32_t>(guest::read32(rdram, p.handle + 0x7cu));
                             })) {
                         arenaLog("pickup %zu (%s): recovered native collision cell %d for actor %x", i,
-                                 p.def.label.c_str(), static_cast<int32_t>(rd32(rdram, p.handle + 0x7cu)), p.handle);
+                                 p.def.label.c_str(), static_cast<int32_t>(guest::read32(rdram, p.handle + 0x7cu)),
+                                 p.handle);
                     }
                 }
                 if (here)
@@ -1399,8 +1376,8 @@ void pickupTick(drakan_input::IGuest& guest, uint8_t* rdram) {
                     arenaLog("pickup %zu (%s) is back (actor %x, %s)", i, p.def.label.c_str(), found->handle,
                              p.spawnHandle == found->handle ? "by handle" : "by scan");
                     arenaShot("pickup" + std::to_string(i) + "_back");
-                } else if (p.spawnHandle && g_ticks > p.spawnTick + 45 && ramPtr(p.spawnHandle) &&
-                           (rd32(rdram, p.spawnHandle + 0x10) >> 16) == 0) {
+                } else if (p.spawnHandle && g_ticks > p.spawnTick + 45 && guest::isHeapPtr(p.spawnHandle) &&
+                           (guest::read32(rdram, p.spawnHandle + 0x10) >> 16) == 0) {
                     if (p.reward()) {
                         killActor(guest, rdram, p.spawnHandle);
                         p.spawnHandle = 0;
@@ -1487,7 +1464,7 @@ void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
         }
         float pos[3];
         for (int k = 0; k < 3; ++k)
-            pos[k] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
+            pos[k] = guest::readF(rdram, player + 0x14 + 4u * static_cast<uint32_t>(k));
         g_loadoutPhase = 1;
         g_loadoutStart = g_ticks;
         g_loadoutIdx.clear();
@@ -1520,19 +1497,19 @@ void loadoutTick(drakan_input::IGuest&, uint8_t* rdram, uint32_t player) {
 
 // Class id (0x1000e melee weapon, 0x1004f bow, ...) of the item actor `handle`, 0 when it is not an item.
 uint32_t itemClassOf(const uint8_t* rdram, uint32_t handle) {
-    if (!ramPtr(handle))
+    if (!guest::isHeapPtr(handle))
         return 0;
-    const uint16_t ref = static_cast<uint16_t>(rd32(rdram, handle + 0x10) & 0xffffu);
+    const uint16_t ref = static_cast<uint16_t>(guest::read32(rdram, handle + 0x10) & 0xffffu);
     if (ref == 0xffffu)
         return 0;
     const uint32_t ctx = engineCtx(rdram);
-    const uint32_t res = ramPtr(ctx) ? rd32(rdram, ctx + 0x320) : 0;
-    if (!ramPtr(res))
+    const uint32_t res = guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x320) : 0;
+    if (!guest::isHeapPtr(res))
         return 0;
-    const uint32_t table = rd32(rdram, res + 8), count = rd32(rdram, res + 0x10);
-    if (!ramPtr(table) || ref > count)
+    const uint32_t table = guest::read32(rdram, res + 8), count = guest::read32(rdram, res + 0x10);
+    if (!guest::isHeapPtr(table) || ref > count)
         return 0;
-    return rd32(rdram, table + ref * 0x24u + 8);
+    return guest::read32(rdram, table + ref * 0x24u + 8);
 }
 
 // Auto-equip: once the loadout is in, a player whose right hand is empty equips the first melee weapon of the inventory
@@ -1547,7 +1524,7 @@ struct ArmState {
 
 void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const uint32_t player = dataOf(rdram, actor);
-    if (!ramPtr(player))
+    if (!guest::isHeapPtr(player))
         return;
     if (g_arm.done)
         return;
@@ -1559,9 +1536,9 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         return;
     if (guest.postBusy() || !g_calls.empty() || !g_pendingStow.empty() || g_spawnInFlight || !g_spawnQueue.empty())
         return;
-    const uint32_t hand = rd32(rdram, player + kHandSlots);
+    const uint32_t hand = guest::read32(rdram, player + kHandSlots);
     const char* preferEnv0 = std::getenv("DRAKAN_ARENA_EQUIP");
-    if (ramPtr(hand) && !(preferEnv0 && std::strcmp(preferEnv0, "bow") == 0)) {
+    if (guest::isHeapPtr(hand) && !(preferEnv0 && std::strcmp(preferEnv0, "bow") == 0)) {
         arenaLog("armed: right hand holds actor %x (class %x)", hand, itemClassOf(rdram, hand));
         g_arm.done = true;
         return;
@@ -1580,11 +1557,11 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         // re-equip (= put away) it.
         bool haveBow = false;
         for (uint32_t i = 0; i < kCellCount; ++i) {
-            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
-            if (h <= 0x53u || !ramPtr(h) || itemClassOf(rdram, h) != kClassBow)
+            const uint32_t h = guest::read32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            if (h <= 0x53u || !guest::isHeapPtr(h) || itemClassOf(rdram, h) != kClassBow)
                 continue;
             haveBow = true;
-            if (rd32(rdram, ctl + kCtlCells + i * 16u) != 0) {
+            if (guest::read32(rdram, ctl + kCtlCells + i * 16u) != 0) {
                 arenaLog("armed: the bow (actor %x) is equipped", h);
                 g_arm.done = true;
                 return;
@@ -1595,8 +1572,8 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     }
     for (int pass = 0; pass < (preferBow ? 1 : 2) && cell < 0; ++pass)
         for (uint32_t i = 0; i < kCellCount; ++i) {
-            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
-            if (h <= 0x53u || !ramPtr(h))
+            const uint32_t h = guest::read32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            if (h <= 0x53u || !guest::isHeapPtr(h))
                 continue;
             const uint32_t cls = itemClassOf(rdram, h);
             // The engine refuses to equip an item its usability check (0x341858: broken / unusable) fails.
@@ -1612,28 +1589,29 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         // skill than she has (property 0x13 vs the skill record, 0x341858). Everybody in the arena gets the skill the
         // first melee weapon asks for (skill 1 = melee, 2 = bow; the record's +4 is the plain level).
         for (uint32_t i = 0; i < kCellCount && g_arm.tries < 3; ++i) {
-            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
-            if (h <= 0x53u || !ramPtr(h))
+            const uint32_t h = guest::read32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            if (h <= 0x53u || !guest::isHeapPtr(h))
                 continue;
             const uint32_t cls = itemClassOf(rdram, h);
             if (cls != kClassMelee && cls != kClassBow)
                 continue;
-            const uint32_t block = rd32(rdram, h + 0x54), vt = ramPtr(block) ? rd32(rdram, block + 8) : 0;
-            if (!ramPtr(vt))
+            const uint32_t block = guest::read32(rdram, h + 0x54),
+                           vt = guest::isHeapPtr(block) ? guest::read32(rdram, block + 8) : 0;
+            if (!guest::isHeapPtr(vt))
                 continue;
-            const uint32_t fn = rd32(rdram, vt + 0x1c);
-            const int16_t off = static_cast<int16_t>(rd32(rdram, vt + 0x18) & 0xffffu);
+            const uint32_t fn = guest::read32(rdram, vt + 0x1c);
+            const int16_t off = static_cast<int16_t>(guest::read32(rdram, vt + 0x18) & 0xffffu);
             const uint32_t pp = guest.call(drakan_input::GuestCall(fn)
                                                .arg(block + static_cast<uint32_t>(static_cast<int32_t>(off)))
                                                .arg(0x13u)
                                                .arg(0xffffffffu));
-            const uint32_t need = ramPtr(pp) ? rd32(rdram, pp) : 0;
+            const uint32_t need = guest::isHeapPtr(pp) ? guest::read32(rdram, pp) : 0;
             const uint32_t skill = guest.call(drakan_input::GuestCall(guestAddress(0x3d5a30u))
                                                   .arg(guestAddress(0x4fbac8u))
                                                   .arg(cls == kClassBow ? 2u : 1u));
-            if (!ramPtr(skill) || need > 50)
+            if (!guest::isHeapPtr(skill) || need > 50)
                 continue;
-            const uint32_t have = rd32(rdram, skill + 4);
+            const uint32_t have = guest::read32(rdram, skill + 4);
             arenaLog("  weapon %x needs skill %u, has %u%s", h, need, have, have < need ? ": raised" : "");
             if (have < need)
                 guest.write32(skill + 4, need);
@@ -1650,25 +1628,28 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     }
     if (g_arm.tries == 1 || g_arm.tries == 4) {
         for (uint32_t i = 0; i < kCellCount; ++i) {
-            const uint32_t h = rd32(rdram, ctl + kCtlCells + i * 16u + 8u);
+            const uint32_t h = guest::read32(rdram, ctl + kCtlCells + i * 16u + 8u);
             if (h)
-                arenaLog("  cell %u: equipped %u hot %u handle %x class %x", i, rd32(rdram, ctl + kCtlCells + i * 16u),
-                         rd32(rdram, ctl + kCtlCells + i * 16u + 4u), h, itemClassOf(rdram, h));
+                arenaLog("  cell %u: equipped %u hot %u handle %x class %x", i,
+                         guest::read32(rdram, ctl + kCtlCells + i * 16u),
+                         guest::read32(rdram, ctl + kCtlCells + i * 16u + 4u), h, itemClassOf(rdram, h));
         }
-        arenaLog("  hands: %x %x %x %x, state %x flags %x, ctl select %d", rd32(rdram, player + kHandSlots),
-                 rd32(rdram, player + kHandSlots + 0x10), rd32(rdram, player + kHandSlots + 0x20),
-                 rd32(rdram, player + kHandSlots + 0x30), rd32(rdram, player + 0x1040), rd32(rdram, player + 0x94),
-                 static_cast<int>(rd32(rdram, ctl + 0x20)));
+        arenaLog("  hands: %x %x %x %x, state %x flags %x, ctl select %d", guest::read32(rdram, player + kHandSlots),
+                 guest::read32(rdram, player + kHandSlots + 0x10), guest::read32(rdram, player + kHandSlots + 0x20),
+                 guest::read32(rdram, player + kHandSlots + 0x30), guest::read32(rdram, player + 0x1040),
+                 guest::read32(rdram, player + 0x94), static_cast<int>(guest::read32(rdram, ctl + 0x20)));
     }
     arenaLog("armed: equipping cell %d (actor %x) into slot %u (try %d, %s)", cell,
-             rd32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u), slot, g_arm.tries, "quick slot");
+             guest::read32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u), slot, g_arm.tries,
+             "quick slot");
     if (g_arm.tries == 1) { // why would the engine refuse? (31e460's checks, read-only helpers)
-        const uint32_t item = rd32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u);
+        const uint32_t item = guest::read32(rdram, ctl + kCtlCells + static_cast<uint32_t>(cell) * 16u + 8u);
         const uint32_t r858 = guest.call(drakan_input::GuestCall(guestAddress(0x341858u)).arg(item));
         const uint32_t r4a8 = guest.call(drakan_input::GuestCall(guestAddress(0x3414a8u)).arg(ctl).arg(item));
         const uint32_t r510 = guest.call(drakan_input::GuestCall(guestAddress(0x341510u)).arg(ctl).arg(item));
         arenaLog("  equip checks: stats+0x70 %u, player+0x1040 %u, can %u, 3414a8 %u, 341510 %u",
-                 rd32(rdram, guestAddress(0x4fbac8u) + 0x70), rd32(rdram, player + 0x1040), r858, r4a8, r510);
+                 guest::read32(rdram, guestAddress(0x4fbac8u) + 0x70), guest::read32(rdram, player + 0x1040), r858,
+                 r4a8, r510);
     }
     // Equipping needs the engine's own use path (a posted message / a direct call did nothing visible): mark the cell
     // as the only quick slot and let the input glue press QUICK1 (the native bar confirms and equips).
@@ -1691,7 +1672,7 @@ struct SpellState {
 void spellTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     const char* e = std::getenv("DRAKAN_ARENA_SPELL");
     const uint32_t player = dataOf(rdram, actor);
-    if (!e || !*e || !ramPtr(player) || g_ticks < g_passTick + kSweepTicks + 60 || g_ticks < g_spell.next ||
+    if (!e || !*e || !guest::isHeapPtr(player) || g_ticks < g_passTick + kSweepTicks + 60 || g_ticks < g_spell.next ||
         guest.postBusy())
         return;
     if (g_spell.phase >= 3) {
@@ -1703,16 +1684,16 @@ void spellTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         g_spell.next = g_ticks + 300;
         const uint32_t stats = g_globals.playerStats;
         const auto dec = [&](uint32_t raw) {
-            const uint32_t x = raw ^ rd32(rdram, g_globals.hpKey);
+            const uint32_t x = raw ^ guest::read32(rdram, g_globals.hpKey);
             return static_cast<int32_t>((x >> 8) | (x << 24));
         };
-        const uint32_t key = rd32(rdram, g_globals.hpKey);
+        const uint32_t key = guest::read32(rdram, g_globals.hpKey);
         const auto enc = [&](int32_t v) {
             const uint32_t u = static_cast<uint32_t>(v);
             return ((u << 8) | (u >> 24)) ^ key;
         };
-        const int32_t before = dec(rd32(rdram, stats + 0x1c));
-        int32_t mx = dec(rd32(rdram, stats + 0x20));
+        const int32_t before = dec(guest::read32(rdram, stats + 0x1c));
+        int32_t mx = dec(guest::read32(rdram, stats + 0x20));
         if (mx < 100) { // a new game starts without a mana bar (the orb is empty): give her the full one
             guest.write32(stats + 0x20, enc(100));
             mx = 100;
@@ -1731,16 +1712,16 @@ void spellTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         g_spell.phase = 1;
     } else if (g_spell.phase == 1) {
         const int idx = std::atoi(e);
-        const uint32_t table = rd32(rdram, player + 0x1028u);
+        const uint32_t table = guest::read32(rdram, player + 0x1028u);
         arenaLog("spell: selecting spell %d (selected now %d, cast state %u, %u spells, first record level %u)", idx,
-                 static_cast<int>(rd32(rdram, ctl + 0x4b4u)), rd32(rdram, player + 0x1040u),
-                 rd32(rdram, player + 0x1030u), ramPtr(table) ? rd32(rdram, table) : 0u);
+                 static_cast<int>(guest::read32(rdram, ctl + 0x4b4u)), guest::read32(rdram, player + 0x1040u),
+                 guest::read32(rdram, player + 0x1030u), guest::isHeapPtr(table) ? guest::read32(rdram, table) : 0u);
         guest.post(drakan_input::GuestCall(guestAddress(0x3422c8u)).arg(ctl).arg(static_cast<uint32_t>(idx)).arg(1u));
         g_spell.phase = 2;
     } else {
-        arenaLog("spell: selected %d, hand %x, mana word %u", static_cast<int>(rd32(rdram, ctl + 0x4b4u)),
-                 rd32(rdram, player + kHandSlots), rd32(rdram, player + 0x1040u));
-        if (static_cast<int>(rd32(rdram, ctl + 0x4b4u)) == std::atoi(e) || ++g_spell.tries > 4)
+        arenaLog("spell: selected %d, hand %x, mana word %u", static_cast<int>(guest::read32(rdram, ctl + 0x4b4u)),
+                 guest::read32(rdram, player + kHandSlots), guest::read32(rdram, player + 0x1040u));
+        if (static_cast<int>(guest::read32(rdram, ctl + 0x4b4u)) == std::atoi(e) || ++g_spell.tries > 4)
             g_spell.phase = 3;
         else
             g_spell.phase = 1;
@@ -1762,12 +1743,12 @@ struct PowerState {
 } g_power;
 
 uint32_t spellLevelSum(const uint8_t* rdram, uint32_t player) {
-    const uint32_t table = rd32(rdram, player + 0x1028u), count = rd32(rdram, player + 0x1030u);
-    if (!ramPtr(table) || count == 0 || count > drakan_arena_power::kMaxSpellSlots)
+    const uint32_t table = guest::read32(rdram, player + 0x1028u), count = guest::read32(rdram, player + 0x1030u);
+    if (!guest::isHeapPtr(table) || count == 0 || count > drakan_arena_power::kMaxSpellSlots)
         return 0;
     uint32_t sum = 0;
     for (uint32_t i = 0; i < count; ++i)
-        sum += rd32(rdram, table + i * drakan_arena_power::kSpellRecord);
+        sum += guest::read32(rdram, table + i * drakan_arena_power::kSpellRecord);
     return sum;
 }
 
@@ -1777,11 +1758,12 @@ void powerTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         controlledIsDragon(rdram, actor))
         return;
     const uint32_t stats = g_globals.playerStats, keyAddr = g_globals.hpKey;
-    if (!ramPtr(stats) || !ramPtr(keyAddr))
+    if (!guest::isHeapPtr(stats) || !guest::isHeapPtr(keyAddr))
         return;
     g_power.next = g_ticks + 30;
-    const uint32_t key = rd32(rdram, keyAddr);
-    const int32_t level = decodeStat(rd32(rdram, stats + 0x28), key), xp = decodeStat(rd32(rdram, stats + 0x24), key);
+    const uint32_t key = guest::read32(rdram, keyAddr);
+    const int32_t level = decodeStat(guest::read32(rdram, stats + 0x28), key),
+                  xp = decodeStat(guest::read32(rdram, stats + 0x24), key);
     if (needsLevel(level, xp)) {
         if (xp < kMaxXp)
             guest.write32(stats + 0x24, encodeStat(kMaxXp, key));
@@ -1790,24 +1772,24 @@ void powerTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         arenaLog("power: level %d -> %d, experience %d -> %d", level, std::max(level, kMaxLevel), xp,
                  std::max(xp, kMaxXp));
     }
-    const uint32_t skills = rd32(rdram, stats), skillCount = rd32(rdram, stats + 8);
-    if (ramPtr(skills) && skillCount > 0 && skillCount <= 8) {
+    const uint32_t skills = guest::read32(rdram, stats), skillCount = guest::read32(rdram, stats + 8);
+    if (guest::isHeapPtr(skills) && skillCount > 0 && skillCount <= 8) {
         for (uint32_t i = 0; i < skillCount; ++i) {
             const uint32_t rec = skills + i * kSkillRecord;
-            const uint32_t have = rd32(rdram, rec + 4), mx = rd32(rdram, rec + 8);
+            const uint32_t have = guest::read32(rdram, rec + 4), mx = guest::read32(rdram, rec + 8);
             if (needsSkill(have, mx)) {
                 guest.write32(rec + 4, skillTarget(mx));
-                arenaLog("power: skill %u level %u -> %u", rd32(rdram, rec), have, skillTarget(mx));
+                arenaLog("power: skill %u level %u -> %u", guest::read32(rdram, rec), have, skillTarget(mx));
             }
         }
     }
     if (g_power.spellsDone)
         return;
     const uint32_t player = dataOf(rdram, actor);
-    if (!ramPtr(player))
+    if (!guest::isHeapPtr(player))
         return;
-    if (!ramPtr(rd32(rdram, player + 0x1028u)) ||
-        rd32(rdram, player + 0x1030u) == 0) { // the spell list is not built yet
+    if (!guest::isHeapPtr(guest::read32(rdram, player + 0x1028u)) ||
+        guest::read32(rdram, player + 0x1030u) == 0) { // the spell list is not built yet
         if ((g_power.waited += 30) > 1800) {
             arenaLog("power: no spell list, giving up");
             g_power.spellsDone = true;
@@ -1844,7 +1826,8 @@ void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
         g_outsideTicks = 0;
         return;
     }
-    const float x = rdf(rdram, player + 0x14), y = rdf(rdram, player + 0x18), z = rdf(rdram, player + 0x1c);
+    const float x = guest::readF(rdram, player + 0x14), y = guest::readF(rdram, player + 0x18),
+                z = guest::readF(rdram, player + 0x1c);
     // A fall past every spawn point (a map on a cliff top over a void) is out at once, leaving the rectangle after a
     // while.
     float lowest = 1e30f;
@@ -1861,7 +1844,7 @@ void boundsTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
     std::vector<std::pair<float, float>> others;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (i.handle)
-            others.emplace_back(rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x1c));
+            others.emplace_back(guest::readF(rdram, i.handle + 0x14), guest::readF(rdram, i.handle + 0x1c));
     });
     const int s = def.pickSpawn(others);
     if (s < 0)
@@ -1883,7 +1866,8 @@ void testFallTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player, 
     if (at == 0 || since < at || doneGen == g_loadGen)
         return;
     doneGen = g_loadGen;
-    const float pos[3] = {rdf(rdram, player + 0x14), rdf(rdram, player + 0x18) - 30000.0f, rdf(rdram, player + 0x1c)};
+    const float pos[3] = {guest::readF(rdram, player + 0x14), guest::readF(rdram, player + 0x18) - 30000.0f,
+                          guest::readF(rdram, player + 0x1c)};
     arenaLog("test: dropping the player to y=%.0f", static_cast<double>(pos[1]));
     for (int k = 0; k < 3; ++k)
         guest.writeF(player + 0x14 + 4u * static_cast<uint32_t>(k), pos[k]);
@@ -1939,8 +1923,8 @@ void previewShotTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t playe
         g_shotStage = 0;
         return;
     }
-    const uint32_t camH = rd32(rdram, engineCtx(rdram) + 0x4b4);
-    const uint32_t camObj = ramPtr(camH) ? rd32(rdram, rd32(rdram, camH + 0xfc) + 0x10) : 0;
+    const uint32_t camH = guest::read32(rdram, engineCtx(rdram) + 0x4b4);
+    const uint32_t camObj = guest::isHeapPtr(camH) ? guest::read32(rdram, guest::read32(rdram, camH + 0xfc) + 0x10) : 0;
     if (stage == 1) {
         if (g_shotAt == 0) {
             g_shotAt = g_ticks + kShotSettleTicks;
@@ -1949,15 +1933,16 @@ void previewShotTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t playe
                      static_cast<double>(pos[1]), static_cast<double>(pos[2]), static_cast<double>(yaw),
                      static_cast<double>(pitch));
         }
-        if (ramPtr(camObj))
+        if (guest::isHeapPtr(camObj))
             guest.writeF(camObj + 0x84, pitch * 3.14159265f / 180.0f);
         // The follow camera glides to its place after a placement: the shot waits until it has held still.
         static float lastCam[3] = {0, 0, 0};
         static unsigned steady = 0, waited = 0;
         if (g_shotAt == g_ticks + kShotSettleTicks) // first tick of the stage
             steady = waited = 0;
-        if (ramPtr(camH)) {
-            const float c[3] = {rdf(rdram, camH + 0x14), rdf(rdram, camH + 0x18), rdf(rdram, camH + 0x1c)};
+        if (guest::isHeapPtr(camH)) {
+            const float c[3] = {guest::readF(rdram, camH + 0x14), guest::readF(rdram, camH + 0x18),
+                                guest::readF(rdram, camH + 0x1c)};
             const float moved =
                 std::fabs(c[0] - lastCam[0]) + std::fabs(c[1] - lastCam[1]) + std::fabs(c[2] - lastCam[2]);
             steady = moved < 12.0f ? steady + 1 : 0;
@@ -1968,17 +1953,18 @@ void previewShotTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t playe
             return;
         }
         if (g_ticks >= g_shotAt) {
-            if (ramPtr(camH))
+            if (guest::isHeapPtr(camH))
                 arenaLog("preview shot: camera at %.0f %.0f %.0f (%.0f from the player), steady %u, waited %u",
                          static_cast<double>(lastCam[0]), static_cast<double>(lastCam[1]),
                          static_cast<double>(lastCam[2]),
-                         static_cast<double>(std::hypot(lastCam[0] - rdf(rdram, player + 0x14),
-                                                        lastCam[2] - rdf(rdram, player + 0x1c))),
+                         static_cast<double>(std::hypot(lastCam[0] - guest::readF(rdram, player + 0x14),
+                                                        lastCam[2] - guest::readF(rdram, player + 0x1c))),
                          steady, waited);
             // Only with her standing on the point: a spawn the engine would not take (no floor yet) gives a picture
             // of a fall. Try again a few times, then give up without a file.
-            const float dx = rdf(rdram, player + 0x14) - pos[0], dy = rdf(rdram, player + 0x18) - pos[1],
-                        dz = rdf(rdram, player + 0x1c) - pos[2];
+            const float dx = guest::readF(rdram, player + 0x14) - pos[0],
+                        dy = guest::readF(rdram, player + 0x18) - pos[1],
+                        dz = guest::readF(rdram, player + 0x1c) - pos[2];
             // No authored preview point (the spawn stands in): an air arena's pad hangs high above the floor and she
             // lands below and beside it (the pad pushes her off), so the settle check only applies to an authored
             // point.
@@ -2216,7 +2202,7 @@ void studioTick(drakan_input::IGuest& guest, uint8_t* rdram) {
         }
     }
     const uint32_t player = controlledActor(rdram);
-    if (!ramPtr(player) || !drakan_ghost::ready() || !drakan_ghost::enabled())
+    if (!guest::isHeapPtr(player) || !drakan_ghost::ready() || !drakan_ghost::enabled())
         return;
     const std::string dir = studioDir();
     ++s.ticks;
@@ -2240,13 +2226,13 @@ void studioTick(drakan_input::IGuest& guest, uint8_t* rdram) {
         }
         arenaLog("character previews: %zu characters into %s", s.ids.size(), dir.c_str());
         for (int i = 0; i < 3; ++i)
-            s.base[i] = rdf(rdram, player + 0x14 + 4u * static_cast<uint32_t>(i));
+            s.base[i] = guest::readF(rdram, player + 0x14 + 4u * static_cast<uint32_t>(i));
         for (int i = 0; i < 9; ++i)
-            s.rot[i] = rdf(rdram, player + 0x20 + 4u * static_cast<uint32_t>(i));
+            s.rot[i] = guest::readF(rdram, player + 0x20 + 4u * static_cast<uint32_t>(i));
         // Beside her, to one side of the camera's view of her.
-        const uint32_t camH = rd32(rdram, engineCtx(rdram) + 0x4b4);
-        if (ramPtr(camH)) {
-            float dx = s.base[0] - rdf(rdram, camH + 0x14), dz = s.base[2] - rdf(rdram, camH + 0x1c);
+        const uint32_t camH = guest::read32(rdram, engineCtx(rdram) + 0x4b4);
+        if (guest::isHeapPtr(camH)) {
+            float dx = s.base[0] - guest::readF(rdram, camH + 0x14), dz = s.base[2] - guest::readF(rdram, camH + 0x1c);
             const float n = std::max(1.0f, std::hypot(dx, dz));
             dx /= n;
             dz /= n;
@@ -2365,11 +2351,14 @@ void tourTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t player) {
             gsr::requestWindowShot(std::string(dir) + "/tour_" + std::to_string(stop / n) + "_" +
                                    std::to_string(stop % n) + ".png");
     } else if (within == static_cast<unsigned>(g_tourEvery) - 2 && stop < n * 2) {
-        const uint32_t cam = rd32(rdram, engineCtx(rdram) + 0x4b4);
+        const uint32_t cam = guest::read32(rdram, engineCtx(rdram) + 0x4b4);
         arenaLog("tour: spawn %zu: player now at %.0f %.0f %.0f, camera at %.0f %.0f %.0f", stop % n,
-                 static_cast<double>(rdf(rdram, player + 0x14)), static_cast<double>(rdf(rdram, player + 0x18)),
-                 static_cast<double>(rdf(rdram, player + 0x1c)), static_cast<double>(rdf(rdram, cam + 0x14)),
-                 static_cast<double>(rdf(rdram, cam + 0x18)), static_cast<double>(rdf(rdram, cam + 0x1c)));
+                 static_cast<double>(guest::readF(rdram, player + 0x14)),
+                 static_cast<double>(guest::readF(rdram, player + 0x18)),
+                 static_cast<double>(guest::readF(rdram, player + 0x1c)),
+                 static_cast<double>(guest::readF(rdram, cam + 0x14)),
+                 static_cast<double>(guest::readF(rdram, cam + 0x18)),
+                 static_cast<double>(guest::readF(rdram, cam + 0x1c)));
     }
 }
 
@@ -2396,11 +2385,13 @@ void gotoTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player
         static_cast<size_t>(g_gotoWatch) < g_picks.size()) {
         const Pick& p = g_picks[static_cast<size_t>(g_gotoWatch)];
         arenaLog("test: player %.0f %.0f %.0f, pickup home %.0f %.0f %.0f, item actor %x %s at %.0f %.0f %.0f",
-                 static_cast<double>(rdf(rdram, player + 0x14)), static_cast<double>(rdf(rdram, player + 0x18)),
-                 static_cast<double>(rdf(rdram, player + 0x1c)), static_cast<double>(p.def.pos[0]),
+                 static_cast<double>(guest::readF(rdram, player + 0x14)),
+                 static_cast<double>(guest::readF(rdram, player + 0x18)),
+                 static_cast<double>(guest::readF(rdram, player + 0x1c)), static_cast<double>(p.def.pos[0]),
                  static_cast<double>(p.def.pos[1]), static_cast<double>(p.def.pos[2]), p.handle,
-                 liveAt(rdram, p) ? "live" : "gone", static_cast<double>(rdf(rdram, p.handle + 0x14)),
-                 static_cast<double>(rdf(rdram, p.handle + 0x18)), static_cast<double>(rdf(rdram, p.handle + 0x1c)));
+                 liveAt(rdram, p) ? "live" : "gone", static_cast<double>(guest::readF(rdram, p.handle + 0x14)),
+                 static_cast<double>(guest::readF(rdram, p.handle + 0x18)),
+                 static_cast<double>(guest::readF(rdram, p.handle + 0x1c)));
     }
     for (GotoStep& s : g_goto) {
         if (s.done || g_ticks < g_passTick + s.at || static_cast<size_t>(s.pickup) >= g_picks.size())
@@ -2416,8 +2407,8 @@ void gotoTick(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t player
                 for (size_t k = 0; k < g_picks.size(); ++k) {
                     if (g_picks[k].state != PState::Present)
                         continue;
-                    const float d = std::hypot(rdf(rdram, player + 0x14) - g_picks[k].def.pos[0],
-                                               rdf(rdram, player + 0x1c) - g_picks[k].def.pos[2]);
+                    const float d = std::hypot(guest::readF(rdram, player + 0x14) - g_picks[k].def.pos[0],
+                                               guest::readF(rdram, player + 0x1c) - g_picks[k].def.pos[2]);
                     if (d < bestD) {
                         bestD = d;
                         best = static_cast<int>(k);
@@ -2706,7 +2697,7 @@ bool placeAtSpawn(drakan_input::IGuest& guest, uint8_t* rdram, int index) {
         def = g_def;
     }
     const uint32_t player = controlledActor(rdram);
-    if (!ramPtr(player))
+    if (!guest::isHeapPtr(player))
         return false;
     const auto& s = def.spawns[static_cast<size_t>(index)];
     if (!g_haveStart)
@@ -2732,7 +2723,7 @@ int pickRespawnSpawn(uint8_t* rdram) {
     std::vector<std::pair<float, float>> others;
     drakan_ghost::forEach([&](const drakan_ghost::Info& i) {
         if (i.handle)
-            others.emplace_back(rdf(rdram, i.handle + 0x14), rdf(rdram, i.handle + 0x1c));
+            others.emplace_back(guest::readF(rdram, i.handle + 0x14), guest::readF(rdram, i.handle + 0x1c));
     });
     return def.pickSpawn(others);
 }
@@ -2899,7 +2890,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
                      ready ? "resume" : "pause");
         }
     }
-    if (!ramPtr(player) || !drakan_ghost::ready())
+    if (!guest::isHeapPtr(player) || !drakan_ghost::ready())
         return;
     ++g_ticks;
     if (g_filteredGen != g_loadGen) {
@@ -2915,9 +2906,9 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
                                        if (g_ticks < effect.dieTick)
                                            return false;
                                        const uint32_t h = effect.handle;
-                                       if (ramPtr(h) && rd32(rdram, h) == g_globals.handleVtable &&
-                                           (rd32(rdram, h + 0x10) & 0xffffu) == effect.resIndex &&
-                                           !(rd32(rdram, h + 4) & 0x80000000u))
+                                       if (guest::isHeapPtr(h) && guest::read32(rdram, h) == g_globals.handleVtable &&
+                                           (guest::read32(rdram, h + 0x10) & 0xffffu) == effect.resIndex &&
+                                           !(guest::read32(rdram, h + 4) & 0x80000000u))
                                            killActor(guest, rdram, h);
                                        return true;
                                    }),
@@ -2937,14 +2928,15 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram) {
         dumpWorld("after");
     if (std::getenv("DRAKAN_ARENA_RESDUMP") && since == kSweepTicks + 60) { // test aid: the level's resource records
         const uint32_t ctx = engineCtx(rdram);
-        const uint32_t res = ramPtr(ctx) ? rd32(rdram, ctx + 0x320) : 0;
-        const uint32_t table = ramPtr(res) ? rd32(rdram, res + 8) : 0,
-                       count = ramPtr(res) ? rd32(rdram, res + 0x10) : 0;
+        const uint32_t res = guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x320) : 0;
+        const uint32_t table = guest::isHeapPtr(res) ? guest::read32(rdram, res + 8) : 0,
+                       count = guest::isHeapPtr(res) ? guest::read32(rdram, res + 0x10) : 0;
         arenaLog("resdump: %u records", count);
-        for (uint32_t i = 0; ramPtr(table) && i <= count && i < 0x20000u; ++i) {
+        for (uint32_t i = 0; guest::isHeapPtr(table) && i <= count && i < 0x20000u; ++i) {
             const uint32_t r = table + i * 0x24u;
-            arenaLog("resdump %u id %x type %u class %x props %x model %x", i, rd32(rdram, r), rd32(rdram, r + 4),
-                     rd32(rdram, r + 8), rd32(rdram, r + 0xc), rd32(rdram, r + 0x10));
+            arenaLog("resdump %u id %x type %u class %x props %x model %x", i, guest::read32(rdram, r),
+                     guest::read32(rdram, r + 4), guest::read32(rdram, r + 8), guest::read32(rdram, r + 0xc),
+                     guest::read32(rdram, r + 0x10));
         }
     }
     if (g_ticks % 3 == 0)

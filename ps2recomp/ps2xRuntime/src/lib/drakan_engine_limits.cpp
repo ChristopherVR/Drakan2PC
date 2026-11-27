@@ -6,6 +6,7 @@
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "world/EngineLimits.h"
 
 #include <atomic>
@@ -52,12 +53,6 @@ struct CacheStats {
 std::mutex g_mutex;
 CacheStats g_model{"model"}, g_animation{"animation"};
 
-uint32_t read32(const uint8_t* ram, uint32_t a) {
-    uint32_t v;
-    std::memcpy(&v, ram + a, 4);
-    return v;
-}
-
 void scaleShadow(uint8_t* ram, uint32_t address) {
     float stored;
     std::memcpy(&stored, ram + address, 4);
@@ -99,33 +94,33 @@ void cacheTrim(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
         g_trimOriginal(ram, ctx, rt);
         return;
     }
-    const uint32_t budget = read32(ram, cache + kBudget);
+    const uint32_t budget = guest::read32(ram, cache + kBudget);
     if (const uint32_t raised = rc::raisedBudget(budget, target)) {
         std::memcpy(ram + cache + kBudget, &raised, 4);
         std::lock_guard<std::mutex> lock(g_mutex);
         if (stats->loggedBudget != budget) { // once per level budget value
             stats->loggedBudget = budget;
             std::fprintf(stderr, "[engine-limits] %s cache budget %u -> %u bytes (in use %u)\n", stats->name, budget,
-                         raised, read32(ram, cache + kInUse));
+                         raised, guest::read32(ram, cache + kInUse));
         }
     }
     const uint32_t returnPc = GPR_U32(ctx, 31), request = GPR_U32(ctx, 5);
-    const uint32_t before = read32(ram, cache + kInUse);
+    const uint32_t before = guest::read32(ram, cache + kInUse);
     g_trimOriginal(ram, ctx, rt);
     if (ctx->pc != returnPc) // suspended inside (it waits on the cache's semaphore): nothing to count yet
         return;
-    const uint32_t after = read32(ram, cache + kInUse);
+    const uint32_t after = guest::read32(ram, cache + kInUse);
     std::lock_guard<std::mutex> lock(g_mutex);
     ++stats->calls;
     if (after < before)
         stats->dropped += before - after;
     if (g_log)
         std::fprintf(stderr, "[engine-limits] %s cache trim: request %u, budget %u, in use %u -> %u\n", stats->name,
-                     request, read32(ram, cache + kBudget), before, after);
+                     request, guest::read32(ram, cache + kBudget), before, after);
     if (stats->dropped >= stats->nextReport) {
         std::fprintf(stderr, "[engine-limits] %s cache dropped %.1f MiB so far (%llu trims, budget %u)\n", stats->name,
                      stats->dropped / 1048576.0, static_cast<unsigned long long>(stats->calls),
-                     read32(ram, cache + kBudget));
+                     guest::read32(ram, cache + kBudget));
         while (stats->nextReport <= stats->dropped)
             stats->nextReport += 1u << 20;
     }
@@ -133,7 +128,7 @@ void cacheTrim(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
 
 // Raises the run max when the level has stored a new value (a value other than the one we left there).
 void applyAiRunMax(uint8_t* ram) {
-    const int32_t stored = static_cast<int32_t>(read32(ram, kAiRunMax));
+    const int32_t stored = static_cast<int32_t>(guest::read32(ram, kAiRunMax));
     if (stored == g_aiWritten)
         return;
     const int32_t want = ai::raised(stored, g_aiOption);
@@ -155,12 +150,12 @@ void aiLimiter(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     if (ctx->pc == kAiLimiter)
         applyAiRunMax(ram);
     g_aiLimiterOriginal(ram, ctx, rt);
-    const int32_t inUse = static_cast<int32_t>(read32(ram, kAiInUse));
+    const int32_t inUse = static_cast<int32_t>(guest::read32(ram, kAiInUse));
     if (inUse > g_aiPeak) {
         g_aiPeak = inUse;
         if (g_log || inUse > g_aiLevel)
             std::fprintf(stderr, "[engine-limits] AI run slots in use: %d (level max %d, run max %d)\n", inUse,
-                         g_aiLevel, static_cast<int32_t>(read32(ram, kAiRunMax)));
+                         g_aiLevel, static_cast<int32_t>(guest::read32(ram, kAiRunMax)));
     }
 }
 

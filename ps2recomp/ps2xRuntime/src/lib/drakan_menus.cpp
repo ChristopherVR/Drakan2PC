@@ -9,6 +9,7 @@
 #if defined(PS2X_HAVE_DRAKAN_INPUT) || defined(PS2X_HAVE_PORTABLE_UI)
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
+#include "runtime/guest_access.h"
 #include "drakan_config.h"
 #include "drakan_guest_call.h"
 #include "drakan_language_policy.h"
@@ -111,20 +112,11 @@ void loadingWidth(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 }
 
 inline uint8_t* P(uint32_t a) {
-    return g_ram + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1));
+    return g_ram + guest::ramOffset(a);
 }
+// A screen / widget object: the first 0x100 bytes the hooks read lie in guest RAM.
 inline bool okPtr(uint32_t p) {
-    return p >= 0x00100000u && p + 0x100u < PS2_RAM_SIZE;
-}
-inline uint32_t rd32(uint32_t a) {
-    uint32_t v;
-    std::memcpy(&v, P(a), 4);
-    return v;
-}
-inline uint16_t rd16(uint32_t a) {
-    uint16_t v;
-    std::memcpy(&v, P(a), 2);
-    return v;
+    return guest::isHeapPtr(p, 0x100u);
 }
 
 void leave(R5900Context* c, uint32_t v) {
@@ -138,14 +130,10 @@ class MGuest final : public IGuest {
 public:
     MGuest(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt)
         : ram_(ram), ctx_(ctx), rt_(rt), sp_(getRegU32(ctx, 29) & ~15u) {}
-    uint8_t read8(uint32_t a) override { return ram_[a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)]; }
-    uint32_t read32(uint32_t a) override {
-        uint32_t v;
-        std::memcpy(&v, ram_ + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), 4);
-        return v;
-    }
-    void write8(uint32_t a, uint8_t v) override { ram_[a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)] = v; }
-    void write32(uint32_t a, uint32_t v) override { std::memcpy(ram_ + (a & 0x1FFFFFFFu & (PS2_RAM_SIZE - 1)), &v, 4); }
+    uint8_t read8(uint32_t a) override { return guest::read8(ram_, a); }
+    uint32_t read32(uint32_t a) override { return guest::read32(ram_, a); }
+    void write8(uint32_t a, uint8_t v) override { guest::write8(ram_, a, v); }
+    void write32(uint32_t a, uint32_t v) override { guest::write32(ram_, a, v); }
     uint32_t scratch(uint32_t off) const { return sp_ - 0x400u + off; }
     std::optional<uint32_t> callImmediate(const GuestCall& c) override { return callWith(nullptr, c); }
     // The original overrides the dispatch table for the first call only.
@@ -815,7 +803,7 @@ void hookTitle(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t scr = getRegU32(c, 4), widget = getRegU32(c, 5), msg = getRegU32(c, 6);
     uint32_t wid = 0;
     if ((msg == 1u || msg == 0x10u) && okPtr(widget))
-        wid = rd16(widget + 0x14);
+        wid = guest::read16(g_ram, widget + 0x14);
     if (msg == 1u && wid == kWidgetQuit) {
         MGuest g(rdram, c, rt);
         g.call(GuestCall(kFnSetFocus).arg(scr).arg(0)); // as the pause menu does before its quit box
@@ -1003,17 +991,18 @@ bool titleQuit() {
 // intermediate, whose different raster face produces blurred, uneven letters.
 void crispSelectedText(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t widget = GPR_U32(c, 4) & 0x1fffffffu;
-    const uint32_t parent = okPtr(widget) ? rd32(widget + 8) : 0;
-    const int screen = okPtr(parent) ? int(rd32(parent + 0x18)) : -1;
+    const uint32_t parent = okPtr(widget) ? guest::read32(g_ram, widget + 8) : 0;
+    const int screen = okPtr(parent) ? int(guest::read32(g_ram, parent + 0x18)) : -1;
     const bool menu = screen == 1 || screen == 2 || screen == 3 || screen == 4 || screen == 5 || screen == 8 ||
                       screen == 9 || screen == 10 || screen == 13 || screen == 23 || screen == 27 || screen == 28;
-    const bool selected = c->pc == 0x2c8728u && menu && parent == rd32(kActiveScreenVar) &&
-                          (rd32(widget + 0x10) & 0x40u) && rd32(widget + 0x40) && rd32(widget + 0x5c);
+    const bool selected = c->pc == 0x2c8728u && menu && parent == guest::read32(g_ram, kActiveScreenVar) &&
+                          (guest::read32(g_ram, widget + 0x10) & 0x40u) && guest::read32(g_ram, widget + 0x40) &&
+                          guest::read32(g_ram, widget + 0x5c);
     if (!selected) {
         g_origWidgetText(ram, c, rt);
         return;
     }
-    const uint32_t flags = rd32(widget + 0x10), direct = flags & ~0x40u;
+    const uint32_t flags = guest::read32(g_ram, widget + 0x10), direct = flags & ~0x40u;
     uint32_t colors[4];
     std::memcpy(colors, ram + widget + 0x64, sizeof colors);
     const uint32_t gold[4] = {0x803c6c7fu, 0x803c6c7fu, 0x80123860u, 0x80123860u};
@@ -1026,7 +1015,7 @@ void crispSelectedText(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     withTemporaryGuestState([&] { g_origWidgetText(ram, c, rt); },
                             [&] {
                                 std::memcpy(ram + widget + 0x64, colors, sizeof colors);
-                                const uint32_t restored = rd32(widget + 0x10) | (flags & 0x40u);
+                                const uint32_t restored = guest::read32(g_ram, widget + 0x10) | (flags & 0x40u);
                                 std::memcpy(ram + widget + 0x10, &restored, 4);
                             });
 }
