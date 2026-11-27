@@ -77,6 +77,7 @@ private:
     void buildJumpTargets();
     void collectCodePointerEntries();
     void discoverAdditionalEntryPoints();
+    void reportUnresolvedIndirectJumps(std::vector<std::pair<uint32_t, std::string>> sites);
     bool shouldSkipFunction(const Function& function) const;
     bool isStubFunction(const Function& function) const;
     bool isCorrectnessCriticalFunction(const Function& function) const;

@@ -171,9 +171,8 @@ ControlFlowAnalysisResult ControlFlowAnalyzer::analyze(const Function& function,
                     }
                 }
             }
-            if (!m_indirectFallback) {
-                // Unresolved JR: tail call through the function table. JALR: indirect call, resume point already
-                // queued.
+            if (!m_indirectFallback && jrInst->function == SPECIAL_JALR) {
+                // Indirect call through the function table; its resume point is queued above.
                 continue;
             }
 
@@ -333,7 +332,13 @@ ControlFlowAnalysisResult ControlFlowAnalyzer::analyze(const Function& function,
                 }
             }
             if (!foundTable) {
-                needsIndirectFallback = true;
+                if (m_indirectFallback) {
+                    needsIndirectFallback = true;
+                } else {
+                    // Dispatched through the function table at run time: fine for a tail call through a function
+                    // pointer, but a switch missing from jumptables.csv stops the thread when a case is reached.
+                    result.unresolvedIndirectJumps.push_back(jrInst->address);
+                }
             }
         }
 

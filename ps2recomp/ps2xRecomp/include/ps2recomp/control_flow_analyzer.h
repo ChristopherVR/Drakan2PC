@@ -18,6 +18,8 @@ struct ControlFlowAnalysisResult {
     std::unordered_set<uint32_t> resumeEntryPoints;
     std::unordered_set<uint32_t> indirectFallbackEntryPoints;
     std::unordered_map<uint32_t, std::vector<uint32_t>> jumpTableTargets;
+    // Non-$ra JR sites neither jumptables.csv nor the table detector resolved (only without indirect_fallback).
+    std::vector<uint32_t> unresolvedIndirectJumps;
 };
 
 class ControlFlowAnalyzer {

@@ -1837,6 +1837,7 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
         return prefixMaxEnd[idx] > address;
     };
 
+    std::vector<std::pair<uint32_t, std::string>> unresolvedJumps;
     for (const auto& function : m_functions) {
         if (!function.isRecompiled || function.isStub || function.isSkipped) {
             continue;
@@ -1860,6 +1861,10 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
                             analysisResult.resumeEntryPoints.end());
         ownerTargets.insert(ownerTargets.end(), analysisResult.indirectFallbackEntryPoints.begin(),
                             analysisResult.indirectFallbackEntryPoints.end());
+
+        for (uint32_t jumpAddress : analysisResult.unresolvedIndirectJumps) {
+            unresolvedJumps.emplace_back(jumpAddress, function.name);
+        }
 
         for (uint32_t target : analysisResult.externalEntryPoints) {
             const Function* owner = findContainingFunction(target);
@@ -1891,6 +1896,7 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
     }
 
     m_codeGenerator->setResumeEntryTargets(m_resumeEntryTargetsByOwner);
+    reportUnresolvedIndirectJumps(std::move(unresolvedJumps));
 
     if (totalTargets > 0u) {
         m_reporter.recordAdditionalEntryPoints(totalTargets);
@@ -1899,6 +1905,31 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
             << " owner function(s)";
         m_reporter.progress(msg.str());
     }
+}
+
+// Without indirect_fallback an unresolved non-$ra JR goes to the runtime dispatcher, which only knows function and
+// entry addresses: a switch whose table is missing from jumptables.csv stops the thread the first time a case is taken.
+// List every such site so a missing table shows up in the build log, not in play.
+void PS2Recompiler::reportUnresolvedIndirectJumps(std::vector<std::pair<uint32_t, std::string>> sites) {
+    std::sort(sites.begin(), sites.end());
+    sites.erase(std::unique(sites.begin(), sites.end()), sites.end());
+    if (sites.empty()) {
+        return;
+    }
+
+    std::ostringstream list;
+    list << std::hex;
+    for (const auto& [address, functionName] : sites) {
+        m_reporter.warningAt("jump-tables", functionName, address,
+                             "JR not resolved by jumptables.csv or the jump-table detector: dispatched through the "
+                             "function table (add the table to jumptables.csv if this is a switch)");
+        list << " 0x" << address;
+    }
+
+    std::ostringstream msg;
+    msg << "WARNING: " << sites.size()
+        << " unresolved JR site(s), dispatched through the function table:" << list.str();
+    m_reporter.progress(msg.str());
 }
 
 bool PS2Recompiler::decodeFunction(Function& function) {
