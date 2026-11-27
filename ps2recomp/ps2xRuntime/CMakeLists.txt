@@ -405,6 +405,7 @@ add_library(ps2_runtime STATIC
     src/lib/ps2_rom_device.cpp
     src/lib/ps2_vfs.cpp
     src/lib/ps2_runtime.cpp
+    src/lib/ps2_run_diagnostics.cpp
     src/lib/ps2_function_variants.cpp
     src/lib/ps2_perf.cpp
     src/lib/ps2_vif1_interpreter.cpp

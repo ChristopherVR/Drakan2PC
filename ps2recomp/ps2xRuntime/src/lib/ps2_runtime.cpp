@@ -25,6 +25,7 @@ void ps2PollHostPad();      // Window thread snapshot for the portable libpad ba
 #include <cctype>
 #include <cstdio>
 #include "ps2_perf.h"
+#include "ps2_run_diagnostics.h"
 #include "vu/ps2_vu1_check.h"
 #include "vu/ps2_vu1_gpu_live.h"
 #include "gsr/vertex_path.h"
@@ -2606,7 +2607,20 @@ void PS2Runtime::HandleIntegerOverflow(R5900Context* ctx) {
     raiseCop0Exception(ctx, EXCEPTION_INTEGER_OVERFLOW);
 }
 
-void PS2Runtime::run() {
+// What run()'s pieces share: the raylib frame texture and per-run debug state.
+struct PS2Runtime::RunLoopState {
+    // A blank image to use as a framebuffer (the raylib texture needs an OpenGL context: not created when the native
+    // D3D11 window is used)
+    Texture2D frameTex{};
+    std::atomic<bool> gameThreadFinished{false};
+    std::thread gameThread;
+    PcProfiler profiler;
+    uint64_t tick = 0;
+    bool screenshotTaken = false;
+};
+
+// Reset the guest-facing kernel state and the boot registers: a0/a1 = 0 (no argc/argv), sp at the top of retail RAM.
+void PS2Runtime::prepareRun() {
     m_stopRequested.store(false, std::memory_order_relaxed);
     ps2_stubs::resetSifState();
     resetIop();
@@ -2620,19 +2634,51 @@ void PS2Runtime::run() {
     m_debugRa.store(static_cast<uint32_t>(_mm_extract_epi32(m_cpuContext.r[31], 0)), std::memory_order_relaxed);
     m_debugSp.store(static_cast<uint32_t>(_mm_extract_epi32(m_cpuContext.r[29], 0)), std::memory_order_relaxed);
     m_debugGp.store(static_cast<uint32_t>(_mm_extract_epi32(m_cpuContext.r[28], 0)), std::memory_order_relaxed);
+}
 
+// The game thread: the EE scheduler runs every guest thread on it until the game ends or a stop is requested.
+void PS2Runtime::runGameThread(std::atomic<bool>& finished) {
+    ThreadNaming::SetCurrentThreadName("GameThread");
+#if defined(_WIN32)
+    // Guest calls nest as host calls on this thread, so a runaway guest recursion ends in EXCEPTION_STACK_OVERFLOW.
+    // Without a guarantee the unhandled-exception filter (drakan_crash.cpp: guest pc / ra, minidump) has only a few KB
+    // left and the crash is silent; reserve room for it.
+    {
+        unsigned long guarantee = 256u * 1024u;
+        if (!SetThreadStackGuarantee(&guarantee))
+            std::fprintf(stderr, "[run] SetThreadStackGuarantee failed\n");
+    }
+#endif
+    drakan_input::boostThread(drakan_input::ThreadRole::Frame);
+    try {
+        m_eeScheduler->reset(m_memory.getRDRAM(), m_cpuContext);
+        m_eeScheduler->run();
+        uint32_t pc = m_debugPc.load(std::memory_order_relaxed);
+        RUNTIME_LOG("Game thread returned. PC=0x" << std::hex << pc << " RA=0x"
+                                                  << static_cast<uint32_t>(_mm_extract_epi32(m_cpuContext.r[31], 0))
+                                                  << std::dec << std::endl);
+    } catch (const std::exception& e) {
+        drakan_issue::markCrash();
+        std::cerr << "Error during program execution: " << e.what() << std::endl;
+    } catch (...) {
+        drakan_issue::markCrash();
+        std::cerr << "Error during program execution: unknown exception" << std::endl;
+    }
+    finished.store(true, std::memory_order_release);
+}
+
+// The host (present) thread's loop: input, diagnostics, then one frame presented. The game itself runs on the game
+// thread; this loop ends when the window closes, a stop is requested or the game thread returns.
+void PS2Runtime::run() {
+    prepareRun();
     RUNTIME_LOG("Starting execution at address 0x" << std::hex << m_cpuContext.pc << std::dec);
 
-    // A blank image to use as a framebuffer
-    // (the raylib texture needs an OpenGL context: not created when the native D3D11 window is used)
-    Texture2D frameTex{};
+    RunLoopState state;
     if (!m_gs.d3d11Active()) {
         Image blank = GenImageColor(FB_WIDTH, FB_HEIGHT, BLANK);
-        frameTex = LoadTextureFromImage(blank);
+        state.frameTex = LoadTextureFromImage(blank);
         UnloadImage(blank);
     }
-
-    std::atomic<bool> gameThreadFinished{false};
 
     {
         const std::string affinity = drakan_input::applyProcessAffinity(
@@ -2641,88 +2687,22 @@ void PS2Runtime::run() {
             std::fprintf(stderr, "%s\n", affinity.c_str());
     }
     drakan_input::boostThread(drakan_input::ThreadRole::Frame); // this (host + present) thread
-    std::thread gameThread([&]() {
-        ThreadNaming::SetCurrentThreadName("GameThread");
-#if defined(_WIN32)
-        // Guest calls nest as host calls on this thread, so a runaway guest recursion ends in EXCEPTION_STACK_OVERFLOW.
-        // Without a guarantee the unhandled-exception filter (drakan_crash.cpp: guest pc / ra, minidump) has only a
-        // few KB left and the crash is silent; reserve room for it.
-        {
-            unsigned long guarantee = 256u * 1024u;
-            if (!SetThreadStackGuarantee(&guarantee))
-                std::fprintf(stderr, "[run] SetThreadStackGuarantee failed\n");
-        }
-#endif
-        drakan_input::boostThread(drakan_input::ThreadRole::Frame);
-        try {
-            m_eeScheduler->reset(m_memory.getRDRAM(), m_cpuContext);
-            m_eeScheduler->run();
-            uint32_t pc = m_debugPc.load(std::memory_order_relaxed);
-            RUNTIME_LOG("Game thread returned. PC=0x" << std::hex << pc << " RA=0x"
-                                                      << static_cast<uint32_t>(_mm_extract_epi32(m_cpuContext.r[31], 0))
-                                                      << std::dec << std::endl);
-        } catch (const std::exception& e) {
-            drakan_issue::markCrash();
-            std::cerr << "Error during program execution: " << e.what() << std::endl;
-        } catch (...) {
-            drakan_issue::markCrash();
-            std::cerr << "Error during program execution: unknown exception" << std::endl;
-        }
-        gameThreadFinished.store(true, std::memory_order_release);
-    });
+    state.gameThread = std::thread([this, &state]() { runGameThread(state.gameThreadFinished); });
 
 #if defined(_WIN32)
-    drakan_fpsmeter::setThreads(gameThread.native_handle(), nullptr); // FPS counter (detailed): EE thread load
+    drakan_fpsmeter::setThreads(state.gameThread.native_handle(), nullptr); // FPS counter (detailed): EE thread load
 #endif
     ps2perf::start(
 #if defined(_WIN32)
-        gameThread.native_handle(),
+        state.gameThread.native_handle(),
 #else
         nullptr, // Native handle profiling is currently implemented only on Windows.
 #endif
         [](void* u) -> uint64_t { return static_cast<PS2Runtime*>(u)->eeScheduler().currentVSyncTick(); }, this);
 
-    // PS2X_PROFILE=<seconds>: sample the live guest pc every ~1 ms and print the hottest addresses at the end
-    // (needs the code generated with always_write_pc = true for instruction-level precision).
-    std::thread profiler;
-    std::atomic<bool> profilerStop{false};
-    if (const char* prof = std::getenv("PS2X_PROFILE")) {
-        const double profSeconds = std::atof(prof);
-        profiler = std::thread([this, profSeconds, &profilerStop]() {
-            std::unordered_map<uint32_t, uint32_t> hist;
-            const auto t0 = std::chrono::steady_clock::now();
-            while (!profilerStop.load() &&
-                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < profSeconds) {
-                uint32_t pc = 0, ra = 0, sp = 0;
-                int tid = 0;
-                if (m_eeScheduler->sampleLive(pc, ra, sp, tid))
-                    ++hist[pc];
-                std::this_thread::sleep_for(std::chrono::microseconds(500));
-            }
-            std::vector<std::pair<uint32_t, uint32_t>> v(hist.begin(), hist.end());
-            std::sort(v.begin(), v.end(), [](auto& a, auto& b) { return a.second > b.second; });
-            std::cerr << "[profile] top pcs:";
-            for (size_t i = 0; i < v.size() && i < 25; ++i)
-                std::cerr << " " << std::hex << v[i].first << "x" << std::dec << v[i].second;
-            std::cerr << std::endl;
-        });
-    }
-    uint64_t tick = 0;
-    // Drakan diagnostics: PS2X_WATCHDOG=<seconds> logs the live guest pc/thread state periodically,
-    // PS2X_MAX_SECONDS=<n> stops the run after n seconds.
-    const char* wdEnv = std::getenv("PS2X_WATCHDOG");
-    const double wdPeriod = wdEnv ? std::atof(wdEnv) : 0.0;
-    const char* maxEnv = std::getenv("PS2X_MAX_SECONDS");
-    const double maxSeconds = maxEnv ? std::atof(maxEnv) : 0.0;
-    const auto wdStart = std::chrono::steady_clock::now();
-    auto wdLast = wdStart;
-    bool screenshotTaken = false;
-    uint64_t stallBeat = 0;
-    auto stallSince = wdStart;
-    bool stallReported = false;
-    int stallDumps = 0;
-    bool stallCaptureAttempted = false;
-    while (!isStopRequested() && !gameThreadFinished.load(std::memory_order_acquire)) {
+    state.profiler.startFromEnvironment(*m_eeScheduler);
+    StallWatchdog watchdog(*m_eeScheduler, m_memory, formatDispatchHistory);
+    while (!isStopRequested() && !state.gameThreadFinished.load(std::memory_order_acquire)) {
 #if defined(__EMSCRIPTEN__)
         emscripten_current_thread_process_queued_calls();
         if (drakanWebStopRequested())
@@ -2730,284 +2710,35 @@ void PS2Runtime::run() {
 #endif
         if (!m_nativeWindow)
             ps2PollHostPad();
-        {
-            const auto now = std::chrono::steady_clock::now();
-            // Always-on stall detector: the guest's per-frame input boundary (g_guestHeartbeat) stopped advancing.
-            // Dump the live pc / threads / semaphores once per 10 s (at most 6 times) so a freeze leaves a trace in
-            // drakan.log even when PS2X_WATCHDOG is off (docs/journal/2026-11-01/quick-save-freeze.md).
-            bool stallDump = false;
-            {
-                const uint64_t beat = drakan_present_clock::g_guestHeartbeat.load(std::memory_order_relaxed);
-                if (beat != stallBeat || beat == 0) {
-                    stallBeat = beat;
-                    stallSince = now;
-                    stallReported = false;
-                } else if (!stallReported && stallDumps < 6 &&
-                           std::chrono::duration<double>(now - stallSince).count() >= 8.0) {
-                    stallReported = stallDump = true;
-                    ++stallDumps;
-                    std::cerr << "[stall] guest input boundary silent for 8 s (frame " << beat << ")" << std::endl;
-                }
-            }
-            if (stallDump || (wdPeriod > 0.0 && std::chrono::duration<double>(now - wdLast).count() >= wdPeriod)) {
-                wdLast = now;
-                uint32_t spc = 0, sra = 0, ssp = 0;
-                int stid = 0;
-                const bool ok = m_eeScheduler->sampleLive(spc, sra, ssp, stid);
-                std::cerr << "[watchdog t=" << std::fixed << std::setprecision(1)
-                          << std::chrono::duration<double>(now - wdStart).count() << "s] live thread=" << stid
-                          << " pc=0x" << std::hex << (ok ? spc : 0) << " ra=0x" << sra << " sp=0x" << ssp << std::dec
-                          << " | " << formatDispatchHistory() << std::endl;
-                // Explicit forensic output only: one best-effort snapshot on an actual silent-input stall,
-                // never on an ordinary periodic watchdog tick. No guest pause or memory/register writes.
-                if (stallDump && !stallCaptureAttempted) {
-                    stallCaptureAttempted = true;
-                    if (const char* directory = std::getenv("PS2X_WATCHDOG_DUMP_DIR")) {
-                        std::error_code error;
-                        const std::filesystem::path dir(directory);
-                        if (!dir.is_absolute() || !std::filesystem::is_directory(dir, error) || error) {
-                            std::cerr << "[watchdog-dump] requires an existing absolute output directory" << std::endl;
-                        } else {
-                            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-                            const auto base = dir / ("watchdog-stall-" + std::to_string(stamp));
-                            std::ofstream registers(base.string() + ".txt", std::ios::out);
-                            const auto captureRegisters = [&](const char* phase) {
-                                const R5900Context* live = m_eeScheduler->liveContextForCrash();
-                                registers << phase << " best-effort, guest not suspended; pc=" << std::hex
-                                          << (live ? live->pc : 0) << " thread=" << std::dec << stid << '\n';
-                                if (live)
-                                    for (int reg = 0; reg < 32; ++reg)
-                                        registers << "gpr" << std::dec << reg << "=" << std::hex << getRegU32(live, reg)
-                                                  << '\n';
-                            };
-                            captureRegisters("before-ram");
-                            std::ofstream memory(base.string() + ".ram", std::ios::out | std::ios::binary);
-                            memory.write(reinterpret_cast<const char*>(m_memory.getRDRAM()), PS2_RETAIL_RAM_SIZE);
-                            memory.close();
-                            captureRegisters("after-ram");
-                            registers << "dispatch=" << formatDispatchHistory() << '\n';
-                            registers.close();
-                            std::cerr << "[watchdog-dump] " << base.string() << " ram=" << (memory ? "ok" : "failed")
-                                      << " registers=" << (registers ? "ok" : "failed") << std::endl;
-                        }
-                    }
-                }
-                if (const char* peek = std::getenv("PS2X_PEEK")) {
-                    // comma separated guest addresses (hex): print the 32-bit word at each
-                    std::string list = peek;
-                    size_t pos = 0;
-                    std::cerr << "    peek:";
-                    while (pos < list.size()) {
-                        size_t comma = list.find(',', pos);
-                        const std::string item =
-                            list.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
-                        uint32_t addr = 0;
-                        if (!item.empty() && item[0] == '*') {
-                            // "*base:off" = word at [word at base] + off
-                            const size_t colon = item.find(':');
-                            const uint32_t base =
-                                static_cast<uint32_t>(std::strtoul(item.substr(1, colon - 1).c_str(), nullptr, 16));
-                            const uint32_t off =
-                                colon == std::string::npos
-                                    ? 0u
-                                    : static_cast<uint32_t>(std::strtoul(item.c_str() + colon + 1, nullptr, 16));
-                            uint32_t ptr = 0;
-                            if (base < PS2_RAM_SIZE)
-                                std::memcpy(&ptr, m_memory.getRDRAM() + base, 4);
-                            addr = (ptr & 0x1FFFFFFFu) + off;
-                        } else
-                            addr = static_cast<uint32_t>(std::strtoul(item.c_str(), nullptr, 16));
-                        uint32_t word = 0;
-                        if (addr < PS2_RAM_SIZE)
-                            std::memcpy(&word, m_memory.getRDRAM() + addr, 4);
-                        else
-                            word = m_memory.read32(addr);
-                        std::cerr << " [" << std::hex << addr << "]=" << word << std::dec;
-                        if (comma == std::string::npos)
-                            break;
-                        pos = comma + 1;
-                    }
-                    std::cerr << std::endl;
-                }
-                const auto snap = m_eeScheduler->snapshot();
-                for (const auto& sm : snap.semaphores)
-                    std::cerr << "    sema " << sm.id << " count=" << sm.count << "/" << sm.maxCount
-                              << " waiters=" << sm.waiters << std::endl;
-                for (const auto& t : snap.threads) {
-                    std::cerr << "    thread " << t.id << " status=" << static_cast<int>(t.status)
-                              << " wait=" << static_cast<int>(t.waitReason) << " waitId=" << t.waitId << " pc=0x"
-                              << std::hex << t.pc << " ra=0x" << t.ra << " entry=0x" << t.entry << std::dec
-                              << " prio=" << t.currentPriority << std::endl;
-                }
-            }
-            if (maxSeconds > 0.0 && std::chrono::duration<double>(now - wdStart).count() >= maxSeconds) {
-                std::cerr << "[run] PS2X_MAX_SECONDS reached, stopping" << std::endl;
-                requestStop();
-                break;
-            }
+        if (!watchdog.poll()) { // PS2X_MAX_SECONDS
+            requestStop();
+            break;
         }
         PS2_IF_AGRESSIVE_LOGS({
-            tick++;
-            if ((tick % 120) == 0) {
-                uint64_t curDma = m_memory.dmaStartCount();
-                uint64_t curGif = m_memory.gifCopyCount();
-                uint64_t curGs = m_memory.gsWriteCount();
-                uint64_t curVif = m_memory.vifWriteCount();
+            if ((++state.tick % 120) == 0) {
                 const GSRegisters& gs = m_memory.gs();
-                const uint32_t dbgPc = m_debugPc.load(std::memory_order_relaxed);
-                const uint32_t dbgRa = m_debugRa.load(std::memory_order_relaxed);
-                const uint32_t dbgSp = m_debugSp.load(std::memory_order_relaxed);
-                const uint32_t dbgGp = m_debugGp.load(std::memory_order_relaxed);
                 const auto eeSnapshot = m_eeScheduler->snapshot();
-
-                RUNTIME_LOG("[run:tick] tick=" << tick << " pc=0x" << std::hex << dbgPc << " ra=0x" << dbgRa << " sp=0x"
-                                               << dbgSp << " gp=0x" << dbgGp << " dispfb1=0x" << gs.dispfb1
-                                               << " display1=0x" << gs.display1 << std::dec << " activeThreads="
-                                               << eeSnapshot.threads.size() << " dma=" << curDma << " gif=" << curGif
-                                               << " gsw=" << curGs << " vif=" << curVif << std::endl);
+                RUNTIME_LOG("[run:tick] tick="
+                            << state.tick << " pc=0x" << std::hex << m_debugPc.load() << " ra=0x" << m_debugRa.load()
+                            << " sp=0x" << m_debugSp.load() << " gp=0x" << m_debugGp.load() << " dispfb1=0x"
+                            << gs.dispfb1 << " display1=0x" << gs.display1 << std::dec
+                            << " activeThreads=" << eeSnapshot.threads.size() << " dma=" << m_memory.dmaStartCount()
+                            << " gif=" << m_memory.gifCopyCount() << " gsw=" << m_memory.gsWriteCount()
+                            << " vif=" << m_memory.vifWriteCount() << std::endl);
             }
         });
         if (m_gs.d3d11Active()) {
-            // d3d11 backend: the swapchain lives on the native top-level window. We only pump its messages; the present
-            // (vsync / frame-latency object / limiter) paces the loop.
-#if defined(PS2X_HAVE_GSR)
-            if (m_nativeWindow)
-                drakan_win::pump();
-            else
-#endif
-                PollInputEvents();
-            m_gs.hostTick(); // Alt+Enter / F11 fullscreen, resize and present of the latched frame happen inside
-            if (
-#if defined(PS2X_HAVE_GSR)
-                (m_nativeWindow && drakan_win::closeRequested()) ||
-#endif
-                (!m_nativeWindow &&
-#if defined(__EMSCRIPTEN__)
-                 false)) {
-#else
-                 WindowShouldClose())) {
-#endif
+            if (pumpNativeWindow()) {
                 RUNTIME_LOG("[run] window close requested, breaking out of loop");
                 requestStop();
                 break;
             }
             continue;
         }
-        uint32_t presentWidth = FB_WIDTH;
-        uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
-        using PresentClock = std::chrono::steady_clock;
-        const bool profilePresent = drakan_presentation::g_frameMetrics.enabled();
-        const auto presentStart = profilePresent ? PresentClock::now() : PresentClock::time_point{};
-        UploadFrame(frameTex, this, presentWidth, presentHeight);
-        const auto presentUploaded = profilePresent ? PresentClock::now() : PresentClock::time_point{};
-
-        int surfaceWidth = GetScreenWidth(), surfaceHeight = GetScreenHeight();
-#if defined(__EMSCRIPTEN__)
-        drakanWebSurfaceSize(surfaceWidth, surfaceHeight);
-#endif
-        BeginDrawing();
-#if defined(__EMSCRIPTEN__)
-        // GLFW resize callbacks run on the UI thread. Re-establish the window
-        // render state here so a DPR/fullscreen change cannot leave the GL
-        // viewport or projection at the previous CSS size.
-        rlViewport(0, 0, surfaceWidth, surfaceHeight);
-        rlMatrixMode(RL_PROJECTION);
-        rlLoadIdentity();
-        rlOrtho(0.0, surfaceWidth, surfaceHeight, 0.0, 0.0, 1.0);
-        rlMatrixMode(RL_MODELVIEW);
-        rlLoadIdentity();
-#endif
-        ClearBackground(BLACK);
-        const float srcWidth = static_cast<float>(std::max<uint32_t>(1u, presentWidth));
-        const float srcHeight = static_cast<float>(std::max<uint32_t>(1u, presentHeight));
-        const float screenWidth = static_cast<float>(surfaceWidth);
-        const float screenHeight = static_cast<float>(surfaceHeight);
-        // PS2 display pixels are not square. The native presentation is 4:3
-        // even when DISPFB contains a 512-square image.
-        const float aspect = 4.0f / 3.0f;
-        const float dstHeight = std::min(screenHeight, screenWidth / aspect);
-        const float dstWidth = dstHeight * aspect;
-        const Rectangle srcRect{0.0f, 0.0f, srcWidth, srcHeight};
-        const Rectangle dstRect{(screenWidth - dstWidth) * 0.5f, (screenHeight - dstHeight) * 0.5f, dstWidth,
-                                dstHeight};
-#if !defined(PS2X_HAVE_PORTABLE_UI)
-        DrawTexturePro(frameTex, srcRect, dstRect, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
-#else
-        drakan_settings_host::drawPortableFrame(frameTex.id, presentWidth, presentHeight, dstRect.x, dstRect.y,
-                                                dstRect.width, dstRect.height);
-#endif
-        const auto presentDrawn = profilePresent ? PresentClock::now() : PresentClock::time_point{};
-        if (m_debugUiInitialized && m_debugUiDrawCallback) {
-            m_debugUiDrawCallback(*this, m_debugUiUserData);
-        }
-#if defined(PS2X_HAVE_PORTABLE_UI)
-        drakan_settings_host::drawPortableUi(*this, surfaceWidth, surfaceHeight, frameTex.id);
-#endif
-        const auto presentUi = profilePresent ? PresentClock::now() : PresentClock::time_point{};
-        EndDrawing();
-        if (profilePresent) {
-            const auto now = PresentClock::now();
-            struct PresentProfile {
-                PresentClock::time_point last = PresentClock::now();
-                unsigned frames = 0;
-                double upload = 0, draw = 0, ui = 0, swap = 0;
-            };
-            static PresentProfile profile;
-            const auto ms = [](auto time) { return std::chrono::duration<double, std::milli>(time).count(); };
-            ++profile.frames;
-            profile.upload += ms(presentUploaded - presentStart);
-            profile.draw += ms(presentDrawn - presentUploaded);
-            profile.ui += ms(presentUi - presentDrawn);
-            profile.swap += ms(now - presentUi);
-            if (now - profile.last >= std::chrono::seconds(2)) {
-                std::fprintf(stderr,
-                             "[portable-present-times] frames=%u uploadMs=%.3f drawMs=%.3f uiMs=%.3f swapMs=%.3f\n",
-                             profile.frames, profile.upload, profile.draw, profile.ui, profile.swap);
-                profile = {};
-            }
-        }
-
+        presentRaylibFrame(state);
 #if !defined(__EMSCRIPTEN__)
-        if (drakan_presentation::g_frameMetrics.enabled()) {
-            static auto lastMetrics = std::chrono::steady_clock::now();
-            const auto now = std::chrono::steady_clock::now();
-            if (now - lastMetrics >= std::chrono::seconds(1)) {
-                const auto& metrics = drakan_presentation::g_frameMetrics;
-                const double stamp = std::chrono::duration<double>(now.time_since_epoch()).count();
-                std::fprintf(stderr,
-                             "[frame-metrics] stamp=%.9f flips=%llu updates=%llu gameSeconds=%.9f invalid=%llu "
-                             "uploads=%llu uploadErrors=%llu bins=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu "
-                             "uploadBins=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
-                             stamp, (unsigned long long)drakan_presentation::g_frameClock.completedFrames(),
-                             (unsigned long long)metrics.updates(), metrics.gameSeconds(),
-                             (unsigned long long)metrics.invalid(), (unsigned long long)metrics.uploads(),
-                             (unsigned long long)metrics.uploadErrors(), (unsigned long long)metrics.bucket(0),
-                             (unsigned long long)metrics.bucket(1), (unsigned long long)metrics.bucket(2),
-                             (unsigned long long)metrics.bucket(3), (unsigned long long)metrics.bucket(4),
-                             (unsigned long long)metrics.bucket(5), (unsigned long long)metrics.bucket(6),
-                             (unsigned long long)metrics.bucket(7), (unsigned long long)metrics.uploadBucket(0),
-                             (unsigned long long)metrics.uploadBucket(1), (unsigned long long)metrics.uploadBucket(2),
-                             (unsigned long long)metrics.uploadBucket(3), (unsigned long long)metrics.uploadBucket(4),
-                             (unsigned long long)metrics.uploadBucket(5), (unsigned long long)metrics.uploadBucket(6),
-                             (unsigned long long)metrics.uploadBucket(7));
-                lastMetrics = now;
-            }
-        }
-        if (const char* shot = std::getenv("PS2X_SCREENSHOT_PATH")) {
-            const char* at = std::getenv("PS2X_SCREENSHOT_AT");
-            const bool timed =
-                !screenshotTaken && at &&
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - wdStart).count() >= std::atof(at);
-            if (timed || IsKeyPressed(KEY_F12)) {
-                Image capture = LoadImageFromScreen();
-                ExportImage(capture, shot);
-                UnloadImage(capture);
-                screenshotTaken = true;
-            }
-        }
-#endif
-
-#if !defined(__EMSCRIPTEN__)
+        printFrameMetrics();
+        takeRequestedScreenshot(state, watchdog.secondsSinceStart());
         if (WindowShouldClose()) {
             RUNTIME_LOG("[run] window close requested, breaking out of loop");
             requestStop();
@@ -3016,24 +2747,170 @@ void PS2Runtime::run() {
 #endif
     }
 
+    shutdownRun(state);
+}
+
+// D3D11 backend: the swapchain lives on the native top-level window. Only its messages are pumped here; the present
+// (vsync / frame-latency object / limiter) paces the loop. Returns true when the window asked to close.
+bool PS2Runtime::pumpNativeWindow() {
+#if defined(PS2X_HAVE_GSR)
+    if (m_nativeWindow)
+        drakan_win::pump();
+    else
+#endif
+        PollInputEvents();
+    m_gs.hostTick(); // Alt+Enter / F11 fullscreen, resize and present of the latched frame happen inside
+#if defined(PS2X_HAVE_GSR)
+    if (m_nativeWindow && drakan_win::closeRequested())
+        return true;
+#endif
+#if defined(__EMSCRIPTEN__)
+    return false;
+#else
+    return !m_nativeWindow && WindowShouldClose();
+#endif
+}
+
+// The raylib (OpenGL) path: upload the guest frame, draw it 4:3 letterboxed, then the debug and portable UI.
+void PS2Runtime::presentRaylibFrame(RunLoopState& state) {
+    Texture2D& frameTex = state.frameTex;
+    uint32_t presentWidth = FB_WIDTH;
+    uint32_t presentHeight = DEFAULT_DISPLAY_HEIGHT;
+    using PresentClock = std::chrono::steady_clock;
+    const bool profilePresent = drakan_presentation::g_frameMetrics.enabled();
+    const auto presentStart = profilePresent ? PresentClock::now() : PresentClock::time_point{};
+    UploadFrame(frameTex, this, presentWidth, presentHeight);
+    const auto presentUploaded = profilePresent ? PresentClock::now() : PresentClock::time_point{};
+
+    int surfaceWidth = GetScreenWidth(), surfaceHeight = GetScreenHeight();
+#if defined(__EMSCRIPTEN__)
+    drakanWebSurfaceSize(surfaceWidth, surfaceHeight);
+#endif
+    BeginDrawing();
+#if defined(__EMSCRIPTEN__)
+    // GLFW resize callbacks run on the UI thread. Re-establish the window render state here so a DPR/fullscreen
+    // change cannot leave the GL viewport or projection at the previous CSS size.
+    rlViewport(0, 0, surfaceWidth, surfaceHeight);
+    rlMatrixMode(RL_PROJECTION);
+    rlLoadIdentity();
+    rlOrtho(0.0, surfaceWidth, surfaceHeight, 0.0, 0.0, 1.0);
+    rlMatrixMode(RL_MODELVIEW);
+    rlLoadIdentity();
+#endif
+    ClearBackground(BLACK);
+    const float srcWidth = static_cast<float>(std::max<uint32_t>(1u, presentWidth));
+    const float srcHeight = static_cast<float>(std::max<uint32_t>(1u, presentHeight));
+    const float screenWidth = static_cast<float>(surfaceWidth);
+    const float screenHeight = static_cast<float>(surfaceHeight);
+    // PS2 display pixels are not square. The native presentation is 4:3 even when DISPFB contains a 512-square image.
+    const float aspect = 4.0f / 3.0f;
+    const float dstHeight = std::min(screenHeight, screenWidth / aspect);
+    const float dstWidth = dstHeight * aspect;
+    const Rectangle srcRect{0.0f, 0.0f, srcWidth, srcHeight};
+    const Rectangle dstRect{(screenWidth - dstWidth) * 0.5f, (screenHeight - dstHeight) * 0.5f, dstWidth, dstHeight};
+#if !defined(PS2X_HAVE_PORTABLE_UI)
+    DrawTexturePro(frameTex, srcRect, dstRect, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
+#else
+    (void)srcRect;
+    drakan_settings_host::drawPortableFrame(frameTex.id, presentWidth, presentHeight, dstRect.x, dstRect.y,
+                                            dstRect.width, dstRect.height);
+#endif
+    const auto presentDrawn = profilePresent ? PresentClock::now() : PresentClock::time_point{};
+    if (m_debugUiInitialized && m_debugUiDrawCallback) {
+        m_debugUiDrawCallback(*this, m_debugUiUserData);
+    }
+#if defined(PS2X_HAVE_PORTABLE_UI)
+    drakan_settings_host::drawPortableUi(*this, surfaceWidth, surfaceHeight, frameTex.id);
+#endif
+    const auto presentUi = profilePresent ? PresentClock::now() : PresentClock::time_point{};
+    EndDrawing();
+    if (!profilePresent)
+        return;
+    // Frame metrics on: where the present's time goes, summed over 2 s.
+    const auto now = PresentClock::now();
+    struct PresentProfile {
+        PresentClock::time_point last = PresentClock::now();
+        unsigned frames = 0;
+        double upload = 0, draw = 0, ui = 0, swap = 0;
+    };
+    static PresentProfile profile;
+    const auto ms = [](auto time) { return std::chrono::duration<double, std::milli>(time).count(); };
+    ++profile.frames;
+    profile.upload += ms(presentUploaded - presentStart);
+    profile.draw += ms(presentDrawn - presentUploaded);
+    profile.ui += ms(presentUi - presentDrawn);
+    profile.swap += ms(now - presentUi);
+    if (now - profile.last >= std::chrono::seconds(2)) {
+        std::fprintf(stderr, "[portable-present-times] frames=%u uploadMs=%.3f drawMs=%.3f uiMs=%.3f swapMs=%.3f\n",
+                     profile.frames, profile.upload, profile.draw, profile.ui, profile.swap);
+        profile = {};
+    }
+}
+
+#if !defined(__EMSCRIPTEN__)
+// Frame metrics on: the frame-time histogram once a second.
+void PS2Runtime::printFrameMetrics() {
+    if (!drakan_presentation::g_frameMetrics.enabled())
+        return;
+    static auto lastMetrics = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - lastMetrics < std::chrono::seconds(1))
+        return;
+    const auto& metrics = drakan_presentation::g_frameMetrics;
+    const double stamp = std::chrono::duration<double>(now.time_since_epoch()).count();
+    std::fprintf(stderr,
+                 "[frame-metrics] stamp=%.9f flips=%llu updates=%llu gameSeconds=%.9f invalid=%llu "
+                 "uploads=%llu uploadErrors=%llu bins=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu "
+                 "uploadBins=%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu\n",
+                 stamp, (unsigned long long)drakan_presentation::g_frameClock.completedFrames(),
+                 (unsigned long long)metrics.updates(), metrics.gameSeconds(), (unsigned long long)metrics.invalid(),
+                 (unsigned long long)metrics.uploads(), (unsigned long long)metrics.uploadErrors(),
+                 (unsigned long long)metrics.bucket(0), (unsigned long long)metrics.bucket(1),
+                 (unsigned long long)metrics.bucket(2), (unsigned long long)metrics.bucket(3),
+                 (unsigned long long)metrics.bucket(4), (unsigned long long)metrics.bucket(5),
+                 (unsigned long long)metrics.bucket(6), (unsigned long long)metrics.bucket(7),
+                 (unsigned long long)metrics.uploadBucket(0), (unsigned long long)metrics.uploadBucket(1),
+                 (unsigned long long)metrics.uploadBucket(2), (unsigned long long)metrics.uploadBucket(3),
+                 (unsigned long long)metrics.uploadBucket(4), (unsigned long long)metrics.uploadBucket(5),
+                 (unsigned long long)metrics.uploadBucket(6), (unsigned long long)metrics.uploadBucket(7));
+    lastMetrics = now;
+}
+
+// PS2X_SCREENSHOT_PATH=<file>: F12 saves the window there; PS2X_SCREENSHOT_AT=<seconds> also takes one shot then.
+void PS2Runtime::takeRequestedScreenshot(RunLoopState& state, double secondsSinceStart) {
+    const char* shot = std::getenv("PS2X_SCREENSHOT_PATH");
+    if (!shot)
+        return;
+    const char* at = std::getenv("PS2X_SCREENSHOT_AT");
+    const bool timed = !state.screenshotTaken && at && secondsSinceStart >= std::atof(at);
+    if (timed || IsKeyPressed(KEY_F12)) {
+        Image capture = LoadImageFromScreen();
+        ExportImage(capture, shot);
+        UnloadImage(capture);
+        state.screenshotTaken = true;
+    }
+}
+#endif
+
+// Ends the run: audio first, then the game thread (given 3 s), the debug / portable UI, the renderer and the window,
+// then the end-of-run statistics.
+void PS2Runtime::shutdownRun(RunLoopState& state) {
     const auto shutdownStart = std::chrono::steady_clock::now();
     drakanShutdownAudio(); // fade out + stop the output first: nothing clicks while the threads wind down
     requestStop();
-    profilerStop = true;
-    if (profiler.joinable())
-        profiler.join();
-    if (gameThread.joinable()) {
+    state.profiler.stop();
+    if (state.gameThread.joinable()) {
         // The EE thread normally ends at once; a guest thread stuck in a host wait must not keep the window (and the
         // process) alive.
         const auto t0 = std::chrono::steady_clock::now();
-        while (!gameThreadFinished.load(std::memory_order_acquire) &&
+        while (!state.gameThreadFinished.load(std::memory_order_acquire) &&
                std::chrono::steady_clock::now() - t0 < std::chrono::seconds(3))
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        if (gameThreadFinished.load(std::memory_order_acquire))
-            gameThread.join();
+        if (state.gameThreadFinished.load(std::memory_order_acquire))
+            state.gameThread.join();
         else {
             std::cerr << "[run] game thread did not stop within 3 s, exiting anyway" << std::endl;
-            gameThread.detach();
+            state.gameThread.detach();
 #if defined(PS2X_HAVE_GSR)
             if (m_nativeWindow)
                 drakan_win::destroy();
@@ -3052,8 +2929,8 @@ void PS2Runtime::run() {
 #if defined(PS2X_HAVE_PORTABLE_UI)
     drakan_settings_host::shutdownPortableUi();
 #endif
-    if (frameTex.id)
-        UnloadTexture(frameTex);
+    if (state.frameTex.id)
+        UnloadTexture(state.frameTex);
     const auto rendererStart = std::chrono::steady_clock::now();
     m_gs.shutdownD3D11();
     const auto rendererEnd = std::chrono::steady_clock::now();

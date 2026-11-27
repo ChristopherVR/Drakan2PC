@@ -494,6 +494,16 @@ private:
     void advanceIopEeCycles(uint64_t eeCycles) noexcept;
     void resetIop();
 
+    // run()'s pieces (ps2_runtime.cpp). RunLoopState holds the host-side objects one run owns.
+    struct RunLoopState;
+    void prepareRun();
+    void runGameThread(std::atomic<bool>& finished);
+    bool pumpNativeWindow();
+    void presentRaylibFrame(RunLoopState& state);
+    void printFrameMetrics();
+    void takeRequestedScreenshot(RunLoopState& state, double secondsSinceStart);
+    void shutdownRun(RunLoopState& state);
+
     friend class PS2IopTransport;
     friend class EeScheduler;
 
