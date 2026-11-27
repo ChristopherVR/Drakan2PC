@@ -47,9 +47,9 @@ defaults, model 3684, used by no disc level), and the engine draws that model, a
 Ravenshold and the Tundra ("Snow Object 1." to "3.", models 4282 to 4284) shows none. Pointing the pack class at model 4283
 in a test pack removed the crystal (`wf-snow4283`).
 
-Fix: weather clones skip "Snow Object Old" as a template (`WEATHER_SKIP_TEMPLATES`, ootfclass.ts).
+First fix: weather clones skipped "Snow Object Old" as a template. That only swapped the crystal for the next template's model (see the follow-up below).
 
-Tests: `pc.test.ts` (cascade split, links, flat water unchanged), `ootfownmodel.test.ts` (snow template). Formats suite:
+Tests: `pc.test.ts` (cascade split, links, flat water unchanged), `ootfownmodel.test.ts` (weather clone). Formats suite:
 81 files, 819 tests pass; `tsc` clean.
 
 ## Not verified
@@ -60,3 +60,30 @@ Tests: `pc.test.ts` (cascade split, links, flat water unchanged), `ootfownmodel.
 * No snow particles were seen in the Wartok shots with either model; whether the OotF snow should show flakes there was
   not looked at.
 * Swimming in the split pools and the split layers in the Intro and Ruined Village were not played.
+
+## Follow-up: a snowflake instead of the crystal
+
+After a new conversion with the first fix the player saw a snowflake in front of Arokh when mounting him. The converted
+"Snow Object" now had model 4282 ("Snow Object 2.") and still Particle Texture 0.
+
+Why the disc levels show nothing: the weather classes they place are model-less and carry a texture. Ravenshold and
+Shiverbane place LEVEL4ON / LEVEL5NE "Environmental Effect" (no model, Particle Texture `0x216b6` = FX texture 5814, FX
+being dependency 2 of LEVEL4ON.DB); FX.ODB "Rain Object" is model-less with texture 5816. Only the FX.ODB "Snow Object Old"
+and "Snow Object 1." to "3." carry a model and texture 0, and no disc level places them. The placed objects are alike
+(flags 1, no scale), so the difference is the class: the emitter (engine 0x10061) draws its class model at the emitter,
+about 3000 units ahead of the camera, and its particles from the Particle Texture. A converted snow class cloned from any
+of the model classes showed that model and had no flake texture.
+
+Fix (formats `8cfe537`): weather (97) is no longer an "own emitter model" class; it is cloned from a model-less template
+(the closest is "Rain Object"), and a snow class (no "Rain-style Particles") gets FX texture 5814, the Ravenshold flake
+(`WEATHER_SNOW_TEXTURE`, `weatherTexture`). The new conversion's Snow Object record has model 0 and texture `0x16b6`.
+
+Evidence, all from the player's 23:03 quicksave (snowy canyon, on Arokh) with the player's ini, looking up past the snout:
+`flake_up_compare.png` (left: the pack before this fix, a snowflake model above the snout; right: the new pack, none),
+full shots `flake-before3/up.png` and `flake-after3/up.png`. The new pack installed with `Build-LocalGame.ps1 -Incremental
+-ModDirectory build/ootf/mods` loads the player's quicksave by Continue and by F8 (`confirm-install`).
+
+Not verified: the dismount and remount itself (Arokh hovers at every placement tried and would not let Rynn off, so the
+flake was shown by looking up instead). Snow does not visibly fall in Wartok, before or after: the snow emitter is live
+(class `0x42fbc`, 3339 units ahead of the camera in a RAM dump, `snow-after3`), but no flakes show against the sky
+(`snow-after3/sky2.png`). Why was not found; the particle state was not traced.
