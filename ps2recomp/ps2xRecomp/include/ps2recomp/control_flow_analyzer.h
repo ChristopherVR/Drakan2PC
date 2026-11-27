@@ -8,6 +8,7 @@
 
 namespace ps2recomp {
 struct Function;
+class FunctionIndex;
 struct Instruction;
 struct Section;
 class RecompilerReporter;
@@ -30,8 +31,10 @@ public:
                         const std::unordered_map<uint32_t, std::vector<uint32_t>>* jumpTargetsByJr = nullptr,
                         bool indirectFallback = false);
 
+    // owners (FunctionIndex::Scope::Owners) resolves branch targets outside the function to external entry points;
+    // without it they are not reported.
     ControlFlowAnalysisResult analyze(const Function& function, const std::vector<Instruction>& instructions,
-                                      const std::vector<Function>* allFunctions = nullptr) const;
+                                      const FunctionIndex* owners = nullptr) const;
 
 private:
     const std::vector<Section>& m_sections;

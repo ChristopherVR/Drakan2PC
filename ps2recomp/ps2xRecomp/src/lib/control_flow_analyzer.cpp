@@ -2,6 +2,7 @@
 #include "ps2recomp/types.h"
 #include "ps2recomp/instructions.h"
 #include "ps2recomp/control_flow_utils.h"
+#include "ps2recomp/function_index.h"
 #include "ps2recomp/recompiler_reporter.h"
 
 #include <algorithm>
@@ -18,7 +19,7 @@ ControlFlowAnalyzer::ControlFlowAnalyzer(
 
 ControlFlowAnalysisResult ControlFlowAnalyzer::analyze(const Function& function,
                                                        const std::vector<Instruction>& instructions,
-                                                       const std::vector<Function>* allFunctions) const {
+                                                       const FunctionIndex* owners) const {
     ControlFlowAnalysisResult result;
     std::unordered_set<uint32_t> instructionAddresses;
     instructionAddresses.reserve(instructions.size());
@@ -38,30 +39,10 @@ ControlFlowAnalysisResult ControlFlowAnalyzer::analyze(const Function& function,
     };
 
     auto findContainingExternalFunction = [&](uint32_t address) -> const Function* {
-        if (!allFunctions || !isExecutableAddress(address)) {
+        if (!owners || !isExecutableAddress(address)) {
             return nullptr;
         }
-
-        const Function* best = nullptr;
-        for (const auto& candidateFn : *allFunctions) {
-            if (!candidateFn.isRecompiled || candidateFn.isStub || candidateFn.isSkipped) {
-                continue;
-            }
-
-            if (candidateFn.name.rfind("entry_", 0) == 0) {
-                continue;
-            }
-
-            if (address < candidateFn.start || address >= candidateFn.end) {
-                continue;
-            }
-
-            if (!best || candidateFn.start > best->start) {
-                best = &candidateFn;
-            }
-        }
-
-        return best;
+        return owners->find(address);
     };
 
     auto queueExternalEntryTarget = [&](uint32_t target) {

@@ -11,6 +11,7 @@
 #include "ps2recomp/Translators/vu_translator.h"
 #include "ps2recomp/Emitters/control_flow_emitter.h"
 #include "ps2recomp/control_flow_utils.h"
+#include "ps2recomp/function_index.h"
 #include "ps2recomp/instructions.h"
 #include "ps2recomp/ps2_recompiler.h"
 #include "ps2recomp/r5900_decoder.h"
@@ -318,9 +319,21 @@ std::string CodeGenerator::translateVUInstruction(const Instruction& inst) {
 CodeGenerator::AnalysisResult CodeGenerator::collectInternalBranchTargets(const Function& function,
                                                                           const std::vector<Instruction>& instructions,
                                                                           const std::vector<Function>* allFunctions) {
+    if (allFunctions) {
+        return collectInternalBranchTargets(function, instructions,
+                                            FunctionIndex(*allFunctions, FunctionIndex::Scope::Owners));
+    }
     ControlFlowAnalyzer analyzer(m_sections, m_configJumpTableTargetsByAddress, m_reporter, &m_jumpTargetsByJr,
                                  m_indirectFallback);
-    return analyzer.analyze(function, instructions, allFunctions);
+    return analyzer.analyze(function, instructions);
+}
+
+CodeGenerator::AnalysisResult CodeGenerator::collectInternalBranchTargets(const Function& function,
+                                                                          const std::vector<Instruction>& instructions,
+                                                                          const FunctionIndex& owners) {
+    ControlFlowAnalyzer analyzer(m_sections, m_configJumpTableTargetsByAddress, m_reporter, &m_jumpTargetsByJr,
+                                 m_indirectFallback);
+    return analyzer.analyze(function, instructions, &owners);
 }
 
 std::string ps2recomp::CodeGenerator::generateFunction(const Function& function,

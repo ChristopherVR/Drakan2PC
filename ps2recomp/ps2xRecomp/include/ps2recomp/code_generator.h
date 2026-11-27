@@ -16,6 +16,7 @@ struct JumpTable;
 struct Instruction;
 struct MemoryAccessHint;
 struct Function;
+class FunctionIndex;
 struct Symbol;
 struct Section;
 class RecompilerReporter;
@@ -74,6 +75,9 @@ public:
 
     AnalysisResult collectInternalBranchTargets(const Function& function, const std::vector<Instruction>& instructions,
                                                 const std::vector<Function>* allFunctions = nullptr);
+    // Same, with an index built once for many calls (FunctionIndex::Scope::Owners over all functions).
+    AnalysisResult collectInternalBranchTargets(const Function& function, const std::vector<Instruction>& instructions,
+                                                const FunctionIndex& owners);
 
 public:
     std::unordered_map<uint32_t, Symbol> m_symbols;

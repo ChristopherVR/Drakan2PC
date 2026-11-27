@@ -2,6 +2,7 @@
 #include "ps2recomp/instructions.h"
 #include "ps2recomp/types.h"
 #include "ps2recomp/elf_parser.h"
+#include "ps2recomp/function_index.h"
 #include "ps2recomp/r5900_decoder.h"
 #include "ps2_runtime_calls.h"
 #include <iostream>
@@ -343,6 +344,8 @@ discoverAdditionalEntryPointsImpl(std::vector<Function>& functions,
             }
         }
 
+        const FunctionIndex owners(functions, FunctionIndex::Scope::Owners);
+
         for (const auto& function : functions) {
             if (!function.isRecompiled || function.isStub || function.isSkipped) {
                 continue;
@@ -360,7 +363,7 @@ discoverAdditionalEntryPointsImpl(std::vector<Function>& functions,
             const auto& instructions = decodedIt->second;
             CodeGenerator::AnalysisResult analysisResult{};
             if (codeGenerator) {
-                analysisResult = codeGenerator->collectInternalBranchTargets(function, instructions, &functions);
+                analysisResult = codeGenerator->collectInternalBranchTargets(function, instructions, owners);
             } else {
                 analysisResult.resumeEntryPoints.clear();
                 analysisResult.externalEntryPoints.clear();
@@ -1840,6 +1843,7 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
     };
 
     std::vector<std::pair<uint32_t, std::string>> unresolvedJumps;
+    const FunctionIndex owners(m_functions, FunctionIndex::Scope::Owners);
     for (const auto& function : m_functions) {
         if (!function.isRecompiled || function.isStub || function.isSkipped) {
             continue;
@@ -1856,7 +1860,7 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
 
         const auto& instructions = decodedIt->second;
         CodeGenerator::AnalysisResult analysisResult =
-            m_codeGenerator->collectInternalBranchTargets(function, instructions, &m_functions);
+            m_codeGenerator->collectInternalBranchTargets(function, instructions, owners);
 
         auto& ownerTargets = m_resumeEntryTargetsByOwner[function.start];
         ownerTargets.insert(ownerTargets.end(), analysisResult.resumeEntryPoints.begin(),
