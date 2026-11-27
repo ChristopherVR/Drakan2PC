@@ -1633,7 +1633,7 @@ void PS2Memory::gatherDmaChain(uint32_t channelBase, uint32_t chcr) {
         }
         const uint8_t* const tagBase = tagInSpr ? m_scratchpad : m_rdram;
         const uint32_t tagLimit = tagInSpr ? PS2_SCRATCHPAD_SIZE : PS2_RAM_SIZE;
-        if (physTag + 16 > tagLimit)
+        if (physTag > tagLimit - 16) // not physTag + 16: a TLB-mapped tag address near 4 GB would wrap the sum
             break;
 
         const uint8_t* const tagHost = tagBase + physTag;
