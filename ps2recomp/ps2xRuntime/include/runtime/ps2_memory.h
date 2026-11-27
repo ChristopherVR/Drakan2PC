@@ -490,6 +490,23 @@ public:
     };
 
     std::array<EeTimer, 4> m_eeTimers{};
+
+    // writeIORegister's handlers, one per register block (ps2_memory.cpp).
+    bool writeEeTimerRegister(EeTimer& timer, uint32_t offset, uint32_t value);
+    void writeGsPrivilegedRegister(uint32_t address, uint32_t value);
+    void writeDmacStat(uint32_t value);
+    void writeVif1Register(uint32_t address, uint32_t value);
+    // DMA start (CHCR.STR written) and the GIF / VIF transfer queues it fills.
+    void startDmaChannel(uint32_t channelBase, uint32_t chcr);
+    void enqueueDmaTransfer(uint32_t channelBase, uint32_t chcr, uint32_t srcAddr, uint32_t qwCount);
+    void gatherDmaChain(uint32_t channelBase, uint32_t chcr);
+    void appendDmaPayload(std::vector<uint8_t>& out, uint32_t srcAddr, uint32_t qwCount);
+    std::vector<PendingTransfer>& pendingTransfersFor(uint32_t channelBase);
+    void sendPendingGifTransfers(bool queueGif);
+    void sendPendingVif0Transfers();
+    void sendPendingVif1Transfers();
+    void raiseDmacStatus(uint32_t cause);
+
     bool tryProcessScratchpadDma(uint32_t channelBase, uint32_t chcr);
     // Drakan: IPU (movie decoder) DMA channels 3 (fromIPU) and 4 (toIPU)
     bool tryProcessIpuDma(uint32_t channelBase);
