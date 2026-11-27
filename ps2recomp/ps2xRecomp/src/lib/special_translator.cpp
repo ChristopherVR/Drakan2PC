@@ -118,10 +118,10 @@ std::string SpecialTranslator::translate(const Instruction& inst) {
                                inst.rs, inst.rt);
         case SPECIAL_SUB:
             return m_codeGenerator.callsRuntime(
-                fmt::format("{{ uint32_t tmp; bool ov; "
-                            "SUB32_OV(GPR_U32(ctx, {}), GPR_U32(ctx, {}), tmp, ov); "
-                            "if (ov) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                            "else SET_GPR_S32(ctx, {}, (int32_t)tmp); }}",
+                fmt::format("{{ const uint32_t a = GPR_U32(ctx, {}); const uint32_t b = GPR_U32(ctx, {}); "
+                            "const uint32_t r = a - b; "
+                            "if (((a ^ b) & (a ^ r)) >> 31) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                            "else SET_GPR_S32(ctx, {}, (int32_t)r); }}",
                             inst.rs, inst.rt, inst.rd));
         case SPECIAL_SUBU:
             return fmt::format("SET_GPR_S32(ctx, {}, (int32_t)SUB32(GPR_U32(ctx, {}), GPR_U32(ctx, {})));", inst.rd,
@@ -155,23 +155,21 @@ std::string SpecialTranslator::translate(const Instruction& inst) {
             return fmt::format("ctx->sa = GPR_U32(ctx, {}) & 0x7F;", inst.rs);
         case SPECIAL_DADD:
             return m_codeGenerator.callsRuntime(fmt::format(
-                "{{ int64_t a = (int64_t)GPR_S64(ctx, {}); "
-                "int64_t b = (int64_t)GPR_S64(ctx, {}); "
-                "int64_t r = a + b; "
-                "if (((a ^ b) >= 0) && ((a ^ r) < 0)) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                "else SET_GPR_S64(ctx, {}, r); }}",
+                "{{ const uint64_t a = GPR_U64(ctx, {}); const uint64_t b = GPR_U64(ctx, {}); "
+                "const uint64_t r = a + b; "
+                "if ((~(a ^ b) & (a ^ r)) >> 63) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                "else SET_GPR_S64(ctx, {}, (int64_t)r); }}",
                 inst.rs, inst.rt, inst.rd));
         case SPECIAL_DADDU:
             return fmt::format("SET_GPR_U64(ctx, {}, (uint64_t)GPR_U64(ctx, {}) + (uint64_t)GPR_U64(ctx, {}));",
                                inst.rd, inst.rs, inst.rt);
         case SPECIAL_DSUB:
-            return m_codeGenerator.callsRuntime(fmt::format(
-                "{{ int64_t a = (int64_t)GPR_S64(ctx, {}); "
-                "int64_t b = (int64_t)GPR_S64(ctx, {}); "
-                "int64_t r = a - b; "
-                "if (((a ^ b) < 0) && ((a ^ r) < 0)) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                "else SET_GPR_S64(ctx, {}, r); }}",
-                inst.rs, inst.rt, inst.rd));
+            return m_codeGenerator.callsRuntime(
+                fmt::format("{{ const uint64_t a = GPR_U64(ctx, {}); const uint64_t b = GPR_U64(ctx, {}); "
+                            "const uint64_t r = a - b; "
+                            "if (((a ^ b) & (a ^ r)) >> 63) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                            "else SET_GPR_S64(ctx, {}, (int64_t)r); }}",
+                            inst.rs, inst.rt, inst.rd));
         case SPECIAL_DSUBU:
             return fmt::format("SET_GPR_U64(ctx, {}, GPR_U64(ctx, {}) - GPR_U64(ctx, {}));", inst.rd, inst.rs, inst.rt);
         case SPECIAL_DSLL:

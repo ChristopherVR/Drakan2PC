@@ -127,12 +127,12 @@ std::string InstructionTranslator::translate(const Instruction& inst, const Memo
         case OPCODE_ADDI:
             if (inst.rt == 0)
                 return "// NOP (addi to $zero)";
-            return m_codeGenerator.callsRuntime(
-                fmt::format("{{ uint32_t tmp; bool ov; "
-                            "ADD32_OV(GPR_U32(ctx, {}), (int32_t){}, tmp, ov); "
-                            "if (ov) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                            "else SET_GPR_S32(ctx, {}, (int32_t)tmp); }}",
-                            inst.rs, inst.simmediate, inst.rt));
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "{{ const uint32_t a = GPR_U32(ctx, {}); const uint32_t b = (uint32_t)(int32_t){}; "
+                "const uint32_t r = a + b; "
+                "if ((~(a ^ b) & (a ^ r)) >> 31) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                "else SET_GPR_S32(ctx, {}, (int32_t)r); }}",
+                inst.rs, inst.simmediate, inst.rt));
 
         case OPCODE_ADDIU:
             if (inst.rt == 0)
@@ -221,17 +221,15 @@ std::string InstructionTranslator::translate(const Instruction& inst, const Memo
                             fmt::format("_mm_castps_si128(ctx->vu0_vf[{}])", inst.rt)) +
                    ";";
         case OPCODE_DADDI:
-            return m_codeGenerator.callsRuntime(
-                fmt::format("{{ int64_t src = (int64_t)GPR_S64(ctx, {}); "
-                            "int64_t imm = (int64_t)(int32_t){}; "
-                            "int64_t res = src + imm; "
-                            "if (((src ^ imm) >= 0) && ((src ^ res) < 0)) "
-                            "    runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                            "else SET_GPR_S64(ctx, {}, res); }}",
-                            inst.rs, inst.simmediate, inst.rt));
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "{{ const uint64_t a = GPR_U64(ctx, {}); const uint64_t b = (uint64_t)(int64_t)(int32_t){}; "
+                "const uint64_t r = a + b; "
+                "if ((~(a ^ b) & (a ^ r)) >> 63) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                "else SET_GPR_S64(ctx, {}, (int64_t)r); }}",
+                inst.rs, inst.simmediate, inst.rt));
         case OPCODE_DADDIU:
-            return fmt::format("SET_GPR_S64(ctx, {}, (int64_t)GPR_S64(ctx, {}) + (int64_t)(int32_t){});", inst.rt,
-                               inst.rs, inst.simmediate);
+            return fmt::format("SET_GPR_S64(ctx, {}, (int64_t)(GPR_U64(ctx, {}) + (uint64_t)(int64_t)(int32_t){}));",
+                               inst.rt, inst.rs, inst.simmediate);
         case OPCODE_J:
             return fmt::format("// J 0x{:X} - Handled by branch logic",
                                buildAbsoluteJumpTarget(inst.address, inst.target));
