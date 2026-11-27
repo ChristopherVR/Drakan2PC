@@ -111,13 +111,17 @@ bool archive(const fs::path& cardRoot, const fs::path& original, bool wholeSlot,
             return false;
         std::vector<fs::path> files;
         if (wholeSlot && directory != root) {
-            for (const auto& entry : fs::directory_iterator(directory)) {
-                const auto kind = entry.symlink_status().type();
-                if (kind == fs::file_type::regular)
-                    files.push_back(entry.path());
-                else
+            // error_code iteration (as ResourceOverride): a slot that cannot be listed completely is not archived,
+            // rather than relying on the catch below to stop a half-read listing.
+            std::error_code ec;
+            for (fs::directory_iterator it(directory, ec), end; it != end; it.increment(ec)) {
+                const auto kind = it->symlink_status(ec).type();
+                if (ec || kind != fs::file_type::regular)
                     return false;
+                files.push_back(it->path());
             }
+            if (ec) // the open or an increment failed (the iterator then equals `end`)
+                return false;
             if (std::find(files.begin(), files.end(), file) == files.end())
                 return false;
             std::sort(files.begin(), files.end());
