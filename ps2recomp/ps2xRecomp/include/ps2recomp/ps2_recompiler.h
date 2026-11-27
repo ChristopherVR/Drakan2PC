@@ -87,6 +87,7 @@ private:
     bool generateStubHeader();
     std::string generateFunctionVariants();
     bool writeToFile(const std::string& path, const std::string& content);
+    void removeStaleTranslationUnits(size_t keepCount);
     std::filesystem::path getOutputPath(const Function& function) const;
     static std::string clampFilenameLength(const std::string& baseName, const std::string& extension,
                                            std::size_t maxLength);

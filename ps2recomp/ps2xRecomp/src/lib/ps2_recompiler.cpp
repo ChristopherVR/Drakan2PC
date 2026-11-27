@@ -18,6 +18,7 @@
 #include <queue>
 #include <unordered_set>
 #include <optional>
+#include <string_view>
 #include <limits>
 #include <functional>
 #include <thread>
@@ -1154,21 +1155,9 @@ void PS2Recompiler::generateOutput() {
                         for (size_t i = first; i < last; ++i) {
                             out << generateFunctionCode(generator, *outputFunctions[i], false) << "\n\n";
                         }
-                        fs::path p = fs::path(m_config.outputPath) / fileName;
-                        const std::string text = out.str();
-                        bool same = false;
-                        {
-                            std::ifstream old(p, std::ios::binary | std::ios::ate);
-                            if (old && static_cast<size_t>(old.tellg()) == text.size()) {
-                                std::string prev(text.size(), ' ');
-                                old.seekg(0);
-                                old.read(prev.data(), static_cast<std::streamsize>(prev.size()));
-                                same = (prev == text);
-                            }
-                        }
-                        if (!same) {
-                            std::ofstream f(p, std::ios::binary);
-                            f.write(text.data(), static_cast<std::streamsize>(text.size()));
+                        const fs::path p = fs::path(m_config.outputPath) / fileName;
+                        if (!writeToFile(p.string(), out.str())) {
+                            throw std::runtime_error("Failed to write translation unit: " + p.string());
                         }
                     } catch (...) {
                         std::lock_guard<std::mutex> lock(batchErrorMutex);
@@ -1185,12 +1174,14 @@ void PS2Recompiler::generateOutput() {
                 t.join();
             if (batchError)
                 std::rethrow_exception(batchError);
+            removeStaleTranslationUnits(batchCount);
             {
                 std::ostringstream msg;
                 msg << "wrote " << batchCount << " batched translation units (" << perFile << " functions each)";
                 m_reporter.progress(msg.str());
             }
         } else if (m_config.singleFileOutput) {
+            removeStaleTranslationUnits(0);
             fs::path outputPath = fs::path(m_config.outputPath) / "ps2_recompiled_functions.cpp";
             std::ofstream combinedOutput(outputPath);
             if (!combinedOutput) {
@@ -1370,6 +1361,7 @@ void PS2Recompiler::generateOutput() {
                 m_reporter.progress(msg.str());
             }
         } else {
+            removeStaleTranslationUnits(0);
             struct GeneratedFile {
                 fs::path outputPath;
                 std::string code;
@@ -1679,7 +1671,9 @@ bool PS2Recompiler::generateStubHeader() {
         // ss << "} // namespace ps2recomp\n";
 
         fs::path headerPath = fs::path(m_config.outputPath) / "ps2_recompiled_stubs.h";
-        writeToFile(headerPath.string(), ss.str());
+        if (!writeToFile(headerPath.string(), ss.str())) {
+            return false;
+        }
 
         {
             std::ostringstream msg;
@@ -1717,7 +1711,9 @@ bool PS2Recompiler::generateFunctionHeader() {
         ss << "\n#endif // PS2_RECOMPILED_FUNCTIONS_H\n";
 
         fs::path headerPath = fs::path(m_config.outputPath) / "ps2_recompiled_functions.h";
-        writeToFile(headerPath.string(), ss.str());
+        if (!writeToFile(headerPath.string(), ss.str())) {
+            return false;
+        }
 
         {
             std::ostringstream msg;
@@ -2087,6 +2083,9 @@ void PS2Recompiler::collectCorrectnessCriticalFunctionStarts() {
     }
 }
 
+// Binary mode: the generated text is LF-only, and comparing it with the file on disk only works byte for byte (a
+// text-mode write on Windows added CRs, so headers never compared equal and every run touched them, rebuilding every
+// TU).
 bool PS2Recompiler::writeToFile(const std::string& path, const std::string& content) {
     {
         // keep timestamps stable when nothing changed (incremental builds)
@@ -2095,20 +2094,68 @@ bool PS2Recompiler::writeToFile(const std::string& path, const std::string& cont
             std::string prev(content.size(), ' ');
             old.seekg(0);
             old.read(prev.data(), static_cast<std::streamsize>(prev.size()));
-            if (prev == content)
+            if (old && prev == content)
                 return true;
         }
     }
-    std::ofstream file(path);
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
     if (!file) {
         m_reporter.error("file", "Failed to open file for writing: " + path);
         return false;
     }
 
-    file << content;
+    file.write(content.data(), static_cast<std::streamsize>(content.size()));
     file.close();
+    if (!file) {
+        m_reporter.error("file", "Failed to write file: " + path);
+        return false;
+    }
 
     return true;
+}
+
+// The game build globs every .cpp in the output directory, so a numbered translation unit left from an earlier run
+// (more functions, or another functions_per_file) would be compiled in again. Delete the recompiler's own numbered
+// units (ps2_recomp_NNNN.cpp, the batched output name) from index `keepCount` on; nothing else in the directory is
+// touched.
+void PS2Recompiler::removeStaleTranslationUnits(size_t keepCount) {
+    const fs::path outputDir(m_config.outputPath);
+    std::error_code ec;
+    if (!fs::is_directory(outputDir, ec)) {
+        return;
+    }
+
+    static constexpr std::string_view kPrefix = "ps2_recomp_";
+    static constexpr std::string_view kSuffix = ".cpp";
+    size_t removed = 0;
+    for (const fs::directory_entry& entry : fs::directory_iterator(outputDir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        const std::string name = entry.path().filename().string();
+        if (name.size() < kPrefix.size() + 4u + kSuffix.size() || name.rfind(kPrefix, 0) != 0 ||
+            name.compare(name.size() - kSuffix.size(), kSuffix.size(), kSuffix) != 0) {
+            continue;
+        }
+        const std::string digits = name.substr(kPrefix.size(), name.size() - kPrefix.size() - kSuffix.size());
+        if (!std::all_of(digits.begin(), digits.end(), [](unsigned char c) { return std::isdigit(c) != 0; }) ||
+            digits.size() > 9u) {
+            continue;
+        }
+        if (static_cast<size_t>(std::stoul(digits)) < keepCount) {
+            continue;
+        }
+        if (!fs::remove(entry.path(), ec) || ec) {
+            throw std::runtime_error("Failed to delete stale translation unit: " + entry.path().string());
+        }
+        ++removed;
+    }
+
+    if (removed > 0) {
+        std::ostringstream msg;
+        msg << "deleted " << removed << " stale translation unit(s) left by an earlier run";
+        m_reporter.progress(msg.str());
+    }
 }
 
 std::filesystem::path PS2Recompiler::getOutputPath(const Function& function) const {
