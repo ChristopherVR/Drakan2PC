@@ -374,856 +374,927 @@ void serviceLan(drakan::net::ServerBrowser& browser, uint64_t now, uint64_t& las
 // ------------------------------------------------------------------------------------------------ network thread
 
 // One session (hosting or joined) until leave() or exit. `legacy` = started from the DRAKAN_NET_* shortcut.
-void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& lastSweep) {
+// ---- one session (net thread): runSession sets it up, SessionLoop ticks it until Leave, endSession tears it down
+
+void publishState(const State& s) {
+    std::lock_guard<std::mutex> l(g_stM);
+    g_state = s;
+}
+
+// The co-op queues and link start empty in every session, and a new serial tells drakan_coop that the link changed.
+void resetCoopTransport() {
+    std::lock_guard<std::mutex> lk(g_coopM);
+    ++g_sessionSerial;
+    g_coopLink = CoopLink();
+    g_coopInCreatures.clear();
+    g_coopInEvents.clear();
+    g_coopOutCreatures.clear();
+    g_coopOutEvents.clear();
+}
+
+// Where this session's client connects: the host's own server on this PC, or the joined "host[:port]".
+struct SessionEndpoint {
+    std::string host = "127.0.0.1";
+    uint16_t port = 0;
+};
+SessionEndpoint sessionEndpoint(const Cmd& c) {
+    using drakan::net::basePort;
+    SessionEndpoint ep;
+    if (c.kind == Cmd::Host) {
+        ep.port = c.host.port ? c.host.port : basePort();
+        return ep;
+    }
+    const size_t colon = c.addr.rfind(':');
+    ep.host = colon == std::string::npos ? c.addr : c.addr.substr(0, colon);
+    const long p = colon == std::string::npos ? basePort() : std::strtol(c.addr.c_str() + colon + 1, nullptr, 10);
+    ep.port = static_cast<uint16_t>(p > 0 && p < 65536 ? p : basePort());
+    return ep;
+}
+
+// The match server's options for a Host command: the menu's choices, the map's and custom mode's rules, then the
+// DRAKAN_* test aids.
+drakan::net::ServerOptions buildServerOptions(const Cmd& c) {
     using namespace drakan::net;
-    const bool hosting = c.kind == Cmd::Host;
-    const bool legacy = hosting ? c.host.autoStart : c.flag;
-    std::string connectHost = "127.0.0.1";
-    uint16_t connectPort = hosting ? (c.host.port ? c.host.port : basePort()) : 0;
-    if (!hosting) {
-        const size_t colon = c.addr.rfind(':');
-        connectHost = colon == std::string::npos ? c.addr : c.addr.substr(0, colon);
-        const long p = colon == std::string::npos ? basePort() : std::strtol(c.addr.c_str() + colon + 1, nullptr, 10);
-        connectPort = static_cast<uint16_t>(p > 0 && p < 65536 ? p : basePort());
+    std::string level = c.host.level;
+    if (level.empty()) {
+        std::lock_guard<std::mutex> l(g_levelM);
+        level = g_levelName;
     }
-    auto publish = [&](const State& s) {
-        std::lock_guard<std::mutex> l(g_stM);
-        g_state = s;
-    };
-    State base;
-    base.available = true;
-    base.inSession = true;
-    base.hosting = hosting;
-    base.conn = Conn::Connecting;
-    base.message = "Connecting to " + connectHost + ":" + std::to_string(connectPort) + " ...";
-    base.maxPlayers = hosting ? c.host.maxPlayers : 8;
-    publish(base);
+    ServerOptions so;
+    so.config.mode = c.host.mode == 2   ? MatchMode::Coop
+                     : c.host.mode == 1 ? MatchMode::TeamDeathmatch
+                                        : MatchMode::Deathmatch;
+    if (const char* ml = std::getenv("DRAKAN_MP_MAP"); ml && *ml) // test aid: pick the map without the menu
+        level = ml;
+    so.config.level = (level.empty() ? std::string("any") : level).substr(0, kMaxLevelLength);
+    // A custom game mode (mp_maps.ini [mode <id>]): the server runs its scoring, teams and objectives, and the mode
+    // brings its game type (base) and limits.
+    const drakan::net::ModeDef* customMode = nullptr;
+    if (!c.host.modeId.empty() && so.config.mode != MatchMode::Coop)
+        customMode = drakan_modes::customModes().find(c.host.modeId);
+    if (customMode)
+        so.config.mode = customMode->teamBase ? MatchMode::TeamDeathmatch : MatchMode::Deathmatch;
+    if (const drakan::net::ArenaDef* arena = drakan_arena::findMap(level);
+        arena && so.config.mode != MatchMode::Coop &&
+        (customMode ? drakan::net::modeFitsArena(*customMode, *arena)
+                    : (so.config.mode == MatchMode::TeamDeathmatch ? arena->teamDeathmatch : arena->deathmatch))) {
+        // A multiplayer map: the server also owns its spawn choice and its pickups (MatchServer arena options).
+        so.hasArena = true;
+        so.arena = *arena;
+        so.config.level = arena->name.substr(0, kMaxLevelLength);
+        so.config.startHealth = arena->startHealth;
+        if (const char* ps = std::getenv("DRAKAN_ARENA_PICKUP_SEC"); ps && *ps) // test aid: quick respawns
+            for (drakan::net::ArenaPickup& p : so.arena.pickups)
+                p.respawnSec = static_cast<uint32_t>(std::clamp(std::atoi(ps), 1, 3600));
+    }
+    so.config.serverName = c.host.serverName.substr(0, kMaxServerNameLength);
+    so.config.fragLimit = static_cast<uint16_t>(std::clamp(c.host.fragLimit, 0, 65535));
+    so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(c.host.timeLimitSec, 0, 65535));
+    so.modes = drakan_modes::customModes().modes();
+    if (customMode)
+        drakan::net::applyModeToConfig(*customMode, so.config); // its limits, respawn delay, start health
+    // "Next map" on the results screen walks the multiplayer maps (the server skips the ones the mode does not
+    // fit).
+    for (const drakan_arena::MapEntry& me : drakan_arena::maps())
+        if (me.installed)
+            if (const drakan::net::ArenaDef* a = drakan_arena::findMap(me.id);
+                a && (!c.host.useOotfGroup || !so.hasArena || so.arena.ootfRules == a->ootfRules))
+                so.rotation.push_back(*a);
+    if (so.arena.ootfRules != drakan::net::OotfArenaRules::None)
+        std::stable_sort(so.rotation.begin(), so.rotation.end(),
+                         [](const auto& a, const auto& b) { return a.ootfOrder < b.ootfOrder; });
+    so.autoRotateArena = c.host.useOotfGroup;
+    // Test aids for the menu host (the menu offers 5 .. 200 kills and 5 .. 60 minutes): a short match for the
+    // harness.
+    if (const char* fl = std::getenv("DRAKAN_MP_FRAG_LIMIT"); fl && *fl)
+        so.config.fragLimit = static_cast<uint16_t>(std::clamp(std::atoi(fl), 0, 65535));
+    if (const char* tl = std::getenv("DRAKAN_MP_TIME_LIMIT_SEC"); tl && *tl)
+        so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(std::atoi(tl), 0, 65535));
+    so.config.maxPlayers = static_cast<uint8_t>(std::clamp(c.host.maxPlayers, 1, static_cast<int>(kMaxPlayers)));
+    if (so.hasArena)
+        so.config.maxPlayers = std::min<uint8_t>(so.config.maxPlayers, so.arena.maxPlayers);
+    so.password = c.host.password.substr(0, kMaxPasswordLength);
+    so.serverId = std::random_device{}() | 1u;
+    so.profileHash = g_profileHash;
+    so.autoStartPlayers = c.host.autoStart ? 1 : 0;
+    // Test aid DRAKAN_NET_AUTO_START_PLAYERS=<n>: the shortcut host waits in the lobby for n players (a
+    // last-standing match with three: the third would otherwise join a match in progress and watch).
+    if (const char* ap = std::getenv("DRAKAN_NET_AUTO_START_PLAYERS"); ap && *ap && c.host.autoStart)
+        so.autoStartPlayers = static_cast<uint8_t>(std::clamp(std::atoi(ap), 1, static_cast<int>(kMaxPlayers)));
+    applyDrakanPvpTuning(so); // melee reach, weapon limits, damage x3, respawn after 3 s (MatchServer.h)
+    if (const char* hr = std::getenv("DRAKAN_PVP_MAX_HIT_RANGE"); hr && *hr) // test aid: the harness's ghosts are held
     {
-        std::lock_guard<std::mutex> l(g_launchM);
-        g_launchDone = false;
-        g_launchPending = false;
+        so.maxHitRange = static_cast<float>(std::atof(hr)); // next to each player, far from the real spawns
+        so.maxHitRangeRanged = so.maxHitRange;              // (also for breath and arrow claims)
     }
+    if (const char* ds = std::getenv("DRAKAN_PVP_DAMAGE_SCALE"); ds && *ds)
+        so.damageScale = std::clamp(static_cast<float>(std::atof(ds)), 0.1f, 100.0f);
+    if (const char* rd = std::getenv("DRAKAN_PVP_RESPAWN_MS"); rd && *rd)
+        so.config.respawnDelayMs = static_cast<uint16_t>(std::clamp(std::atoi(rd), 500, 60000));
+    so.lobbyCountdownMs = 200;
+    so.hostKick = true;
+    so.mods = loadedMods();
+    // The menu Start Match counts down 3 s (Status shows it); the shortcuts start at once.
+    so.startCountdownMs = c.host.autoStart ? 0 : 3000;
+    if (const char* sc = std::getenv("DRAKAN_MP_START_COUNTDOWN_MS"); sc && *sc)
+        so.startCountdownMs = static_cast<uint32_t>(std::clamp(std::atoi(sc), 0, 60000));
+    if (const char* rs = std::getenv("DRAKAN_MP_RESULTS_SEC"); rs && *rs)
+        so.resultsDurationMs = static_cast<uint32_t>(std::clamp(std::atoi(rs), 1, 600)) * 1000u;
+    so.loadTimeoutMs = c.host.autoStart ? 3000 : 120000; // a New Game from the title takes a while to load
+    return so;
+}
 
-    {
-        std::lock_guard<std::mutex> lk(g_coopM);
-        ++g_sessionSerial;
-        g_coopLink = CoopLink();
-        g_coopInCreatures.clear();
-        g_coopInEvents.clear();
-        g_coopOutCreatures.clear();
-        g_coopOutEvents.clear();
-    }
-    std::unique_ptr<UdpTransport> serverT;
-    std::unique_ptr<MatchServer> server;
-    if (hosting) {
+// Opens the host's server on the first free UDP port from `port` (updated to the one in use). On failure the error
+// stays on screen until the UI leaves, and false is returned.
+bool startServer(const Cmd& c, uint16_t& port, State& base, std::unique_ptr<drakan::net::UdpTransport>& serverT,
+                 std::unique_ptr<drakan::net::MatchServer>& server) {
+    using namespace drakan::net;
+    serverT = std::make_unique<UdpTransport>();
+    // The first free port from the requested one (a second instance on this PC takes the next, LAN discovery probes
+    // ten ports).
+    bool listening = false;
+    for (uint16_t p = port; p < port + 10 && serverT->available() && !listening; ++p) {
         serverT = std::make_unique<UdpTransport>();
-        // The first free port from the requested one (a second instance on this PC takes the next, LAN discovery probes
-        // ten ports).
-        bool listening = false;
-        for (uint16_t p = connectPort; p < connectPort + 10 && serverT->available() && !listening; ++p) {
-            serverT = std::make_unique<UdpTransport>();
-            listening = serverT->listen(p);
+        listening = serverT->listen(p);
+    }
+    if (listening)
+        port = serverT->localPort();
+    if (!listening) {
+        netLog("host: cannot listen on UDP port %u", port);
+        base.conn = Conn::Rejected;
+        base.message = "Cannot listen on UDP port " + std::to_string(port) + " (already in use?)";
+        publishState(base);
+        while (!g_stop.load()) { // stay until the UI leaves, so it can show the message
+            Cmd x;
+            if (popCmd(x) && x.kind == Cmd::Leave)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-        if (listening)
-            connectPort = serverT->localPort();
-        if (!listening) {
-            netLog("host: cannot listen on UDP port %u", connectPort);
-            base.conn = Conn::Rejected;
-            base.message = "Cannot listen on UDP port " + std::to_string(connectPort) + " (already in use?)";
-            publish(base);
-            while (!g_stop.load()) { // stay until the UI leaves, so it can show the message
-                Cmd x;
-                if (popCmd(x) && x.kind == Cmd::Leave)
-                    break;
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        return false;
+    }
+    const ServerOptions so = buildServerOptions(c);
+    server = std::make_unique<MatchServer>(*serverT, so);
+    server->onLog = [](const std::string& s) { netLog("server: %s", s.c_str()); };
+    serverT->setQueryResponder([&server](const std::vector<uint8_t>& req) { return server->answerQuery(req); });
+    netLog("host: listening on UDP %u (profile hash %016llx, level '%s')", serverT->localPort(),
+           static_cast<unsigned long long>(g_profileHash), so.config.level.c_str());
+    return true;
+}
+
+// The running session: every pass (about 4 ms) takes the UI's commands, ticks the server (host) and the client,
+// handles the client's events (onEvent) and then runs one pump per subsystem that exchanges state with the EE thread
+// and the UI. Net thread only; the shared state each pump touches is behind that subsystem's mutex.
+class SessionLoop {
+public:
+    SessionLoop(drakan::net::MatchClient& client, drakan::net::MatchServer* server, const State& base,
+                const SessionEndpoint& endpoint, const std::string& name, bool legacy,
+                drakan::net::ServerBrowser& browser, uint64_t& lastSweep)
+        : client_(client), server_(server), base_(base), endpoint_(endpoint), name_(name), legacy_(legacy),
+          browser_(browser), lastSweep_(lastSweep) {}
+
+    void run() {
+        while (!g_stop.load() && !leaving_) {
+            const uint64_t now = nowMs();
+            pumpCommands(now);
+            if (leaving_)
+                break;
+            serviceLan(browser_, now, lastSweep_);
+            if (server_)
+                server_->tick(now);
+            client_.tick(now);
+            g_coopMode.store(client_.connected() && client_.config().mode == drakan::net::MatchMode::Coop);
+            pumpConnect(now);
+            drakan::net::ClientEvent ev;
+            while (client_.pollEvent(ev))
+                std::visit([this, now](auto& e) { onEvent(e, now); }, ev);
+
+            const bool connected = client_.connected();
+            if (connected != wasConnected_) {
+                netLog("%s (player id %u, tick rate %u Hz)", connected ? "connected" : "connection lost",
+                       client_.playerId(), client_.tickRateHz());
+                wasConnected_ = connected;
             }
-            return;
+            if (connected)
+                pumpMatchPhase();
+            pumpArenaWorld(now, connected);
+            pumpHitClaims(connected);
+            pumpCoop(connected);
+            pumpCharacter(connected);
+            pumpLocalPose(now, connected);
+            pumpVitals(now, connected);
+            pumpRemotes(now, connected);
+            publishUi(now, connected);
+            logStats(now, connected);
+            std::this_thread::sleep_for(std::chrono::milliseconds(4));
         }
-        std::string level = c.host.level;
-        if (level.empty()) {
-            std::lock_guard<std::mutex> l(g_levelM);
-            level = g_levelName;
-        }
-        ServerOptions so;
-        so.config.mode = c.host.mode == 2   ? MatchMode::Coop
-                         : c.host.mode == 1 ? MatchMode::TeamDeathmatch
-                                            : MatchMode::Deathmatch;
-        if (const char* ml = std::getenv("DRAKAN_MP_MAP"); ml && *ml) // test aid: pick the map without the menu
-            level = ml;
-        so.config.level = (level.empty() ? std::string("any") : level).substr(0, kMaxLevelLength);
-        // A custom game mode (mp_maps.ini [mode <id>]): the server runs its scoring, teams and objectives, and the mode
-        // brings its game type (base) and limits.
-        const drakan::net::ModeDef* customMode = nullptr;
-        if (!c.host.modeId.empty() && so.config.mode != MatchMode::Coop)
-            customMode = drakan_modes::customModes().find(c.host.modeId);
-        if (customMode)
-            so.config.mode = customMode->teamBase ? MatchMode::TeamDeathmatch : MatchMode::Deathmatch;
-        if (const drakan::net::ArenaDef* arena = drakan_arena::findMap(level);
-            arena && so.config.mode != MatchMode::Coop &&
-            (customMode ? drakan::net::modeFitsArena(*customMode, *arena)
-                        : (so.config.mode == MatchMode::TeamDeathmatch ? arena->teamDeathmatch : arena->deathmatch))) {
-            // A multiplayer map: the server also owns its spawn choice and its pickups (MatchServer arena options).
-            so.hasArena = true;
-            so.arena = *arena;
-            so.config.level = arena->name.substr(0, kMaxLevelLength);
-            so.config.startHealth = arena->startHealth;
-            if (const char* ps = std::getenv("DRAKAN_ARENA_PICKUP_SEC"); ps && *ps) // test aid: quick respawns
-                for (drakan::net::ArenaPickup& p : so.arena.pickups)
-                    p.respawnSec = static_cast<uint32_t>(std::clamp(std::atoi(ps), 1, 3600));
-        }
-        so.config.serverName = c.host.serverName.substr(0, kMaxServerNameLength);
-        so.config.fragLimit = static_cast<uint16_t>(std::clamp(c.host.fragLimit, 0, 65535));
-        so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(c.host.timeLimitSec, 0, 65535));
-        so.modes = drakan_modes::customModes().modes();
-        if (customMode)
-            drakan::net::applyModeToConfig(*customMode, so.config); // its limits, respawn delay, start health
-        // "Next map" on the results screen walks the multiplayer maps (the server skips the ones the mode does not
-        // fit).
-        for (const drakan_arena::MapEntry& me : drakan_arena::maps())
-            if (me.installed)
-                if (const drakan::net::ArenaDef* a = drakan_arena::findMap(me.id);
-                    a && (!c.host.useOotfGroup || !so.hasArena || so.arena.ootfRules == a->ootfRules))
-                    so.rotation.push_back(*a);
-        if (so.arena.ootfRules != drakan::net::OotfArenaRules::None)
-            std::stable_sort(so.rotation.begin(), so.rotation.end(),
-                             [](const auto& a, const auto& b) { return a.ootfOrder < b.ootfOrder; });
-        so.autoRotateArena = c.host.useOotfGroup;
-        // Test aids for the menu host (the menu offers 5 .. 200 kills and 5 .. 60 minutes): a short match for the
-        // harness.
-        if (const char* fl = std::getenv("DRAKAN_MP_FRAG_LIMIT"); fl && *fl)
-            so.config.fragLimit = static_cast<uint16_t>(std::clamp(std::atoi(fl), 0, 65535));
-        if (const char* tl = std::getenv("DRAKAN_MP_TIME_LIMIT_SEC"); tl && *tl)
-            so.config.timeLimitSec = static_cast<uint16_t>(std::clamp(std::atoi(tl), 0, 65535));
-        so.config.maxPlayers = static_cast<uint8_t>(std::clamp(c.host.maxPlayers, 1, static_cast<int>(kMaxPlayers)));
-        if (so.hasArena)
-            so.config.maxPlayers = std::min<uint8_t>(so.config.maxPlayers, so.arena.maxPlayers);
-        so.password = c.host.password.substr(0, kMaxPasswordLength);
-        so.serverId = std::random_device{}() | 1u;
-        so.profileHash = g_profileHash;
-        so.autoStartPlayers = c.host.autoStart ? 1 : 0;
-        // Test aid DRAKAN_NET_AUTO_START_PLAYERS=<n>: the shortcut host waits in the lobby for n players (a
-        // last-standing match with three: the third would otherwise join a match in progress and watch).
-        if (const char* ap = std::getenv("DRAKAN_NET_AUTO_START_PLAYERS"); ap && *ap && c.host.autoStart)
-            so.autoStartPlayers = static_cast<uint8_t>(std::clamp(std::atoi(ap), 1, static_cast<int>(kMaxPlayers)));
-        applyDrakanPvpTuning(so); // melee reach, weapon limits, damage x3, respawn after 3 s (MatchServer.h)
-        if (const char* hr = std::getenv("DRAKAN_PVP_MAX_HIT_RANGE");
-            hr && *hr) // test aid: the harness's ghosts are held
-        {
-            so.maxHitRange = static_cast<float>(std::atof(hr)); // next to each player, far from the real spawns
-            so.maxHitRangeRanged = so.maxHitRange;              // (also for breath and arrow claims)
-        }
-        if (const char* ds = std::getenv("DRAKAN_PVP_DAMAGE_SCALE"); ds && *ds)
-            so.damageScale = std::clamp(static_cast<float>(std::atof(ds)), 0.1f, 100.0f);
-        if (const char* rd = std::getenv("DRAKAN_PVP_RESPAWN_MS"); rd && *rd)
-            so.config.respawnDelayMs = static_cast<uint16_t>(std::clamp(std::atoi(rd), 500, 60000));
-        so.lobbyCountdownMs = 200;
-        so.hostKick = true;
-        so.mods = loadedMods();
-        // The menu Start Match counts down 3 s (Status shows it); the shortcuts start at once.
-        so.startCountdownMs = c.host.autoStart ? 0 : 3000;
-        if (const char* sc = std::getenv("DRAKAN_MP_START_COUNTDOWN_MS"); sc && *sc)
-            so.startCountdownMs = static_cast<uint32_t>(std::clamp(std::atoi(sc), 0, 60000));
-        if (const char* rs = std::getenv("DRAKAN_MP_RESULTS_SEC"); rs && *rs)
-            so.resultsDurationMs = static_cast<uint32_t>(std::clamp(std::atoi(rs), 1, 600)) * 1000u;
-        so.loadTimeoutMs = c.host.autoStart ? 3000 : 120000; // a New Game from the title takes a while to load
-        server = std::make_unique<MatchServer>(*serverT, so);
-        server->onLog = [](const std::string& s) { netLog("server: %s", s.c_str()); };
-        serverT->setQueryResponder([&server](const std::vector<uint8_t>& req) { return server->answerQuery(req); });
-        netLog("host: listening on UDP %u (profile hash %016llx, level '%s')", serverT->localPort(),
-               static_cast<unsigned long long>(g_profileHash), so.config.level.c_str());
     }
 
-    UdpTransport clientT;
-    if (!clientT.available()) {
-        netLog("sockets unavailable; networking off");
-        return;
-    }
-    ClientOptions co;
-    co.name = c.name.empty() ? g_name : c.name;
-    co.password = hosting ? c.host.password : c.password;
-    co.profileHash = g_profileHash;
-    co.interpolationDelayMs = 100;
-    MatchClient client(clientT, co);
-    const std::string host = connectHost;
-    const uint16_t port = connectPort;
-
-    uint64_t lastSend = 0, lastConnectTry = 0, lastStats = 0;
-    uint64_t statSnapshots = 0, statSent = 0;
-    MatchPhase lastPhase = MatchPhase::Lobby;
-    bool loadDoneSent = false;
-    bool charSent = false;
-    uint16_t lastChar = 0;
-    bool wasConnected = false;
-    bool tried = false;
-    bool rejectLogged = false;
-    bool failed = false;
-    std::string failMessage;
-    std::string endNotice; // title screen notice: the server left or the connection dropped after we were connected
-    bool leaving = false;
-    std::map<int, uint64_t> seenAt; // player id -> when this client first saw it (scoreboard Time column)
-    uint64_t lastUiPublishMs = 0, lastArenaSetMs = 0;
-    std::tuple<bool, bool, bool, int, size_t> lastUiKey{};
-    bool arenaSet = false, lastArenaWant = false;
-    const drakan::net::ArenaDef* lastArenaDef = nullptr;
-    std::string lastArenaModeId;
-
-    while (!g_stop.load() && !leaving) {
-        const uint64_t now = nowMs();
+private:
+    // ---- UI commands (the public API queues them)
+    void pumpCommands(uint64_t now) {
+        using namespace drakan::net;
         Cmd cmd;
         while (popCmd(cmd)) {
             switch (cmd.kind) {
                 case Cmd::Leave:
-                    leaving = true;
+                    leaving_ = true;
                     break;
                 case Cmd::Start:
-                    if (server && !server->startMatch(now))
+                    if (server_ && !server_->startMatch(now))
                         netLog("start refused (not in the lobby, or nobody connected)");
                     break;
                 case Cmd::Ready:
-                    client.sendReady(cmd.flag);
+                    client_.sendReady(cmd.flag);
                     break;
                 case Cmd::Kick:
-                    if (!client.sendKick(static_cast<PlayerId>(cmd.value)))
+                    if (!client_.sendKick(static_cast<PlayerId>(cmd.value)))
                         netLog("kick refused (not connected)");
                     break;
                 case Cmd::Results:
                     netLog("results: button %d%s", cmd.value,
-                           client.sendResultsAction(static_cast<ResultsChoice>(cmd.value)) ? "" : " (not sent)");
+                           client_.sendResultsAction(static_cast<ResultsChoice>(cmd.value)) ? "" : " (not sent)");
                     break;
                 case Cmd::Vote:
-                    client.sendMapVote(cmd.value < 0 ? drakan::net::kNoVote : static_cast<uint8_t>(cmd.value));
+                    client_.sendMapVote(cmd.value < 0 ? drakan::net::kNoVote : static_cast<uint8_t>(cmd.value));
                     break;
                 case Cmd::Chat:
-                    client.sendChat(cmd.text);
+                    client_.sendChat(cmd.text);
                     break;
                 default: // Host / Join while in a session: ignored (the API refuses them first)
                     break;
             }
         }
-        if (leaving)
-            break;
-        serviceLan(browser, now, lastSweep);
-        if (server)
-            server->tick(now);
-        client.tick(now);
-        g_coopMode.store(client.connected() && client.config().mode == MatchMode::Coop);
+    }
 
-        if (!client.connected() && !client.rejected() && !failed && !wasConnected &&
-            (!tried || (client.state() == ClientState::Disconnected && now - lastConnectTry > 2000))) {
-            if (tried && !legacy) { // a menu join does not retry forever
-                failed = true;
-                failMessage = "Could not connect to " + host + ":" + std::to_string(port);
+    // ---- connecting: the shortcut (legacy) sessions retry every 2 s, a menu join tries once
+    void pumpConnect(uint64_t now) {
+        using namespace drakan::net;
+        const std::string& host = endpoint_.host;
+        const uint16_t port = endpoint_.port;
+        if (!client_.connected() && !client_.rejected() && !failed_ && !wasConnected_ &&
+            (!tried_ || (client_.state() == ClientState::Disconnected && now - lastConnectTry_ > 2000))) {
+            if (tried_ && !legacy_) { // a menu join does not retry forever
+                failed_ = true;
+                failMessage_ = "Could not connect to " + host + ":" + std::to_string(port);
             } else {
-                tried = true;
-                lastConnectTry = now;
-                netLog("connecting to %s:%u as '%s'", host.c_str(), port, co.name.c_str());
-                if (!client.connect(host, port, now)) {
+                tried_ = true;
+                lastConnectTry_ = now;
+                netLog("connecting to %s:%u as '%s'", host.c_str(), port, name_.c_str());
+                if (!client_.connect(host, port, now)) {
                     netLog("cannot use address %s:%u", host.c_str(), port);
-                    failed = true;
-                    failMessage = "Cannot use address " + host + ":" + std::to_string(port);
+                    failed_ = true;
+                    failMessage_ = "Cannot use address " + host + ":" + std::to_string(port);
                 }
             }
         }
-        if (client.rejected() && !rejectLogged) {
-            rejectLogged = true;
+        if (client_.rejected() && !rejectLogged_) {
+            rejectLogged_ = true;
             netLog("REJECTED by the server: reason %d, '%s' (server protocol %u, ours %u)",
-                   static_cast<int>(client.rejectInfo().reason), client.rejectInfo().message.c_str(),
-                   client.rejectInfo().serverVersion, kProtocolVersion);
+                   static_cast<int>(client_.rejectInfo().reason), client_.rejectInfo().message.c_str(),
+                   client_.rejectInfo().serverVersion, kProtocolVersion);
         }
+    }
 
-        ClientEvent ev;
-        while (client.pollEvent(ev)) {
-            if (const auto* d = std::get_if<DisconnectedEvent>(&ev)) {
-                netLog("disconnected%s", d->wasRejected ? " (rejected)" : "");
-                loadDoneSent = false;
-                if (wasConnected) {
-                    failed = true;
-                    const uint64_t rx = client.lastRxMs();
-                    endNotice = failMessage =
-                        policy::disconnectNotice(rx != 0 && now >= rx ? now - rx : policy::kHostLeftSilenceMs);
-                    netLog("server gone: '%s' (silent for %llu ms)", failMessage.c_str(),
-                           static_cast<unsigned long long>(rx != 0 && now >= rx ? now - rx : 0));
-                    // Keep the error for the title lobby, which acknowledges it with Leave.
-                    // A loaded native level otherwise keeps accepting input after the socket closes.
-                    requestReturnToTitle();
-                }
-                tried = legacy && !failed ? false : tried;
-            } else if (const auto* j = std::get_if<PlayerJoin>(&ev)) {
-                netLog("player %u '%s' joined", j->player, j->name.c_str());
-                addChat(0, "", j->name + " joined");
-            } else if (const auto* l = std::get_if<PlayerLeave>(&ev)) {
-                netLog("player %u left", l->player);
-            } else if (const auto* ch = std::get_if<Chat>(&ev)) {
-                const auto it = client.roster().find(ch->player);
-                // Player 0 is the server's own line (MatchServer::announce: flags, "<name> is out of lives"): no name.
-                addChat(ch->player,
-                        ch->player == 0               ? std::string()
-                        : it != client.roster().end() ? it->second.name
-                                                      : std::string("?"),
-                        ch->text);
-            } else if (const auto* ca = std::get_if<CoopAuthority>(&ev)) {
-                netLog("co-op authority: player %u%s", ca->player, ca->player == client.playerId() ? " (us)" : "");
-            } else if (auto* cc = std::get_if<CoopCreatures>(&ev)) {
-                std::lock_guard<std::mutex> lk(g_coopM);
-                g_coopInCreatures.push_back(std::move(*cc));
-                if (g_coopInCreatures.size() > 64)
-                    g_coopInCreatures.pop_front();
-            } else if (const auto* ce = std::get_if<CoopEvent>(&ev)) {
-                std::lock_guard<std::mutex> lk(g_coopM);
-                if (g_coopInEvents.size() < kCoopQueueMax)
-                    g_coopInEvents.push_back(*ce);
-            } else if (const auto* pu = std::get_if<PickupState>(&ev)) {
-                drakan_arena::onPickupState(*pu);
-            } else if (const auto* lc = std::get_if<LevelChange>(&ev)) {
-                // The leader went through a level exit: fire the same exit in our copy of the level (the world position
-                // of the trigger is the same on every machine, drakan_levelchange).
-                netLog("player %u changed level through the exit at %.0f %.0f %.0f (destination hash %08x): following",
-                       lc->player, static_cast<double>(lc->exit[0]), static_cast<double>(lc->exit[1]),
-                       static_cast<double>(lc->exit[2]), lc->destHash);
-                drakan_levelchange::followExit(lc->exit[0], lc->exit[1], lc->exit[2]);
-                {
-                    std::lock_guard<std::mutex> fl(g_followM);
-                    g_followIn = FollowCheck();
-                    g_followIn.active = true;
-                    g_followIn.destHash = g_testDestHash ? g_testDestHash : lc->destHash;
-                    g_followIn.srcHash = g_levelHash.load();
-                    g_followIn.loadsAtStart = g_levelLoads.load();
-                    std::memcpy(g_followIn.exit, lc->exit, sizeof g_followIn.exit);
-                    g_followNew = true;
-                }
-            } else if (const auto* hit = std::get_if<Hit>(&ev)) {
-                netLog("hit: player %u hit player %u for %u (weapon %u), health now %u", hit->attacker, hit->victim,
-                       hit->damage, hit->weapon, hit->healthAfter);
-                drakan_pvp::onServerHit(hit->attacker, hit->victim, hit->weapon, hit->damage, hit->healthAfter,
-                                        hit->dragon);
-            } else if (const auto* dth = std::get_if<Death>(&ev)) {
-                const auto nameOf = [&](PlayerId id) {
-                    const auto r = client.roster().find(id);
-                    return r != client.roster().end() ? r->second.name : std::string("?");
-                };
-                netLog("death: player %u killed by player %u (weapon %u)", dth->victim, dth->killer, dth->weapon);
-                {
-                    std::lock_guard<std::mutex> lk(g_combatM);
-                    KillFeedEntry k;
-                    k.killer = dth->killer;
-                    k.victim = dth->victim;
-                    k.killerName = nameOf(dth->killer);
-                    k.victimName = nameOf(dth->victim);
-                    k.weapon = dth->weapon;
-                    {
-                        // The killer's held item as of its newest state: the hand that struck, the bow for a
-                        // projectile.
-                        drakan::net::PlayerState ks;
-                        uint32_t ksMs = 0;
-                        uint32_t record = 0;
-                        if (client.newestSample(dth->killer, ks, ksMs))
-                            record = dth->weapon == drakan::net::kHitMeleeRight ? ks.weaponRight : ks.weaponLeft;
-                        else if (dth->killer == client.playerId()) {
-                            std::lock_guard<std::mutex> ll(g_s.m);
-                            record = dth->weapon == drakan::net::kHitMeleeRight ? g_s.local.weaponRight
-                                                                                : g_s.local.weaponLeft;
-                        }
-                        k.weaponName = drakan::net::weaponDisplayName(dth->weapon, record);
-                    }
-                    k.at = nowSec();
-                    g_board.killFeed.push_back(std::move(k));
-                    if (g_board.killFeed.size() > 8)
-                        g_board.killFeed.erase(g_board.killFeed.begin());
-                    if (dth->victim == client.playerId())
-                        g_deadSince = nowSec();
-                }
-                drakan_pvp::onServerDeath(dth->victim, dth->killer, dth->weapon);
-            } else if (const auto* rsp = std::get_if<Respawn>(&ev)) {
-                netLog("respawn: player %u at spawn %u with health %u", rsp->player, rsp->spawnIndex, rsp->health);
-                if (rsp->player == client.playerId()) {
-                    std::lock_guard<std::mutex> lk(g_combatM);
-                    g_deadSince = -1;
-                }
-                drakan_pvp::onServerRespawn(rsp->player, rsp->spawnIndex, rsp->health);
-            } else if (const auto* sc = std::get_if<Score>(&ev)) {
-                if (sc->lives != drakan::net::kLivesUnlimited)
-                    netLog("score: player %u kills %u deaths %u points %d lives %u%s", sc->player, sc->kills,
-                           sc->deaths, static_cast<int>(sc->score), sc->lives, sc->eliminated ? " (eliminated)" : "");
-                else
-                    netLog("score: player %u kills %u deaths %u points %d (team kills %u / %u, team points %d / %d)",
-                           sc->player, sc->kills, sc->deaths, static_cast<int>(sc->score), sc->teamKills[0],
-                           sc->teamKills[1], static_cast<int>(sc->teamScore[0]), static_cast<int>(sc->teamScore[1]));
-            } else if (const auto* pc = std::get_if<PhaseChange>(&ev)) {
-                drakan_pvp::onServerPhase(static_cast<uint8_t>(pc->phase));
-                if (pc->byHost && pc->phase == MatchPhase::Lobby) {
-                    // The host chose from the results screen (back to the lobby, next map or rematch): this game still
-                    // sits in the match level, so it goes to the title, where the lobby and the next load are.
-                    netLog("host chose from the results: returning to the title");
-                    requestReturnToTitle();
-                }
-                if (pc->phase == MatchPhase::Results) {
-                    const MatchOutcome o = client.outcome();
-                    std::string rows;
-                    for (const drakan::net::ScoreRow& r : client.scoreboard())
-                        rows += " [" + std::to_string(r.player) + " '" + r.name + "' " + std::to_string(r.kills) + "/" +
-                                std::to_string(r.deaths) + "]";
-                    netLog("match over (%s): %s, results (kills/deaths):%s",
-                           o.reason == EndReason::FragLimit      ? "frag limit"
-                           : o.reason == EndReason::TimeLimit    ? "time limit"
-                           : o.reason == EndReason::LastStanding ? "last one standing"
-                                                                 : "ended",
-                           o.tie                   ? "tie"
-                           : o.winner != kNoPlayer ? ("player " + std::to_string(o.winner) + " wins").c_str()
-                                                   : ("team " + std::to_string(o.winningTeam) + " wins").c_str(),
-                           rows.c_str());
-                }
-                if (pc->phase == MatchPhase::Playing) {
-                    std::lock_guard<std::mutex> lk(g_combatM);
-                    g_playingSinceServerMs = pc->serverTimeMs;
-                    g_havePlayingSince = true;
-                    g_board.killFeed.clear();
-                    g_deadSince = -1;
-                }
-            }
-        }
+    // ---- client events (one overload per ClientEvent alternative; the others are ignored)
+    template <typename Event>
+    void onEvent(const Event&, uint64_t) {}
 
-        const bool connected = client.connected();
-        if (connected != wasConnected) {
-            netLog("%s (player id %u, tick rate %u Hz)", connected ? "connected" : "connection lost", client.playerId(),
-                   client.tickRateHz());
-            wasConnected = connected;
+    void onEvent(const drakan::net::DisconnectedEvent& d, uint64_t now) {
+        netLog("disconnected%s", d.wasRejected ? " (rejected)" : "");
+        loadDoneSent_ = false;
+        if (wasConnected_) {
+            failed_ = true;
+            const uint64_t rx = client_.lastRxMs();
+            endNotice_ = failMessage_ =
+                policy::disconnectNotice(rx != 0 && now >= rx ? now - rx : policy::kHostLeftSilenceMs);
+            netLog("server gone: '%s' (silent for %llu ms)", failMessage_.c_str(),
+                   static_cast<unsigned long long>(rx != 0 && now >= rx ? now - rx : 0));
+            // Keep the error for the title lobby, which acknowledges it with Leave.
+            // A loaded native level otherwise keeps accepting input after the socket closes.
+            requestReturnToTitle();
         }
-        if (connected) {
-            if (client.phase() != lastPhase) {
-                netLog("phase -> %d (match level '%s')", static_cast<int>(client.phase()),
-                       client.config().level.c_str());
-                lastPhase = client.phase();
-                loadDoneSent = false;
-                // A new match loads its level from the title: the hash of the level of the match before (the title
-                // was reached by "Quit to Title", which reports no load) must not count as "our level is up".
-                if (client.phase() == MatchPhase::Loading)
-                    g_levelHash.store(0);
-                if (client.phase() ==
-                    MatchPhase::Lobby) { // the match is over: a New Game from the title is an ordinary one
-                    std::lock_guard<std::mutex> l(g_launchM);
-                    setRedirect("");
+        tried_ = legacy_ && !failed_ ? false : tried_;
+    }
+    void onEvent(const drakan::net::PlayerJoin& j, uint64_t) {
+        netLog("player %u '%s' joined", j.player, j.name.c_str());
+        addChat(0, "", j.name + " joined");
+    }
+    void onEvent(const drakan::net::PlayerLeave& l, uint64_t) { netLog("player %u left", l.player); }
+    void onEvent(const drakan::net::Chat& ch, uint64_t) {
+        const auto it = client_.roster().find(ch.player);
+        // Player 0 is the server's own line (MatchServer::announce: flags, "<name> is out of lives"): no name.
+        addChat(ch.player,
+                ch.player == 0                 ? std::string()
+                : it != client_.roster().end() ? it->second.name
+                                               : std::string("?"),
+                ch.text);
+    }
+    void onEvent(const drakan::net::CoopAuthority& ca, uint64_t) {
+        netLog("co-op authority: player %u%s", ca.player, ca.player == client_.playerId() ? " (us)" : "");
+    }
+    void onEvent(drakan::net::CoopCreatures& cc, uint64_t) {
+        std::lock_guard<std::mutex> lk(g_coopM);
+        g_coopInCreatures.push_back(std::move(cc));
+        if (g_coopInCreatures.size() > 64)
+            g_coopInCreatures.pop_front();
+    }
+    void onEvent(const drakan::net::CoopEvent& ce, uint64_t) {
+        std::lock_guard<std::mutex> lk(g_coopM);
+        if (g_coopInEvents.size() < kCoopQueueMax)
+            g_coopInEvents.push_back(ce);
+    }
+    void onEvent(const drakan::net::PickupState& pu, uint64_t) { drakan_arena::onPickupState(pu); }
+    void onEvent(const drakan::net::LevelChange& lc, uint64_t) {
+        // The leader went through a level exit: fire the same exit in our copy of the level (the world position
+        // of the trigger is the same on every machine, drakan_levelchange).
+        netLog("player %u changed level through the exit at %.0f %.0f %.0f (destination hash %08x): following",
+               lc.player, static_cast<double>(lc.exit[0]), static_cast<double>(lc.exit[1]),
+               static_cast<double>(lc.exit[2]), lc.destHash);
+        drakan_levelchange::followExit(lc.exit[0], lc.exit[1], lc.exit[2]);
+        std::lock_guard<std::mutex> fl(g_followM);
+        g_followIn = FollowCheck();
+        g_followIn.active = true;
+        g_followIn.destHash = g_testDestHash ? g_testDestHash : lc.destHash;
+        g_followIn.srcHash = g_levelHash.load();
+        g_followIn.loadsAtStart = g_levelLoads.load();
+        std::memcpy(g_followIn.exit, lc.exit, sizeof g_followIn.exit);
+        g_followNew = true;
+    }
+    void onEvent(const drakan::net::Hit& hit, uint64_t) {
+        netLog("hit: player %u hit player %u for %u (weapon %u), health now %u", hit.attacker, hit.victim, hit.damage,
+               hit.weapon, hit.healthAfter);
+        drakan_pvp::onServerHit(hit.attacker, hit.victim, hit.weapon, hit.damage, hit.healthAfter, hit.dragon);
+    }
+    void onEvent(const drakan::net::Death& dth, uint64_t) {
+        using namespace drakan::net;
+        const auto nameOf = [&](PlayerId id) {
+            const auto r = client_.roster().find(id);
+            return r != client_.roster().end() ? r->second.name : std::string("?");
+        };
+        netLog("death: player %u killed by player %u (weapon %u)", dth.victim, dth.killer, dth.weapon);
+        {
+            std::lock_guard<std::mutex> lk(g_combatM);
+            KillFeedEntry k;
+            k.killer = dth.killer;
+            k.victim = dth.victim;
+            k.killerName = nameOf(dth.killer);
+            k.victimName = nameOf(dth.victim);
+            k.weapon = dth.weapon;
+            {
+                // The killer's held item as of its newest state: the hand that struck, the bow for a projectile.
+                drakan::net::PlayerState ks;
+                uint32_t ksMs = 0;
+                uint32_t record = 0;
+                if (client_.newestSample(dth.killer, ks, ksMs))
+                    record = dth.weapon == drakan::net::kHitMeleeRight ? ks.weaponRight : ks.weaponLeft;
+                else if (dth.killer == client_.playerId()) {
+                    std::lock_guard<std::mutex> ll(g_s.m);
+                    record = dth.weapon == drakan::net::kHitMeleeRight ? g_s.local.weaponRight : g_s.local.weaponLeft;
                 }
+                k.weaponName = drakan::net::weaponDisplayName(dth.weapon, record);
             }
-            if (!legacy && (client.phase() == MatchPhase::Loading || client.phase() == MatchPhase::Playing))
-                requestLaunch(client.config().level, client.config().mode != MatchMode::Coop);
-            // LoadDone only once our own level is up (a New Game from the title needs the intro and the load first).
-            if (client.phase() == MatchPhase::Loading && !loadDoneSent && g_levelHash.load() != 0)
-                loadDoneSent = client.sendLoadDone();
-            if (client.phase() == MatchPhase::Lobby || client.phase() == MatchPhase::Results) {
+            k.at = nowSec();
+            g_board.killFeed.push_back(std::move(k));
+            if (g_board.killFeed.size() > 8)
+                g_board.killFeed.erase(g_board.killFeed.begin());
+            if (dth.victim == client_.playerId())
+                g_deadSince = nowSec();
+        }
+        drakan_pvp::onServerDeath(dth.victim, dth.killer, dth.weapon);
+    }
+    void onEvent(const drakan::net::Respawn& rsp, uint64_t) {
+        netLog("respawn: player %u at spawn %u with health %u", rsp.player, rsp.spawnIndex, rsp.health);
+        if (rsp.player == client_.playerId()) {
+            std::lock_guard<std::mutex> lk(g_combatM);
+            g_deadSince = -1;
+        }
+        drakan_pvp::onServerRespawn(rsp.player, rsp.spawnIndex, rsp.health);
+    }
+    void onEvent(const drakan::net::Score& sc, uint64_t) {
+        if (sc.lives != drakan::net::kLivesUnlimited)
+            netLog("score: player %u kills %u deaths %u points %d lives %u%s", sc.player, sc.kills, sc.deaths,
+                   static_cast<int>(sc.score), sc.lives, sc.eliminated ? " (eliminated)" : "");
+        else
+            netLog("score: player %u kills %u deaths %u points %d (team kills %u / %u, team points %d / %d)", sc.player,
+                   sc.kills, sc.deaths, static_cast<int>(sc.score), sc.teamKills[0], sc.teamKills[1],
+                   static_cast<int>(sc.teamScore[0]), static_cast<int>(sc.teamScore[1]));
+    }
+    void onEvent(const drakan::net::PhaseChange& pc, uint64_t) {
+        using namespace drakan::net;
+        drakan_pvp::onServerPhase(static_cast<uint8_t>(pc.phase));
+        if (pc.byHost && pc.phase == MatchPhase::Lobby) {
+            // The host chose from the results screen (back to the lobby, next map or rematch): this game still
+            // sits in the match level, so it goes to the title, where the lobby and the next load are.
+            netLog("host chose from the results: returning to the title");
+            requestReturnToTitle();
+        }
+        if (pc.phase == MatchPhase::Results) {
+            const MatchOutcome o = client_.outcome();
+            std::string rows;
+            for (const drakan::net::ScoreRow& r : client_.scoreboard())
+                rows += " [" + std::to_string(r.player) + " '" + r.name + "' " + std::to_string(r.kills) + "/" +
+                        std::to_string(r.deaths) + "]";
+            netLog("match over (%s): %s, results (kills/deaths):%s", endReasonText(o.reason, "ended"),
+                   o.tie                   ? "tie"
+                   : o.winner != kNoPlayer ? ("player " + std::to_string(o.winner) + " wins").c_str()
+                                           : ("team " + std::to_string(o.winningTeam) + " wins").c_str(),
+                   rows.c_str());
+        }
+        if (pc.phase == MatchPhase::Playing) {
+            std::lock_guard<std::mutex> lk(g_combatM);
+            g_playingSinceServerMs = pc.serverTimeMs;
+            g_havePlayingSince = true;
+            g_board.killFeed.clear();
+            g_deadSince = -1;
+        }
+    }
+
+    static const char* endReasonText(drakan::net::EndReason reason, const char* otherwise) {
+        using drakan::net::EndReason;
+        return reason == EndReason::FragLimit      ? "frag limit"
+               : reason == EndReason::TimeLimit    ? "time limit"
+               : reason == EndReason::LastStanding ? "last one standing"
+                                                   : otherwise;
+    }
+
+    // ---- match phase: level launch and LoadDone (connected only)
+    void pumpMatchPhase() {
+        using namespace drakan::net;
+        if (client_.phase() != lastPhase_) {
+            netLog("phase -> %d (match level '%s')", static_cast<int>(client_.phase()), client_.config().level.c_str());
+            lastPhase_ = client_.phase();
+            loadDoneSent_ = false;
+            // A new match loads its level from the title: the hash of the level of the match before (the title
+            // was reached by "Quit to Title", which reports no load) must not count as "our level is up".
+            if (client_.phase() == MatchPhase::Loading)
+                g_levelHash.store(0);
+            if (client_.phase() ==
+                MatchPhase::Lobby) { // the match is over: a New Game from the title is an ordinary one
                 std::lock_guard<std::mutex> l(g_launchM);
-                if (client.phase() == MatchPhase::Lobby)
-                    g_launchDone = false; // the next match launches again
+                setRedirect("");
             }
         }
-
-        // The arena world mode (drakan_arena) follows the session: on for a deathmatch match that is loading, playing
-        // or showing its results; a menu launched match strips the campaign from any level, the DRAKAN_NET_* shortcuts
-        // only for a multiplayer map.
-        {
-            const bool dm = policy::arenaWorldWanted(true, connected, client.config().mode == MatchMode::Coop,
-                                                     client.phase() == MatchPhase::Loading ||
-                                                         client.phase() == MatchPhase::Playing ||
-                                                         client.phase() == MatchPhase::Results);
-            const drakan::net::ArenaDef* found = dm ? drakan_arena::findMap(client.config().level) : nullptr;
-            const bool want = dm && (!legacy || found);
-            // setSession copies the whole ArenaDef: only when the session's inputs change (or the periodic refresh).
-            if (!arenaSet || want != lastArenaWant || found != lastArenaDef ||
-                client.config().modeId != lastArenaModeId || now - lastArenaSetMs >= kArenaRefreshMs) {
-                const drakan::net::ArenaDef* def = found;
-                // A custom game mode's `loadout` is given on top of the map's.
-                drakan::net::ArenaDef withMode;
-                if (def && !client.config().modeId.empty())
-                    if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(client.config().modeId);
-                        m && !m->loadout.empty()) {
-                        withMode = *def;
-                        for (uint32_t id : m->loadout)
-                            if (std::find(withMode.loadout.begin(), withMode.loadout.end(), id) ==
-                                withMode.loadout.end())
-                                withMode.loadout.push_back(id);
-                        def = &withMode;
-                    }
-                drakan_arena::setSession(want, def);
-                arenaSet = true;
-                lastArenaWant = want;
-                lastArenaDef = found;
-                lastArenaModeId = client.config().modeId;
-                lastArenaSetMs = now;
-            }
-            drakan_arena::setLocalPlayer(connected ? client.playerId() : 0);
-            drakan_arena::setNeutralDragon(connected && client.phase() == MatchPhase::Playing ? client.neutralDragon()
-                                                                                              : std::nullopt);
+        if (!legacy_ && (client_.phase() == MatchPhase::Loading || client_.phase() == MatchPhase::Playing))
+            requestLaunch(client_.config().level, client_.config().mode != MatchMode::Coop);
+        // LoadDone only once our own level is up (a New Game from the title needs the intro and the load first).
+        if (client_.phase() == MatchPhase::Loading && !loadDoneSent_ && g_levelHash.load() != 0)
+            loadDoneSent_ = client_.sendLoadDone();
+        if (client_.phase() == MatchPhase::Lobby || client_.phase() == MatchPhase::Results) {
+            std::lock_guard<std::mutex> l(g_launchM);
+            if (client_.phase() == MatchPhase::Lobby)
+                g_launchDone = false; // the next match launches again
         }
+    }
 
-        // Outgoing hit claims from the EE thread (the server validates them).
-        if (connected) {
-            std::deque<ClaimOut> claims;
-            {
-                std::lock_guard<std::mutex> lk(g_combatM);
-                claims.swap(g_claims);
-            }
-            for (const ClaimOut& cl : claims) {
-                const bool sent = client.sendHit(cl.victim, cl.weapon, cl.damage, cl.dragon);
-                netLog("claim: hit on player %u, weapon %u, damage %u%s", cl.victim, cl.weapon, cl.damage,
-                       sent ? "" : " (not sent)");
-            }
-            drakan_pvp::setLocalPlayer(client.playerId());
-        } else {
+    // ---- the arena world mode (drakan_arena) follows the session: on for a deathmatch match that is loading,
+    // playing or showing its results; a menu launched match strips the campaign from any level, the DRAKAN_NET_*
+    // shortcuts only for a multiplayer map.
+    void pumpArenaWorld(uint64_t now, bool connected) {
+        using namespace drakan::net;
+        const bool dm =
+            policy::arenaWorldWanted(true, connected, client_.config().mode == MatchMode::Coop,
+                                     client_.phase() == MatchPhase::Loading || client_.phase() == MatchPhase::Playing ||
+                                         client_.phase() == MatchPhase::Results);
+        const drakan::net::ArenaDef* found = dm ? drakan_arena::findMap(client_.config().level) : nullptr;
+        const bool want = dm && (!legacy_ || found);
+        // setSession copies the whole ArenaDef: only when the session's inputs change (or the periodic refresh).
+        if (!arenaSet_ || want != lastArenaWant_ || found != lastArenaDef_ ||
+            client_.config().modeId != lastArenaModeId_ || now - lastArenaSetMs_ >= kArenaRefreshMs) {
+            const drakan::net::ArenaDef* def = found;
+            // A custom game mode's `loadout` is given on top of the map's.
+            drakan::net::ArenaDef withMode;
+            if (def && !client_.config().modeId.empty())
+                if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(client_.config().modeId);
+                    m && !m->loadout.empty()) {
+                    withMode = *def;
+                    for (uint32_t id : m->loadout)
+                        if (std::find(withMode.loadout.begin(), withMode.loadout.end(), id) == withMode.loadout.end())
+                            withMode.loadout.push_back(id);
+                    def = &withMode;
+                }
+            drakan_arena::setSession(want, def);
+            arenaSet_ = true;
+            lastArenaWant_ = want;
+            lastArenaDef_ = found;
+            lastArenaModeId_ = client_.config().modeId;
+            lastArenaSetMs_ = now;
+        }
+        drakan_arena::setLocalPlayer(connected ? client_.playerId() : 0);
+        drakan_arena::setNeutralDragon(connected && client_.phase() == MatchPhase::Playing ? client_.neutralDragon()
+                                                                                           : std::nullopt);
+    }
+
+    // ---- outgoing hit claims from the EE thread (the server validates them)
+    void pumpHitClaims(bool connected) {
+        if (!connected) {
             drakan_pvp::setLocalPlayer(0);
+            return;
         }
-
-        // Co-op: the link for drakan_coop, then the outgoing creature stream / events and the host's level changes.
+        std::deque<ClaimOut> claims;
         {
-            const bool coopMatch = connected && client.config().mode == MatchMode::Coop;
-            const bool active = coopMatch && client.phase() == MatchPhase::Playing;
-            g_coopMode.store(coopMatch);
-            CoopLink link;
-            link.active = active;
-            link.host = active && client.isCoopAuthority();
-            link.self = client.playerId();
-            link.authority = client.coopAuthority();
-            link.players = static_cast<int>(client.roster().size());
-            for (const auto& kv : client.roster())
-                if (kv.first != client.playerId()) {
-                    link.partner = kv.first;
-                    break;
-                }
-            std::deque<CoopCreatures> oc;
-            std::deque<CoopEvent> oe;
-            {
-                std::lock_guard<std::mutex> lk(g_coopM);
-                link.session = g_sessionSerial;
-                g_coopLink = link;
-                if (active) {
-                    oc.swap(g_coopOutCreatures);
-                    oe.swap(g_coopOutEvents);
-                } else {
-                    g_coopOutCreatures.clear();
-                    g_coopOutEvents.clear();
-                    g_coopInCreatures.clear();
-                    g_coopInEvents.clear();
-                }
+            std::lock_guard<std::mutex> lk(g_combatM);
+            claims.swap(g_claims);
+        }
+        for (const ClaimOut& cl : claims) {
+            const bool sent = client_.sendHit(cl.victim, cl.weapon, cl.damage, cl.dragon);
+            netLog("claim: hit on player %u, weapon %u, damage %u%s", cl.victim, cl.weapon, cl.damage,
+                   sent ? "" : " (not sent)");
+        }
+        drakan_pvp::setLocalPlayer(client_.playerId());
+    }
+
+    // ---- co-op: the link for drakan_coop, then the outgoing creature stream / events and the host's level changes
+    void pumpCoop(bool connected) {
+        using namespace drakan::net;
+        const bool coopMatch = connected && client_.config().mode == MatchMode::Coop;
+        const bool active = coopMatch && client_.phase() == MatchPhase::Playing;
+        g_coopMode.store(coopMatch);
+        CoopLink link;
+        link.active = active;
+        link.host = active && client_.isCoopAuthority();
+        link.self = client_.playerId();
+        link.authority = client_.coopAuthority();
+        link.players = static_cast<int>(client_.roster().size());
+        for (const auto& kv : client_.roster())
+            if (kv.first != client_.playerId()) {
+                link.partner = kv.first;
+                break;
             }
-            for (const CoopCreatures& c : oc)
-                client.sendCoopCreatures(c);
-            for (const CoopEvent& e : oe)
-                client.sendCoopEvent(e);
-            // A level change goes out from the one the server lets lead: the co-op authority, else the lowest id.
-            std::deque<LevelChangeOut> lcs;
-            {
-                std::lock_guard<std::mutex> lk(g_lcM);
-                lcs.swap(g_lcOut);
-            }
-            if (connected && client.phase() == MatchPhase::Playing) {
-                const bool leader =
-                    client.config().mode == MatchMode::Coop
-                        ? client.isCoopAuthority()
-                        : (!client.roster().empty() && client.roster().begin()->first == client.playerId());
-                if (leader)
-                    for (const LevelChangeOut& l : lcs) {
-                        netLog("level change: telling the others (exit %.0f %.0f %.0f, destination hash %08x)",
-                               static_cast<double>(l.pos[0]), static_cast<double>(l.pos[1]),
-                               static_cast<double>(l.pos[2]), l.destHash);
-                        client.sendLevelChange(l.destHash, l.pos);
-                    }
+        std::deque<CoopCreatures> oc;
+        std::deque<CoopEvent> oe;
+        {
+            std::lock_guard<std::mutex> lk(g_coopM);
+            link.session = g_sessionSerial;
+            g_coopLink = link;
+            if (active) {
+                oc.swap(g_coopOutCreatures);
+                oe.swap(g_coopOutEvents);
+            } else {
+                g_coopOutCreatures.clear();
+                g_coopOutEvents.clear();
+                g_coopInCreatures.clear();
+                g_coopInEvents.clear();
             }
         }
+        for (const CoopCreatures& c : oc)
+            client_.sendCoopCreatures(c);
+        for (const CoopEvent& e : oe)
+            client_.sendCoopEvent(e);
+        // A level change goes out from the one the server lets lead: the co-op authority, else the lowest id.
+        std::deque<LevelChangeOut> lcs;
+        {
+            std::lock_guard<std::mutex> lk(g_lcM);
+            lcs.swap(g_lcOut);
+        }
+        if (connected && client_.phase() == MatchPhase::Playing) {
+            const bool leader =
+                client_.config().mode == MatchMode::Coop
+                    ? client_.isCoopAuthority()
+                    : (!client_.roster().empty() && client_.roster().begin()->first == client_.playerId());
+            if (leader)
+                for (const LevelChangeOut& l : lcs) {
+                    netLog("level change: telling the others (exit %.0f %.0f %.0f, destination hash %08x)",
+                           static_cast<double>(l.pos[0]), static_cast<double>(l.pos[1]), static_cast<double>(l.pos[2]),
+                           l.destHash);
+                    client_.sendLevelChange(l.destHash, l.pos);
+                }
+        }
+    }
 
-        // The co-op character picked in the lobby goes to the server (it relays it to everybody with Status).
+    // ---- the co-op character picked in the lobby goes to the server (it relays it to everybody with Status)
+    void pumpCharacter(bool connected) {
         if (!connected)
-            charSent = false;
-        else if (client.phase() == MatchPhase::Lobby) {
+            charSent_ = false;
+        else if (client_.phase() == drakan::net::MatchPhase::Lobby) {
             const uint16_t ch = drakan_coop_character::selected();
-            if (!charSent || ch != lastChar) {
-                charSent = client.sendCharacter(ch);
-                lastChar = ch;
+            if (!charSent_ || ch != lastChar_) {
+                charSent_ = client_.sendCharacter(ch);
+                lastChar_ = ch;
             }
         }
+    }
 
-        // Outgoing: the pose the EE thread last published, at 20 Hz.
-        if (connected && now - lastSend >= kSendIntervalMs) {
-            lastSend = now;
-            PlayerState s;
-            bool have;
-            uint64_t at;
-            {
-                std::lock_guard<std::mutex> l(g_s.m);
-                s = g_s.local;
-                have = g_s.haveLocal;
-                at = g_s.localAtMs;
-            }
-            if (!have || now - at > kStaleLocalMs)
-                s.levelHash = 0;
-            if (client.sendState(s))
-                ++statSent;
-            // A pickup claim is validated against the collector's latest position.
-            uint16_t pickup = 0;
-            while (drakan_arena::takePickupClaim(pickup)) {
-                const bool sent = client.sendPickupClaim(pickup);
-                netLog("claim: pickup %u%s", pickup, sent ? "" : " (not sent)");
-            }
-        }
-
-        // Co-op health: own to the server about 5 times a second (and at once on a change), the partners' into the
-        // party panel's feed.
-        {
-            static uint64_t lastVitals = 0;
-            static LocalVitals sentV;
-            LocalVitals lv;
-            std::vector<PartnerVitals> pv;
-            if (connected)
-                for (const auto& kv : client.roster())
-                    if (kv.first != client.playerId() && kv.second.hasVitals)
-                        pv.push_back({kv.first, kv.second.vitals.hp, kv.second.vitals.maxHp, kv.second.vitals.dragonHp,
-                                      kv.second.vitals.dragonMaxHp});
-            {
-                std::lock_guard<std::mutex> l(g_partyM);
-                lv = g_localVitals;
-                if (pv.size() != g_partnerVitals.size() ||
-                    !std::equal(pv.begin(), pv.end(), g_partnerVitals.begin(),
-                                [](const PartnerVitals& a, const PartnerVitals& b) {
-                                    return a.player == b.player && a.hp == b.hp;
-                                }))
-                    for (const PartnerVitals& e : pv)
-                        netLog("vitals: player %d hp %d / %d", e.player, e.hp, e.hpMax);
-                g_partnerVitals = std::move(pv);
-            }
-            const bool changed = lv.hp != sentV.hp || lv.hpMax != sentV.hpMax || lv.dragonHp != sentV.dragonHp;
-            if (connected && lv.hp >= 0 && (changed || now - lastVitals >= 200) && now - lastVitals >= 60) {
-                lastVitals = now;
-                if (changed)
-                    netLog("vitals: sent hp %d / %d", lv.hp, lv.hpMax);
-                sentV = lv;
-                drakan::net::PlayerVitals v;
-                v.hp = static_cast<uint16_t>(std::clamp(lv.hp, 0, 65535));
-                v.maxHp = static_cast<uint16_t>(std::clamp(lv.hpMax, 0, 65535));
-                v.dragonHp = static_cast<uint16_t>(std::clamp(lv.dragonHp, 0, 65535));
-                v.dragonMaxHp = static_cast<uint16_t>(std::clamp(lv.dragonMax, 0, 65535));
-                client.sendVitals(v);
-            }
-        }
-
-        // Incoming: interpolated remote states for the EE thread.
+    // ---- outgoing: the pose the EE thread last published, at 20 Hz, and the pickups it claimed
+    void pumpLocalPose(uint64_t now, bool connected) {
+        if (!connected || now - lastSend_ < kSendIntervalMs)
+            return;
+        lastSend_ = now;
+        drakan::net::PlayerState s;
+        bool have;
+        uint64_t at;
         {
             std::lock_guard<std::mutex> l(g_s.m);
-            g_s.playing = connected && client.phase() == MatchPhase::Playing;
-            for (auto it = g_s.remotes.begin(); it != g_s.remotes.end();) {
-                if (!connected || !client.roster().count(it->first)) {
-                    it = g_s.remotes.erase(it);
-                } else
-                    ++it;
-            }
-            if (connected)
-                for (const auto& kv : client.roster()) {
-                    if (kv.first == client.playerId())
-                        continue;
-                    PlayerState ps;
-                    uint32_t sampleMs;
-                    if (!client.newestSample(kv.first, ps, sampleMs)) {
-                        g_s.remotes.erase(kv.first); // a respawn invalidated the previous life's pose
-                        continue;
-                    }
-                    RemoteIn& r = g_s.remotes[kv.first];
-                    r.name = kv.second.name;
-                    r.state = ps;
-                    r.sampleServerMs = sampleMs;
-                    r.serverNowMs = client.serverTimeAt(now);
-                    r.wallMs = now;
-                }
+            s = g_s.local;
+            have = g_s.haveLocal;
+            at = g_s.localAtMs;
         }
-
-        // State for the UI (see kUiPublishMs). The kill feed does not wait: the event loop appends to g_board itself.
-        const std::tuple<bool, bool, bool, int, size_t> uiKey{client.rejected(), connected, failed,
-                                                              connected ? static_cast<int>(client.phase()) : -1,
-                                                              connected ? client.roster().size() : 0};
-        const bool publishUi = uiKey != lastUiKey || now - lastUiPublishMs >= kUiPublishMs;
-        if (publishUi) {
-            lastUiKey = uiKey;
-            lastUiPublishMs = now;
+        if (!have || now - at > kStaleLocalMs)
+            s.levelHash = 0;
+        if (client_.sendState(s))
+            ++statSent_;
+        // A pickup claim is validated against the collector's latest position.
+        uint16_t pickup = 0;
+        while (drakan_arena::takePickupClaim(pickup)) {
+            const bool sent = client_.sendPickupClaim(pickup);
+            netLog("claim: pickup %u%s", pickup, sent ? "" : " (not sent)");
         }
-        std::vector<Player> boardRoster; // the roster of this pass, for the scoreboard's ping / time columns
-        if (publishUi) {
-            State s = base;
-            s.conn = client.rejected() ? Conn::Rejected
-                     : connected       ? Conn::Connected
-                     : failed          ? Conn::Rejected
-                                       : Conn::Connecting;
-            if (client.rejected())
-                s.message = client.rejectInfo().message.empty() ? std::string("Rejected by the server")
-                                                                : client.rejectInfo().message;
-            else if (failed)
-                s.message = failMessage;
-            else if (connected)
-                s.message.clear();
-            s.endNotice = endNotice;
-            if (connected) {
-                const MatchConfigData& cf = client.config();
-                s.phase = static_cast<Phase>(static_cast<int>(client.phase()));
-                s.serverName = cf.serverName;
-                s.level = cf.level;
-                s.mode = static_cast<int>(cf.mode);
-                s.maxPlayers = cf.maxPlayers;
-                s.fragLimit = cf.fragLimit;
-                s.timeLimitSec = cf.timeLimitSec;
-                s.modeId = cf.modeId;
-                s.teamCount = client.teamCount();
-                s.hostId = client.hostPlayer() != kNoPlayer ? client.hostPlayer() : 1;
-                s.selfId = client.playerId();
-                {
-                    uint32_t ms = 0;
-                    s.countdownKind = static_cast<int>(client.countdown(now, ms));
-                    s.countdownSec = s.countdownKind ? ms / 1000.0 : -1.0;
-                }
-                s.teamKills[0] = client.teamKills(0);
-                s.teamKills[1] = client.teamKills(1);
-                for (const auto& kv : client.roster()) {
-                    Player p;
-                    p.id = kv.first;
-                    p.name = kv.second.name;
-                    p.team = kv.second.team < kMaxTeams ? kv.second.team : -1;
-                    p.ready = kv.second.ready;
-                    p.self = kv.first == client.playerId();
-                    p.host = static_cast<int>(kv.first) == s.hostId;
-                    p.kills = kv.second.kills;
-                    p.deaths = kv.second.deaths;
-                    p.score = kv.second.score;
-                    if (!seenAt.count(p.id))
-                        seenAt[p.id] = now;
-                    p.timeSec = static_cast<int>((now - seenAt[p.id]) / 1000);
-                    if (kv.second.pingMs != kPingUnknown)
-                        p.pingMs = kv.second.pingMs; // the server measure (Status), for every player
-                    else if (p.self && client.rttMs() >= 0)
-                        p.pingMs = static_cast<int>(client.rttMs());
-                    p.character = kv.second.character;
-                    // Playing snapshots are authoritative for the body (direct-start sessions may skip lobby
-                    // selection).
-                    if (client.phase() == MatchPhase::Playing) {
-                        PlayerState pose;
-                        uint32_t sampleMs = 0;
-                        if (p.self)
-                            p.character = drakan_coop_character::selected();
-                        else if (client.newestSample(kv.first, pose, sampleMs))
-                            p.character = pose.character;
-                    }
-                    if (p.self)
-                        s.selfReady = p.ready;
-                    s.roster.push_back(std::move(p));
-                }
-            }
-            {
-                std::lock_guard<std::mutex> l(g_launchM);
-                s.launching = g_launchPending || g_launchTaps.load();
-                s.launchError = g_launchError;
-                if (!g_launchError.empty())
-                    s.message = g_launchError;
-            }
-            boardRoster = s.roster;
-            publish(s);
-        }
-
-        // Scoreboard for the overlay / results screen (the kill feed is appended by the event loop above).
-        if (publishUi) {
-            std::lock_guard<std::mutex> lk(g_combatM);
-            Scoreboard b;
-            b.killFeed = std::move(g_board.killFeed);
-            b.now = nowSec();
-            if (connected) {
-                const MatchConfigData& cf = client.config();
-                b.phase = static_cast<Phase>(static_cast<int>(client.phase()));
-                b.inMatch = client.phase() == MatchPhase::Playing || client.phase() == MatchPhase::Results;
-                b.mode = static_cast<int>(cf.mode);
-                b.fragLimit = cf.fragLimit;
-                b.timeLimitSec = cf.timeLimitSec;
-                b.teamKills[0] = client.teamKills(0);
-                b.teamKills[1] = client.teamKills(1);
-                b.modeId = cf.modeId;
-                b.teamCount = client.teamCount();
-                for (size_t t = 0; t < 4; ++t)
-                    b.teamScore[t] = client.teamScore(static_cast<uint8_t>(t));
-                for (size_t i = 0; i < client.mapVote().candidates.size(); ++i) {
-                    b.voteNames.push_back(client.mapVote().candidates[i]);
-                    b.voteTally.push_back(i < client.mapVote().tally.size() ? client.mapVote().tally[i] : 0);
-                }
-                b.voteMine = client.myMapVote() == kNoVote ? -1 : client.myMapVote();
-                b.voteWinner = client.mapVote().winner == kNoVote ? -1 : client.mapVote().winner;
-                b.selfHost = client.hostPlayer() != kNoPlayer ? client.hostPlayer() == client.playerId()
-                                                              : client.playerId() == 1;
-                for (const ScoreRow& r : [&] {
-                         std::vector<ScoreRow> rows;
-                         for (const drakan::net::ScoreRow& n : client.scoreboard()) {
-                             ScoreRow r;
-                             r.id = n.player;
-                             r.name = n.name;
-                             r.team = n.team < kMaxTeams ? n.team : -1;
-                             r.kills = n.kills;
-                             r.deaths = n.deaths;
-                             r.score = n.points();
-                             r.health = n.health;
-                             r.alive = n.alive;
-                             r.lives = n.lives == drakan::net::kLivesUnlimited ? -1 : n.lives;
-                             r.eliminated = n.eliminated;
-                             for (const Player& pl : boardRoster)
-                                 if (pl.id == r.id) {
-                                     r.pingMs = pl.pingMs;
-                                     r.timeSec = pl.timeSec;
-                                 }
-                             r.self = n.player == client.playerId();
-                             rows.push_back(std::move(r));
-                         }
-                         return rows;
-                     }()) {
-                    if (r.self) {
-                        b.selfHealth = r.health;
-                        b.selfAlive = r.alive;
-                        b.selfEliminated = r.eliminated;
-                        b.selfLives = r.lives;
-                    }
-                    b.rows.push_back(r);
-                }
-                b.selfMaxHealth = cf.startHealth;
-                if (client.phase() == MatchPhase::Playing && cf.timeLimitSec > 0 && g_havePlayingSince) {
-                    const int64_t elapsed =
-                        static_cast<int64_t>(client.serverTimeAt(now)) - static_cast<int64_t>(g_playingSinceServerMs);
-                    b.timeLeftSec =
-                        static_cast<int>(std::max<int64_t>(0, static_cast<int64_t>(cf.timeLimitSec) - elapsed / 1000));
-                }
-                if (!b.selfAlive && g_deadSince >= 0)
-                    b.respawnInSec = std::max(0.0, cf.respawnDelayMs / 1000.0 - (b.now - g_deadSince));
-                if (client.phase() == MatchPhase::Results) {
-                    uint32_t ms = 0;
-                    if (client.countdown(now, ms) == CountdownKind::NextMatch)
-                        b.nextMatchSec = ms / 1000.0;
-                    const MatchOutcome o = client.outcome();
-                    b.over = true;
-                    b.tie = o.tie;
-                    b.winnerId = o.winner;
-                    b.winnerTeam = o.winningTeam < kMaxTeams ? o.winningTeam : -1;
-                    if (o.winner != kNoPlayer)
-                        for (const ScoreRow& r : b.rows)
-                            if (r.id == o.winner)
-                                b.winnerName = r.name;
-                    b.reason = o.reason == EndReason::FragLimit      ? "frag limit"
-                               : o.reason == EndReason::TimeLimit    ? "time limit"
-                               : o.reason == EndReason::LastStanding ? "last one standing"
-                                                                     : "match ended";
-                }
-            }
-            g_board = std::move(b);
-        }
-
-        if (now - lastStats >= 5000) {
-            const uint64_t dt = lastStats ? now - lastStats : 5000;
-            const uint64_t snaps = client.snapshotCount();
-            if (connected)
-                netLog("stats: rtt %.1f ms, snapshots %.1f/s, states sent %.1f/s, remotes %zu, ghosts shown %u",
-                       client.rttMs(), static_cast<double>(snaps - statSnapshots) * 1000.0 / static_cast<double>(dt),
-                       static_cast<double>(statSent) * 1000.0 / static_cast<double>(dt), client.roster().size() - 1,
-                       g_ghostsVisible.load());
-            statSnapshots = snaps;
-            statSent = 0;
-            lastStats = now;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(4));
     }
+
+    // ---- co-op health: own to the server about 5 times a second (and at once on a change), the partners' into the
+    // party panel's feed.
+    void pumpVitals(uint64_t now, bool connected) {
+        // Function statics, as before the split: the send throttle carries over from one session to the next.
+        static uint64_t lastVitals = 0;
+        static LocalVitals sentV;
+        LocalVitals lv;
+        std::vector<PartnerVitals> pv;
+        if (connected)
+            for (const auto& kv : client_.roster())
+                if (kv.first != client_.playerId() && kv.second.hasVitals)
+                    pv.push_back({kv.first, kv.second.vitals.hp, kv.second.vitals.maxHp, kv.second.vitals.dragonHp,
+                                  kv.second.vitals.dragonMaxHp});
+        {
+            std::lock_guard<std::mutex> l(g_partyM);
+            lv = g_localVitals;
+            if (pv.size() != g_partnerVitals.size() || !std::equal(pv.begin(), pv.end(), g_partnerVitals.begin(),
+                                                                   [](const PartnerVitals& a, const PartnerVitals& b) {
+                                                                       return a.player == b.player && a.hp == b.hp;
+                                                                   }))
+                for (const PartnerVitals& e : pv)
+                    netLog("vitals: player %d hp %d / %d", e.player, e.hp, e.hpMax);
+            g_partnerVitals = std::move(pv);
+        }
+        const bool changed = lv.hp != sentV.hp || lv.hpMax != sentV.hpMax || lv.dragonHp != sentV.dragonHp;
+        if (connected && lv.hp >= 0 && (changed || now - lastVitals >= 200) && now - lastVitals >= 60) {
+            lastVitals = now;
+            if (changed)
+                netLog("vitals: sent hp %d / %d", lv.hp, lv.hpMax);
+            sentV = lv;
+            drakan::net::PlayerVitals v;
+            v.hp = static_cast<uint16_t>(std::clamp(lv.hp, 0, 65535));
+            v.maxHp = static_cast<uint16_t>(std::clamp(lv.hpMax, 0, 65535));
+            v.dragonHp = static_cast<uint16_t>(std::clamp(lv.dragonHp, 0, 65535));
+            v.dragonMaxHp = static_cast<uint16_t>(std::clamp(lv.dragonMax, 0, 65535));
+            client_.sendVitals(v);
+        }
+    }
+
+    // ---- incoming: interpolated remote states for the EE thread
+    void pumpRemotes(uint64_t now, bool connected) {
+        std::lock_guard<std::mutex> l(g_s.m);
+        g_s.playing = connected && client_.phase() == drakan::net::MatchPhase::Playing;
+        for (auto it = g_s.remotes.begin(); it != g_s.remotes.end();) {
+            if (!connected || !client_.roster().count(it->first)) {
+                it = g_s.remotes.erase(it);
+            } else
+                ++it;
+        }
+        if (!connected)
+            return;
+        for (const auto& kv : client_.roster()) {
+            if (kv.first == client_.playerId())
+                continue;
+            drakan::net::PlayerState ps;
+            uint32_t sampleMs;
+            if (!client_.newestSample(kv.first, ps, sampleMs)) {
+                g_s.remotes.erase(kv.first); // a respawn invalidated the previous life's pose
+                continue;
+            }
+            RemoteIn& r = g_s.remotes[kv.first];
+            r.name = kv.second.name;
+            r.state = ps;
+            r.sampleServerMs = sampleMs;
+            r.serverNowMs = client_.serverTimeAt(now);
+            r.wallMs = now;
+        }
+    }
+
+    // ---- state for the UI and the scoreboard (see kUiPublishMs). The kill feed does not wait: onEvent appends to
+    // g_board itself.
+    void publishUi(uint64_t now, bool connected) {
+        const std::tuple<bool, bool, bool, int, size_t> uiKey{client_.rejected(), connected, failed_,
+                                                              connected ? static_cast<int>(client_.phase()) : -1,
+                                                              connected ? client_.roster().size() : 0};
+        if (uiKey == lastUiKey_ && now - lastUiPublishMs_ < kUiPublishMs)
+            return;
+        lastUiKey_ = uiKey;
+        lastUiPublishMs_ = now;
+        const std::vector<Player> boardRoster = publishLobbyState(now, connected); // for the ping / time columns
+        publishScoreboard(now, connected, boardRoster);
+    }
+
+    // Publishes the lobby / connection state; returns its roster.
+    std::vector<Player> publishLobbyState(uint64_t now, bool connected) {
+        using namespace drakan::net;
+        State s = base_;
+        s.conn = client_.rejected() ? Conn::Rejected
+                 : connected        ? Conn::Connected
+                 : failed_          ? Conn::Rejected
+                                    : Conn::Connecting;
+        if (client_.rejected())
+            s.message = client_.rejectInfo().message.empty() ? std::string("Rejected by the server")
+                                                             : client_.rejectInfo().message;
+        else if (failed_)
+            s.message = failMessage_;
+        else if (connected)
+            s.message.clear();
+        s.endNotice = endNotice_;
+        if (connected) {
+            const MatchConfigData& cf = client_.config();
+            s.phase = static_cast<Phase>(static_cast<int>(client_.phase()));
+            s.serverName = cf.serverName;
+            s.level = cf.level;
+            s.mode = static_cast<int>(cf.mode);
+            s.maxPlayers = cf.maxPlayers;
+            s.fragLimit = cf.fragLimit;
+            s.timeLimitSec = cf.timeLimitSec;
+            s.modeId = cf.modeId;
+            s.teamCount = client_.teamCount();
+            s.hostId = client_.hostPlayer() != kNoPlayer ? client_.hostPlayer() : 1;
+            s.selfId = client_.playerId();
+            {
+                uint32_t ms = 0;
+                s.countdownKind = static_cast<int>(client_.countdown(now, ms));
+                s.countdownSec = s.countdownKind ? ms / 1000.0 : -1.0;
+            }
+            s.teamKills[0] = client_.teamKills(0);
+            s.teamKills[1] = client_.teamKills(1);
+            for (const auto& kv : client_.roster()) {
+                Player p;
+                p.id = kv.first;
+                p.name = kv.second.name;
+                p.team = kv.second.team < kMaxTeams ? kv.second.team : -1;
+                p.ready = kv.second.ready;
+                p.self = kv.first == client_.playerId();
+                p.host = static_cast<int>(kv.first) == s.hostId;
+                p.kills = kv.second.kills;
+                p.deaths = kv.second.deaths;
+                p.score = kv.second.score;
+                if (!seenAt_.count(p.id))
+                    seenAt_[p.id] = now;
+                p.timeSec = static_cast<int>((now - seenAt_[p.id]) / 1000);
+                if (kv.second.pingMs != kPingUnknown)
+                    p.pingMs = kv.second.pingMs; // the server measure (Status), for every player
+                else if (p.self && client_.rttMs() >= 0)
+                    p.pingMs = static_cast<int>(client_.rttMs());
+                p.character = kv.second.character;
+                // Playing snapshots are authoritative for the body (direct-start sessions may skip lobby
+                // selection).
+                if (client_.phase() == MatchPhase::Playing) {
+                    PlayerState pose;
+                    uint32_t sampleMs = 0;
+                    if (p.self)
+                        p.character = drakan_coop_character::selected();
+                    else if (client_.newestSample(kv.first, pose, sampleMs))
+                        p.character = pose.character;
+                }
+                if (p.self)
+                    s.selfReady = p.ready;
+                s.roster.push_back(std::move(p));
+            }
+        }
+        {
+            std::lock_guard<std::mutex> l(g_launchM);
+            s.launching = g_launchPending || g_launchTaps.load();
+            s.launchError = g_launchError;
+            if (!g_launchError.empty())
+                s.message = g_launchError;
+        }
+        std::vector<Player> roster = s.roster;
+        publishState(s);
+        return roster;
+    }
+
+    // Scoreboard for the overlay / results screen (the kill feed is appended by onEvent).
+    void publishScoreboard(uint64_t now, bool connected, const std::vector<Player>& boardRoster) {
+        using namespace drakan::net;
+        std::lock_guard<std::mutex> lk(g_combatM);
+        Scoreboard b;
+        b.killFeed = std::move(g_board.killFeed);
+        b.now = nowSec();
+        if (connected) {
+            const MatchConfigData& cf = client_.config();
+            b.phase = static_cast<Phase>(static_cast<int>(client_.phase()));
+            b.inMatch = client_.phase() == MatchPhase::Playing || client_.phase() == MatchPhase::Results;
+            b.mode = static_cast<int>(cf.mode);
+            b.fragLimit = cf.fragLimit;
+            b.timeLimitSec = cf.timeLimitSec;
+            b.teamKills[0] = client_.teamKills(0);
+            b.teamKills[1] = client_.teamKills(1);
+            b.modeId = cf.modeId;
+            b.teamCount = client_.teamCount();
+            for (size_t t = 0; t < 4; ++t)
+                b.teamScore[t] = client_.teamScore(static_cast<uint8_t>(t));
+            for (size_t i = 0; i < client_.mapVote().candidates.size(); ++i) {
+                b.voteNames.push_back(client_.mapVote().candidates[i]);
+                b.voteTally.push_back(i < client_.mapVote().tally.size() ? client_.mapVote().tally[i] : 0);
+            }
+            b.voteMine = client_.myMapVote() == kNoVote ? -1 : client_.myMapVote();
+            b.voteWinner = client_.mapVote().winner == kNoVote ? -1 : client_.mapVote().winner;
+            b.selfHost = client_.hostPlayer() != kNoPlayer ? client_.hostPlayer() == client_.playerId()
+                                                           : client_.playerId() == 1;
+            for (const drakan::net::ScoreRow& n : client_.scoreboard()) {
+                drakan_netplay::ScoreRow r;
+                r.id = n.player;
+                r.name = n.name;
+                r.team = n.team < kMaxTeams ? n.team : -1;
+                r.kills = n.kills;
+                r.deaths = n.deaths;
+                r.score = n.points();
+                r.health = n.health;
+                r.alive = n.alive;
+                r.lives = n.lives == drakan::net::kLivesUnlimited ? -1 : n.lives;
+                r.eliminated = n.eliminated;
+                for (const Player& pl : boardRoster)
+                    if (pl.id == r.id) {
+                        r.pingMs = pl.pingMs;
+                        r.timeSec = pl.timeSec;
+                    }
+                r.self = n.player == client_.playerId();
+                if (r.self) {
+                    b.selfHealth = r.health;
+                    b.selfAlive = r.alive;
+                    b.selfEliminated = r.eliminated;
+                    b.selfLives = r.lives;
+                }
+                b.rows.push_back(std::move(r));
+            }
+            b.selfMaxHealth = cf.startHealth;
+            if (client_.phase() == MatchPhase::Playing && cf.timeLimitSec > 0 && g_havePlayingSince) {
+                const int64_t elapsed =
+                    static_cast<int64_t>(client_.serverTimeAt(now)) - static_cast<int64_t>(g_playingSinceServerMs);
+                b.timeLeftSec =
+                    static_cast<int>(std::max<int64_t>(0, static_cast<int64_t>(cf.timeLimitSec) - elapsed / 1000));
+            }
+            if (!b.selfAlive && g_deadSince >= 0)
+                b.respawnInSec = std::max(0.0, cf.respawnDelayMs / 1000.0 - (b.now - g_deadSince));
+            if (client_.phase() == MatchPhase::Results) {
+                uint32_t ms = 0;
+                if (client_.countdown(now, ms) == CountdownKind::NextMatch)
+                    b.nextMatchSec = ms / 1000.0;
+                const MatchOutcome o = client_.outcome();
+                b.over = true;
+                b.tie = o.tie;
+                b.winnerId = o.winner;
+                b.winnerTeam = o.winningTeam < kMaxTeams ? o.winningTeam : -1;
+                if (o.winner != kNoPlayer)
+                    for (const drakan_netplay::ScoreRow& r : b.rows)
+                        if (r.id == o.winner)
+                            b.winnerName = r.name;
+                b.reason = endReasonText(o.reason, "match ended");
+            }
+        }
+        g_board = std::move(b);
+    }
+
+    // ---- a line of link statistics every 5 s
+    void logStats(uint64_t now, bool connected) {
+        if (now - lastStats_ < 5000)
+            return;
+        const uint64_t dt = lastStats_ ? now - lastStats_ : 5000;
+        const uint64_t snaps = client_.snapshotCount();
+        if (connected)
+            netLog("stats: rtt %.1f ms, snapshots %.1f/s, states sent %.1f/s, remotes %zu, ghosts shown %u",
+                   client_.rttMs(), static_cast<double>(snaps - statSnapshots_) * 1000.0 / static_cast<double>(dt),
+                   static_cast<double>(statSent_) * 1000.0 / static_cast<double>(dt), client_.roster().size() - 1,
+                   g_ghostsVisible.load());
+        statSnapshots_ = snaps;
+        statSent_ = 0;
+        lastStats_ = now;
+    }
+
+    drakan::net::MatchClient& client_;
+    drakan::net::MatchServer* server_; // the host's own server, else null
+    const State& base_;                // the session's fixed fields (hosting, max players) for every publish
+    const SessionEndpoint& endpoint_;
+    const std::string& name_;
+    const bool legacy_; // a DRAKAN_NET_* shortcut session: retries the connection, launches no level itself
+    drakan::net::ServerBrowser& browser_;
+    uint64_t& lastSweep_;
+
+    uint64_t lastSend_ = 0, lastConnectTry_ = 0, lastStats_ = 0;
+    uint64_t statSnapshots_ = 0, statSent_ = 0;
+    drakan::net::MatchPhase lastPhase_ = drakan::net::MatchPhase::Lobby;
+    bool loadDoneSent_ = false;
+    bool charSent_ = false;
+    uint16_t lastChar_ = 0;
+    bool wasConnected_ = false;
+    bool tried_ = false;
+    bool rejectLogged_ = false;
+    bool failed_ = false;
+    std::string failMessage_;
+    std::string endNotice_; // title screen notice: the server left or the connection dropped after we were connected
+    bool leaving_ = false;
+    std::map<int, uint64_t> seenAt_; // player id -> when this client first saw it (scoreboard Time column)
+    uint64_t lastUiPublishMs_ = 0, lastArenaSetMs_ = 0;
+    std::tuple<bool, bool, bool, int, size_t> lastUiKey_{};
+    bool arenaSet_ = false, lastArenaWant_ = false;
+    const drakan::net::ArenaDef* lastArenaDef_ = nullptr;
+    std::string lastArenaModeId_;
+};
+
+// After Leave: say goodbye to the server and put everything the match latched back to singleplayer.
+void endSession(drakan::net::MatchClient& client, drakan::net::MatchServer* server) {
     client.disconnect();
     for (int i = 0; i < 5; ++i) { // let the Disconnect datagram out and the server see it
         if (server)
@@ -1237,15 +1308,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         g_s.remotes.clear();
     }
     g_coopMode.store(false);
-    {
-        std::lock_guard<std::mutex> lk(g_coopM);
-        ++g_sessionSerial;
-        g_coopLink = CoopLink();
-        g_coopInCreatures.clear();
-        g_coopInEvents.clear();
-        g_coopOutCreatures.clear();
-        g_coopOutEvents.clear();
-    }
+    resetCoopTransport();
     // Everything the match latched goes back to singleplayer: the arena world mode (it only follows the session
     // inside the loop above, so a Quit to Title left it on and the next Continue / New Game loaded the arena version
     // of the level, issue #1), the player ids, the New Game level redirect and the launch.
@@ -1269,6 +1332,48 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         g_matchLevel.clear();
     }
     g_launchTaps.store(false);
+}
+
+// One Host / Join command, from connecting to teardown (net thread).
+void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& lastSweep) {
+    using namespace drakan::net;
+    const bool hosting = c.kind == Cmd::Host;
+    const bool legacy = hosting ? c.host.autoStart : c.flag;
+    SessionEndpoint endpoint = sessionEndpoint(c);
+    State base;
+    base.available = true;
+    base.inSession = true;
+    base.hosting = hosting;
+    base.conn = Conn::Connecting;
+    base.message = "Connecting to " + endpoint.host + ":" + std::to_string(endpoint.port) + " ...";
+    base.maxPlayers = hosting ? c.host.maxPlayers : 8;
+    publishState(base);
+    {
+        std::lock_guard<std::mutex> l(g_launchM);
+        g_launchDone = false;
+        g_launchPending = false;
+    }
+    resetCoopTransport();
+
+    std::unique_ptr<UdpTransport> serverT;
+    std::unique_ptr<MatchServer> server;
+    if (hosting && !startServer(c, endpoint.port, base, serverT, server))
+        return;
+
+    UdpTransport clientT;
+    if (!clientT.available()) {
+        netLog("sockets unavailable; networking off");
+        return;
+    }
+    ClientOptions co;
+    co.name = c.name.empty() ? g_name : c.name;
+    co.password = hosting ? c.host.password : c.password;
+    co.profileHash = g_profileHash;
+    co.interpolationDelayMs = 100;
+    MatchClient client(clientT, co);
+
+    SessionLoop(client, server.get(), base, endpoint, co.name, legacy, browser, lastSweep).run();
+    endSession(client, server.get());
 }
 
 void netThread() {
