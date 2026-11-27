@@ -2242,7 +2242,35 @@ void startModsEarly() {
 #endif
 }
 
-void applyDrakanOverrides(PS2Runtime& runtime) {
+// ---- applyDrakanOverrides, phase by phase. The phases run in the order below; inside each one the order of the
+// install calls is the registration order the hooks depend on (a later wrapper wraps an earlier one).
+
+// A guest function the glue wraps: `hook` replaces the function at `address` and `*original` receives the recompiled
+// function it replaced, for the hook to call. A null `hook` only looks the function up (one the glue calls).
+struct GuestHook {
+    uint32_t address;
+    PS2Runtime::RecompiledFunction hook;
+    PS2Runtime::RecompiledFunction* original;
+};
+
+// Installs the hooks in order when the executable has a function at every address, else none (a disc profile without
+// verified addresses for the whole group). True when installed.
+bool installHooks(PS2Runtime& runtime, std::initializer_list<GuestHook> hooks) {
+    for (const GuestHook& h : hooks)
+        if (!h.address || !runtime.hasFunction(h.address))
+            return false;
+    for (const GuestHook& h : hooks) {
+        if (h.original)
+            *h.original = runtime.lookupFunction(h.address);
+        if (h.hook)
+            runtime.replaceFunction(h.address, h.hook);
+    }
+    return true;
+}
+
+// Engine hooks that need no game data: the feature modules wrap the guest functions they change. Registration order
+// matters where two modules wrap the same function (see the comments).
+void installEngineModules(PS2Runtime& runtime) {
     using drakan_region::Feature;
     using drakan_region::guestAddress;
     using drakan_region::supports;
@@ -2315,19 +2343,11 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     drakan_foliage::install(runtime);
     // Extended game heap above the retail RAM (PAL). After every other wrapper of the guest free (object motion).
     drakan_extended_heap::install(runtime);
+}
 
-    const std::string iso = resolveIsoPath();
-    const auto selectedLanguage =
-        drakan_language::select(drakan_cfg::getString("general", "language", nullptr, "english"),
-                                std::getenv("DRAKAN_LANG"), drakan_region::build().languageCount);
-    std::string lang = selectedLanguage.root;
-    uint32_t osdLanguage = selectedLanguage.osdLanguage;
-    if (selectedLanguage.fallback)
-        std::fprintf(stderr, "[drakan] invalid or unsupported language; using English for this disc profile\n");
-    const char* logEnv = std::getenv("DRAKAN_HLE_LOG");
-    if (logEnv)
-        g_logBudget = std::atol(logEnv);
-
+// Opens the game data (ISO or extracted folder) for the HLE services; null when it cannot be opened. Exits with a
+// message when the disc is another release than the one this exe was built for.
+std::unique_ptr<HleHost> openGameData(PS2Runtime& runtime, const std::string& iso) {
     auto host = std::make_unique<HleHost>(runtime, runtime.memory().getRDRAM());
     std::string err;
     bool ok = false;
@@ -2338,7 +2358,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
     if (!ok) {
         std::fprintf(stderr, "[drakan] cannot open game data '%s': %s -- RSRC services disabled (set DRAKAN_ISO)\n",
                      iso.c_str(), err.c_str());
-        return;
+        return nullptr;
     }
     {
         // A drakan.exe runs one region's executable (drakan_region.h). A disc image of the other release would feed
@@ -2356,568 +2376,574 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             std::exit(1);
         }
     }
-    // Keep the guest's explicit language paths and RSRCIOP's implicit root in agreement.
-    // Do not rewrite explicit language prefixes: mod/tools callers may deliberately use another tree.
-    hle::IsoFs::Node languageArchive;
-    if (!host->fs.findKey(lang.substr(1) + "\\DRAKAN2.RRC", languageArchive) || languageArchive.dir) {
-        std::fprintf(stderr, "[drakan] language tree %s unavailable; using English\n", lang.c_str());
-        lang = "\\ENGLISH";
-        osdLanguage = 1;
+    return host;
+}
+
+// libsd's reverb presets come from the disc's own LIBSD.IRX; without them reverb stays silent (Drakan never
+// enables it, so this only matters for completeness).
+void installReverbPresets(HleHost& host) {
+    hle::IsoFs::Node libsd;
+    spu2::EffectPresets presets;
+    if (host.fs.findKey("IOP\\MODULES\\LIBSD.IRX", libsd) && !libsd.dir) {
+        const std::vector<uint8_t> irx = host.fs.readAll(libsd);
+        if (spu2::findLibsdEffectPresets(irx.data(), irx.size(), presets))
+            host.spu.setEffectPresets(presets);
+        else
+            std::fprintf(stderr, "[drakan] LIBSD.IRX: reverb presets not recognised; reverb disabled\n");
     }
-    ps2_syscalls::configureOsdLanguage(osdLanguage);
-    drakan_language::setEffectiveLanguage(osdLanguage);
-    gameui::setMenuLanguage(drakan_language::effectiveName());
-    host->fs.setLanguageRoot(lang);
-    std::fprintf(stderr, "[drakan] guest console language %u, effective resource root %s (restart required)\n",
-                 osdLanguage, lang.c_str());
-    // libsd's reverb presets come from the disc's own LIBSD.IRX; without them reverb stays silent (Drakan never
-    // enables it, so this only matters for completeness).
-    {
-        hle::IsoFs::Node libsd;
-        spu2::EffectPresets presets;
-        if (host->fs.findKey("IOP\\MODULES\\LIBSD.IRX", libsd) && !libsd.dir) {
-            const std::vector<uint8_t> irx = host->fs.readAll(libsd);
-            if (spu2::findLibsdEffectPresets(irx.data(), irx.size(), presets))
-                host->spu.setEffectPresets(presets);
+}
+
+// UI skin (docs/reference/modding.md "Menus and HUD"): ui.ini next to the exe, then ui/*.ini of the enabled packs in
+// load order (later keys win). Installed before any screen is built. A campaign pack's own skin applies only while that
+// campaign is chosen (g_campaignSkins, drakan_game's SkinFn in configureGameChoice).
+void installUiSkin() {
+    gameui::UiSkin& skin = g_baseSkin;
+    auto addSkin = [&skin](const std::string& source, const std::string& text) {
+        std::vector<std::string> warnings;
+        const size_t n = gameui::parseUiSkin(text, skin, &warnings);
+        std::fprintf(stderr, "[ui] skin %s: %zu setting(s)\n", source.c_str(), n);
+        for (const std::string& w : warnings)
+            std::fprintf(stderr, "[ui] skin %s: %s\n", source.c_str(), w.c_str());
+    };
+    auto readText = [](const std::string& path, std::string& out) {
+        std::ifstream f(path, std::ios::binary);
+        if (!f)
+            return false;
+        out.assign(std::istreambuf_iterator<char>(f), {});
+        return true;
+    };
+    std::string text;
+    if (readText(drakan_cfg::exeDir() + "ui.ini", text))
+        addSkin("ui.ini", text);
+    if (const char* f = std::getenv("DRAKAN_UI_SKIN"); f && *f && readText(f, text))
+        addSkin(f, text);
+    if (g_mods) {
+        std::vector<std::string> campaignPacks;
+        for (const hle::mods::ModStatus& st : g_mods->status())
+            if (st.state == hle::mods::ModState::Loaded && !st.manifest.campaign.empty())
+                campaignPacks.push_back(st.manifest.id);
+        for (const auto& [source, content] : g_mods->uiFiles()) {
+            // source = "mod <id>: <path>"
+            const size_t colon = source.find(':');
+            const std::string mod = source.rfind("mod ", 0) == 0 && colon != std::string::npos
+                                        ? source.substr(4, colon - 4)
+                                        : std::string();
+            if (std::find(campaignPacks.begin(), campaignPacks.end(), mod) != campaignPacks.end())
+                g_campaignSkins[mod].emplace_back(source, content);
             else
-                std::fprintf(stderr, "[drakan] LIBSD.IRX: reverb presets not recognised; reverb disabled\n");
+                addSkin(source, content);
         }
     }
-    // Test aid: DRAKAN_START_LEVEL="Level 4A - Ravenshold" makes New Game (after the intro) load that level in place
-    // of the first one, so harness runs reach any level without a save. DRAKAN_START_LEVEL_FROM names the level that
-    // is replaced (default the first playable level).
-    if (const char* startLevel = std::getenv("DRAKAN_START_LEVEL"); startLevel && *startLevel) {
-        const char* from = std::getenv("DRAKAN_START_LEVEL_FROM");
-        host->iop.file.setLevelRedirect(from && *from ? from : "Level 1A - Surdana", startLevel);
-        std::fprintf(stderr, "[drakan] start level: '%s' replaces '%s'\n", startLevel,
-                     from && *from ? from : "Level 1A - Surdana");
-    }
-    {
-        // Mod packs (docs/reference/modding.md): mods/ next to the exe (DRAKAN_MODS overrides). Registered before the
-        // UI overrides and the DRAKAN_OVERRIDES dev folder, so those still see and may modify what a pack provides.
-        const auto& prof = drakan_region::build();
-        const char* modsEnv = std::getenv("DRAKAN_MODS");
-        const std::string modsDir = modsEnv && *modsEnv ? std::string(modsEnv) : drakan_cfg::exeDir() + "mods";
-        std::error_code modsEc;
-        drakan_input::module().setBowAimFiles({});
-        if (std::filesystem::is_directory(modsDir, modsEc)) {
-            const hle::mods::DiscProfile discProfile{prof.id, hle::mods::profileHash(prof.serial, prof.saveId)};
-            std::fprintf(stderr, "[mods] disc profile %s hash %s, folder %s\n", prof.id,
-                         hle::mods::hex64(discProfile.hash).c_str(), modsDir.c_str());
-            size_t n = 0;
-            if (g_earlyMods.mods && g_earlyMods.dir == modsDir) {
-                g_earlyMods.done.get(); // packs opened and their members read beside the renderer start-up
-                g_mods = std::move(g_earlyMods.mods);
-                n = g_earlyMods.loaded;
-            } else {
-                g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
-                n = g_mods->load(modsDir);
-            }
-            drakan_input::module().setBowAimFiles(g_mods->bowAimFiles());
+    gameui::setUiSkin(skin);
+}
+
+// Mod packs (docs/reference/modding.md): mods/ next to the exe (DRAKAN_MODS overrides). Registered before the UI
+// overrides and the DRAKAN_OVERRIDES dev folder, so those still see and may modify what a pack provides.
+void installModPacks(HleHost& host) {
+    const auto& prof = drakan_region::build();
+    const char* modsEnv = std::getenv("DRAKAN_MODS");
+    const std::string modsDir = modsEnv && *modsEnv ? std::string(modsEnv) : drakan_cfg::exeDir() + "mods";
+    std::error_code modsEc;
+    drakan_input::module().setBowAimFiles({});
+    if (std::filesystem::is_directory(modsDir, modsEc)) {
+        const hle::mods::DiscProfile discProfile{prof.id, hle::mods::profileHash(prof.serial, prof.saveId)};
+        std::fprintf(stderr, "[mods] disc profile %s hash %s, folder %s\n", prof.id,
+                     hle::mods::hex64(discProfile.hash).c_str(), modsDir.c_str());
+        size_t n = 0;
+        if (g_earlyMods.mods && g_earlyMods.dir == modsDir) {
+            g_earlyMods.done.get(); // packs opened and their members read beside the renderer start-up
+            g_mods = std::move(g_earlyMods.mods);
+            n = g_earlyMods.loaded;
+        } else {
+            g_mods = std::make_unique<hle::mods::ModManager>(discProfile);
+            n = g_mods->load(modsDir);
+        }
+        drakan_input::module().setBowAimFiles(g_mods->bowAimFiles());
 #ifdef PS2X_HAVE_GSR
-            drakan_crystals::setTables(g_mods->crystalFiles());
+        drakan_crystals::setTables(g_mods->crystalFiles());
 #endif
-            g_mods->install(host->iop.res);
-            g_mods->installFiles(host->fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
-            drakan_coop_character::setRetargetedMotion(
-                std::any_of(g_mods->status().begin(), g_mods->status().end(), [](const hle::mods::ModStatus& st) {
-                    return st.state == hle::mods::ModState::Loaded && st.manifest.id == "drakan-character-motion";
-                }));
-            for (const std::string& line : g_mods->report())
-                std::fprintf(stderr, "[mods] %s\n", line.c_str());
-            std::fprintf(stderr, "[mods] %zu pack(s) active, %zu entries, %zu text lines\n", n, g_mods->entryCount(),
-                         g_mods->textCount());
-        }
-        {
-            // UI skin (docs/reference/modding.md "Menus and HUD"): ui.ini next to the exe, then ui/*.ini of the enabled
-            // packs in load order (later keys win). Installed before any screen is built. A campaign pack's own skin
-            // applies only while that campaign is chosen (g_campaignSkins, drakan_game's SkinFn below).
-            gameui::UiSkin& skin = g_baseSkin;
-            auto addSkin = [&skin](const std::string& source, const std::string& text) {
-                std::vector<std::string> warnings;
-                const size_t n = gameui::parseUiSkin(text, skin, &warnings);
-                std::fprintf(stderr, "[ui] skin %s: %zu setting(s)\n", source.c_str(), n);
-                for (const std::string& w : warnings)
-                    std::fprintf(stderr, "[ui] skin %s: %s\n", source.c_str(), w.c_str());
-            };
-            auto readText = [](const std::string& path, std::string& out) {
-                std::ifstream f(path, std::ios::binary);
-                if (!f)
-                    return false;
-                out.assign(std::istreambuf_iterator<char>(f), {});
-                return true;
-            };
-            std::string text;
-            if (readText(drakan_cfg::exeDir() + "ui.ini", text))
-                addSkin("ui.ini", text);
-            if (const char* f = std::getenv("DRAKAN_UI_SKIN"); f && *f && readText(f, text))
-                addSkin(f, text);
-            if (g_mods) {
-                std::vector<std::string> campaignPacks;
-                for (const hle::mods::ModStatus& st : g_mods->status())
-                    if (st.state == hle::mods::ModState::Loaded && !st.manifest.campaign.empty())
-                        campaignPacks.push_back(st.manifest.id);
-                for (const auto& [source, content] : g_mods->uiFiles()) {
-                    // source = "mod <id>: <path>"
-                    const size_t colon = source.find(':');
-                    const std::string mod = source.rfind("mod ", 0) == 0 && colon != std::string::npos
-                                                ? source.substr(4, colon - 4)
-                                                : std::string();
-                    if (std::find(campaignPacks.begin(), campaignPacks.end(), mod) != campaignPacks.end())
-                        g_campaignSkins[mod].emplace_back(source, content);
-                    else
-                        addSkin(source, content);
-                }
-            }
-            gameui::setUiSkin(skin);
-        }
-        drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
-        drakan_save_guard::configure(g_mods.get()); // saves record the content packs' builds (modding.md)
+        g_mods->install(host.iop.res);
+        g_mods->installFiles(host.fs); // files/, LVL entry overrides, new/ entries, LEVELLST.TXT
+        drakan_coop_character::setRetargetedMotion(
+            std::any_of(g_mods->status().begin(), g_mods->status().end(), [](const hle::mods::ModStatus& st) {
+                return st.state == hle::mods::ModState::Loaded && st.manifest.id == "drakan-character-motion";
+            }));
+        for (const std::string& line : g_mods->report())
+            std::fprintf(stderr, "[mods] %s\n", line.c_str());
+        std::fprintf(stderr, "[mods] %zu pack(s) active, %zu entries, %zu text lines\n", n, g_mods->entryCount(),
+                     g_mods->textCount());
     }
-    {
-        // Campaign packs (manifest `campaign = "<id>"`, docs/reference/modding.md "Campaign packs"): Drakan: Order of
-        // the Flame ("ootf") and custom campaigns on the title's game card; the choice redirects the opening cut scene
-        // level to the campaign's first level, moves the memory card and switches the menu skin (drakan_game.h).
-        std::vector<drakan_game::Campaign> campaigns;
-        std::vector<std::pair<std::string, std::string>> refused; // pack id -> why its campaign is not on the card
-        if (g_mods) {
-            for (const hle::mods::ModStatus& st : g_mods->status()) {
-                const hle::mods::Manifest& m = st.manifest;
-                if (st.state != hle::mods::ModState::Loaded || m.campaign.empty())
-                    continue;
-                if (!drakan_game::validCampaignId(m.campaign)) {
-                    std::fprintf(stderr,
-                                 "[game] pack '%s': campaign id '%s' is not valid (1-32 of a-z 0-9 _ -, not d1 d2 "
-                                 "drakan ask)\n",
-                                 m.id.c_str(), m.campaign.c_str());
-                    refused.emplace_back(m.id, "campaign id '" + m.campaign + "' is not valid");
-                    continue;
-                }
-                if (std::any_of(campaigns.begin(), campaigns.end(),
-                                [&](const drakan_game::Campaign& c) { return c.id == m.campaign; })) {
-                    std::fprintf(stderr, "[game] pack '%s': campaign '%s' is already given by pack '%s'\n",
-                                 m.id.c_str(), m.campaign.c_str(),
-                                 std::find_if(campaigns.begin(), campaigns.end(), [&](const drakan_game::Campaign& c) {
-                                     return c.id == m.campaign;
-                                 })->modId.c_str());
-                    refused.emplace_back(m.id, "campaign '" + m.campaign + "' is already given by another pack");
-                    continue;
-                }
-                std::vector<std::string> mine;
-                for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
-                    if (l.modId == m.id)
-                        mine.push_back(l.name);
-                std::string start = m.campaignStart;
-                if (start.empty() && !mine.empty())
-                    start = mine.front();
-                if (std::find(mine.begin(), mine.end(), start) == mine.end()) {
-                    std::fprintf(stderr, "[game] pack '%s': campaign start level '%s' is not one of its levels\n",
-                                 m.id.c_str(), start.c_str());
-                    refused.emplace_back(m.id, "campaign start level '" + start + "' is not one of its levels");
-                    continue;
-                }
-                std::string saves = m.campaignSaves;
-                if (!saves.empty() && !drakan_game::validSaveFolder(saves)) {
-                    std::fprintf(stderr, "[game] pack '%s': campaign_saves '%s' is not valid, using '%s'\n",
-                                 m.id.c_str(), saves.c_str(), m.campaign.c_str());
-                    saves.clear();
-                }
-                // Play order: the manifest's `levels` (registered ones only).
-                std::vector<std::string> order;
-                for (const std::string& n : m.levels)
-                    if (std::find(mine.begin(), mine.end(), n) != mine.end())
-                        order.push_back(n);
-                campaigns.push_back({m.campaign, m.campaignName, m.campaignDescription, m.id, start, saves, order,
-                                     m.campaignSpells, m.campaignTreasure, m.campaignGoldCounter});
+    installUiSkin();
+    drakan_settings_host::setModManager(g_mods.get(), modsDir); // the Mods page of the PC settings
+    drakan_save_guard::configure(g_mods.get());                 // saves record the content packs' builds (modding.md)
+}
+
+// Campaign packs (manifest `campaign = "<id>"`, docs/reference/modding.md "Campaign packs"): Drakan: Order of the
+// Flame ("ootf") and custom campaigns on the title's game card. `refused` gets the packs whose campaign is not offered,
+// with the reason.
+std::vector<drakan_game::Campaign> collectCampaigns(std::vector<std::pair<std::string, std::string>>& refused) {
+    std::vector<drakan_game::Campaign> campaigns;
+    if (g_mods) {
+        for (const hle::mods::ModStatus& st : g_mods->status()) {
+            const hle::mods::Manifest& m = st.manifest;
+            if (st.state != hle::mods::ModState::Loaded || m.campaign.empty())
+                continue;
+            if (!drakan_game::validCampaignId(m.campaign)) {
+                std::fprintf(stderr,
+                             "[game] pack '%s': campaign id '%s' is not valid (1-32 of a-z 0-9 _ -, not d1 d2 "
+                             "drakan ask)\n",
+                             m.id.c_str(), m.campaign.c_str());
+                refused.emplace_back(m.id, "campaign id '" + m.campaign + "' is not valid");
+                continue;
             }
+            if (std::any_of(campaigns.begin(), campaigns.end(),
+                            [&](const drakan_game::Campaign& c) { return c.id == m.campaign; })) {
+                std::fprintf(stderr, "[game] pack '%s': campaign '%s' is already given by pack '%s'\n", m.id.c_str(),
+                             m.campaign.c_str(),
+                             std::find_if(campaigns.begin(), campaigns.end(), [&](const drakan_game::Campaign& c) {
+                                 return c.id == m.campaign;
+                             })->modId.c_str());
+                refused.emplace_back(m.id, "campaign '" + m.campaign + "' is already given by another pack");
+                continue;
+            }
+            std::vector<std::string> mine;
+            for (const hle::mods::ExtraLevel& l : g_mods->extraLevels())
+                if (l.modId == m.id)
+                    mine.push_back(l.name);
+            std::string start = m.campaignStart;
+            if (start.empty() && !mine.empty())
+                start = mine.front();
+            if (std::find(mine.begin(), mine.end(), start) == mine.end()) {
+                std::fprintf(stderr, "[game] pack '%s': campaign start level '%s' is not one of its levels\n",
+                             m.id.c_str(), start.c_str());
+                refused.emplace_back(m.id, "campaign start level '" + start + "' is not one of its levels");
+                continue;
+            }
+            std::string saves = m.campaignSaves;
+            if (!saves.empty() && !drakan_game::validSaveFolder(saves)) {
+                std::fprintf(stderr, "[game] pack '%s': campaign_saves '%s' is not valid, using '%s'\n", m.id.c_str(),
+                             saves.c_str(), m.campaign.c_str());
+                saves.clear();
+            }
+            // Play order: the manifest's `levels` (registered ones only).
+            std::vector<std::string> order;
+            for (const std::string& n : m.levels)
+                if (std::find(mine.begin(), mine.end(), n) != mine.end())
+                    order.push_back(n);
+            campaigns.push_back({m.campaign, m.campaignName, m.campaignDescription, m.id, start, saves, order,
+                                 m.campaignSpells, m.campaignTreasure, m.campaignGoldCounter});
         }
-        hle::FileService* gameFiles = &host->iop.file;
+    }
+    return campaigns;
+}
+
+// The game card's choice redirects the opening cut scene level to the campaign's first level, moves the memory card
+// and switches the menu skin (drakan_game.h); an arena match filters the level it loads.
+void configureGameChoice(HleHost& host, std::vector<drakan_game::Campaign> campaigns) {
+    hle::FileService* gameFiles = &host.iop.file;
 #ifdef PS2X_HAVE_GSR
-        gameFiles->setOpenFilter([](const hle::IsoFs& fs, hle::IsoFs::Node& node, std::string& error) {
-            if (!drakan_arena::active() || std::getenv("DRAKAN_ARENA_NOFILTER") || node.key.size() < 4 ||
-                node.key.compare(node.key.size() - 4, 4, ".LVL"))
-                return true;
-            for (const auto& map : drakan_arena::maps())
-                if (node.key.ends_with("\\" + hle::mangleComponent(map.level) + ".LVL")) {
-                    using Rules = drakan::net::OotfArenaRules;
-                    const bool dragon = map.ootfRules == Rules::Air || map.ootfRules == Rules::MasterOfTheDragon;
-                    return hle::filterArenaLevel(fs, node, error, dragon, map.preloadItems);
-                }
-            return true; // unrelated UI / movie / campaign helper levels are not the arena's terrain source
-        });
+    gameFiles->setOpenFilter([](const hle::IsoFs& fs, hle::IsoFs::Node& node, std::string& error) {
+        if (!drakan_arena::active() || std::getenv("DRAKAN_ARENA_NOFILTER") || node.key.size() < 4 ||
+            node.key.compare(node.key.size() - 4, 4, ".LVL"))
+            return true;
+        for (const auto& map : drakan_arena::maps())
+            if (node.key.ends_with("\\" + hle::mangleComponent(map.level) + ".LVL")) {
+                using Rules = drakan::net::OotfArenaRules;
+                const bool dragon = map.ootfRules == Rules::Air || map.ootfRules == Rules::MasterOfTheDragon;
+                return hle::filterArenaLevel(fs, node, error, dragon, map.preloadItems);
+            }
+        return true; // unrelated UI / movie / campaign helper levels are not the arena's terrain source
+    });
 #endif
-        drakan_game::configure(
-            std::move(campaigns),
-            [gameFiles](const std::string& from, const std::string& to) { gameFiles->setLevelRedirect(from, to); },
-            [](const drakan_game::Campaign* c) {
-                // The base skin plus the chosen campaign's own ui/*.ini (later keys win).
-                gameui::UiSkin skin = g_baseSkin;
-                if (c)
-                    if (auto it = g_campaignSkins.find(c->modId); it != g_campaignSkins.end())
-                        for (const auto& [source, text] : it->second) {
-                            std::vector<std::string> warnings;
-                            const size_t n = gameui::parseUiSkin(text, skin, &warnings);
-                            std::fprintf(stderr, "[ui] skin %s (campaign '%s'): %zu setting(s)\n", source.c_str(),
-                                         c->id.c_str(), n);
-                        }
-                gameui::setUiSkin(std::move(skin));
-            });
-        if (g_mods)
-            installCreditsArtwork(runtime, *g_mods);
-        if (g_mods && !g_mods->creditsFiles().empty()) {
-            auto credits = std::make_shared<hle::CampaignCreditsOverride>();
-            for (const auto& [modId, text] : g_mods->creditsFiles())
-                credits->add(modId, text);
-            credits->setActive([] { return drakan_game::currentModId(); });
-            g_creditsCopyAt = drakan_region::guestAddress(0x4cd27cu);
-            g_creditsCopyRa = drakan_region::guestAddress(0x428b34u);
-            if (g_creditsCopyAt && g_creditsCopyRa && runtime.hasFunction(g_creditsCopyAt)) {
-                g_campaignCreditsText = credits;
-                g_creditsCopyOrig = runtime.lookupFunction(g_creditsCopyAt);
-                runtime.replaceFunction(g_creditsCopyAt, &campaignCreditsCopyHook);
-            } else {
-                // The legacy file overlay covers profiles without a verified credits copy call.
-                host->iop.res.addOverride(credits);
-                host->iop.file.setReadOverlay([credits](const hle::IsoFs& fs, const hle::IsoFs::Node& node,
-                                                        uint64_t offset, uint8_t* data,
-                                                        size_t n) { credits->patchRead(fs, node, offset, data, n); });
-            }
-            std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
-        }
-        {
-            // converted cut scenes stop their music with a fade (sceneMusicStopHook)
-            g_musicLevelAt = drakan_region::guestAddress(0x1b6930u);
-            g_musicStopAt = drakan_region::guestAddress(0x1b6ac8u);
-            if (g_musicLevelAt && g_musicStopAt && runtime.hasFunction(g_musicLevelAt) &&
-                runtime.hasFunction(g_musicStopAt)) {
-                g_musicLevelOrig = runtime.lookupFunction(g_musicLevelAt);
-                g_musicStopFn = runtime.lookupFunction(g_musicStopAt);
-                runtime.replaceFunction(g_musicLevelAt, &sceneMusicStopHook);
-                const auto resetSceneMusic = [](const drakan_lifecycle::Event&) {
-                    std::lock_guard<std::mutex> guard(g_sceneMusicMutex);
-                    g_sceneMusic.reset();
-                };
-                drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, resetSceneMusic);
-                drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, resetSceneMusic);
-            }
-            g_musicSortAt = drakan_region::guestAddress(0x1b7758u);
-            g_musicStartAt = drakan_region::guestAddress(0x1b15e0u);
-            g_soundStopAt = drakan_region::guestAddress(0x1b7cf8u);
-            g_musicPopAt = drakan_region::guestAddress(0x1b58e0u);
-            g_sceneEndPopRa = drakan_region::guestAddress(0x1a4668u);
-            g_musicPauseAt = drakan_region::guestAddress(0x1b57f0u);
-            g_sceneStartPauseRa = drakan_region::guestAddress(0x1a42a0u);
-            g_sceneStartLevelRa = drakan_region::guestAddress(0x1a4304u);
-            g_sceneEndLevelRa = drakan_region::guestAddress(0x1a4680u);
-            g_sceneCueLevelRa = drakan_region::guestAddress(0x1a58ccu);
-            const char* hand = std::getenv("DRAKAN_MUSIC_HANDOVER");
-            if (drakan_region::build().identityAddresses && (!hand || hand[0] != '0') &&
-                runtime.hasFunction(g_musicSortAt) && runtime.hasFunction(g_musicStartAt) &&
-                runtime.hasFunction(g_soundStopAt) && runtime.hasFunction(g_musicPopAt) &&
-                runtime.hasFunction(g_musicPauseAt)) {
-                g_musicSortOrig = runtime.lookupFunction(g_musicSortAt);
-                g_musicStartFn = runtime.lookupFunction(g_musicStartAt);
-                g_soundStopOrig = runtime.lookupFunction(g_soundStopAt);
-                g_musicPopOrig = runtime.lookupFunction(g_musicPopAt);
-                g_musicPauseOrig = runtime.lookupFunction(g_musicPauseAt);
-                runtime.replaceFunction(g_musicSortAt, &musicSortHook);
-                runtime.replaceFunction(g_soundStopAt, &soundStopHook);
-                runtime.replaceFunction(g_musicPopAt, &musicPopHook);
-                runtime.replaceFunction(g_musicPauseAt, &musicPauseHook);
-            }
-            // Apply the campaign music volume curve (musicBaseGainHook).
-            const uint32_t baseGainAt = drakan_region::guestAddress(0x1b30b8u);
-            const char* level = std::getenv("DRAKAN_CAMPAIGN_MUSIC_LEVEL");
-            if (drakan_region::build().identityAddresses && (!level || level[0] != '0') && baseGainAt &&
-                runtime.hasFunction(baseGainAt)) {
-                g_baseGainOrig = runtime.lookupFunction(baseGainAt);
-                runtime.replaceFunction(baseGainAt, &musicBaseGainHook);
-            }
-        }
-        if (g_mods) {
-            // Campaign sound swaps (sounds/swaps.ini): Drakan 2 sounds this campaign plays differently, only while it
-            // is the current game.
-            auto swaps = std::make_shared<hle::CampaignSoundSwaps>();
-            for (const auto& [modId, text] : g_mods->soundSwapFiles()) {
-                size_t bad = 0;
-                const size_t n = swaps->add(modId, text, &bad);
-                std::fprintf(stderr, "[game] pack '%s': %zu campaign sound swap(s)%s\n", modId.c_str(), n,
-                             bad ? " (some lines not understood)" : "");
-            }
-            swaps->setActive([] { return drakan_game::currentModId(); });
-            g_soundSwaps = swaps;
-            g_campaignCreditsMusic.clear();
-            g_creditsPlayRa = drakan_region::guestAddress(0x428c54u);
-            if (g_creditsPlayRa) {
-                for (const hle::mods::ModStatus& st : g_mods->status()) {
-                    const auto& m = st.manifest;
-                    if (st.state != hle::mods::ModState::Loaded || m.campaign.empty() || m.campaignCreditsMusic.empty())
-                        continue;
-                    char* end = nullptr;
-                    const unsigned long id = std::strtoul(m.campaignCreditsMusic.c_str(), &end, 10);
-                    if (*end || id == 0 || id > 0xFFFF) {
-                        std::fprintf(stderr, "[game] pack '%s': campaign_credits_music '%s' is not a sound id\n",
-                                     m.id.c_str(), m.campaignCreditsMusic.c_str());
-                        continue;
+    drakan_game::configure(
+        std::move(campaigns),
+        [gameFiles](const std::string& from, const std::string& to) { gameFiles->setLevelRedirect(from, to); },
+        [](const drakan_game::Campaign* c) {
+            // The base skin plus the chosen campaign's own ui/*.ini (later keys win).
+            gameui::UiSkin skin = g_baseSkin;
+            if (c)
+                if (auto it = g_campaignSkins.find(c->modId); it != g_campaignSkins.end())
+                    for (const auto& [source, text] : it->second) {
+                        std::vector<std::string> warnings;
+                        const size_t n = gameui::parseUiSkin(text, skin, &warnings);
+                        std::fprintf(stderr, "[ui] skin %s (campaign '%s'): %zu setting(s)\n", source.c_str(),
+                                     c->id.c_str(), n);
                     }
-                    g_campaignCreditsMusic.emplace(m.id, static_cast<uint16_t>(id));
-                }
-            }
-            g_campaignPlayAt = drakan_region::guestAddress(0x1b7f30u);
-            if ((swaps->size() || !g_campaignCreditsMusic.empty()) && g_campaignPlayAt &&
-                runtime.hasFunction(g_campaignPlayAt)) {
-                g_campaignPlayOrig = runtime.lookupFunction(g_campaignPlayAt);
-                runtime.replaceFunction(g_campaignPlayAt, &campaignSoundHook);
-            }
+            gameui::setUiSkin(std::move(skin));
+        });
+}
+
+// A campaign's own credits text: through the verified credits copy call, else as a file overlay.
+void installCampaignCredits(PS2Runtime& runtime, HleHost& host) {
+    if (g_mods)
+        installCreditsArtwork(runtime, *g_mods);
+    if (g_mods && !g_mods->creditsFiles().empty()) {
+        auto credits = std::make_shared<hle::CampaignCreditsOverride>();
+        for (const auto& [modId, text] : g_mods->creditsFiles())
+            credits->add(modId, text);
+        credits->setActive([] { return drakan_game::currentModId(); });
+        g_creditsCopyAt = drakan_region::guestAddress(0x4cd27cu);
+        g_creditsCopyRa = drakan_region::guestAddress(0x428b34u);
+        if (g_creditsCopyAt && g_creditsCopyRa && runtime.hasFunction(g_creditsCopyAt)) {
+            g_campaignCreditsText = credits;
+            g_creditsCopyOrig = runtime.lookupFunction(g_creditsCopyAt);
+            runtime.replaceFunction(g_creditsCopyAt, &campaignCreditsCopyHook);
+        } else {
+            // The legacy file overlay covers profiles without a verified credits copy call.
+            host.iop.res.addOverride(credits);
+            host.iop.file.setReadOverlay([credits](const hle::IsoFs& fs, const hle::IsoFs::Node& node, uint64_t offset,
+                                                   uint8_t* data,
+                                                   size_t n) { credits->patchRead(fs, node, offset, data, n); });
         }
-        if (g_mods) {
-            // A campaign's own title menu music (manifest `campaign_title_music`): requests for the disc's title track
-            // are served from the pack's track while that campaign is the current game (hle::CampaignMusicRedirect).
-            auto music = std::make_shared<hle::CampaignMusicRedirect>();
-            for (const hle::mods::ModStatus& st : g_mods->status()) {
-                const hle::mods::Manifest& m = st.manifest;
-                if (st.state != hle::mods::ModState::Loaded || m.campaign.empty() || m.campaignTitleMusic.empty())
-                    continue;
-                char* end = nullptr;
-                const unsigned long id = std::strtoul(m.campaignTitleMusic.c_str(), &end, 10);
-                if (!end || *end || id == 0 || id > 0xFFFF) {
-                    std::fprintf(stderr, "[game] pack '%s': campaign_title_music '%s' is not a sound id\n",
-                                 m.id.c_str(), m.campaignTitleMusic.c_str());
-                    continue;
-                }
-                music->add(m.id, (uint16_t)id);
-                std::fprintf(stderr, "[game] campaign '%s': title music PS2MUSIC.SDB %lu (disc %u)\n",
-                             m.campaign.c_str(), id, (unsigned)hle::CampaignMusicRedirect::kDiscTitleMusic);
+        std::fprintf(stderr, "[game] campaign credits: %zu pack(s)\n", g_mods->creditsFiles().size());
+    }
+}
+
+// Converted cut scenes stop their music with a fade (sceneMusicStopHook); a campaign's music hands over as on the PC
+// (musicSortHook, soundStopHook, musicPopHook, musicPauseHook); the campaign music volume curve (musicBaseGainHook).
+void installSceneMusicHooks(PS2Runtime& runtime) {
+    g_musicLevelAt = drakan_region::guestAddress(0x1b6930u);
+    g_musicStopAt = drakan_region::guestAddress(0x1b6ac8u);
+    if (installHooks(runtime, {{g_musicLevelAt, &sceneMusicStopHook, &g_musicLevelOrig},
+                               {g_musicStopAt, nullptr, &g_musicStopFn}})) {
+        const auto resetSceneMusic = [](const drakan_lifecycle::Event&) {
+            std::lock_guard<std::mutex> guard(g_sceneMusicMutex);
+            g_sceneMusic.reset();
+        };
+        drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeLevelLoad, resetSceneMusic);
+        drakan_lifecycle::subscribe(drakan_lifecycle::Kind::BeforeSaveRestore, resetSceneMusic);
+    }
+    g_musicSortAt = drakan_region::guestAddress(0x1b7758u);
+    g_musicStartAt = drakan_region::guestAddress(0x1b15e0u);
+    g_soundStopAt = drakan_region::guestAddress(0x1b7cf8u);
+    g_musicPopAt = drakan_region::guestAddress(0x1b58e0u);
+    g_sceneEndPopRa = drakan_region::guestAddress(0x1a4668u);
+    g_musicPauseAt = drakan_region::guestAddress(0x1b57f0u);
+    g_sceneStartPauseRa = drakan_region::guestAddress(0x1a42a0u);
+    g_sceneStartLevelRa = drakan_region::guestAddress(0x1a4304u);
+    g_sceneEndLevelRa = drakan_region::guestAddress(0x1a4680u);
+    g_sceneCueLevelRa = drakan_region::guestAddress(0x1a58ccu);
+    const char* hand = std::getenv("DRAKAN_MUSIC_HANDOVER");
+    if (drakan_region::build().identityAddresses && (!hand || hand[0] != '0'))
+        installHooks(runtime, {{g_musicSortAt, &musicSortHook, &g_musicSortOrig},
+                               {g_musicStartAt, nullptr, &g_musicStartFn},
+                               {g_soundStopAt, &soundStopHook, &g_soundStopOrig},
+                               {g_musicPopAt, &musicPopHook, &g_musicPopOrig},
+                               {g_musicPauseAt, &musicPauseHook, &g_musicPauseOrig}});
+    // Apply the campaign music volume curve (musicBaseGainHook).
+    const uint32_t baseGainAt = drakan_region::guestAddress(0x1b30b8u);
+    const char* level = std::getenv("DRAKAN_CAMPAIGN_MUSIC_LEVEL");
+    if (drakan_region::build().identityAddresses && (!level || level[0] != '0'))
+        installHooks(runtime, {{baseGainAt, &musicBaseGainHook, &g_baseGainOrig}});
+}
+
+// Campaign sound swaps (sounds/swaps.ini): Drakan 2 sounds this campaign plays differently, only while it is the
+// current game; and the campaign's credits music.
+void installCampaignSoundSwaps(PS2Runtime& runtime) {
+    auto swaps = std::make_shared<hle::CampaignSoundSwaps>();
+    for (const auto& [modId, text] : g_mods->soundSwapFiles()) {
+        size_t bad = 0;
+        const size_t n = swaps->add(modId, text, &bad);
+        std::fprintf(stderr, "[game] pack '%s': %zu campaign sound swap(s)%s\n", modId.c_str(), n,
+                     bad ? " (some lines not understood)" : "");
+    }
+    swaps->setActive([] { return drakan_game::currentModId(); });
+    g_soundSwaps = swaps;
+    g_campaignCreditsMusic.clear();
+    g_creditsPlayRa = drakan_region::guestAddress(0x428c54u);
+    if (g_creditsPlayRa) {
+        for (const hle::mods::ModStatus& st : g_mods->status()) {
+            const auto& m = st.manifest;
+            if (st.state != hle::mods::ModState::Loaded || m.campaign.empty() || m.campaignCreditsMusic.empty())
+                continue;
+            char* end = nullptr;
+            const unsigned long id = std::strtoul(m.campaignCreditsMusic.c_str(), &end, 10);
+            if (*end || id == 0 || id > 0xFFFF) {
+                std::fprintf(stderr, "[game] pack '%s': campaign_credits_music '%s' is not a sound id\n", m.id.c_str(),
+                             m.campaignCreditsMusic.c_str());
+                continue;
             }
-            if (music->size()) {
-                music->setActive([] { return drakan_game::currentModId(); });
-                host->iop.res.setIdRedirect(
-                    [music](const std::string& key, uint16_t type, uint16_t id) { return music->map(key, type, id); });
-                // a campaign's music hands over as on the PC (musicSortHook, soundStopHook, musicPopHook)
-                g_campaignMusic = music;
-            }
-        }
-        { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)
-            std::vector<std::string> card;
-            for (const drakan_game::GameInfo& gi : drakan_game::games())
-                if (gi.id != "d2")
-                    card.push_back(gi.id);
-            bool fromEnv = false;
-            const std::string setting = drakan_game::choiceSetting(&fromEnv);
-            drakan_settings_host::setGameChoice(setting, fromEnv, drakan_game::offerChoice(), card, refused);
+            g_campaignCreditsMusic.emplace(m.id, static_cast<uint16_t>(id));
         }
     }
+    g_campaignPlayAt = drakan_region::guestAddress(0x1b7f30u);
+    if (swaps->size() || !g_campaignCreditsMusic.empty())
+        installHooks(runtime, {{g_campaignPlayAt, &campaignSoundHook, &g_campaignPlayOrig}});
+}
+
+// A campaign's own title menu music (manifest `campaign_title_music`): requests for the disc's title track are served
+// from the pack's track while that campaign is the current game (hle::CampaignMusicRedirect).
+void installCampaignTitleMusic(HleHost& host) {
+    auto music = std::make_shared<hle::CampaignMusicRedirect>();
+    for (const hle::mods::ModStatus& st : g_mods->status()) {
+        const hle::mods::Manifest& m = st.manifest;
+        if (st.state != hle::mods::ModState::Loaded || m.campaign.empty() || m.campaignTitleMusic.empty())
+            continue;
+        char* end = nullptr;
+        const unsigned long id = std::strtoul(m.campaignTitleMusic.c_str(), &end, 10);
+        if (!end || *end || id == 0 || id > 0xFFFF) {
+            std::fprintf(stderr, "[game] pack '%s': campaign_title_music '%s' is not a sound id\n", m.id.c_str(),
+                         m.campaignTitleMusic.c_str());
+            continue;
+        }
+        music->add(m.id, (uint16_t)id);
+        std::fprintf(stderr, "[game] campaign '%s': title music PS2MUSIC.SDB %lu (disc %u)\n", m.campaign.c_str(), id,
+                     (unsigned)hle::CampaignMusicRedirect::kDiscTitleMusic);
+    }
+    if (music->size()) {
+        music->setActive([] { return drakan_game::currentModId(); });
+        host.iop.res.setIdRedirect(
+            [music](const std::string& key, uint16_t type, uint16_t id) { return music->map(key, type, id); });
+        // a campaign's music hands over as on the PC (musicSortHook, soundStopHook, musicPopHook)
+        g_campaignMusic = music;
+    }
+}
+
+void configureCampaigns(PS2Runtime& runtime, HleHost& host) {
+    std::vector<std::pair<std::string, std::string>> refused; // pack id -> why its campaign is not on the card
+    configureGameChoice(host, collectCampaigns(refused));
+    installCampaignCredits(runtime, host);
+    installSceneMusicHooks(runtime);
+    if (g_mods)
+        installCampaignSoundSwaps(runtime);
+    if (g_mods)
+        installCampaignTitleMusic(host);
+    { // the title and the Mods page explain an enabled campaign that is not on the game card (ModDiscovery.h)
+        std::vector<std::string> card;
+        for (const drakan_game::GameInfo& gi : drakan_game::games())
+            if (gi.id != "d2")
+                card.push_back(gi.id);
+        bool fromEnv = false;
+        const std::string setting = drakan_game::choiceSetting(&fromEnv);
+        drakan_settings_host::setGameChoice(setting, fromEnv, drakan_game::offerChoice(), card, refused);
+    }
+}
+
+// Resource fixes for disc data: the fat male villagers' last LOD and the category of converted music tracks.
+void installResourceFixes(HleHost& host) {
     {
         // The fat male villagers' last LOD is mapped wrongly on the disc (a smear beyond 12000 units): keep their
         // middle LOD instead (hle::CharacterLodFixOverride). DRAKAN_NPC_LOD_FIX=0 shows the disc's own LODs.
         const char* lodFix = std::getenv("DRAKAN_NPC_LOD_FIX");
         if (!lodFix || lodFix[0] != '0')
-            host->iop.res.addOverride(std::make_shared<hle::CharacterLodFixOverride>());
+            host.iop.res.addOverride(std::make_shared<hle::CharacterLodFixOverride>());
     }
     {
         // Converted music tracks whose descriptor names the effects category play in the music category, as every
         // disc track does (hle::MusicCategoryOverride). DRAKAN_MUSIC_CATEGORY_FIX=0 serves them as the pack wrote them.
         const char* fix = std::getenv("DRAKAN_MUSIC_CATEGORY_FIX");
         if (!fix || fix[0] != '0')
-            host->iop.res.addOverride(std::make_shared<hle::MusicCategoryOverride>());
+            host.iop.res.addOverride(std::make_shared<hle::MusicCategoryOverride>());
     }
+}
+
 #ifdef PS2X_HAVE_GSR
+// Multiplayer: a match launched from the title menu loads its level through New Game with the level name redirected at
+// the file layer (docs/reference/netcode.md "Multiplayer menu"); the map list also offers the custom levels the mod
+// packs registered.
+void configureMultiplayerContent() {
+    drakan_netplay::setLevelRedirectFn([](const std::string& from, const std::string& to) {
+        drakan_game::redirect(from, to); // clearing restores the chosen game's campaign redirect
+    });
+    std::vector<std::string> extra;
+    if (g_mods) {
+        if (auto entries = g_mods->entries()) {
+            // English text of a level string a pack replaced (an exit pointed at a level copy).
+            drakan_levelchange::setDestinationTextHook([entries](const std::string& group, uint32_t id) {
+                hle::ResourceId rid;
+                rid.file = group + ".XDB";
+                rid.path = "ENGLISH\\LEVELS\\" + group + "\\" + group + ".XDB";
+                rid.type = 0x400;
+                rid.id = static_cast<uint16_t>(id & 0xffffu);
+                rid.sub = 1;
+                if (!entries->wants(rid))
+                    return std::string();
+                std::vector<uint8_t> data;
+                if (!entries->apply(rid, data) || data.size() < 2)
+                    return std::string();
+                const size_t n = std::min<size_t>(data[0] | (data[1] << 8), data.size() - 2);
+                const char* t = reinterpret_cast<const char*>(data.data() + 2);
+                return std::string(t, strnlen(t, n));
+            });
+        }
+        for (const hle::mods::ExtraLevel& l : g_mods->extraLevels()) {
+            extra.push_back(l.name);
+            if (!l.copyOf.empty())
+                drakan_levelchange::registerLevelCopy(l.name, l.copyOf);
+        }
+        // Levels a pack wants shown at one picture shape (manifest `level_aspect`, drakan_widescreen).
+        for (const hle::mods::ModStatus& st : g_mods->status())
+            if (st.state == hle::mods::ModState::Loaded)
+                for (const std::string& entry : st.manifest.levelAspect)
+                    if (!drakan_ws::registerLevelAspect(entry))
+                        std::fprintf(stderr, "[game] pack '%s': level_aspect '%s' is not \"Level = 4:3\"\n",
+                                     st.manifest.id.c_str(), entry.c_str());
+        // Exits that close once taken (manifest `one_way_exits`, drakan_exit_guard.h).
+        for (const hle::mods::ModStatus& st : g_mods->status())
+            if (st.state == hle::mods::ModState::Loaded)
+                for (const std::string& entry : st.manifest.oneWayExits)
+                    if (!drakan_levelchange::registerOneWayExit(entry))
+                        std::fprintf(stderr, "[game] pack '%s': one_way_exits '%s' is not \"Level @ x, y, z\"\n",
+                                     st.manifest.id.c_str(), entry.c_str());
+        std::string names; // the loaded packs, for the server list (ServerInfo.mods)
+        for (const hle::mods::ModStatus& st : g_mods->status())
+            if (st.state == hle::mods::ModState::Loaded) {
+                if (!names.empty())
+                    names += ",";
+                names += st.hasManifest && !st.manifest.name.empty() ? st.manifest.name : st.key;
+            }
+        drakan_netplay::setLoadedMods(names);
+    }
+    // Multiplayer maps: the pack's `maps/*.ini` join the built-in list (drakan_arena), a map is installed when its
+    // base level is a disc level or a level of a loaded pack.
+    std::vector<std::string> installed = {"Level 1A - Surdana",
+                                          "Level 1B - Kragmor",
+                                          "Level 1C - Catacombs",
+                                          "Level 1D - City of the Damned",
+                                          "Level 1E - Inquisitor's Lair",
+                                          "Level 2 - Shadowmire",
+                                          "Level 3A - Andrellian Isles",
+                                          "Level 3B - Crystal Mine",
+                                          "Level 4A - Ravenshold",
+                                          "Level 4B - Northern Tundra",
+                                          "Level 5 - Shiverbane",
+                                          "Level 6 - Valley of the Fallen",
+                                          "Level 6 - Transition to Desert",
+                                          "Level 8 - Stratos"};
+    installed.insert(installed.end(), extra.begin(), extra.end());
+    drakan_arena::setInstalledLevels(std::move(installed));
+    drakan_modes::addModes(drakan::net::builtinArenaText(), "built-in");
     {
-        // Multiplayer: a match launched from the title menu loads its level through New Game with the level name
-        // redirected at the file layer (docs/reference/netcode.md "Multiplayer menu"); the map list also offers the
-        // custom levels the mod packs registered.
-        drakan_netplay::setLevelRedirectFn([](const std::string& from, const std::string& to) {
-            drakan_game::redirect(from, to); // clearing restores the chosen game's campaign redirect
-        });
-        std::vector<std::string> extra;
-        if (g_mods) {
-            if (auto entries = g_mods->entries()) {
-                // English text of a level string a pack replaced (an exit pointed at a level copy).
-                drakan_levelchange::setDestinationTextHook([entries](const std::string& group, uint32_t id) {
-                    hle::ResourceId rid;
-                    rid.file = group + ".XDB";
-                    rid.path = "ENGLISH\\LEVELS\\" + group + "\\" + group + ".XDB";
-                    rid.type = 0x400;
-                    rid.id = static_cast<uint16_t>(id & 0xffffu);
-                    rid.sub = 1;
-                    if (!entries->wants(rid))
-                        return std::string();
-                    std::vector<uint8_t> data;
-                    if (!entries->apply(rid, data) || data.size() < 2)
-                        return std::string();
-                    const size_t n = std::min<size_t>(data[0] | (data[1] << 8), data.size() - 2);
-                    const char* t = reinterpret_cast<const char*>(data.data() + 2);
-                    return std::string(t, strnlen(t, n));
-                });
-            }
-            for (const hle::mods::ExtraLevel& l : g_mods->extraLevels()) {
-                extra.push_back(l.name);
-                if (!l.copyOf.empty())
-                    drakan_levelchange::registerLevelCopy(l.name, l.copyOf);
-            }
-            // Levels a pack wants shown at one picture shape (manifest `level_aspect`, drakan_widescreen).
-            for (const hle::mods::ModStatus& st : g_mods->status())
-                if (st.state == hle::mods::ModState::Loaded)
-                    for (const std::string& entry : st.manifest.levelAspect)
-                        if (!drakan_ws::registerLevelAspect(entry))
-                            std::fprintf(stderr, "[game] pack '%s': level_aspect '%s' is not \"Level = 4:3\"\n",
-                                         st.manifest.id.c_str(), entry.c_str());
-            // Exits that close once taken (manifest `one_way_exits`, drakan_exit_guard.h).
-            for (const hle::mods::ModStatus& st : g_mods->status())
-                if (st.state == hle::mods::ModState::Loaded)
-                    for (const std::string& entry : st.manifest.oneWayExits)
-                        if (!drakan_levelchange::registerOneWayExit(entry))
-                            std::fprintf(stderr, "[game] pack '%s': one_way_exits '%s' is not \"Level @ x, y, z\"\n",
-                                         st.manifest.id.c_str(), entry.c_str());
-            std::string names; // the loaded packs, for the server list (ServerInfo.mods)
-            for (const hle::mods::ModStatus& st : g_mods->status())
-                if (st.state == hle::mods::ModState::Loaded) {
-                    if (!names.empty())
-                        names += ",";
-                    names += st.hasManifest && !st.manifest.name.empty() ? st.manifest.name : st.key;
-                }
-            drakan_netplay::setLoadedMods(names);
-        }
-        // Multiplayer maps: the pack's `maps/*.ini` join the built-in list (drakan_arena), a map is installed when its
-        // base level is a disc level or a level of a loaded pack.
-        std::vector<std::string> installed = {"Level 1A - Surdana",
-                                              "Level 1B - Kragmor",
-                                              "Level 1C - Catacombs",
-                                              "Level 1D - City of the Damned",
-                                              "Level 1E - Inquisitor's Lair",
-                                              "Level 2 - Shadowmire",
-                                              "Level 3A - Andrellian Isles",
-                                              "Level 3B - Crystal Mine",
-                                              "Level 4A - Ravenshold",
-                                              "Level 4B - Northern Tundra",
-                                              "Level 5 - Shiverbane",
-                                              "Level 6 - Valley of the Fallen",
-                                              "Level 6 - Transition to Desert",
-                                              "Level 8 - Stratos"};
-        installed.insert(installed.end(), extra.begin(), extra.end());
-        drakan_arena::setInstalledLevels(std::move(installed));
-        drakan_modes::addModes(drakan::net::builtinArenaText(), "built-in");
-        {
-            std::ifstream own(drakan_cfg::exeDir() + "mp_maps.ini");
-            if (own)
-                drakan_modes::addModes(std::string(std::istreambuf_iterator<char>(own), {}), "mp_maps.ini");
-        }
-        if (g_mods) {
-            // Maps of a converted Order of the Flame pack are tagged Drakan 1 unless the file says otherwise.
-            std::vector<std::string> ootfSources;
-            for (const hle::mods::ModStatus& st : g_mods->status())
-                if (st.state == hle::mods::ModState::Loaded && st.manifest.campaign == "ootf")
-                    ootfSources.push_back("mod " + st.manifest.id + ":");
-            for (const auto& [source, text] : g_mods->mapFiles()) {
-                bool ootf = false;
-                for (const std::string& p : ootfSources)
-                    ootf = ootf || source.rfind(p, 0) == 0;
-                drakan_arena::addMaps(text, source, ootf ? "Drakan 1" : "");
-                drakan_modes::addModes(text, source);
-            }
-            // Map pictures of the packs: previews/mods/<safe map name>.png next to the exe (written when missing or
-            // different; the menu looks at previews/<name>.png first)
-            std::error_code ec;
-            const std::filesystem::path pdir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
-            for (const auto& [name, png] : g_mods->previewFiles()) {
-                std::string safe;
-                for (char c : name)
-                    safe += (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_';
-                const std::filesystem::path f = pdir / (safe + ".png");
-                std::vector<char> have;
-                if (std::ifstream in(f, std::ios::binary); in)
-                    have.assign(std::istreambuf_iterator<char>(in), {});
-                if (have.size() == png.size() && std::equal(have.begin(), have.end(), png.begin()))
-                    continue;
-                std::filesystem::create_directories(pdir, ec);
-                std::ofstream(f, std::ios::binary)
-                    .write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
-            }
-        }
-        drakan_texture_budget::setPackLevels(extra);
-        drakan_netplay::setExtraLevels(std::move(extra));
+        std::ifstream own(drakan_cfg::exeDir() + "mp_maps.ini");
+        if (own)
+            drakan_modes::addModes(std::string(std::istreambuf_iterator<char>(own), {}), "mp_maps.ini");
     }
+    if (g_mods) {
+        // Maps of a converted Order of the Flame pack are tagged Drakan 1 unless the file says otherwise.
+        std::vector<std::string> ootfSources;
+        for (const hle::mods::ModStatus& st : g_mods->status())
+            if (st.state == hle::mods::ModState::Loaded && st.manifest.campaign == "ootf")
+                ootfSources.push_back("mod " + st.manifest.id + ":");
+        for (const auto& [source, text] : g_mods->mapFiles()) {
+            bool ootf = false;
+            for (const std::string& p : ootfSources)
+                ootf = ootf || source.rfind(p, 0) == 0;
+            drakan_arena::addMaps(text, source, ootf ? "Drakan 1" : "");
+            drakan_modes::addModes(text, source);
+        }
+        // Map pictures of the packs: previews/mods/<safe map name>.png next to the exe (written when missing or
+        // different; the menu looks at previews/<name>.png first)
+        std::error_code ec;
+        const std::filesystem::path pdir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
+        for (const auto& [name, png] : g_mods->previewFiles()) {
+            std::string safe;
+            for (char c : name)
+                safe += (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_';
+            const std::filesystem::path f = pdir / (safe + ".png");
+            std::vector<char> have;
+            if (std::ifstream in(f, std::ios::binary); in)
+                have.assign(std::istreambuf_iterator<char>(in), {});
+            if (have.size() == png.size() && std::equal(have.begin(), have.end(), png.begin()))
+                continue;
+            std::filesystem::create_directories(pdir, ec);
+            std::ofstream(f, std::ios::binary)
+                .write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
+        }
+    }
+    drakan_texture_budget::setPackLevels(extra);
+    drakan_netplay::setExtraLevels(std::move(extra));
+}
 #endif
+
 #ifdef PS2X_HAVE_UI
-    if constexpr (supports(Feature::UiPrompts)) {
-        drakan_ui::Options uiOpt = drakan_ui::Options::fromEnvironment();
+// Button prompts: the generated prompt textures, the native font atlases and the control names of the modern screens.
+void installUiPrompts(HleHost& host) {
+    drakan_ui::Options uiOpt = drakan_ui::Options::fromEnvironment();
 #ifdef PS2X_HAVE_GSR
-        // The generated prompt textures (INTERFCE.TXD 97 / 124 / 94) depend on drakan_input.ini: keep them out of the
-        // HD texture dump / replacement
-        uiOpt.onGenerated = [](const drakan_ui::PromptOverride::Generated& g) {
-            const uint32_t* px = g.rgba;
-            const int w = g.w, h = g.h;
-            const uint64_t hash = gsr::textureContentHash(px, (uint32_t)w, (uint32_t)h);
-            const bool skip =
-                !std::getenv("DRAKAN_NO_PROMPT_EXCLUDE"); // test aid: DRAKAN_NO_PROMPT_EXCLUDE=1 lets them into the
-                                                          // dump (proves the hash prediction)
-            if (skip)
-                gsr::excludeTextureHash(hash);
-            std::fprintf(stderr, "[drakan] generated prompt texture %dx%d, content hash %016llx%s\n", w, h,
-                         (unsigned long long)hash, skip ? " (excluded from HD dump / replacement)" : "");
-            // The inventory icon atlas: its section icons keep the HD pack's image of the disc texture; the
-            // page-switch tile becomes an HD overlay with captions fitted to the arrow buttons.
-            if (g.id == 94 && g.original && skip) {
+    // The generated prompt textures (INTERFCE.TXD 97 / 124 / 94) depend on drakan_input.ini: keep them out of the
+    // HD texture dump / replacement
+    uiOpt.onGenerated = [](const drakan_ui::PromptOverride::Generated& g) {
+        const uint32_t* px = g.rgba;
+        const int w = g.w, h = g.h;
+        const uint64_t hash = gsr::textureContentHash(px, (uint32_t)w, (uint32_t)h);
+        const bool skip = !std::getenv("DRAKAN_NO_PROMPT_EXCLUDE"); // test aid: DRAKAN_NO_PROMPT_EXCLUDE=1 lets them
+                                                                    // into the dump (proves the hash prediction)
+        if (skip)
+            gsr::excludeTextureHash(hash);
+        std::fprintf(stderr, "[drakan] generated prompt texture %dx%d, content hash %016llx%s\n", w, h,
+                     (unsigned long long)hash, skip ? " (excluded from HD dump / replacement)" : "");
+        // The inventory icon atlas: its section icons keep the HD pack's image of the disc texture; the
+        // page-switch tile becomes an HD overlay with captions fitted to the arrow buttons.
+        if (g.id == 94 && g.original && skip) {
+            const char* windowsDir = std::getenv("WINDIR");
+            const std::string fontPath =
+                std::string(windowsDir && *windowsDir ? windowsDir : "C:/Windows") + "/Fonts/arialbd.ttf";
+            drakan_ui::TileOverlay overlay;
+            const bool registered = drakan_ui::buildPageTileOverlay(px, (uint32_t)w, (uint32_t)h, 4, g.pageNext,
+                                                                    g.pagePrev, fontPath, overlay) &&
+                                    gsr::registerRuntimeOverlay(hash, g.original, (uint32_t)w, (uint32_t)h, 4,
+                                                                overlay.rgba.data(), overlay.coverage.data());
+            std::fprintf(stderr, "[drakan] page tile overlay '%s' / '%s': %s\n", g.pageNext.c_str(), g.pagePrev.c_str(),
+                         registered ? "registered" : "unavailable; native tile retained");
+        }
+        if (drakan_cfg::getBool("general", "native_font_atlas", "DRAKAN_NATIVE_FONT_ATLAS", true)) {
+            std::vector<drakan_ui::FontAtlasCell> cells;
+            const bool decorative = drakan_ui::font96AsciiCells(px, w, h, cells);
+            if (decorative || drakan_ui::font97AsciiCells(px, w, h, cells)) {
+                const char* fontPathEnv = std::getenv("DRAKAN_NATIVE_FONT_TTF");
                 const char* windowsDir = std::getenv("WINDIR");
-                const std::string fontPath =
-                    std::string(windowsDir && *windowsDir ? windowsDir : "C:/Windows") + "/Fonts/arialbd.ttf";
-                drakan_ui::TileOverlay overlay;
-                const bool registered = drakan_ui::buildPageTileOverlay(px, (uint32_t)w, (uint32_t)h, 4, g.pageNext,
-                                                                        g.pagePrev, fontPath, overlay) &&
-                                        gsr::registerRuntimeOverlay(hash, g.original, (uint32_t)w, (uint32_t)h, 4,
-                                                                    overlay.rgba.data(), overlay.coverage.data());
-                std::fprintf(stderr, "[drakan] page tile overlay '%s' / '%s': %s\n", g.pageNext.c_str(),
-                             g.pagePrev.c_str(), registered ? "registered" : "unavailable; native tile retained");
+                const std::string fontPath = fontPathEnv && *fontPathEnv
+                                                 ? fontPathEnv
+                                                 : (std::string(windowsDir && *windowsDir ? windowsDir : "C:/Windows") +
+                                                    (decorative ? "/Fonts/pala.ttf" : "/Fonts/arial.ttf"));
+                drakan_ui::FontAtlas atlas;
+                const bool built = decorative ? drakan_ui::buildFont96Atlas(px, w, h, fontPath, atlas)
+                                              : drakan_ui::buildFont97Atlas(px, w, h, fontPath, atlas);
+                const bool registered =
+                    built && gsr::registerRuntimeTexture(hash, atlas.width, atlas.height, atlas.rgba.data(), true);
+                std::fprintf(stderr, "[font-atlas] font%u hash=%016llx glyphs=%u %ux%u %s\n", decorative ? 96u : 97u,
+                             (unsigned long long)hash, atlas.glyphsReplaced, atlas.width, atlas.height,
+                             registered ? "registered (native layout)" : "unavailable; native source retained");
             }
-            if (drakan_cfg::getBool("general", "native_font_atlas", "DRAKAN_NATIVE_FONT_ATLAS", true)) {
-                std::vector<drakan_ui::FontAtlasCell> cells;
-                const bool decorative = drakan_ui::font96AsciiCells(px, w, h, cells);
-                if (decorative || drakan_ui::font97AsciiCells(px, w, h, cells)) {
-                    const char* fontPathEnv = std::getenv("DRAKAN_NATIVE_FONT_TTF");
-                    const char* windowsDir = std::getenv("WINDIR");
-                    const std::string fontPath =
-                        fontPathEnv && *fontPathEnv
-                            ? fontPathEnv
-                            : (std::string(windowsDir && *windowsDir ? windowsDir : "C:/Windows") +
-                               (decorative ? "/Fonts/pala.ttf" : "/Fonts/arial.ttf"));
-                    drakan_ui::FontAtlas atlas;
-                    const bool built = decorative ? drakan_ui::buildFont96Atlas(px, w, h, fontPath, atlas)
-                                                  : drakan_ui::buildFont97Atlas(px, w, h, fontPath, atlas);
-                    const bool registered =
-                        built && gsr::registerRuntimeTexture(hash, atlas.width, atlas.height, atlas.rgba.data(), true);
-                    std::fprintf(stderr, "[font-atlas] font%u hash=%016llx glyphs=%u %ux%u %s\n",
-                                 decorative ? 96u : 97u, (unsigned long long)hash, atlas.glyphsReplaced, atlas.width,
-                                 atlas.height,
-                                 registered ? "registered (native layout)" : "unavailable; native source retained");
-                }
-            }
-        };
+        }
+    };
 #endif
-        if (!std::getenv("DRAKAN_UI_PROMPTS")) // drakan.ini [general] ui_prompts = keyboard | ps2
-        {
-            std::string up = drakan_cfg::getString("general", "ui_prompts", nullptr, "keyboard");
-            std::transform(up.begin(), up.end(), up.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
-            uiOpt.prompts = up != "ps2";
-            uiOpt.pad = up == "xbox"  ? drakan_ui::PadStyle::Xbox
-                        : up == "ps5" ? drakan_ui::PadStyle::Ps5
-                                      : drakan_ui::PadStyle::None;
-        }
-        std::fprintf(stderr, "[drakan] %s\n", drakan_ui::install(host->iop.res, uiOpt).c_str());
-        // The modern screens read the same strings but have no glyph pictures: they name the controls the original UI
-        // shows (keys of drakan_input.ini, the chosen controller, or the PS2 pad names).
-        if (uiOpt.prompts) {
-            const drakan_ui::Bindings bindings = uiOpt.pad != drakan_ui::PadStyle::None
-                                                     ? drakan_ui::Bindings::pad(uiOpt.pad)
-                                                     : drakan_ui::Bindings::load(uiOpt.iniPath);
-            const drakan_ui::GlyphLabels labels = drakan_ui::glyphLabels(bindings);
-            gameui::GlyphNames names;
-            names.name = labels.name;
-            names.stickRun = labels.stickRun;
-            gameui::setGlyphNames(std::move(names));
-        } else {
-            gameui::setGlyphNames(gameui::defaultGlyphNames());
-        }
+    if (!std::getenv("DRAKAN_UI_PROMPTS")) // drakan.ini [general] ui_prompts = keyboard | ps2
+    {
+        std::string up = drakan_cfg::getString("general", "ui_prompts", nullptr, "keyboard");
+        std::transform(up.begin(), up.end(), up.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+        uiOpt.prompts = up != "ps2";
+        uiOpt.pad = up == "xbox"  ? drakan_ui::PadStyle::Xbox
+                    : up == "ps5" ? drakan_ui::PadStyle::Ps5
+                                  : drakan_ui::PadStyle::None;
     }
+    std::fprintf(stderr, "[drakan] %s\n", drakan_ui::install(host.iop.res, uiOpt).c_str());
+    // The modern screens read the same strings but have no glyph pictures: they name the controls the original UI
+    // shows (keys of drakan_input.ini, the chosen controller, or the PS2 pad names).
+    if (uiOpt.prompts) {
+        const drakan_ui::Bindings bindings = uiOpt.pad != drakan_ui::PadStyle::None
+                                                 ? drakan_ui::Bindings::pad(uiOpt.pad)
+                                                 : drakan_ui::Bindings::load(uiOpt.iniPath);
+        const drakan_ui::GlyphLabels labels = drakan_ui::glyphLabels(bindings);
+        gameui::GlyphNames names;
+        names.name = labels.name;
+        names.stickRun = labels.stickRun;
+        gameui::setGlyphNames(std::move(names));
+    } else {
+        gameui::setGlyphNames(gameui::defaultGlyphNames());
+    }
+}
+#endif
+
+// Interface texts the port replaces: "PC Settings", the spell-less wording of a campaign without spells, and the art
+// sources of the PC menus.
+void installInterfaceText([[maybe_unused]] HleHost& host) {
+    using drakan_region::Feature;
+    using drakan_region::guestAddress;
+    using drakan_region::supports;
+#ifdef PS2X_HAVE_UI
+    if constexpr (supports(Feature::UiPrompts))
+        installUiPrompts(host);
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
     if constexpr (supports(Feature::OptionsSettings)) {
         // Options > "Adjust Screen" (INTERFCE.XDB 156) becomes "PC Settings"; the Options handler hook opens the
@@ -2925,7 +2951,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
         auto pcText = std::make_shared<hle::XdbTextOverride>();
         pcText->setText("INTERFCE.XDB", static_cast<uint16_t>(drakan_region::build().settings.adjustScreenText), -1,
                         "PC Settings");
-        host->iop.res.addOverride(pcText);
+        host.iop.res.addOverride(pcText);
     }
 #endif
     if constexpr (drakan_region::build().identityAddresses) {
@@ -2942,32 +2968,38 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             text = t;
             return true;
         });
-        host->iop.res.addOverride(noSpells);
+        host.iop.res.addOverride(noSpells);
     }
 #if defined(PS2X_HAVE_DRAKAN_SETTINGS) || defined(PS2X_HAVE_PORTABLE_UI)
     drakan_settings_host::setArtSource(
-        &host->fs); // the F1 menu draws in the game's own style (UI textures decoded from the disc)
+        &host.fs); // the F1 menu draws in the game's own style (UI textures decoded from the disc)
 #if defined(PS2X_HAVE_GSR)
-    drakan_dlss::setAssetSource(&host->fs);
+    drakan_dlss::setAssetSource(&host.fs);
 #endif
 #endif
 #endif
+}
+
+// Diagnostics and test aids of the resource service (DRAKAN_RES_*, DRAKAN_FRAME_AUDIT, DRAKAN_IO_STATS), and the
+// DRAKAN_START_LEVEL check (after the packs added their levels). True when resources are delivered directly.
+bool configureResourceDelivery(HleHost& host) {
     const char* dl = std::getenv("DRAKAN_RES_DELIVERY");
-    if (dl && std::string(dl) == "direct")
-        host->iop.res.setDelivery(hle::ResourceService::Delivery::Direct);
+    const bool direct = dl && std::string(dl) == "direct";
+    if (direct)
+        host.iop.res.setDelivery(hle::ResourceService::Delivery::Direct);
     if (const char* lat = std::getenv("DRAKAN_RES_LATENCY_US"))
-        host->resLatency = std::chrono::microseconds(std::atol(lat));
+        host.resLatency = std::chrono::microseconds(std::atol(lat));
     if (std::getenv("DRAKAN_RES_NOFAIL"))
-        host->iop.res.skipFailureCompletions = true;
+        host.iop.res.skipFailureCompletions = true;
     if (const char* audit = std::getenv("DRAKAN_FRAME_AUDIT"))
-        host->ioTrace = std::atoi(audit) >= 2;
+        host.ioTrace = std::atoi(audit) >= 2;
     if (const char* stats = std::getenv("DRAKAN_IO_STATS"); stats && stats[0] && stats[0] != '0')
-        host->startIoStats();
+        host.startIoStats();
     if (const char* startLevel = std::getenv("DRAKAN_START_LEVEL"); startLevel && *startLevel) {
         // A start level with no file loads nothing: the game sits on an empty world until a harness times out (a pack
         // that inserts a level renumbers the ones after it). Checked after the packs added their levels.
         std::string suggestion;
-        if (!host->iop.file.levelRedirectTargetExists(suggestion)) {
+        if (!host.iop.file.levelRedirectTargetExists(suggestion)) {
             std::fprintf(stderr, "[drakan] start level '%s' is not a level on the disc or in an enabled pack%s%s%s\n",
                          startLevel, suggestion.empty() ? "" : " (did you mean '", suggestion.c_str(),
                          suggestion.empty() ? "" : "'?)");
@@ -2975,10 +3007,93 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             std::exit(3);
         }
     }
+    return direct;
+}
+
+// Movie pacing / guard and the Options handler: only verified hooks; timing and screen-table bounds belong to the
+// disc profile.
+void installMovieAndOptionsHooks(PS2Runtime& runtime) {
+    using drakan_region::Feature;
+    using drakan_region::guestAddress;
+    using drakan_region::supports;
+    const struct {
+        bool wanted;
+        GuestHook hook;
+    } movieHooks[] = {
+        {supports(Feature::MoviePacing),
+         {guestAddress(kMovieDecodeStep), &hookMovieDecodeStep, &g_origMovieDecodeStep}},
+        {drakan_region::build().identityAddresses, {kMovieScreenTick, &hookMovieScreenTick, &g_origMovieScreenTick}},
+        {supports(Feature::MovieGuard), {guestAddress(kMovieDoneThunk), &hookMovieDone, &g_origMovieDone}},
+    };
+    for (const auto& h : movieHooks)
+        if (h.wanted)
+            installHooks(runtime, {h.hook});
+    if (supports(Feature::OptionsSettings) &&
+        installHooks(runtime, {{guestAddress(kOptionsHandler), &hookOptionsHandler, &g_origOptionsHandler}})) {
+        if constexpr (supports(Feature::Menus)) // native autosave is still a reference-disc feature
+            runtime.replaceFunction(0x442cb0u, &hookOptionsClose);
+    }
+}
+
+// Everything the port changes in the game: engine hooks, the HLE IOP services over the player's disc, mod packs and
+// campaigns, interface text, then the RPC hooks that route the guest's IOP calls to the HLE services.
+void applyDrakanOverrides(PS2Runtime& runtime) {
+    using drakan_region::Feature;
+    using drakan_region::guestAddress;
+    using drakan_region::supports;
+    installEngineModules(runtime);
+
+    const std::string iso = resolveIsoPath();
+    const auto selectedLanguage =
+        drakan_language::select(drakan_cfg::getString("general", "language", nullptr, "english"),
+                                std::getenv("DRAKAN_LANG"), drakan_region::build().languageCount);
+    std::string lang = selectedLanguage.root;
+    uint32_t osdLanguage = selectedLanguage.osdLanguage;
+    if (selectedLanguage.fallback)
+        std::fprintf(stderr, "[drakan] invalid or unsupported language; using English for this disc profile\n");
+    const char* logEnv = std::getenv("DRAKAN_HLE_LOG");
+    if (logEnv)
+        g_logBudget = std::atol(logEnv);
+
+    std::unique_ptr<HleHost> host = openGameData(runtime, iso);
+    if (!host)
+        return;
+    // Keep the guest's explicit language paths and RSRCIOP's implicit root in agreement.
+    // Do not rewrite explicit language prefixes: mod/tools callers may deliberately use another tree.
+    hle::IsoFs::Node languageArchive;
+    if (!host->fs.findKey(lang.substr(1) + "\\DRAKAN2.RRC", languageArchive) || languageArchive.dir) {
+        std::fprintf(stderr, "[drakan] language tree %s unavailable; using English\n", lang.c_str());
+        lang = "\\ENGLISH";
+        osdLanguage = 1;
+    }
+    ps2_syscalls::configureOsdLanguage(osdLanguage);
+    drakan_language::setEffectiveLanguage(osdLanguage);
+    gameui::setMenuLanguage(drakan_language::effectiveName());
+    host->fs.setLanguageRoot(lang);
+    std::fprintf(stderr, "[drakan] guest console language %u, effective resource root %s (restart required)\n",
+                 osdLanguage, lang.c_str());
+    installReverbPresets(*host);
+    // Test aid: DRAKAN_START_LEVEL="Level 4A - Ravenshold" makes New Game (after the intro) load that level in place
+    // of the first one, so harness runs reach any level without a save. DRAKAN_START_LEVEL_FROM names the level that
+    // is replaced (default the first playable level).
+    if (const char* startLevel = std::getenv("DRAKAN_START_LEVEL"); startLevel && *startLevel) {
+        const char* from = std::getenv("DRAKAN_START_LEVEL_FROM");
+        host->iop.file.setLevelRedirect(from && *from ? from : "Level 1A - Surdana", startLevel);
+        std::fprintf(stderr, "[drakan] start level: '%s' replaces '%s'\n", startLevel,
+                     from && *from ? from : "Level 1A - Surdana");
+    }
+    installModPacks(*host);
+    configureCampaigns(runtime, *host);
+    installResourceFixes(*host);
+#ifdef PS2X_HAVE_GSR
+    configureMultiplayerContent();
+#endif
+    installInterfaceText(*host);
+    const bool directDelivery = configureResourceDelivery(*host);
     hle::setLogSink(logLine);
     hle::setVerbose(g_logBudget.load() > 0);
     std::fprintf(stderr, "[drakan] HLE: %zu files in '%s', language root %s, delivery %s\n", host->fs.entries().size(),
-                 iso.c_str(), lang.c_str(), (dl && std::string(dl) == "direct") ? "direct" : "rpc1301");
+                 iso.c_str(), lang.c_str(), directDelivery ? "direct" : "rpc1301");
     if constexpr (supports(Feature::Subtitles))
         host->iop.res.setRequestObserver(&drakan_subtitles::onResourceRequest); // narration subtitles trigger
     g_host = host.release();
@@ -2998,25 +3113,7 @@ void applyDrakanOverrides(PS2Runtime& runtime) {
             g_host->audio.setHeartbeat(&runtime.memory().gs().vsyncTick, static_cast<unsigned>(ms));
     }
     drakan_pause::setAudio(&g_host->audio);
-    // Only install verified movie hooks; timing and screen-table bounds belong to the disc profile.
-    if (supports(Feature::MoviePacing) && runtime.hasFunction(guestAddress(kMovieDecodeStep))) {
-        g_origMovieDecodeStep = runtime.lookupFunction(guestAddress(kMovieDecodeStep));
-        runtime.replaceFunction(guestAddress(kMovieDecodeStep), &hookMovieDecodeStep);
-    }
-    if (drakan_region::build().identityAddresses && runtime.hasFunction(kMovieScreenTick)) {
-        g_origMovieScreenTick = runtime.lookupFunction(kMovieScreenTick);
-        runtime.replaceFunction(kMovieScreenTick, &hookMovieScreenTick);
-    }
-    if (supports(Feature::MovieGuard) && runtime.hasFunction(guestAddress(kMovieDoneThunk))) {
-        g_origMovieDone = runtime.lookupFunction(guestAddress(kMovieDoneThunk));
-        runtime.replaceFunction(guestAddress(kMovieDoneThunk), &hookMovieDone);
-    }
-    if (supports(Feature::OptionsSettings) && runtime.hasFunction(guestAddress(kOptionsHandler))) {
-        g_origOptionsHandler = runtime.lookupFunction(guestAddress(kOptionsHandler));
-        runtime.replaceFunction(guestAddress(kOptionsHandler), &hookOptionsHandler);
-        if constexpr (supports(Feature::Menus)) // native autosave is still a reference-disc feature
-            runtime.replaceFunction(0x442cb0u, &hookOptionsClose);
-    }
+    installMovieAndOptionsHooks(runtime);
 
     if constexpr (supports(Feature::Menus)) {
         drakan_menus::install(runtime);      // title Quit, save pages (drakan_menus.cpp)
