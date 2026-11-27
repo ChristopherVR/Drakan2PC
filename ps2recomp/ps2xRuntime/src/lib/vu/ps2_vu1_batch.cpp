@@ -1602,8 +1602,7 @@ struct Pool {
     };
     std::array<ReuseProbe, 4096> reuseProbes{};
     uint64_t age = 0, previousSignature = 0;
-    void profileReuse(const Group& g, const PS2Memory& memory, const VU1Interpreter& vu,
-                      const std::vector<Input>& jobs) {
+    void profileReuse(const Group& g, const PS2Memory& memory, const VU1Interpreter& vu, const Input* jobs) {
         if (!reuseProfileEnabled() || !g.key)
             return;
         if (g.motionInput.tracking() || g.motionOutput.tracking()) {
@@ -1892,7 +1891,7 @@ uint64_t seedSignature(uint32_t code, uint32_t offset, const PS2Memory& memory, 
     key ^= key >> 33;
     return key ? key : 1u;
 }
-void emit(PS2Memory& memory, const std::vector<Event>& events, const std::vector<Input>& jobs) {
+void emit(PS2Memory& memory, const std::vector<Event>& events, const Input* jobs) {
     for (const auto& e : events)
         switch (e.kind) {
             case Event::Gif:
@@ -2117,6 +2116,40 @@ void runFinished(bool complete, bool idle) {
     }
 }
 
+// One batch's job list: the original jobs cut at the group boundaries. The storage belongs to the VU1 worker thread and
+// keeps its elements from batch to batch, so neither the list nor the byte buffer of each slice is allocated again per
+// batch (copy-assigning a vector reuses its capacity). Workers hold data() while a batch runs, so it must never
+// reallocate: kCapacity covers the most process() can push (512 checked, plus the slices pushed before a check).
+class JobList {
+public:
+    static constexpr size_t kCapacity = 514;
+    JobList() { m_items.reserve(kCapacity); }
+    size_t size() const { return m_size; }
+    bool empty() const { return m_size == 0; }
+    const Input* data() const { return m_items.data(); }
+    const Input& operator[](size_t i) const { return m_items[i]; }
+    // The next element, its previous contents still there for the caller to overwrite.
+    Input& append() {
+        if (m_size == m_items.size())
+            m_items.emplace_back();
+        return m_items[m_size++];
+    }
+    // Ends a batch: drop what the elements refer to (motion jobs, tasks) but keep their buffers.
+    void release() {
+        for (size_t i = 0; i < m_size; ++i) {
+            Input& e = m_items[i];
+            e.data.clear();
+            e.meta = {};
+            e.task = nullptr;
+        }
+        m_size = 0;
+    }
+
+private:
+    std::vector<Input> m_items;
+    size_t m_size = 0;
+};
+
 bool process(std::vector<Input>& original, const std::function<void(const Input&)>& serial) {
     if (!enabled())
         return false;
@@ -2161,8 +2194,13 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
     // Stable storage lets workers read completed slices while the preparer
     // appends later, distinct elements. The hard limit is checked before a
     // push can exhaust this reservation; workers never access vector metadata.
-    std::vector<Input> jobs;
-    jobs.reserve(514);
+    // process() runs only on the VU1 worker thread and never nests (serial() runs a job, not a batch).
+    static thread_local JobList jobs;
+    static thread_local std::vector<Cut> cuts;
+    struct ReleaseJobs {
+        JobList& jobs;
+        ~ReleaseJobs() { jobs.release(); } // after waitAll below: no worker reads the list any more
+    } releaseJobs{jobs};
     std::vector<std::unique_ptr<Group>> groups;
     uint64_t previous = p.previousSignature;
     // This guard also covers a late MPG/limit/decoder rejection after earlier
@@ -2234,10 +2272,10 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
             if (!in.vif()) {
                 if (jobs.size() == 512)
                     return false;
-                jobs.push_back(in);
+                jobs.append() = in;
                 continue;
             }
-            std::vector<Cut> cuts;
+            cuts.clear();
             Capture c{prep.memory.get(), nullptr, true, true};
             c.cuts = &cuts;
             c.makeCut = [&](uint32_t command, uint32_t offset) {
@@ -2264,14 +2302,15 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
             auto slice = [&](uint32_t end) {
                 if (end <= at)
                     return;
-                Input out;
+                Input& out = jobs.append();
                 out.memory = in.memory;
                 out.meta = in.meta;
+                out.path3 = false;
+                out.task = nullptr;
                 out.offset = in.offset + at;
                 out.begin = in.begin && at == 0;
                 out.end = in.end && end == in.data.size();
                 out.data.assign(in.data.begin() + at, in.data.begin() + end);
-                jobs.push_back(std::move(out));
                 at = end;
             };
             for (auto& cut : cuts) {
@@ -2466,7 +2505,7 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
             ++stats.predictionAccepted;
         stats.acceptedRuns += g.calls;
         stats.acceptedPairs += g.pairs;
-        p.profileReuse(g, memory, vu, jobs);
+        p.profileReuse(g, memory, vu, jobs.data());
         if (verify()) {
             std::vector<Event> actual;
             Capture c{&memory, &actual, false, false};
@@ -2527,14 +2566,14 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
                 }
             }
             memory.m_path3Masked = actualMasked;
-            emit(memory, actual, jobs);
+            emit(memory, actual, jobs.data());
         } else {
             g.output->restore(memory);
             g.result->restore(vu);
             drakan_object_motion::restoreCursor(g.motionOutput);
             binding.publish(g.cycles, g.calls, g.pairs);
             memory.m_path3Masked = actualMasked;
-            emit(memory, g.events, jobs);
+            emit(memory, g.events, jobs.data());
         }
         g.collected = true;
         timer.mark(Phase::Collect);
