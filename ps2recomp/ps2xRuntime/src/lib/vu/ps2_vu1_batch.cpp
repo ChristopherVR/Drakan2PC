@@ -1804,6 +1804,9 @@ struct Pool {
             history[slot]->cooldown = cooldown;
         }
     }
+    // Set by shutdown() for good. The vu1async worker can still call process() after the batch atexit handler ran
+    // (handlers run in reverse order); without this it restarted workers that exit at once and left groups unrun.
+    std::atomic<bool> closed{false};
     void start() {
         if (!workers.empty())
             return;
@@ -2144,6 +2147,8 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
         return false;
     }
     auto& p = pool();
+    if (p.closed.load(std::memory_order_acquire))
+        return false; // shutting down: the caller runs the batch serially
     try {
         p.start();
     } catch (...) {
@@ -2540,6 +2545,7 @@ bool process(std::vector<Input>& original, const std::function<void(const Input&
 }
 void shutdown() {
     auto& p = pool();
+    p.closed.store(true, std::memory_order_release);
     {
         std::lock_guard lock(p.mutex);
         p.stop = true;

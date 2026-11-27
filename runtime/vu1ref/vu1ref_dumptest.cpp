@@ -1,13 +1,32 @@
 // smoke test: replay PS2X_VU1_DUMP files (entry data only) from candidate entry pcs and compare the XGKICK'd packet.
 #include "vu1ref.h"
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
+
+namespace {
+constexpr uint32_t kVuMem = 0x4000;      // VU1 data memory: the entry snapshot and the packet window
+constexpr uint32_t kMaxBlob = 16u << 20; // header sizes above this are a corrupt dump, not data
+bool readAll(FILE* f, void* p, size_t n) {
+    return n == 0 || fread(p, 1, n, f) == n;
+}
+} // namespace
+
 int main(int argc, char** argv) {
+    if (argc < 2) {
+        fprintf(stderr, "usage: %s <vu1 microcode> <dump>...\n", argv[0]);
+        return 2;
+    }
     std::vector<uint8_t> code(0x4000, 0);
     {
         FILE* f = fopen(argv[1], "rb");
-        fread(code.data(), 1, 0x4000, f);
+        if (!f) {
+            fprintf(stderr, "cannot open %s\n", argv[1]);
+            return 2;
+        }
+        fread(code.data(), 1, 0x4000, f); // a shorter image leaves the rest zero
         fclose(f);
     }
     int ok = 0, tot = 0;
@@ -16,16 +35,23 @@ int main(int argc, char** argv) {
         if (!f)
             continue;
         uint32_t hdr[5];
-        fread(hdr, 4, 5, f);
+        // hdr[2] = data / entry size (both copied as a full VU memory), hdr[3] = code size, hdr[4] = XGKICK qword
+        if (!readAll(f, hdr, sizeof hdr) || hdr[2] < kVuMem || hdr[2] > kMaxBlob || hdr[3] > kMaxBlob ||
+            hdr[4] >= kVuMem / 16) {
+            printf("%s: bad header\n", argv[a]);
+            fclose(f);
+            continue;
+        }
         std::vector<uint8_t> vfvi(128 * 4 + 16 * 4), data(hdr[2]), c(hdr[3]);
-        fread(vfvi.data(), 1, vfvi.size(), f);
-        fread(data.data(), 1, hdr[2], f);
-        fread(c.data(), 1, hdr[3], f);
         uint32_t ex[2];
-        fread(ex, 4, 2, f);
         std::vector<uint8_t> entry(hdr[2]);
-        fread(entry.data(), 1, hdr[2], f);
+        const bool read = readAll(f, vfvi.data(), vfvi.size()) && readAll(f, data.data(), hdr[2]) &&
+                          readAll(f, c.data(), hdr[3]) && readAll(f, ex, sizeof ex) && readAll(f, entry.data(), hdr[2]);
         fclose(f);
+        if (!read) {
+            printf("%s: truncated\n", argv[a]);
+            continue;
+        }
         ++tot;
         const uint32_t cands[] = {0, 0x26e0, 0x1f0, 0xe70, 0x1018, 0x1580};
         bool found = false;

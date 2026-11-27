@@ -170,7 +170,8 @@ public:
     // ---- libsd ----
     int sdInit(int flag); // sceSdInit (flag&1: keep volumes/EEA)
     int procBatch(const SdBatch* batch, u32* rets, u32 num);
-    int procBatchEx(const SdBatch* batch, u32* rets, u32 num, u32 voiceMask);
+    // `retCap`: slots in `rets`; a multi-voice record fills one slot per voice in `voiceMask` (up to 24 per record).
+    int procBatchEx(const SdBatch* batch, u32* rets, u32 num, u32 voiceMask, u32 retCap = 0xFFFFFFFFu);
     // iopPtr: host pointer to the IOP-side buffer (the caller maps IOP addresses). Transfers complete
     // synchronously; a TransDone event is queued if setTransIntrHandler(core,true) was called.
     int voiceTrans(s16 chan, u16 mode, void* iopPtr, u32 spuAddr, u32 size);

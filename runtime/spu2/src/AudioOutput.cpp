@@ -103,9 +103,8 @@ void AudioOutput::dumpWrite(const float* st, size_t frames) {
     std::fwrite(pcm.data(), 2, pcm.size(), f);
     dumpBytes_ += pcm.size() * 2;
     // keep the header valid at all times: the process usually leaves through _Exit without calling stop()
-    static unsigned long long lastHdr = 0;
-    if (dumpBytes_ - lastHdr >= 48000ull * 4) {
-        lastHdr = dumpBytes_;
+    if (dumpBytes_ - dumpHdrBytes_ >= 48000ull * 4) {
+        dumpHdrBytes_ = dumpBytes_;
         dumpFinish();
     }
 }
@@ -147,6 +146,7 @@ bool AudioOutput::start(std::string* err) {
         if (f) {
             dumpFile_ = f;
             dumpBytes_ = 0;
+            dumpHdrBytes_ = 0;
             std::vector<uint8_t> hdr(44, 0);
             std::fwrite(hdr.data(), 1, 44, f);
             dumpFinish();

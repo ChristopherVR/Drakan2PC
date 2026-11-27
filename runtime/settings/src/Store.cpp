@@ -3,6 +3,8 @@
 
 #include <atomic>
 #include <algorithm>
+#include <cerrno>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -137,18 +139,21 @@ bool s2b(const std::string& v, bool& out) {
     }
     return false;
 }
+// Out-of-range and non-finite values are rejected (the key keeps its default) rather than saturated.
 bool s2i(const std::string& v, int& out) {
     char* e = nullptr;
+    errno = 0;
     long n = std::strtol(v.c_str(), &e, 0);
-    if (!e || e == v.c_str() || *e)
+    if (!e || e == v.c_str() || *e || errno == ERANGE || n < INT_MIN || n > INT_MAX)
         return false;
     out = static_cast<int>(n);
     return true;
 }
 bool s2f(const std::string& v, float& out) {
     char* e = nullptr;
+    errno = 0;
     float f = std::strtof(v.c_str(), &e);
-    if (!e || e == v.c_str() || *e)
+    if (!e || e == v.c_str() || *e || errno == ERANGE || !std::isfinite(f))
         return false;
     out = f;
     return true;

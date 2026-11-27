@@ -14,6 +14,7 @@
 #include <mutex>
 #include <set>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
@@ -521,7 +522,11 @@ public:
             if (!it->is_regular_file(ec))
                 continue;
             Item i;
-            i.path = fs::relative(it->path(), root_, ec).generic_string();
+            try {
+                i.path = fs::relative(it->path(), root_, ec).generic_string();
+            } catch (const std::system_error&) {
+                continue; // no ANSI form of the name (MSVC throws): read() could not open it by a narrow path either
+            }
             i.size = (u64)it->file_size(ec);
             v.push_back(i);
         }
@@ -563,6 +568,8 @@ u32 crc32(const u8* d, size_t n) {
 }
 
 class ZipArchive final : public ModArchive {
+    static constexpr u32 kMaxZipMember = 1u << 30; // far above any disc file; rejects a corrupt usize
+
 public:
     struct Ent {
         std::string path;
@@ -634,6 +641,12 @@ public:
             }
             if (e.csize == 0xFFFFFFFFu || e.usize == 0xFFFFFFFFu) {
                 err = "zip64 entries are not supported (" + e.path + ")";
+                return false;
+            }
+            // read() allocates csize bytes before reading and inflates up to usize, so a corrupt directory must not
+            // name more data than the archive holds or an absurd inflated size.
+            if ((u64)e.lho + 30 + e.csize > (u64)size || e.usize > kMaxZipMember) {
+                err = "corrupt zip (entry out of range: " + e.path + ")";
                 return false;
             }
             if (!safeRelPath(e.path))
@@ -1375,9 +1388,24 @@ static bool readManifestFrom(const ModArchive& a, Manifest& m, std::string& pref
     return parseManifest(std::string(b.begin(), b.end()), json, m, err);
 }
 
-static std::string stemOf(const fs::path& p) {
+// The pack key of a mods-folder entry: false (entry skipped) when the name has no ANSI form, as path::string() throws
+// std::system_error on MSVC for one.
+static bool stemOf(const fs::path& p, std::string& out) {
     std::error_code ec;
-    return fs::is_directory(p, ec) ? p.filename().string() : p.stem().string();
+    try {
+        out = fs::is_directory(p, ec) ? p.filename().string() : p.stem().string();
+        return true;
+    } catch (const std::system_error&) {
+        return false;
+    }
+}
+// Lower-cased extension of a mods-folder entry, empty when it has no ANSI form.
+static std::string lowerExt(const fs::path& p) {
+    try {
+        return lower(p.extension().string());
+    } catch (const std::system_error&) {
+        return {};
+    }
 }
 
 namespace {
@@ -1415,10 +1443,13 @@ size_t ModManager::load(const std::string& modsDir) {
     std::vector<std::string> fresh;
     if (fs::is_directory(modsDir, ec)) {
         std::vector<std::string> names;
-        for (auto& e : fs::directory_iterator(modsDir, ec)) {
-            bool zip = e.is_regular_file(ec) && lower(e.path().extension().string()) == ".zip";
-            if (e.is_directory(ec) || zip)
-                names.push_back(stemOf(e.path()));
+        // Explicit increment(ec): a range-for increments with the throwing operator++.
+        for (fs::directory_iterator e(modsDir, ec), end; !ec && e != end; e.increment(ec)) {
+            std::error_code sec; // a failed stat skips the entry, not the rest of the scan
+            bool zip = e->is_regular_file(sec) && lowerExt(e->path()) == ".zip";
+            std::string stem;
+            if ((e->is_directory(sec) || zip) && stemOf(e->path(), stem))
+                names.push_back(stem);
         }
         std::sort(names.begin(), names.end());
         // A `new` line whose pack is gone again: the player never decided on it, so there is nothing to remember.
@@ -1521,10 +1552,12 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
     std::map<std::string, fs::path> found;
     std::error_code ec;
     if (fs::is_directory(modsDir, ec))
-        for (auto& e : fs::directory_iterator(modsDir, ec)) {
-            bool zip = e.is_regular_file(ec) && lower(e.path().extension().string()) == ".zip";
-            if (e.is_directory(ec) || zip)
-                found.emplace(lower(stemOf(e.path())), e.path());
+        for (fs::directory_iterator e(modsDir, ec), end; !ec && e != end; e.increment(ec)) {
+            std::error_code sec; // a failed stat skips the entry, not the rest of the scan
+            bool zip = e->is_regular_file(sec) && lowerExt(e->path()) == ".zip";
+            std::string stem;
+            if ((e->is_directory(sec) || zip) && stemOf(e->path(), stem))
+                found.emplace(lower(stem), e->path());
         }
     // ---- phase A: manifests and per-pack validation
     for (auto& [key, on] : order) {
@@ -2099,16 +2132,38 @@ void readPackMembers(std::vector<PackRead>& jobs) {
         a->holdOpen(true);
     std::atomic<size_t> next{0};
     auto work = [&] {
-        for (size_t i; (i = next.fetch_add(1)) < jobs.size();)
-            jobs[i].ok = jobs[i].archive->read(*jobs[i].path, jobs[i].data);
+        for (size_t i; (i = next.fetch_add(1)) < jobs.size();) {
+            // An exception escaping a std::thread terminates the game: a member that cannot be read (bad_alloc on a
+            // corrupt size) only fails that member.
+            try {
+                jobs[i].ok = jobs[i].archive->read(*jobs[i].path, jobs[i].data);
+            } catch (...) {
+                jobs[i].data.clear();
+                jobs[i].ok = false;
+            }
+        }
     };
     size_t workers = 1;
 #if !defined(__EMSCRIPTEN__) // the browser build keeps its fixed pthread pool for the runtime's own workers
     workers = std::min<size_t>({std::max<size_t>(std::thread::hardware_concurrency(), 1), 8, jobs.size()});
 #endif
     std::vector<std::thread> pool;
-    for (size_t w = 1; w < workers; ++w)
-        pool.emplace_back(work);
+    // Joins the started workers on every exit, also when emplace_back throws (a joinable std::thread destroyed
+    // unjoined terminates).
+    struct Joiner {
+        std::vector<std::thread>& pool;
+        ~Joiner() {
+            for (std::thread& t : pool)
+                if (t.joinable())
+                    t.join();
+        }
+    } joiner{pool};
+    try {
+        for (size_t w = 1; w < workers; ++w)
+            pool.emplace_back(work);
+    } catch (const std::system_error&) {
+        // fewer threads than asked for: the calling thread and the started workers still drain the queue
+    }
     work();
     for (std::thread& t : pool)
         t.join();

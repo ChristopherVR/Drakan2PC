@@ -86,7 +86,10 @@ struct HostInput::Impl {
     HWND ownWnd = nullptr; // hidden message window when hwnd is null
     HWND capWnd = nullptr; // window to clip / hide the cursor for (may be null: foreground window of the process)
     std::thread thr;
-    std::atomic<bool> running{false};
+    // Sink thread handshake: 0 starting, 1 window ready, -1 window creation failed (the thread has exited).
+    std::atomic<int> sinkState{0};
+    std::atomic<bool> stop{false};
+    std::atomic<DWORD> sinkThreadId{0};
     std::atomic<bool> captured{false};
     bool wasFocused = true;
     bool sink = false;
@@ -94,6 +97,9 @@ struct HostInput::Impl {
     HMODULE xinput = nullptr;
     PFN_XInputGetState getState = nullptr;
     DWORD xinputUser = 0;
+    // XInputGetState on an empty slot is slow (it probes the device): a slot that failed is retried at most once a
+    // second, a connected one is read every frame.
+    ULONGLONG xinputRetryAt[4] = {};
     bool cursorHidden = false;
     std::vector<BYTE> rawBuf;
 
@@ -192,13 +198,19 @@ struct HostInput::Impl {
         wc.lpszClassName = L"DrakanInputSink";
         RegisterClassW(&wc);
         ownWnd = CreateWindowExW(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
-        if (ownWnd) {
-            SetWindowLongPtrW(ownWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-            registerDevices(ownWnd, RIDEV_INPUTSINK);
+        if (!ownWnd) {
+            sinkState = -1; // nothing would ever post to this thread: exit instead of blocking in GetMessageW
+            return;
         }
-        running = true;
+        SetWindowLongPtrW(ownWnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+        registerDevices(ownWnd, RIDEV_INPUTSINK);
+        // Make sure the thread has a message queue before shutdown() may PostThreadMessageW to it. `stop` is checked
+        // after this, so a quit posted before the queue existed is still seen.
         MSG msg;
-        while (running && GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+        sinkThreadId = GetCurrentThreadId();
+        sinkState = 1;
+        while (!stop && GetMessageW(&msg, nullptr, 0, 0) > 0) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -221,10 +233,10 @@ bool HostInput::init(void* hwnd, InputAccumulator* acc) {
     } else {
         p_->sink = true;
         p_->thr = std::thread([this] { p_->ownThread(); });
-        for (int i = 0; i < 200 && !p_->running; ++i)
+        for (int i = 0; i < 200 && p_->sinkState == 0; ++i)
             Sleep(5);
-        if (!p_->ownWnd)
-            return false;
+        if (p_->sinkState != 1)
+            return false; // failed (the thread has exited) or still starting: shutdown() stops and joins it
     }
     for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput9_1_0.dll", L"xinput1_3.dll"}) {
         p_->xinput = LoadLibraryW(dll);
@@ -241,10 +253,14 @@ void HostInput::shutdown() {
         return;
     setCapture(false);
     if (p_->thr.joinable()) {
-        p_->running = false;
-        if (p_->ownWnd)
-            PostMessageW(p_->ownWnd, WM_QUIT, 0, 0);
+        // WM_QUIT goes to the thread, not the window: the window may not exist (creation failed or still starting).
+        p_->stop = true;
+        if (const DWORD id = p_->sinkThreadId)
+            PostThreadMessageW(id, WM_QUIT, 0, 0);
         p_->thr.join();
+        p_->stop = false;
+        p_->sinkState = 0;
+        p_->sinkThreadId = 0;
     }
     if (p_->xinput) {
         FreeLibrary(p_->xinput);
@@ -306,11 +322,17 @@ void HostInput::poll(FrameInput& in, bool gamepadEnabled, float dz) {
     if (gamepadEnabled && p_->getState) {
         XINPUT_STATE st = {};
         DWORD r = ERROR_DEVICE_NOT_CONNECTED;
+        const ULONGLONG now = GetTickCount64();
         for (DWORD u = 0; u < 4 && r != ERROR_SUCCESS; ++u) {
             DWORD user = (p_->xinputUser + u) & 3;
+            if (now < p_->xinputRetryAt[user])
+                continue;
             r = p_->getState(user, &st);
-            if (r == ERROR_SUCCESS)
+            if (r == ERROR_SUCCESS) {
                 p_->xinputUser = user;
+                p_->xinputRetryAt[user] = 0;
+            } else
+                p_->xinputRetryAt[user] = now + 1000;
         }
         if (r == ERROR_SUCCESS) {
             GamepadState& g = in.gamepad;

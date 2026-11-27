@@ -4,6 +4,24 @@
 
 namespace spu2 {
 
+namespace {
+// Result slots procBatchEx fills for `num` records: one per record, one per voice in `voice` for a multi-voice
+// (voice field all-ones) parameter or address record.
+u32 batchExSlots(const SdBatch* b, u32 num, u32 voice) {
+    unsigned voices = 0;
+    for (u32 m = voice & 0xFFFFFFu; m; m &= m - 1)
+        ++voices;
+    u32 slots = 0;
+    for (u32 i = 0; i < num; ++i) {
+        const u16 f = b[i].func;
+        const bool perVoice =
+            f == SD_BATCH_SETPARAM || f == SD_BATCH_GETPARAM || f == SD_BATCH_SETADDR || f == SD_BATCH_GETADDR;
+        slots += perVoice && (b[i].entry & 0x3E) == 0x3E && voices > 1 ? voices : 1;
+    }
+    return slots;
+}
+} // namespace
+
 int SdrServer::call(u32 fno, const void* data, u32 size, void* reply, u32 replyCap) {
     const u8* d = (const u8*)data;
     auto w = [&](int i) -> u32 {
@@ -64,8 +82,9 @@ int SdrServer::call(u32 fno, const void* data, u32 size, void* reply, u32 replyC
         case rSdProcBatchEx: {
             const u32 num = w(3);
             const SdBatch* b = (const SdBatch*)ptr(w(1), num * 8);
-            u32* rets = (u32*)ptr(w(2), num * 4);
-            ret = b ? spu_.procBatchEx(b, rets, num, w(4)) : -1;
+            const u32 slots = b ? batchExSlots(b, num, w(4)) : 0;
+            u32* rets = (u32*)ptr(w(2), slots * 4);
+            ret = b ? spu_.procBatchEx(b, rets, num, w(4), slots) : -1;
         } break;
         case rSdProcBatch2:
         case rSdProcBatchEx2: {
@@ -77,12 +96,14 @@ int SdrServer::call(u32 fno, const void* data, u32 size, void* reply, u32 replyC
                 ret = -1;
                 break;
             }
-            std::vector<u32> rets(cnt + 1u, 0);
-            ret = (fno & 0xFFF0) == rSdProcBatch2 ? spu_.procBatch((const SdBatch*)(d + 8), rets.data(), cnt)
-                                                  : spu_.procBatchEx((const SdBatch*)(d + 8), rets.data(), cnt, voice);
+            const SdBatch* recs = (const SdBatch*)(d + 8);
+            const bool ex = (fno & 0xFFF0) != rSdProcBatch2;
+            std::vector<u32> rets(std::max<u32>(ex ? batchExSlots(recs, cnt, voice) : cnt, 1u), 0);
+            ret = ex ? spu_.procBatchEx(recs, rets.data(), cnt, voice, (u32)rets.size())
+                     : spu_.procBatch(recs, rets.data(), cnt);
             int n = reply32(ret);
             const u32 room = replyCap > 4 ? (replyCap - 4) / 4 : 0;
-            const u32 cp = std::min<u32>(room, cnt);
+            const u32 cp = std::min<u32>({room, ex ? (u32)rets.size() : (u32)cnt, ret >= 0 ? (u32)ret : (u32)cnt});
             if (cp) {
                 memcpy((u8*)reply + 4, rets.data(), cp * 4);
                 n += (int)(cp * 4);

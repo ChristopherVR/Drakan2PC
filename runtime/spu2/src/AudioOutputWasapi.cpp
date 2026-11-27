@@ -12,12 +12,51 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
 namespace spu2 {
 
 namespace {
+
+// MMCSS "Pro Audio" for the audio thread for its whole life: the frame, VU and GS threads are boosted
+// (input/ThreadBoost, class "Games"), so an unboosted audio thread was the one preempted on a busy desktop and the
+// device buffer ran dry. avrt.dll is loaded on demand like ThreadBoost does (no import library); DRAKAN_THREAD_BOOST=0
+// turns it off with the rest.
+class MmcssScope {
+public:
+    MmcssScope() {
+        const char* e = std::getenv("DRAKAN_THREAD_BOOST");
+        if (e && e[0] == '0')
+            return;
+        avrt_ = LoadLibraryW(L"avrt.dll");
+        if (!avrt_)
+            return;
+        using Join = HANDLE(WINAPI*)(LPCWSTR, LPDWORD);
+        revert_ =
+            reinterpret_cast<Revert>(reinterpret_cast<void*>(GetProcAddress(avrt_, "AvRevertMmThreadCharacteristics")));
+        if (auto join = reinterpret_cast<Join>(
+                reinterpret_cast<void*>(GetProcAddress(avrt_, "AvSetMmThreadCharacteristicsW")))) {
+            DWORD task = 0;
+            task_ = join(L"Pro Audio", &task);
+        }
+    }
+    ~MmcssScope() {
+        if (task_ && revert_)
+            revert_(task_);
+        if (avrt_)
+            FreeLibrary(avrt_);
+    }
+    MmcssScope(const MmcssScope&) = delete;
+    MmcssScope& operator=(const MmcssScope&) = delete;
+
+private:
+    using Revert = BOOL(WINAPI*)(HANDLE);
+    HMODULE avrt_ = nullptr;
+    Revert revert_ = nullptr;
+    HANDLE task_ = nullptr;
+};
 
 template <class T>
 void safeRelease(T*& p) {
@@ -252,6 +291,7 @@ std::vector<OutputDevice> AudioOutput::enumerateDevices() {
 }
 
 void AudioOutput::threadMain() {
+    const MmcssScope mmcss; // reverted when the thread leaves
     const HRESULT coh = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     IMMDeviceEnumerator* en = nullptr;
     CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, __uuidof(IMMDeviceEnumerator), (void**)&en);
@@ -372,20 +412,25 @@ void AudioOutput::threadMain() {
             if (!s.nativeFormat) {
                 renderBlock((float*)p, n);
             } else {
-                // render n * 48000/devRate frames of 48 kHz and resample linearly into the device format
+                // Resample the 48 kHz stream linearly into the device format. The source position (fraction and
+                // the frames not yet passed) carries over to the next period: restarting each period at frame 0 drops
+                // the phase and the surplus frames, a period-rate buzz and a timeline that runs fast.
                 const double ratio = 48000.0 / (double)s.devRate;
-                const size_t need = (size_t)std::ceil(n * ratio) + 2;
-                src48.resize(need * 2);
-                renderBlock(src48.data(), need); // gain + dump + levels once, before resampling
+                size_t have = src48.size() / 2;
+                const size_t want = (size_t)(srcPos + (double)(n - 1) * ratio) + 2; // both taps of the last frame
+                if (want > have) {
+                    src48.resize(want * 2);
+                    renderBlock(src48.data() + have * 2, want - have); // gain + dump + levels once, before resampling
+                    have = want;
+                }
                 for (UINT32 i = 0; i < n; ++i) {
                     const double pos = srcPos + i * ratio;
                     const size_t i0 = (size_t)pos;
+                    const size_t i1 = std::min(i0 + 1, have - 1);
                     const float fr = (float)(pos - (double)i0);
                     for (unsigned c = 0; c < s.devChannels; ++c) {
                         const unsigned sc = c < 2 ? c : 0;
-                        float v =
-                            c < 2 ? (src48[i0 * 2 + sc] * (1 - fr) + src48[std::min(i0 + 1, need - 1) * 2 + sc] * fr)
-                                  : 0.0f;
+                        float v = c < 2 ? (src48[i0 * 2 + sc] * (1 - fr) + src48[i1 * 2 + sc] * fr) : 0.0f;
                         if (s.devFloat)
                             ((float*)p)[(size_t)i * s.devChannels + c] = v;
                         else
@@ -393,6 +438,10 @@ void AudioOutput::threadMain() {
                                 (int16_t)std::lrintf(std::max(-1.0f, std::min(1.0f, v)) * 32767.0f);
                     }
                 }
+                const double end = srcPos + (double)n * ratio; // the next period's first source position
+                const size_t used = std::min((size_t)end, have);
+                src48.erase(src48.begin(), src48.begin() + (std::ptrdiff_t)(used * 2));
+                srcPos = end - (double)used;
             }
             s.rc->ReleaseBuffer(n, 0);
         }

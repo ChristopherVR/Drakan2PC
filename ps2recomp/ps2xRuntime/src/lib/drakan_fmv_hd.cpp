@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -72,7 +73,9 @@ bool loadPacks() {
     std::error_code ec;
     if (!fs::is_directory(dir, ec))
         return false;
-    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+    // Increment with an error code: the range-for form throws on a directory error and would end the game.
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::directory_entry& entry = *it;
         if (entry.path().extension() != ".txt")
             continue;
         fs::path video = entry.path();
@@ -93,8 +96,16 @@ bool loadPacks() {
         const uint32_t index = (uint32_t)g_movies.size();
         std::string hex;
         uint32_t n = 0;
-        while (n < m.frames && in >> hex)
-            g_frames[std::stoull(hex, nullptr, 16)].push_back({index, n++});
+        while (n < m.frames && in >> hex) {
+            // A player-supplied file: a bad token ends this movie's index instead of throwing (std::stoull).
+            uint64_t hash = 0;
+            const auto [ptr, err] = std::from_chars(hex.data(), hex.data() + hex.size(), hash, 16);
+            if (err != std::errc() || ptr != hex.data() + hex.size()) {
+                std::fprintf(stderr, "[fmv-hd] %s: bad frame hash at frame %u, rest skipped\n", m.name.c_str(), n);
+                break;
+            }
+            g_frames[hash].push_back({index, n++});
+        }
         m.frames = n;
         std::fprintf(stderr, "[fmv-hd] %s: %u frames %ux%u -> %ux%u\n", m.name.c_str(), n, m.width, m.height, hdW, hdH);
         g_movies.push_back(std::move(m));

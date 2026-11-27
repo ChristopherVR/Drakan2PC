@@ -6,9 +6,21 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <system_error>
 
 namespace hle {
 namespace fs = std::filesystem;
+
+// path::string() throws std::system_error on MSVC for a name the ANSI code page cannot hold; such an entry of a
+// user folder is skipped instead of aborting the scan.
+static bool narrowPath(const fs::path& p, std::string& out) {
+    try {
+        out = p.string();
+        return true;
+    } catch (const std::system_error&) {
+        return false;
+    }
+}
 
 static std::string upperStr(std::string s) {
     for (auto& c : s)
@@ -65,24 +77,29 @@ size_t DirectoryOverride::load(const std::string& root) {
     std::error_code ec;
     if (root.empty() || !fs::is_directory(root, ec))
         return 0;
-    for (auto& d : fs::directory_iterator(root, ec)) {
-        if (!d.is_directory(ec))
+    // Explicit increment(ec): a range-for increments with the throwing operator++.
+    for (fs::directory_iterator d(root, ec), dEnd; !ec && d != dEnd; d.increment(ec)) {
+        std::string file;
+        std::error_code sec; // a failed stat skips the entry, not the rest of the scan
+        if (!d->is_directory(sec) || !narrowPath(d->path().filename(), file))
             continue;
-        std::string file = upperStr(d.path().filename().string());
-        for (auto& f : fs::directory_iterator(d.path(), ec)) {
-            if (!f.is_regular_file(ec))
+        file = upperStr(file);
+        std::error_code fec;
+        for (fs::directory_iterator f(d->path(), fec), fEnd; !fec && f != fEnd; f.increment(fec)) {
+            std::string n, ext, full;
+            if (!f->is_regular_file(sec) || !narrowPath(f->path().filename(), n) ||
+                !narrowPath(f->path().extension(), ext) || !narrowPath(f->path(), full))
                 continue;
-            std::string n = f.path().filename().string();
-            if (upperStr(f.path().extension().string()) != ".BIN")
+            if (upperStr(ext) != ".BIN")
                 continue;
             n = n.substr(0, n.size() - 4);
             Key k;
             k.file = file;
             if (!parseEntryName(n, k.type, k.id, k.sub)) {
-                logf("override: ignoring file name %s", f.path().string().c_str());
+                logf("override: ignoring file name %s", full.c_str());
                 continue;
             }
-            files_[k] = f.path().string();
+            files_[k] = full;
         }
     }
     return files_.size();
@@ -292,18 +309,21 @@ size_t XdbTextOverride::loadDirectory(const std::string& root) {
     if (root.empty() || !fs::is_directory(root, ec))
         return 0;
     std::shared_ptr<GlyphMap> glyphs;
-    for (auto& d : fs::directory_iterator(root, ec))
-        if (d.is_directory(ec) && upperStr(d.path().filename().string()) == kGlyphMapDir)
-            glyphs = loadGlyphMapFile((d.path() / kGlyphMapName).string(),
-                                      d.path().filename().string() + "/" + kGlyphMapName);
-    for (auto& d : fs::directory_iterator(root, ec)) {
-        if (!d.is_directory(ec))
+    std::string name, mapPath;
+    for (fs::directory_iterator d(root, ec), end; !ec && d != end; d.increment(ec))
+        if (std::error_code sec; d->is_directory(sec) && narrowPath(d->path().filename(), name) &&
+                                 upperStr(name) == kGlyphMapDir && narrowPath(d->path() / kGlyphMapName, mapPath))
+            glyphs = loadGlyphMapFile(mapPath, name + "/" + kGlyphMapName);
+    ec.clear();
+    for (fs::directory_iterator d(root, ec), end; !ec && d != end; d.increment(ec)) {
+        std::error_code sec;
+        if (!d->is_directory(sec) || !narrowPath(d->path().filename(), name))
             continue;
-        std::ifstream in(d.path() / "text.ini", std::ios::binary);
+        std::ifstream in(d->path() / "text.ini", std::ios::binary);
         if (!in)
             continue;
         std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        n += loadIni(upperStr(d.path().filename().string()), content, glyphs.get());
+        n += loadIni(upperStr(name), content, glyphs.get());
     }
     return n;
 }

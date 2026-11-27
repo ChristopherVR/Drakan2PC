@@ -709,38 +709,45 @@ int Spu2::procBatch(const SdBatch* b, u32* rets, u32 num) {
     return (int)loop;
 }
 
-int Spu2::procBatchEx(const SdBatch* b, u32* rets, u32 num, u32 voice) {
+int Spu2::procBatchEx(const SdBatch* b, u32* rets, u32 num, u32 voice, u32 retCap) {
     int cmd_count = 0;
+    // A multi-voice record yields one result per voice in `voice`, so `rets` may need up to 24 slots per record:
+    // writes past `retCap` are dropped instead of running off the caller's buffer.
+    auto put = [&](int at, u32 v) {
+        if (rets && at >= 0 && (u32)at < retCap)
+            rets[at] = v;
+    };
+    // The voice of a multi record: SD_VOICE(core, v) = core | v << 1, the record's register and core bit kept.
+    auto voiceEntry = [](u16 entry, int v) { return (u16)((entry & 0xFFC1) | (v << 1)); };
     for (u32 loop = 0; loop < num; ++loop) {
         u32 ret = 0;
         const bool multi = (b[loop].entry & 0x3E) == 0x3E; // voice field all-ones => apply to the voices in `voice`
+        // Each voice of a multi record takes one result slot; the record's own slot is the last one, filled below.
+        // An empty mask keeps that one slot (ret 0) rather than stepping back onto the previous record's result.
+        auto forVoices = [&](auto&& fn) {
+            int applied = 0;
+            for (int v = 0; v < 24; ++v)
+                if (voice & (1u << v)) {
+                    if (applied++)
+                        cmd_count++;
+                    fn(v);
+                }
+        };
         switch (b[loop].func) {
             case SD_BATCH_SETPARAM:
                 if (!multi)
                     setParam(b[loop].entry, (u16)b[loop].value);
-                else {
-                    for (int v = 0; v < 24; ++v)
-                        if (voice & (1u << v)) {
-                            setParam((u16)((b[loop].entry & 0xFFC1) | (1 << (v + 1))), (u16)b[loop].value);
-                            cmd_count++;
-                        }
-                    cmd_count--;
-                }
+                else
+                    forVoices([&](int v) { setParam(voiceEntry(b[loop].entry, v), (u16)b[loop].value); });
                 break;
             case SD_BATCH_GETPARAM:
                 if (!multi)
                     ret = getParam(b[loop].entry);
-                else {
-                    for (int v = 0; v < 24; ++v) {
-                        if (voice & (1u << v)) {
-                            ret = getParam((u16)((b[loop].entry & 0xFFC1) | (1 << (v + 1))));
-                            cmd_count++;
-                        }
-                        if (rets)
-                            rets[cmd_count] = ret;
-                    }
-                    cmd_count--;
-                }
+                else
+                    forVoices([&](int v) {
+                        ret = getParam(voiceEntry(b[loop].entry, v));
+                        put(cmd_count, ret);
+                    });
                 break;
             case SD_BATCH_SETSWITCH:
                 setSwitch(b[loop].entry, b[loop].value);
@@ -752,26 +759,16 @@ int Spu2::procBatchEx(const SdBatch* b, u32* rets, u32 num, u32 voice) {
                 if (!multi)
                     setAddr(b[loop].entry, b[loop].value);
                 else
-                    for (int v = 0; v < 24; ++v)
-                        if (voice & (1u << v)) {
-                            setAddr((u16)((b[loop].entry & 0xFFC1) | (1 << (v + 1))), b[loop].value);
-                            cmd_count++;
-                        }
-                cmd_count--;
+                    forVoices([&](int v) { setAddr(voiceEntry(b[loop].entry, v), b[loop].value); });
                 break;
             case SD_BATCH_GETADDR:
                 if (!multi)
                     ret = getAddr(b[loop].entry);
                 else
-                    for (int v = 0; v < 24; ++v) {
-                        if (voice & (1u << v)) {
-                            ret = getAddr((u16)((b[loop].entry & 0xFFC1) | (1 << (v + 1))));
-                            cmd_count++;
-                        }
-                        if (rets)
-                            rets[cmd_count] = ret;
-                    }
-                cmd_count--;
+                    forVoices([&](int v) {
+                        ret = getAddr(voiceEntry(b[loop].entry, v));
+                        put(cmd_count, ret);
+                    });
                 break;
             case SD_BATCH_SETCORE:
                 setCoreAttr(b[loop].entry, (u16)b[loop].value);
@@ -787,14 +784,15 @@ int Spu2::procBatchEx(const SdBatch* b, u32* rets, u32 num, u32 voice) {
                     eeWriter_(b[loop].value, &d, 4);
             } break;
             case SD_BATCH_EERETURN:
-                if (eeWriter_ && rets)
-                    eeWriter_(b[loop].value, rets, b[loop].entry);
+                if (eeWriter_ && rets) {
+                    const u32 avail = retCap > 0x3FFFFFFFu ? 0xFFFFFFFFu : retCap * 4; // bytes of `rets` to copy
+                    eeWriter_(b[loop].value, rets, std::min<u32>(b[loop].entry, avail));
+                }
                 break;
             default:
                 return -1 - cmd_count;
         }
-        if (rets)
-            rets[cmd_count] = ret;
+        put(cmd_count, ret);
         cmd_count++;
     }
     return cmd_count;

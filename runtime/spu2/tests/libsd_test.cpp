@@ -64,7 +64,41 @@ static void testParkingSilence() {
     }
 }
 
+// sceSdProcBatchEx multi-voice records (voice field all-ones): one result per voice in the mask, voice v addressed as
+// SD_VOICE(core, v), and a single-voice mask must not step the result index back onto the slot before it.
+static void testProcBatchExMultiVoice() {
+    Spu2 spu;
+    spu.sdInit(0);
+    constexpr u16 kAll = 0x3E; // voice field all-ones
+    {
+        std::array<u32, 4> buf{0xAAAAAAAAu, 0xAAAAAAAAu, 0xAAAAAAAAu, 0xAAAAAAAAu};
+        const SdBatch b[] = {{SD_BATCH_SETADDR, (u16)(SD_VADDR_SSA | kAll | 1), 0x6000}};
+        const int n = spu.procBatchEx(b, buf.data() + 1, 1, 1u << 3, 3);
+        CHECK(n == 1, "single-voice SETADDR count %d", n);
+        CHECK(buf[0] == 0xAAAAAAAAu, "single-voice SETADDR wrote rets[-1]");
+        CHECK(spu.getAddr(SD_VADDR_SSA | SD_VOICE(1, 3)) == 0x6000, "SETADDR voice 3 ssa %x",
+              spu.getAddr(SD_VADDR_SSA | SD_VOICE(1, 3)));
+        CHECK(spu.getAddr(SD_VADDR_SSA | SD_VOICE(1, 1)) != 0x6000, "SETADDR hit voice 1 (1 << (v + 1) encoding)");
+    }
+    {
+        spu.setParam(SD_VPARAM_PITCH | SD_VOICE(0, 2), 0x1111);
+        spu.setParam(SD_VPARAM_PITCH | SD_VOICE(0, 7), 0x2222);
+        std::array<u32, 3> rets{};
+        const SdBatch b[] = {{SD_BATCH_GETPARAM, (u16)(SD_VPARAM_PITCH | kAll), 0},
+                             {SD_BATCH_GETPARAM, SD_VPARAM_PITCH | SD_VOICE(0, 7), 0}};
+        const int n = spu.procBatchEx(b, rets.data(), 2, (1u << 2) | (1u << 7), (u32)rets.size());
+        CHECK(n == 3, "multi GETPARAM count %d", n);
+        CHECK(rets[0] == 0x1111 && rets[1] == 0x2222 && rets[2] == 0x2222, "multi GETPARAM rets %x %x %x", rets[0],
+              rets[1], rets[2]);
+        // A capacity smaller than the expansion drops the extra results instead of writing past the buffer.
+        std::array<u32, 2> small{0, 0xBBBBBBBBu};
+        spu.procBatchEx(b, small.data(), 2, (1u << 2) | (1u << 7), 1);
+        CHECK(small[0] == 0x1111 && small[1] == 0xBBBBBBBBu, "retCap not honoured");
+    }
+}
+
 int main() {
+    testProcBatchExMultiVoice();
     testParkingSilence();
     // Octaves around the centre note are exact powers of two of 0x1000; two octaves up and beyond stay at the
     // two-octave scale (libsd behaviour).

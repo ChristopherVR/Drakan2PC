@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <exception>
 #include <mutex>
 #include <thread>
 #include <functional>
@@ -112,7 +113,9 @@ struct Worker {
             }
             const uint32_t completed = batch.empty() ? 1u : uint32_t(batch.size());
             t_meta = (job.path3 || job.task) ? nullptr : &job.meta;
-            {
+            // A throw here (bad_alloc on a chain copy, a renderer task) must neither terminate the game nor skip the
+            // completion count below, or every sync with this worker would wait forever.
+            try {
                 // The job's GIF packets reach the renderer queue in one append, before the job counts as completed.
                 gsr_batch::Scope gifBatch;
                 if (!batch.empty()) {
@@ -139,9 +142,16 @@ struct Worker {
                 else
                     job.mem->runVif1Job(job.data.data(), static_cast<uint32_t>(job.data.size()),
                                         job.meta.objectMotion.get());
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "[vu1async] job failed: %s\n", e.what());
+            } catch (...) {
+                std::fprintf(stderr, "[vu1async] job failed\n");
             }
             t_meta = nullptr;
-            ps2x_chain_buffers::release(job.data); // a large chain copy goes back to the pool (no-op otherwise)
+            // Large chain copies go back to the pool (no-op otherwise). A batched job moved its data into `batch`.
+            ps2x_chain_buffers::release(job.data);
+            for (auto& input : batch)
+                ps2x_chain_buffers::release(input.data);
             if (g_pending.fetch_sub(completed, std::memory_order_release) == completed) {
                 // Publish every job through g_pending, but take the
                 // mutex only at the completion barrier. Holding it for

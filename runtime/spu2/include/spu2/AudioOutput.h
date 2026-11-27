@@ -195,6 +195,7 @@ private:
     unsigned long long nSamples_ = 0;
     void* dumpFile_ = nullptr;
     unsigned long long dumpBytes_ = 0;
+    unsigned long long dumpHdrBytes_ = 0; // dumpBytes_ when the WAV header was last rewritten
 };
 
 } // namespace spu2
