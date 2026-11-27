@@ -336,11 +336,16 @@ void GSR_IMPL::endFrame() {
     pumpUp(std::chrono::milliseconds(2));
     st.texCacheBytes = texBytes + upBytes;
     texPeakBytes = std::max(texPeakBytes, st.texCacheBytes);
+    // The cache sweeps below run every 16th frame. Lifetimes are in frames since the last use.
     if ((frame & 15) != 0)
         return;
+    constexpr uint64_t kTextureIdleFrames = 240;       // decoded textures (and HD copies without hd_texture_keep_s)
+    constexpr uint64_t kPalettePlaneIdleFrames = 1800; // HD index maps of palette-animated textures
+    constexpr uint64_t kTargetIdleFrames = 600;        // clean render targets and depth buffers
+    constexpr size_t kUpDroppedLimit = 16384;
     // age based sweep, then least-recently-used eviction while over the budget
     for (auto it = texCache.begin(); it != texCache.end();) {
-        if (frame - it->second.lastFrame > 240) {
+        if (frame - it->second.lastFrame > kTextureIdleFrames) {
             texBytes -= it->second.bytes;
             it = texCache.erase(it);
         } else
@@ -357,7 +362,7 @@ void GSR_IMPL::endFrame() {
     // HD / upscaled copies: kept hd_texture_keep_s seconds after their last draw (0 = 240 frames, the old rule). The
     // copies are found again by content hash, so one kept longer is shown at once when the game uploads the texture
     // again (after turning back, a cut scene, a menu) instead of the native texture until a worker rebuilt it.
-    uint64_t upMaxAge = 240;
+    uint64_t upMaxAge = kTextureIdleFrames;
     if (hdKeepSeconds) {
         const auto now = std::chrono::steady_clock::now();
         sweepTimes.emplace_back(frame, now);
@@ -367,8 +372,9 @@ void GSR_IMPL::endFrame() {
             ++drop;
         sweepTimes.erase(sweepTimes.begin(), sweepTimes.begin() + (std::ptrdiff_t)drop);
         // the oldest sample still at or before the horizon; until the game has run that long, nothing is old enough
-        upMaxAge = sweepTimes.front().second <= horizon ? std::max<uint64_t>(240, frame - sweepTimes.front().first)
-                                                        : UINT64_MAX;
+        upMaxAge = sweepTimes.front().second <= horizon
+                       ? std::max<uint64_t>(kTextureIdleFrames, frame - sweepTimes.front().first)
+                       : UINT64_MAX;
     }
     for (auto it = upCache.begin(); it != upCache.end();) {
         if (frame - it->second->lastFrame > upMaxAge) {
@@ -381,7 +387,8 @@ void GSR_IMPL::endFrame() {
     }
     // HD index maps of palette-animated textures (CPU memory only; rebuilt if the plane comes back)
     for (auto it = palettePlanes.begin(); it != palettePlanes.end();)
-        if (it->second->ready.load(std::memory_order_acquire) && frame - it->second->lastFrame > 1800)
+        if (it->second->ready.load(std::memory_order_acquire) &&
+            frame - it->second->lastFrame > kPalettePlaneIdleFrames)
             it = palettePlanes.erase(it);
         else
             ++it;
@@ -411,16 +418,16 @@ void GSR_IMPL::endFrame() {
     }
     // upDropped only feeds the texUpRebuilt stat and loses a key only when it is rebuilt: the keys of HD copies that
     // never come back would pile up for the whole session. Bound it; a reset only undercounts rebuilds.
-    if (upDropped.size() > 16384)
+    if (upDropped.size() > kUpDroppedLimit)
         upDropped.clear();
     drainSurfaces(); // jobs hold target pointers
     for (size_t i = 0; i < rts.size();)
-        if (!rts[i]->dirty && frame - rts[i]->lastUse > 600)
+        if (!rts[i]->dirty && frame - rts[i]->lastUse > kTargetIdleFrames)
             rts.erase(rts.begin() + i);
         else
             ++i;
     for (size_t i = 0; i < depths.size();)
-        if (frame - depths[i]->lastUse > 600)
+        if (frame - depths[i]->lastUse > kTargetIdleFrames)
             depths.erase(depths.begin() + i);
         else
             ++i;
