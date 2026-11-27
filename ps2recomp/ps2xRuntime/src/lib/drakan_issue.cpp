@@ -42,6 +42,7 @@ constexpr LONGLONG kLogLimit = 4 * 1024 * 1024;
 using Handle = std::unique_ptr<void, decltype([](HANDLE h) { CloseHandle(h); })>;
 HANDLE g_crashEvent = nullptr;
 std::atomic_flag g_reporting;
+std::atomic<DWORD> g_reportThread{0}; // thread showing the report's message boxes, 0 when none
 std::mutex g_levelMutex;
 std::string g_level;
 
@@ -464,8 +465,28 @@ bool available() {
 }
 
 void report(std::string_view screen, std::string_view campaign, std::string_view level) {
-    if (g_reporting.test_and_set())
+    if (g_reporting.test_and_set()) {
+        // A report is already open. Its message box has no owner window, so it can sit behind the borderless game
+        // window; bring it back to the front instead of ignoring the click.
+        const DWORD thread = g_reportThread.load(std::memory_order_acquire);
+        bool shown = false;
+        if (thread)
+            EnumThreadWindows(
+                thread,
+                [](HWND window, LPARAM shownFlag) -> BOOL {
+                    if (!IsWindowVisible(window))
+                        return TRUE;
+                    SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    SetForegroundWindow(window);
+                    *reinterpret_cast<bool*>(shownFlag) = true;
+                    return FALSE;
+                },
+                reinterpret_cast<LPARAM>(&shown));
+        std::fprintf(stderr, "[issue] report already open: %s\n",
+                     shown ? "brought its dialog to the front" : "still collecting the log");
         return;
+    }
+    std::fprintf(stderr, "[issue] report requested (%.*s)\n", static_cast<int>(screen.size()), screen.data());
     try {
         const auto& io = PS2Runtime::getIoPaths();
         const fs::path card = io.mcRoot.empty() ? io.elfDirectory / "mc0" : io.mcRoot;
@@ -477,6 +498,7 @@ void report(std::string_view screen, std::string_view campaign, std::string_view
         std::thread([card, screen = std::string(screen),
                      campaign = campaign.empty() ? std::string(drakan_game::currentName()) : std::string(campaign),
                      level = std::move(location)] {
+            g_reportThread.store(GetCurrentThreadId(), std::memory_order_release);
             fs::path captured;
             SystemDetails system;
             try {
@@ -487,6 +509,7 @@ void report(std::string_view screen, std::string_view campaign, std::string_view
             } catch (...) {
             }
             offerReport(false, captured, system, card, screen, campaign, level);
+            g_reportThread.store(0, std::memory_order_release);
             g_reporting.clear();
         }).detach();
     } catch (...) {
