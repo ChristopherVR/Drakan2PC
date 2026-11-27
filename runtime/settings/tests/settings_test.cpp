@@ -13,6 +13,8 @@
 #include "settings/Bindings.h"
 #include "settings/Store.h"
 
+#include "input/IniSchema.h"
+
 using namespace dsettings;
 
 static int g_fail = 0, g_checks = 0;
@@ -185,13 +187,14 @@ static void testDefaults() {
     CHECK(d.controls.lookMode == LookMode::Direct && d.controls.toggleKey == "F10" && !d.controls.invertY);
     CHECK(d.controls.game.lines.size() > 25 && d.controls.menu.lines.size() > 15);
     CHECK((d.controls.game.sourcesFor("TRIANGLE") == std::vector<std::string>{"SPACE"}));
-    CHECK((d.controls.game.sourcesFor("CROSS") == std::vector<std::string>{"LCONTROL", "C"}));
+    CHECK((d.controls.game.sourcesFor("CROSS") == std::vector<std::string>{"LCONTROL", "C", "ENTER", "NUMPADENTER"}));
     CHECK((d.controls.menu.sourcesFor("CIRCLE") == std::vector<std::string>{"MOUSE2", "BACKSPACE", "ESC"}));
     CHECK((d.controls.menu.sourcesFor("START") == std::vector<std::string>{"MOUSE2", "BACKSPACE", "ESC"}));
-    // every catalogue action of the game layer has a default binding (except the unbound L3 / RSTICK_*)
+    // every catalogue action of the game layer has a default binding (except the unbound L3 / RSTICK_* and ACT:0x17,
+    // the old default of I, which the default file now binds to VIEW_STRIP)
     for (const auto& a : gameActions()) {
         const std::string id = a.id;
-        if (id == "L3" || id.rfind("RSTICK_", 0) == 0)
+        if (id == "L3" || id.rfind("RSTICK_", 0) == 0 || id == "ACT:0x17")
             continue;
         CHECK(!d.controls.game.sourcesFor(id).empty());
     }
@@ -942,6 +945,56 @@ static void testControllerSchemes() {
     setControllerScheme(0);
 }
 
+// drakan_input.ini values follow the schema the game's own reader uses (input/IniSchema.h): what the game rejects the
+// settings menus reject too (the setting keeps its value), and accepted values are kept in their written spelling.
+static void testInputSchema() {
+    for (const std::string& key : settingKeys()) {
+        if (key.rfind("input.", 0) != 0)
+            continue;
+        const size_t dot = key.find('.', 6);
+        const bool known = drakan_input::ini::findKey(key.substr(6, dot - 6), key.substr(dot + 1)) != nullptr;
+        if (!known)
+            std::printf("settings field %s is not in the drakan_input.ini schema\n", key.c_str());
+        CHECK(known);
+    }
+    SettingsStore st;
+    st.loadFromText("", "");
+    Settings s = st.loaded();
+    const auto rejected = [&](const char* key, const char* value) {
+        const std::string before = settingValue(s, key);
+        CHECK(setSettingValue(s, key, value));
+        const bool kept = settingValue(s, key) == before;
+        if (!kept)
+            std::printf("%s = %s was accepted\n", key, value);
+        CHECK(kept);
+    };
+    rejected("input.gamepad.layout", "sideways");
+    rejected("input.general.toggle_key", "F13");
+    rejected("input.gamepad.debug_menu_combo", "L4");
+    rejected("input.keyboard.directional_attack", "none");
+    rejected("input.mouse.sensitivity_x", "1e999");
+    rejected("input.mouse.camera_follow", "nan");
+    rejected("input.general.capture_mouse", "maybe");
+    const auto written = [&](const char* key, const char* value, const char* expected) {
+        CHECK(setSettingValue(s, key, value));
+        CHECK_EQ(settingValue(s, key), std::string(expected));
+    };
+    written("input.gamepad.layout", "TWIN_STICK", "twin_stick");
+    written("input.general.toggle_key", "f9", "F9");
+    written("input.general.toggle_key", "none", "NONE");
+    written("input.gamepad.debug_menu_combo", "r3+l3", "L3+R3");
+    written("input.mouse.dragon_mode", "direct", "mouse");
+    written("input.mouse.bow_aim", "PS2", "native");
+    written("input.keyboard.directional_attack", "Always", "always");
+    // A value the game rejects in the file leaves the default, like the game.
+    st.loadFromText("", "[gamepad]\nlayout = sideways\ndebug_menu_combo = L4\n[general]\ntoggle_key = F13\n");
+    CHECK_EQ(st.loaded().controls.gamepadLayout, std::string("auto"));
+    CHECK_EQ(st.loaded().controls.debugMenuCombo, std::string("L3+R3"));
+    CHECK_EQ(st.loaded().controls.toggleKey, std::string("F10"));
+    // The default file is the game's own (input/IniSchema.h).
+    CHECK(std::string(builtinDefaultInputIni()) == drakan_input::ini::defaultIniText());
+}
+
 int main(int argc, char** argv) {
     {
         SettingsStore st;
@@ -1128,6 +1181,7 @@ int main(int argc, char** argv) {
     testControllerSchemes();
     testRebindConflicts();
     testFileIo();
+    testInputSchema();
     testRealFiles(argc, argv);
     std::printf("%d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;

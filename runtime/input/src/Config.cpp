@@ -1,104 +1,148 @@
 #include "input/Config.h"
 #include "input/FrameInput.h"
+#include "input/IniSchema.h"
+
 #include <algorithm>
-#include <cctype>
-#include <cstdlib>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <sstream>
 
+#include "common/Text.h"
+
 namespace drakan_input {
 namespace {
 
-struct KeyName {
-    const char* name;
-    int dik;
-};
-const KeyName kKeys[] = {
-    {"ESC", 0x01},       {"1", 0x02},        {"2", 0x03},          {"3", 0x04},           {"4", 0x05},
-    {"5", 0x06},         {"6", 0x07},        {"7", 0x08},          {"8", 0x09},           {"9", 0x0A},
-    {"0", 0x0B},         {"MINUS", 0x0C},    {"EQUALS", 0x0D},     {"BACKSPACE", 0x0E},   {"TAB", 0x0F},
-    {"Q", 0x10},         {"W", 0x11},        {"E", 0x12},          {"R", 0x13},           {"T", 0x14},
-    {"Y", 0x15},         {"U", 0x16},        {"I", 0x17},          {"O", 0x18},           {"P", 0x19},
-    {"LBRACKET", 0x1A},  {"RBRACKET", 0x1B}, {"ENTER", 0x1C},      {"LCONTROL", 0x1D},    {"A", 0x1E},
-    {"S", 0x1F},         {"D", 0x20},        {"F", 0x21},          {"G", 0x22},           {"H", 0x23},
-    {"J", 0x24},         {"K", 0x25},        {"L", 0x26},          {"SEMICOLON", 0x27},   {"APOSTROPHE", 0x28},
-    {"GRAVE", 0x29},     {"LSHIFT", 0x2A},   {"BACKSLASH", 0x2B},  {"Z", 0x2C},           {"X", 0x2D},
-    {"C", 0x2E},         {"V", 0x2F},        {"B", 0x30},          {"N", 0x31},           {"M", 0x32},
-    {"COMMA", 0x33},     {"PERIOD", 0x34},   {"SLASH", 0x35},      {"RSHIFT", 0x36},      {"NUMPADMUL", 0x37},
-    {"LALT", 0x38},      {"SPACE", 0x39},    {"CAPSLOCK", 0x3A},   {"F1", 0x3B},          {"F2", 0x3C},
-    {"F3", 0x3D},        {"F4", 0x3E},       {"F5", 0x3F},         {"F6", 0x40},          {"F7", 0x41},
-    {"F8", 0x42},        {"F9", 0x43},       {"F10", 0x44},        {"F11", 0x57},         {"F12", 0x58},
-    {"NUMPAD7", 0x47},   {"NUMPAD8", 0x48},  {"NUMPAD9", 0x49},    {"NUMPADMINUS", 0x4A}, {"NUMPAD4", 0x4B},
-    {"NUMPAD5", 0x4C},   {"NUMPAD6", 0x4D},  {"NUMPADPLUS", 0x4E}, {"NUMPAD1", 0x4F},     {"NUMPAD2", 0x50},
-    {"NUMPAD3", 0x51},   {"NUMPAD0", 0x52},  {"NUMPADDOT", 0x53},  {"NUMPADENTER", 0x9C}, {"RCONTROL", 0x9D},
-    {"NUMPADDIV", 0xB5}, {"RALT", 0xB8},     {"HOME", 0xC7},       {"UP", 0xC8},          {"PGUP", 0xC9},
-    {"LEFT", 0xCB},      {"RIGHT", 0xCD},    {"END", 0xCF},        {"DOWN", 0xD0},        {"PGDN", 0xD1},
-    {"INSERT", 0xD2},    {"DELETE", 0xD3},
-};
-struct PadName {
-    const char* name;
-    uint16_t mask;
-};
-const PadName kPads[] = {
-    {"L2", Pad::L2},
-    {"R2", Pad::R2},
-    {"L1", Pad::L1},
-    {"R1", Pad::R1},
-    {"TRIANGLE", Pad::TRIANGLE},
-    {"CIRCLE", Pad::CIRCLE},
-    {"CROSS", Pad::CROSS},
-    {"SQUARE", Pad::SQUARE},
-    {"SELECT", Pad::SELECT},
-    {"L3", Pad::L3},
-    {"R3", Pad::R3},
-    {"START", Pad::START},
-    {"DPAD_UP", Pad::UP},
-    {"DPAD_RIGHT", Pad::RIGHT},
-    {"DPAD_DOWN", Pad::DOWN},
-    {"DPAD_LEFT", Pad::LEFT},
+using drakan::common::asciiUpper;
+using drakan::common::trim;
+
+// ---- scalar keys: where each key of the schema (input/IniSchema.h) lands in Config --------------------------------
+// The schema has already validated the value (ini::parseValue), so an entry only stores it.
+
+// ini Choice values, in the order of input/IniSchema.cpp.
+static_assert(static_cast<int>(LookMode::Direct) == 0 && static_cast<int>(LookMode::Stick) == 1);
+static_assert(static_cast<int>(CallAbi::FprFloat) == 0 && static_cast<int>(CallAbi::GprBits) == 1);
+static_assert(static_cast<int>(DirectionalAttackMode::Modifier) == 0 &&
+              static_cast<int>(DirectionalAttackMode::Off) == 3);
+static_assert(static_cast<int>(GamepadLayout::Auto) == 0 && static_cast<int>(GamepadLayout::TwinStick) == 2);
+constexpr int kBowAimNative = 1, kBowAimModern = 2; // 0 = ootf
+constexpr int kDragonModeStick = 1;                 // 0 = mouse
+constexpr int kInventoryClickSquare = 0;            // 1 = cross
+
+using ApplyFn = void (*)(Config&, const ini::Value&);
+struct ConfigField {
+    const char* section;
+    const char* key;
+    ApplyFn apply;
 };
 
-std::string trim(std::string s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    return s.substr(a, b - a);
-}
-std::string upper(std::string s) {
-    for (auto& c : s)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    return s;
+// FIELD(section, key, statement): `statement` stores the parsed value `v` into the Config `c`.
+#define FIELD(section, key, statement) {section, key, [](Config& c, const ini::Value& v) { statement; }}
+const ConfigField kFields[] = {
+    // [general]
+    FIELD("general", "capture_mouse", c.captureMouse = v.b),
+    FIELD("general", "release_on_esc", c.releaseOnEsc = v.b),
+    FIELD("general", "toggle_key", c.toggleKeyDik = v.dik), // -1 = NONE
+    FIELD("general", "look_mode", c.lookMode = static_cast<LookMode>(v.choice)),
+    FIELD("general", "controls_version", c.controlsVersion = static_cast<int>(v.i)),
+    // [mouse]
+    FIELD("mouse", "sensitivity_x", c.sensX = v.f),
+    FIELD("mouse", "sensitivity_y", c.sensY = v.f),
+    FIELD("mouse", "invert_x", c.invertX = v.b),
+    FIELD("mouse", "invert_y", c.invertY = v.b),
+    FIELD("mouse", "pitch_hold_ms", c.pitchHoldMs = v.f),
+    FIELD("mouse", "pitch_persist", c.pitchPersist = v.b),
+    FIELD("mouse", "free_combat", c.freeCombat = v.b),
+    FIELD("mouse", "camera_follow", c.cameraFollow = v.f),
+    FIELD("mouse", "camera_lag_in_place", c.cameraLagInPlace = v.b),
+    FIELD("mouse", "pitch_view_gain", c.pitchViewGain = v.f),
+    FIELD("mouse", "bow_draw", c.bowDrawPose = v.b),
+    FIELD("mouse", "bow_aim", c.bowAimModern = v.choice == kBowAimModern; c.bowAimNative = v.choice == kBowAimNative),
+    FIELD("mouse", "bow_zoom", c.bowZoom = v.f),
+    FIELD("mouse", "dragon_mode", c.dragonStick = v.choice == kDragonModeStick),
+    FIELD("mouse", "dragon_sensitivity", c.dragonScale = v.f),
+    FIELD("mouse", "dragon_camera_carry", c.dragonCameraCarry = v.b),
+    FIELD("mouse", "dragon_smoothing", c.dragonSmoothingMs = v.f),
+    // The two nose limits are magnitudes: up is stored positive, down negative, whatever sign the file writes.
+    FIELD("mouse", "dragon_pitch_up", c.dragonPitchMax = std::fabs(v.f)),
+    FIELD("mouse", "dragon_pitch_down", c.dragonPitchMin = -std::fabs(v.f)),
+    FIELD("mouse", "yaw_sign", c.yawSign = v.f),
+    FIELD("mouse", "pitch_sign", c.pitchSign = v.f),
+    FIELD("mouse", "stick_full_counts", c.stickFullCounts = v.f),
+    FIELD("mouse", "stick_sign_x", c.stickSignX = v.f),
+    FIELD("mouse", "stick_sign_y", c.stickSignY = v.f),
+    // [keyboard]
+    FIELD("keyboard", "walk_scale", c.walkScale = v.f),
+    FIELD("keyboard", "toggle_run", c.toggleRun = v.b),
+    FIELD("keyboard", "strafe", c.strafeKeys = v.b),
+    FIELD("keyboard", "dragon_strafe", c.dragonStrafe = v.b),
+    FIELD("keyboard", "curve_compensation", c.curveCompensation = v.b),
+    FIELD("keyboard", "directional_attack", c.directionalAttack = static_cast<DirectionalAttackMode>(v.choice)),
+    // [gamepad]
+    FIELD("gamepad", "layout", c.gamepadLayout = static_cast<GamepadLayout>(v.choice)),
+    FIELD("gamepad", "enabled", c.gamepadEnabled = v.b),
+    FIELD("gamepad", "deadzone", c.gamepadDeadzone = v.f),
+    FIELD("gamepad", "debug_menu_combo", c.debugMenuCombo = v.pad),
+    // [menu]
+    FIELD("menu", "mouse", c.menuMouse = v.b),
+    FIELD("menu", "inventory_mouse", c.inventoryMouse = v.b),
+    FIELD("menu", "inventory_click", c.inventoryClickSquare = v.choice == kInventoryClickSquare),
+    FIELD("menu", "draw_cursor", c.menuDrawCursor = v.b),
+    FIELD("menu", "cursor_idle_ms", c.menuCursorIdleMs = v.f),
+    FIELD("menu", "map_view", c.mapView = v.b),
+    FIELD("menu", "inventory_strip", c.inventoryStrip = v.b),
+    FIELD("menu", "cursor", c.menuCursor = v.b),
+    FIELD("menu", "clicks", c.menuClicks = v.b),
+    // [advanced]
+    FIELD("advanced", "check_turn_gate", c.checkTurnGate = v.b),
+    FIELD("advanced", "turn_call_abi", c.turnCallAbi = static_cast<CallAbi>(v.choice)),
+    FIELD("advanced", "addr_ctx_ptr", c.addrCtxPtr = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_gui_ptr", c.addrGuiPtr = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_screen_ptr", c.addrScreenPtr = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_padmgr", c.addrPadMgr = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_turn_fn", c.addrTurnFn = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_turn_upvec", c.addrTurnUpVec = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_invoke_callback", c.addrInvokeCallback = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_timer_ms", c.addrTimerMs = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "gui_vtable_offset", c.guiVtableOffset = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_active_screen", c.addrActiveScreenVar = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_mouse_callback", c.addrMouseCallback = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_ui_entry", c.addrUiEntry = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_captured_widget", c.addrCapturedWidgetVar = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_stick_mode_flag", c.addrStickModeFlag = static_cast<uint32_t>(v.i)),
+    FIELD("advanced", "addr_stick_map", c.addrStickMap = static_cast<uint32_t>(v.i)),
+};
+#undef FIELD
+
+const ConfigField* findField(const ini::KeySpec& spec) {
+    for (const auto& f : kFields)
+        if (std::strcmp(f.section, spec.section) == 0 && std::strcmp(f.key, spec.key) == 0)
+            return &f;
+    return nullptr;
 }
 
-bool toNum(const std::string& s, long* v) {
-    char* e = nullptr;
-    *v = std::strtol(s.c_str(), &e, 0);
-    return e && *e == 0 && !s.empty();
-}
-bool toFloat(const std::string& s, float* v) {
-    char* e = nullptr;
-    *v = std::strtof(s.c_str(), &e);
-    return e && *e == 0 && !s.empty() && std::isfinite(*v);
-}
-bool toBool(const std::string& s, bool* v) {
-    std::string u = upper(s);
-    if (u == "1" || u == "TRUE" || u == "YES" || u == "ON") {
-        *v = true;
-        return true;
-    }
-    if (u == "0" || u == "FALSE" || u == "NO" || u == "OFF") {
-        *v = false;
-        return true;
-    }
-    return false;
+// One "key = value" line of a scalar section ([general] .. [advanced]). Returns the warning, empty when it applied.
+std::string applyScalar(Config& c, const std::string& section, const std::string& key, const std::string& value) {
+    if (!ini::isScalarSection(section))
+        return "key outside a known section: " + key;
+    const ini::KeySpec* spec = ini::findKey(section, key);
+    if (!spec)
+        return "unknown key " + key;
+    ini::Value v;
+    std::string why;
+    if (!ini::parseValue(*spec, value, v, &why))
+        return why; // the key keeps its previous value
+    if (const ConfigField* f = findField(*spec))
+        f->apply(c, v);
+    else if (spec->type != ini::Type::Ignored)
+        return "schema key without a Config field: " + key; // a programming error, caught by input_ini_schema_test
+    return {};
 }
 
+// ---- [bindings] / [menu_bindings] -----------------------------------------------------------------------------------
 bool parseSource(const std::string& n, Binding& b) {
-    std::string u = upper(n);
+    std::string u = asciiUpper(n);
     if (u.size() == 6 && u.rfind("MOUSE", 0) == 0 && u[5] >= '1' && u[5] <= '5') {
         b.src = Binding::Mouse;
         b.code = 1 << (u[5] - '1');
@@ -120,8 +164,16 @@ bool parseSource(const std::string& n, Binding& b) {
     }
     return false;
 }
+// "ACT:0x17" / "CMD:0x400a": the id after the prefix (any integer spelling).
+bool parseId(const std::string& digits, uint32_t* id) {
+    long long v = 0;
+    if (!ini::parseInt(digits, &v))
+        return false;
+    *id = static_cast<uint32_t>(v);
+    return true;
+}
 bool parseAction(const std::string& a, Binding& b) {
-    std::string u = upper(a);
+    std::string u = asciiUpper(a);
     uint16_t m;
     if (padButtonFromName(u, &m)) {
         b.act = Binding::PadBtn;
@@ -145,15 +197,12 @@ bool parseAction(const std::string& a, Binding& b) {
         b.act = Binding::Walk;
         return true;
     }
-    long v = 0;
-    if (u.rfind("ACT:", 0) == 0 && toNum(u.substr(4), &v)) {
+    if (u.rfind("ACT:", 0) == 0 && parseId(u.substr(4), &b.value)) {
         b.act = Binding::Action;
-        b.value = static_cast<uint32_t>(v);
         return true;
     }
-    if (u.rfind("CMD:", 0) == 0 && toNum(u.substr(4), &v)) {
+    if (u.rfind("CMD:", 0) == 0 && parseId(u.substr(4), &b.value)) {
         b.act = Binding::Command;
-        b.value = static_cast<uint32_t>(v);
         return true;
     }
     if (u == "QUICKSAVE" || u == "QUICKLOAD") {
@@ -185,40 +234,6 @@ bool parseAction(const std::string& a, Binding& b) {
 
 } // namespace
 
-bool padComboFromText(const std::string& text, uint16_t* mask) {
-    const std::string u = upper(trim(text));
-    if (u.empty() || u == "NONE" || u == "OFF") {
-        *mask = 0;
-        return true;
-    }
-    uint16_t m = 0;
-    std::stringstream parts(u);
-    std::string part;
-    while (std::getline(parts, part, '+')) {
-        part = trim(part);
-        const auto it =
-            std::find_if(std::begin(kPads), std::end(kPads), [&](const PadName& p) { return part == p.name; });
-        if (it == std::end(kPads))
-            return false;
-        m = static_cast<uint16_t>(m | it->mask);
-    }
-    if (!m)
-        return false;
-    *mask = m;
-    return true;
-}
-
-std::string padComboToText(uint16_t mask) {
-    std::string s;
-    for (const auto& p : kPads)
-        if (mask & p.mask) {
-            if (!s.empty())
-                s += '+';
-            s += p.name;
-        }
-    return s.empty() ? std::string("NONE") : s;
-}
-
 const char* directionalAttackModeName(DirectionalAttackMode m) {
     switch (m) {
         case DirectionalAttackMode::Modifier:
@@ -234,215 +249,15 @@ const char* directionalAttackModeName(DirectionalAttackMode m) {
 }
 
 bool directionalAttackModeFromName(const std::string& name, DirectionalAttackMode* m) {
-    const std::string u = upper(trim(name));
-    if (u == "MODIFIER")
-        *m = DirectionalAttackMode::Modifier;
-    else if (u == "TAP")
-        *m = DirectionalAttackMode::Tap;
-    else if (u == "ALWAYS")
-        *m = DirectionalAttackMode::Always;
-    else if (u == "OFF" || u == "NONE" || u == "0")
-        *m = DirectionalAttackMode::Off;
-    else
+    ini::Value v;
+    if (!ini::parseValue(*ini::findKey("keyboard", "directional_attack"), trim(name), v))
         return false;
+    *m = static_cast<DirectionalAttackMode>(v.choice);
     return true;
 }
 
-bool keyFromName(const std::string& name, int* dik) {
-    std::string u = upper(name);
-    for (auto& k : kKeys)
-        if (u == k.name) {
-            *dik = k.dik;
-            return true;
-        }
-    return false;
-}
-const char* nameOfKey(int dik) {
-    for (auto& k : kKeys)
-        if (k.dik == dik)
-            return k.name;
-    return nullptr;
-}
-bool padButtonFromName(const std::string& name, uint16_t* mask) {
-    std::string u = upper(name);
-    for (auto& k : kPads)
-        if (u == k.name) {
-            *mask = k.mask;
-            return true;
-        }
-    return false;
-}
-
 const char* Config::defaultIniText() {
-    return R"INI(; drakan_input.ini - mouse + keyboard configuration for the Drakan port.
-; Bindings are:  <source> = <action> [| <action> ...]
-;   sources : key names (A..Z, 0..9, SPACE, LSHIFT, LCONTROL, TAB, ENTER, ESC, UP/DOWN/LEFT/RIGHT, F1..F12 ...),
-;             MOUSE1..MOUSE5 (left,right,middle,x1,x2), WHEELUP, WHEELDOWN
-;   actions : DualShock buttons  CROSS CIRCLE SQUARE TRIANGLE L1 L2 L3 R1 R2 R3 START SELECT
-;                                DPAD_UP DPAD_DOWN DPAD_LEFT DPAD_RIGHT
-;             LSTICK_UP/DOWN/LEFT/RIGHT  RSTICK_UP/DOWN/LEFT/RIGHT   (digital deflection of an analog stick)
-;             WALK                       (while held, scales the keyboard left stick by walk_scale)
-;             ACT:<id>                   inject a game "action id" (DirectInput scancode or 0x100..) through the keymap
-;             CMD:<id>                   inject a game command id (0x4002..0x4069) directly (meanings partly unconfirmed)
-;             VIEW_MAP / VIEW_STRIP      [bindings] only: open the full-screen map / the inventory strip (the same key,
-;                                        Esc, right click or Tab closes it)
-;             QUICKSAVE / QUICKLOAD      [bindings] only: replace / load the dedicated quicksave (F5 / F8)
-;             DIRECTIONAL_ATTACK         [bindings] only: hold with Attack and a movement key for a directional special
-;                                        move ([keyboard] directional_attack = modifier; Left Alt by default)
-;             DEBUG_MENU                 [bindings] only: open / close the game's developer debug menu (F3; needs
-;                                        drakan.ini [general] debug_menu = 1)
-;             QUICK1 .. QUICK9           [bindings] only: use / equip the Nth quick-slot item (marked with Cross / F in
-;                                        the inventory), in the order of the game's Quick Inventory bar (R1 / Q)
-; The comments name what the buttons do on foot in the game's controller scheme A (Options > Controls): Triangle = Jump,
-; Cross = Crouch, Square = Attack, Circle = Magic/Parry, L1 = Call Arokh/Use, R1 = Quick Inventory, R2 = Toggle Targeting,
-; L2 = Next Target/Strafe, Select = Inventory/Map, Start = Game Menu. Schemes B and C put other commands on the same
-; buttons, and riding Arokh the game uses its own flight layout (scheme A: L1 = previous breath / item, R1 = Attack);
-; F1 > Controls shows the meanings for the scheme the game runs. The button-prompt generator shows the FIRST key bound.
-
-[general]
-capture_mouse = 1          ; hide + clip the cursor while playing
-release_on_esc = 0         ; 1: Esc also toggles the capture by hand (not needed: the cursor is freed automatically whenever the game is not in gameplay, e.g. pause menu)
-toggle_key = F10           ; manual capture toggle
-look_mode = direct         ; direct = raw angles into camera/player, stick = emulate the right stick
-controls_version = 3       ; 2 = Order-of-the-Flame style controls (A/D strafe, mouse pitch stays), 3 = mouse steering for Arokh; written by the upgrade of older files
-
-[mouse]
-sensitivity_x = 0.0020     ; radians per mouse count (direct mode)
-sensitivity_y = 0.0020
-invert_x = 0              ; reverse horizontal mouse look (direct and stick modes)
-invert_y = 0
-pitch_persist = 1          ; the camera pitch stays where the mouse left it (the game's automatic re-centring is switched off while you look with the mouse; a pad right stick still re-centres)
-free_combat = 1            ; free combat look; explicit target lock and bow aiming remain available
-camera_follow = 5          ; mouse / keyboard on foot: turning carries the camera round Rynn at once, its travel behind her eases at this rate (1/s; higher = stiffer, 0 = the game's own slow rubber band)
-camera_lag_in_place = 1    ; with camera_follow: the distance the camera trails behind a running Rynn is shortened by a turn instead of being swung round her whole, so a quick turn in a narrow room cannot swing it through a wall (0 = the whole offset turns, as before)
-pitch_view_gain = 1.8      ; the game shows 1.8x the camera pitch on foot; mouse up / down is divided by this so both axes turn the view equally (1 = old feel)
-bow_draw = 1             ; hold left to show the drawn bow (aiming stance on the torso until the release); 0 = pose only on release
-bow_aim = ootf             ; ootf: hold left to draw and aim (crosshair), release to shoot, walk any direction, right click toggles the first-person sight; native = the original PS2 bow (click fires); modern = ootf without the first-person sight adapters
-bow_zoom = 0.85            ; field of view factor while aiming the bow (1 = no zoom)
-dragon_mode = mouse        ; Arokh: mouse = the mouse turns and pitches him directly like on foot (no stick, dead zone or rate lag); stick = the mouse drives the game's right stick (the PS2 flight feel)
-dragon_sensitivity = 1.0   ; dragon_mode = mouse: multiplies sensitivity_x / sensitivity_y while you steer Arokh
-dragon_camera_carry = 1    ; dragon_mode = mouse: the view behind Arokh turns with each mouse turn at once (0 = the game's flight camera swings round him about half a second later)
-dragon_smoothing = 0       ; dragon_mode = mouse: ease the mouse steering over this many ms (0 = raw, every count turns him at once)
-dragon_pitch_up = 0.75     ; dragon_mode = mouse: highest nose-up angle the mouse sets (radians; the game's own hard limit while slow)
-dragon_pitch_down = 1.0    ; dragon_mode = mouse: steepest nose-down angle the mouse sets (radians; the game's own hard limit while slow)
-yaw_sign = -1              ; verified in the running game: mouse right turns right
-pitch_sign = -1            ; negative camera pitch looks DOWN; mouse up raises it. Explicit legacy signs are preserved.
-stick_full_counts = 40     ; stick mode: counts per 1/30 s for full deflection (independent of the frame rate)
-stick_sign_x = 1
-stick_sign_y = 1
-
-[keyboard]
-walk_scale = 0.5
-toggle_run = 0             ; 1 = press WALK to switch between running and walking; starts running
-strafe = 1                 ; A / D strafe like Drakan: Order of the Flame (0 = the game's own mapping: A / D turn). Needs no change in the game's Options.
-dragon_strafe = 1          ; with strafe = 1, A / D strafe Arokh too, flying or on the ground, either dragon_mode (the mouse turns him); 0 = A / D turn him
-curve_compensation = 1     ; undo the game's squared stick response so WASD is full speed
-directional_attack = modifier ; when WASD + attack is a directional special move: modifier = only while DIRECTIONAL_ATTACK (Left Alt) is held, so a plain attack keeps walking / strafing; tap = press the movement key and attack together; always = whenever a movement key is held; off = arrow keys only
-
-[gamepad]
-layout = auto               ; auto = twin-stick on foot in Order of the Flame, native in other campaigns
-enabled = 1                ; XInput pad is merged with keyboard/mouse
-deadzone = 0.15
-debug_menu_combo = L3+R3   ; hold 0.5 s to open / close the debug menu (Gameplay > Developer); NONE = off
-
-[menu]
-mouse = 1                  ; the mouse drives the game's own menus: hover = highlight, left click = confirm, wheel = up/down (or slider left/right), right click = back
-inventory_mouse = 1        ; inventory / map / shop: hover selects the item under the pointer, left click = use / equip / buy / sell, wheel = previous / next section, right click = back
-inventory_click = square   ; Equipment: left click = Square (use / equip; Cross is "hot slot"); cross = always Cross
-draw_cursor = 1            ; draw a menu cursor in the overlay layer (the OS cursor is hidden over the game window while a menu is open)
-cursor_idle_ms = 5000      ; the drawn cursor fades out after this long without mouse movement (0 = always visible)
-map_view = 1               ; VIEW_MAP (M) shows the map full screen like Order of the Flame; 0 = the normal inventory screen on its Map page
-inventory_strip = 1        ; VIEW_STRIP (I) shows Equipment as a strip along the bottom over the world; 0 = the normal inventory screen
-cursor = 0                 ; legacy: push the host cursor into InputDev_SetCursorPos (the game does not use it)
-clicks = 0                 ; legacy: synthesize GUI key events 0x100/0x101
-
-[advanced]
-check_turn_gate = 1        ; replicate the game's vcall gate before turning the player
-turn_call_abi = fpr        ; fpr = angle in $f12, gpr = float bits in $a0
-addr_ctx_ptr = 0x5565d4
-addr_gui_ptr = 0x5565d8
-addr_screen_ptr = 0x5565c8
-addr_padmgr = 0x4e90c0
-addr_turn_fn = 0x13ee90
-addr_turn_upvec = 0x4e8c48
-addr_invoke_callback = 0x131fa8
-addr_timer_ms = 0x4af7f8
-gui_vtable_offset = 0
-addr_active_screen = 0x4fb60c   ; GUI screen manager: active screen object
-addr_mouse_callback = 0x2cc7c0  ; the game's GUI mouse handler (type, button id, x, y)
-addr_ui_entry = 0x2bec48        ; UI property table entry (menu sounds)
-addr_captured_widget = 0x4fb19c ; widget that owns the pressed mouse button
-addr_stick_mode_flag = 0x4e9594 ; PadMgr+0x4d4: "stick position mode" flag (the pitch re-centring), cleared around Camera_UpdateLook while the mouse looks
-addr_stick_map = 0x4e9558       ; PadMgr+0x498: stick -> axis records (A / D strafe remaps the left stick to axis 3)
-
-[bindings]
-; movement (8-way normalised)
-W = LSTICK_UP
-S = LSTICK_DOWN
-A = LSTICK_LEFT
-D = LSTICK_RIGHT
-LSHIFT = WALK
-LALT = DIRECTIONAL_ATTACK  ; hold with Attack and W / A / S / D for a directional special move
-; combat / actions: the comments are controller scheme A on foot (see the top of this file for B, C and Arokh)
-MOUSE1 = SQUARE            ; Attack
-MOUSE2 = CIRCLE            ; Bow sight / Use Magic / Parry
-MOUSE3 = R2                ; Toggle Targeting (lock-on)
-SPACE = TRIANGLE           ; Jump
-LCONTROL = CROSS           ; Crouch
-C = CROSS                  ; Crouch
-ENTER = CROSS              ; confirm popups / info boxes ("OK"); like Ctrl/C it is also Crouch if no popup is detected
-NUMPADENTER = CROSS
-E = L1                     ; Tap to use, hold to call Arokh (scheme A)
-Q = R1                     ; Quick Inventory
-F = R2                     ; Toggle Targeting
-R = L2                     ; Next Target / Strafe
-V = R3                     ; Camera view toggle (command 0x400a, every scheme)
-TAB = SELECT               ; Inventory / Map
-ESC = START                ; Game Menu (pause)
-; quick slots: 1..5 use / equip the 1st..5th quick-slot item (weapons are drawn, potions drunk) through the game's own
-; Quick Inventory bar; 6 = the shipped PC keymap's Quick Inventory (command 0x403a in every scheme)
-1 = QUICK1
-2 = QUICK2
-3 = QUICK3
-4 = QUICK4
-5 = QUICK5
-6 = ACT:0x0e
-I = VIEW_STRIP             ; inventory strip along the bottom (Tab = the full inventory screen)
-F5 = QUICKSAVE
-F8 = QUICKLOAD
-F3 = DEBUG_MENU            ; developer debug menu (Settings > Gameplay > Developer)
-M = VIEW_MAP               ; full-screen map
-WHEELUP = ACT:0x114        ; 0x4034 previous item (context-dependent; Arokh's breath in flight)
-WHEELDOWN = ACT:0x115      ; 0x4035 next item (context-dependent)
-UP = DPAD_UP               ; Special Moves
-DOWN = DPAD_DOWN
-LEFT = DPAD_LEFT
-RIGHT = DPAD_RIGHT
-
-[menu_bindings]
-; used while a menu / cutscene / pause screen is active (the game is not running its player camera)
-UP = DPAD_UP
-DOWN = DPAD_DOWN
-LEFT = DPAD_LEFT
-RIGHT = DPAD_RIGHT
-W = DPAD_UP
-S = DPAD_DOWN
-A = DPAD_LEFT
-D = DPAD_RIGHT
-ENTER = CROSS              ; confirm / hot slot (inventory, store)
-NUMPADENTER = CROSS
-SPACE = CROSS
-E = SQUARE                 ; use (inventory, store)
-Q = TRIANGLE               ; drop / sell (inventory, store)
-PGUP = L1
-PGDN = R1
-LBRACKET = L1              ; previous inventory section
-RBRACKET = R1              ; next inventory section
-MOUSE2 = START | CIRCLE    ; right click = back (left click / wheel are handled by [menu] mouse = 1)
-BACKSPACE = START | CIRCLE ; back (the game's GUI maps START to Esc = back; Circle alone is its R-MOUSE id)
-ESC = START | CIRCLE       ; back (Circle) and resume from the pause menu (Start)
-TAB = SELECT
-)INI";
+    return ini::defaultIniText();
 }
 
 void Config::parse(const std::string& text, Config& c, std::string* warn) {
@@ -457,8 +272,7 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
     while (std::getline(in, line)) {
         ++ln;
         for (size_t i = 0; i < line.size(); ++i)
-            if ((line[i] == ';' || line[i] == '#') &&
-                (i == 0 || std::isspace(static_cast<unsigned char>(line[i - 1])))) {
+            if ((line[i] == ';' || line[i] == '#') && (i == 0 || drakan::common::isAsciiSpace(line[i - 1]))) {
                 line.resize(i);
                 break;
             }
@@ -466,7 +280,7 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
         if (line.empty())
             continue;
         if (line.front() == '[' && line.back() == ']') {
-            section = upper(trim(line.substr(1, line.size() - 2)));
+            section = asciiUpper(trim(line.substr(1, line.size() - 2)));
             continue;
         }
         size_t eq = line.find('=');
@@ -475,7 +289,6 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
             continue;
         }
         std::string k = trim(line.substr(0, eq)), v = trim(line.substr(eq + 1));
-        std::string K = upper(k);
         if (section == "BINDINGS" || section == "MENU_BINDINGS") {
             auto& vec = section == "BINDINGS" ? c.game : c.menu;
             bool& cleared = section == "BINDINGS" ? gameCleared : menuCleared;
@@ -494,9 +307,9 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
             std::string a;
             while (std::getline(acts, a, '|')) {
                 a = trim(a);
-                if (section == "BINDINGS" && upper(a) == "NONE" && proto.src == Binding::Key)
+                if (section == "BINDINGS" && asciiUpper(a) == "NONE" && proto.src == Binding::Key)
                     c.gameKeysNone.push_back(proto.code);
-                if (a.empty() || upper(a) == "NONE")
+                if (a.empty() || asciiUpper(a) == "NONE")
                     continue;
                 Binding b = proto;
                 if (!parseAction(a, b)) {
@@ -507,229 +320,8 @@ void Config::parse(const std::string& text, Config& c, std::string* warn) {
             }
             continue;
         }
-        long n;
-        float f;
-        bool bo;
-        auto B = [&](bool& dst) {
-            if (toBool(v, &bo))
-                dst = bo;
-            else
-                w("bad bool for " + k);
-        };
-        auto F = [&](float& dst) {
-            if (toFloat(v, &f))
-                dst = f;
-            else
-                w("bad number for " + k);
-        };
-        auto A = [&](uint32_t& dst) {
-            if (toNum(v, &n))
-                dst = static_cast<uint32_t>(n);
-            else
-                w("bad number for " + k);
-        };
-        if (section == "GENERAL") {
-            if (K == "CAPTURE_MOUSE")
-                B(c.captureMouse);
-            else if (K == "RELEASE_ON_ESC")
-                B(c.releaseOnEsc);
-            else if (K == "TOGGLE_KEY") {
-                int d;
-                if (keyFromName(v, &d))
-                    c.toggleKeyDik = d;
-                else if (upper(v) == "NONE")
-                    c.toggleKeyDik = -1;
-                else
-                    w("unknown key " + v);
-            } else if (K == "CONTROLS_VERSION") {
-                if (toNum(v, &n))
-                    c.controlsVersion = static_cast<int>(n);
-                else
-                    w("bad number for " + k);
-            } else if (K == "LOOK_MODE") {
-                std::string u = upper(v);
-                if (u == "DIRECT")
-                    c.lookMode = LookMode::Direct;
-                else if (u == "STICK")
-                    c.lookMode = LookMode::Stick;
-                else
-                    w("look_mode must be direct|stick");
-            } else
-                w("unknown key " + k);
-        } else if (section == "MOUSE") {
-            if (K == "SENSITIVITY_X")
-                F(c.sensX);
-            else if (K == "SENSITIVITY_Y")
-                F(c.sensY);
-            else if (K == "INVERT_X")
-                B(c.invertX);
-            else if (K == "INVERT_Y")
-                B(c.invertY);
-            else if (K == "PITCH_HOLD_MS")
-                F(c.pitchHoldMs);
-            else if (K == "PITCH_PERSIST")
-                B(c.pitchPersist);
-            else if (K == "DRAGON_MODE") {
-                std::string u = upper(v);
-                if (u == "STICK")
-                    c.dragonStick = true;
-                else if (u == "MOUSE" || u == "DIRECT")
-                    c.dragonStick = false;
-                else
-                    w("dragon_mode must be mouse|stick");
-            } else if (K == "DRAGON_SENSITIVITY")
-                F(c.dragonScale);
-            else if (K == "DRAGON_SMOOTHING")
-                F(c.dragonSmoothingMs);
-            else if (K == "DRAGON_CAMERA_CARRY")
-                B(c.dragonCameraCarry);
-            else if (K == "DRAGON_PITCH_UP") {
-                F(c.dragonPitchMax);
-                c.dragonPitchMax = std::fabs(c.dragonPitchMax);
-            } else if (K == "DRAGON_PITCH_DOWN") {
-                F(c.dragonPitchMin);
-                c.dragonPitchMin = -std::fabs(c.dragonPitchMin);
-            } else if (K == "YAW_SIGN")
-                F(c.yawSign);
-            else if (K == "PITCH_SIGN")
-                F(c.pitchSign);
-            else if (K == "FREE_COMBAT")
-                B(c.freeCombat);
-            else if (K == "CAMERA_FOLLOW")
-                F(c.cameraFollow);
-            else if (K == "CAMERA_LAG_IN_PLACE")
-                B(c.cameraLagInPlace);
-            else if (K == "BOW_AIM") {
-                const std::string u = upper(v);
-                if (u == "MODERN" || u == "CLASSIC" || u == "OOTF" || u == "NATIVE" || u == "PS2") {
-                    c.bowAimModern = u == "MODERN";
-                    c.bowAimNative = u == "NATIVE" || u == "PS2";
-                } else
-                    w("bow_aim must be ootf|native|modern");
-            } else if (K == "BOW_DRAW")
-                B(c.bowDrawPose);
-            else if (K == "BOW_ZOOM")
-                F(c.bowZoom);
-            else if (K == "PITCH_VIEW_GAIN")
-                F(c.pitchViewGain);
-            else if (K == "STICK_FULL_COUNTS")
-                F(c.stickFullCounts);
-            else if (K == "STICK_SIGN_X")
-                F(c.stickSignX);
-            else if (K == "STICK_SIGN_Y")
-                F(c.stickSignY);
-            else
-                w("unknown key " + k);
-        } else if (section == "KEYBOARD") {
-            if (K == "WALK_SCALE")
-                F(c.walkScale);
-            else if (K == "TOGGLE_RUN")
-                B(c.toggleRun);
-            else if (K == "STRAFE")
-                B(c.strafeKeys);
-            else if (K == "DRAGON_STRAFE")
-                B(c.dragonStrafe);
-            else if (K == "CURVE_COMPENSATION")
-                B(c.curveCompensation);
-            else if (K == "DIRECTIONAL_ATTACK") {
-                if (!directionalAttackModeFromName(v, &c.directionalAttack))
-                    w("directional_attack must be modifier|tap|always|off");
-            } else
-                w("unknown key " + k);
-        } else if (section == "GAMEPAD") {
-            if (K == "ENABLED")
-                B(c.gamepadEnabled);
-            else if (K == "DEADZONE")
-                F(c.gamepadDeadzone);
-            else if (K == "LAYOUT") {
-                const auto value = upper(v);
-                if (value == "AUTO")
-                    c.gamepadLayout = GamepadLayout::Auto;
-                else if (value == "NATIVE")
-                    c.gamepadLayout = GamepadLayout::Native;
-                else if (value == "TWIN_STICK")
-                    c.gamepadLayout = GamepadLayout::TwinStick;
-                else
-                    w("layout must be auto|native|twin_stick");
-            } else if (K == "DEBUG_MENU_COMBO") {
-                if (!padComboFromText(v, &c.debugMenuCombo))
-                    w("bad button combination '" + v + "'");
-            } else
-                w("unknown key " + k);
-        } else if (section == "MENU") {
-            if (K == "CURSOR")
-                B(c.menuCursor);
-            else if (K == "CLICKS")
-                B(c.menuClicks);
-            else if (K == "MOUSE")
-                B(c.menuMouse);
-            else if (K == "DRAW_CURSOR")
-                B(c.menuDrawCursor);
-            else if (K == "INVENTORY_MOUSE")
-                B(c.inventoryMouse);
-            else if (K == "INVENTORY_STEP") {
-                // Obsolete (pointer travel no longer steps the inventory selection); kept so old files stay quiet.
-            } else if (K == "INVENTORY_CLICK") {
-                std::string u = upper(v);
-                if (u == "SQUARE")
-                    c.inventoryClickSquare = true;
-                else if (u == "CROSS")
-                    c.inventoryClickSquare = false;
-                else
-                    w("inventory_click must be square|cross");
-            } else if (K == "CURSOR_IDLE_MS")
-                F(c.menuCursorIdleMs);
-            else if (K == "MAP_VIEW")
-                B(c.mapView);
-            else if (K == "INVENTORY_STRIP")
-                B(c.inventoryStrip);
-            else
-                w("unknown key " + k);
-        } else if (section == "ADVANCED") {
-            if (K == "CHECK_TURN_GATE")
-                B(c.checkTurnGate);
-            else if (K == "TURN_CALL_ABI") {
-                std::string u = upper(v);
-                if (u == "FPR")
-                    c.turnCallAbi = CallAbi::FprFloat;
-                else if (u == "GPR")
-                    c.turnCallAbi = CallAbi::GprBits;
-                else
-                    w("turn_call_abi must be fpr|gpr");
-            } else if (K == "ADDR_CTX_PTR")
-                A(c.addrCtxPtr);
-            else if (K == "ADDR_GUI_PTR")
-                A(c.addrGuiPtr);
-            else if (K == "ADDR_SCREEN_PTR")
-                A(c.addrScreenPtr);
-            else if (K == "ADDR_PADMGR")
-                A(c.addrPadMgr);
-            else if (K == "ADDR_TURN_FN")
-                A(c.addrTurnFn);
-            else if (K == "ADDR_TURN_UPVEC")
-                A(c.addrTurnUpVec);
-            else if (K == "ADDR_INVOKE_CALLBACK")
-                A(c.addrInvokeCallback);
-            else if (K == "ADDR_TIMER_MS")
-                A(c.addrTimerMs);
-            else if (K == "GUI_VTABLE_OFFSET")
-                A(c.guiVtableOffset);
-            else if (K == "ADDR_ACTIVE_SCREEN")
-                A(c.addrActiveScreenVar);
-            else if (K == "ADDR_MOUSE_CALLBACK")
-                A(c.addrMouseCallback);
-            else if (K == "ADDR_STICK_MODE_FLAG")
-                A(c.addrStickModeFlag);
-            else if (K == "ADDR_STICK_MAP")
-                A(c.addrStickMap);
-            else if (K == "ADDR_UI_ENTRY")
-                A(c.addrUiEntry);
-            else if (K == "ADDR_CAPTURED_WIDGET")
-                A(c.addrCapturedWidgetVar);
-            else
-                w("unknown key " + k);
-        } else
-            w("key outside a known section: " + k);
+        if (const std::string problem = applyScalar(c, section, k, v); !problem.empty())
+            w(problem);
     }
     migrate(c);
 }
@@ -774,7 +366,7 @@ Config Config::loadOrCreate(const std::string& path, std::string* warnings) {
 // DRAKAN_DRAGON_STRAFE = 0 | 1 override the file for one run (docs/reference/env-flags.md); the file is not changed.
 void Config::applyEnvOverrides(Config& c) {
     if (const char* e = std::getenv("DRAKAN_DRAGON_MODE")) {
-        const std::string u = upper(trim(e));
+        const std::string u = asciiUpper(trim(e));
         if (u == "STICK")
             c.dragonStick = true;
         else if (u == "MOUSE" || u == "DIRECT")
@@ -805,7 +397,7 @@ void Config::applyEnvOverrides(Config& c) {
 std::string Config::upgradeText(const std::string& text, int version) {
     std::string body = text;
     if (version < 2) {
-        const std::string up = upper(text);
+        const std::string up = asciiUpper(text);
         // An explicit legacy sign may be intentional inversion. Keep every original
         // byte; an absent sign already inherits the current default from defaults().
         std::string add = "\n; ---- controls v2 (added automatically): Order of the Flame style controls ----\n";
@@ -831,7 +423,7 @@ std::string Config::upgradeText(const std::string& text, int version) {
         if (cr)
             line.pop_back();
         const size_t eq = line.find('=');
-        const std::string key = eq == std::string::npos ? std::string() : upper(trim(line.substr(0, eq)));
+        const std::string key = eq == std::string::npos ? std::string() : asciiUpper(trim(line.substr(0, eq)));
         if (key == "CONTROLS_VERSION") {
             line = "controls_version = 3       ; 3 = mouse steering for Arokh (written by the upgrade of older files)";
             versionWritten = true;
@@ -839,7 +431,7 @@ std::string Config::upgradeText(const std::string& text, int version) {
             std::string v = line.substr(eq + 1);
             if (const size_t sc = v.find(';'); sc != std::string::npos)
                 v.resize(sc);
-            const std::string u = upper(trim(v));
+            const std::string u = asciiUpper(trim(v));
             if (u == "STICK" || u == "DIRECT")
                 line = "dragon_mode = mouse        ; Arokh: mouse = the mouse turns and pitches him directly (stick = "
                        "the game's right stick, the PS2 flight feel)";

@@ -46,7 +46,7 @@ char controllerSchemeLetter(int scheme);
 // bytes for the language slot `lang` (0 English, 1 German, 2 French, 3 Italian, 4 Spanish); nullptr = keep the disc's.
 const char* textWithoutSpells(unsigned interfaceTextId, int lang);
 
-// Input source names accepted by drakan_input.ini (same table as input/Config.cpp).
+// Input source names accepted by drakan_input.ini (the schema's tables, input/IniSchema.h).
 bool isKnownSource(const std::string& upperName);
 // "LCONTROL" -> "Left Ctrl", "MOUSE1" -> "Left Mouse", "NUMPAD7" -> "Num 7" ...
 std::string sourceDisplayName(const std::string& upperName);
@@ -57,8 +57,8 @@ const std::vector<std::string>& allKeyNames();
 // Returns a reason string or empty.
 std::string reservedReason(const std::string& source, const std::string& toggleKey);
 
-// The built-in default bindings (a copy of input/Config.cpp defaultIniText [bindings]/[menu_bindings]); the host can
-// override it through ISettingsHost::defaultInputIni().
+// The default drakan_input.ini (drakan_input::ini::defaultIniText(), the file the game writes); the host can override
+// it through ISettingsHost::defaultInputIni().
 const char* builtinDefaultInputIni();
 
 std::string upperCopy(std::string s);

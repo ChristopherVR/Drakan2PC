@@ -1,6 +1,6 @@
 // Reads the [bindings] / [menu_bindings] sections of drakan_input.ini (format: runtime/input/README.md, "<source> =
-// <action> | <action>") and answers "which keyboard/mouse source is bound to this DualShock button". Standalone: no
-// dependency on the input module.
+// <action> | <action>") and answers "which keyboard/mouse source is bound to this DualShock button". Of the input
+// module it uses only the ini schema (drakan::input_ini: the default file).
 #pragma once
 #include <string>
 #include <vector>
@@ -32,7 +32,8 @@ public:
     static Bindings pad(PadStyle style);
     bool isPad() const { return pad_ != PadStyle::None; }
 
-    // Built-in copy of the shipped default bindings (used when the ini is missing or has no [bindings] section).
+    // The default bindings of the file the game writes (drakan_input::ini::defaultIniText(); used when the ini is
+    // missing or has no [bindings] section).
     static Bindings defaults();
     // Missing / unreadable file -> defaults(). *found tells which one happened.
     static Bindings load(const std::string& path, bool* found = nullptr);

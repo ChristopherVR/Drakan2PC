@@ -1,4 +1,5 @@
 #include "ui/Bindings.h"
+#include "input/IniSchema.h"
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -16,51 +17,9 @@ static std::string trim(const std::string& s) {
     return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
 }
 
-static const char* kDefaultIni = R"INI(
-[bindings]
-W = LSTICK_UP
-S = LSTICK_DOWN
-A = LSTICK_LEFT
-D = LSTICK_RIGHT
-MOUSE1 = SQUARE
-MOUSE2 = CIRCLE
-MOUSE3 = R2
-SPACE = TRIANGLE
-LCONTROL = CROSS
-C = CROSS
-E = L1
-Q = R1
-R = L2
-F = R2
-V = R3
-TAB = SELECT
-ESC = START
-UP = DPAD_UP
-DOWN = DPAD_DOWN
-LEFT = DPAD_LEFT
-RIGHT = DPAD_RIGHT
-[menu_bindings]
-UP = DPAD_UP
-DOWN = DPAD_DOWN
-LEFT = DPAD_LEFT
-RIGHT = DPAD_RIGHT
-ENTER = CROSS
-SPACE = CROSS
-E = SQUARE
-Q = TRIANGLE
-PGUP = L1
-PGDN = R1
-LBRACKET = L1
-RBRACKET = R1
-MOUSE2 = START | CIRCLE
-BACKSPACE = START | CIRCLE
-ESC = START | CIRCLE
-TAB = SELECT
-)INI";
-
 Bindings Bindings::defaults() {
     Bindings b;
-    b.parse(kDefaultIni);
+    b.parse(drakan_input::ini::defaultIniText()); // the file the game writes when there is none
     return b;
 }
 

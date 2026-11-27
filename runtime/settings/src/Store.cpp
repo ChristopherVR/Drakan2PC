@@ -1,6 +1,9 @@
 #include "settings/Store.h"
 #include "settings/Bindings.h"
 
+#include "common/Text.h"
+#include "input/IniSchema.h"
+
 #include <atomic>
 #include <algorithm>
 #include <cerrno>
@@ -106,18 +109,10 @@ const char* toIni(TitleMenu s) {
 
 namespace {
 
+namespace inputini = drakan_input::ini;
+using drakan::common::trim;
 std::string lower(std::string s) {
-    for (auto& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    return s.substr(a, b - a);
+    return drakan::common::asciiLower(std::move(s));
 }
 std::string fmt(const char* f, double v) {
     char b[64];
@@ -702,7 +697,7 @@ std::string normToken(const std::string& in) {
     std::string t = upperCopy(trim(in));
     if (t.rfind("ACT:", 0) == 0 || t.rfind("CMD:", 0) == 0) {
         for (size_t i = 4; i < t.size(); ++i)
-            t[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(t[i])));
+            t[i] = drakan::common::asciiLower(t[i]);
     }
     return t;
 }
@@ -783,6 +778,23 @@ void writeLayer(const BindingLayer& before, const BindingLayer& requested, IniDo
             doc.appendEntry(section, nl.source, joinActions(nl.actions));
 }
 
+// Stores one ini value into a setting. drakan_input.ini values first pass the schema the game's own reader uses
+// (input/IniSchema.h): a value the game would reject leaves the setting unchanged, an accepted one reaches the setter
+// in its written spelling ("TWIN_STICK" -> "twin_stick", "direct" -> "mouse", "r3+l3" -> "L3+R3").
+void applyField(const Field& f, Settings& s, const std::string& raw) {
+    if (!f.input) {
+        f.set(s, raw);
+        return;
+    }
+    const inputini::KeySpec* spec = inputini::findKey(f.section, f.key);
+    const std::string text = trim(raw);
+    inputini::Value value;
+    if (!spec || !inputini::parseValue(*spec, text, value))
+        return;
+    const std::string canonical = inputini::canonicalText(*spec, value);
+    f.set(s, canonical.empty() ? text : canonical);
+}
+
 } // namespace
 
 // ---- BindingLayer text defaults / pure functions
@@ -792,9 +804,9 @@ Settings parseSettings(const IniDoc& drakan, const IniDoc& input, const IniDoc& 
     for (const Field& f : fields()) {
         const IniDoc& d = f.input ? input : drakan;
         if (d.has(f.section, f.key))
-            f.set(s, d.get(f.section, f.key));
+            applyField(f, s, d.get(f.section, f.key));
         else if (f.input && defaultInput.has(f.section, f.key))
-            f.set(s, defaultInput.get(f.section, f.key));
+            applyField(f, s, defaultInput.get(f.section, f.key));
     }
     // A bindings section replaces the built-in set as soon as it appears (same rule as input/Config.cpp).
     s.controls.game =
@@ -852,7 +864,7 @@ bool setSettingValue(Settings& s, const std::string& key, const std::string& val
     const Field* f = findField(key);
     if (!f)
         return false;
-    f->set(s, value);
+    applyField(*f, s, value);
     return true;
 }
 

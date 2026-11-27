@@ -1,6 +1,9 @@
 #include "settings/Bindings.h"
 #include "settings/Types.h"
 
+#include "common/Text.h"
+#include "input/IniSchema.h"
+
 #include <algorithm>
 #include <atomic>
 #include <string_view>
@@ -9,9 +12,7 @@
 namespace dsettings {
 
 std::string upperCopy(std::string s) {
-    for (auto& c : s)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    return s;
+    return drakan::common::asciiUpper(std::move(s));
 }
 
 // ---- BindingLayer ---------------------------------------------------------------------------------------------------
@@ -307,38 +308,13 @@ const std::vector<ActionDef>& menuActions() {
     return v;
 }
 
-// ---- input source names (copy of input/Config.cpp kKeys)
-// ---------------------------------------------------------------
-static const char* kKeyNames[] = {
-    "ESC",     "1",           "2",         "3",           "4",        "5",          "6",         "7",
-    "8",       "9",           "0",         "MINUS",       "EQUALS",   "BACKSPACE",  "TAB",       "Q",
-    "W",       "E",           "R",         "T",           "Y",        "U",          "I",         "O",
-    "P",       "LBRACKET",    "RBRACKET",  "ENTER",       "LCONTROL", "A",          "S",         "D",
-    "F",       "G",           "H",         "J",           "K",        "L",          "SEMICOLON", "APOSTROPHE",
-    "GRAVE",   "LSHIFT",      "BACKSLASH", "Z",           "X",        "C",          "V",         "B",
-    "N",       "M",           "COMMA",     "PERIOD",      "SLASH",    "RSHIFT",     "NUMPADMUL", "LALT",
-    "SPACE",   "CAPSLOCK",    "F1",        "F2",          "F3",       "F4",         "F5",        "F6",
-    "F7",      "F8",          "F9",        "F10",         "F11",      "F12",        "NUMPAD7",   "NUMPAD8",
-    "NUMPAD9", "NUMPADMINUS", "NUMPAD4",   "NUMPAD5",     "NUMPAD6",  "NUMPADPLUS", "NUMPAD1",   "NUMPAD2",
-    "NUMPAD3", "NUMPAD0",     "NUMPADDOT", "NUMPADENTER", "RCONTROL", "NUMPADDIV",  "RALT",      "HOME",
-    "UP",      "PGUP",        "LEFT",      "RIGHT",       "END",      "DOWN",       "PGDN",      "INSERT",
-    "DELETE",
-};
-
+// ---- input source names: the drakan_input.ini schema's tables (input/IniSchema.h) ---------------------------------
 const std::vector<std::string>& allKeyNames() {
-    static const std::vector<std::string> v(std::begin(kKeyNames), std::end(kKeyNames));
-    return v;
+    return drakan_input::allKeyNames();
 }
 
 bool isKnownSource(const std::string& u) {
-    if (u == "WHEELUP" || u == "WHEELDOWN")
-        return true;
-    if (u.size() == 6 && u.rfind("MOUSE", 0) == 0 && u[5] >= '1' && u[5] <= '5')
-        return true;
-    for (const char* k : kKeyNames)
-        if (u == k)
-            return true;
-    return false;
+    return drakan_input::ini::isBindingSource(u);
 }
 
 std::string sourceDisplayName(const std::string& u) {
@@ -413,102 +389,7 @@ std::string reservedReason(const std::string& s, const std::string& toggleKey) {
 }
 
 const char* builtinDefaultInputIni() {
-    return R"INI(; drakan_input.ini - mouse + keyboard configuration for the Drakan port.
-[general]
-capture_mouse = 1
-release_on_esc = 0
-toggle_key = F10
-look_mode = direct
-
-[mouse]
-sensitivity_x = 0.0020
-sensitivity_y = 0.0020
-invert_x = 0
-invert_y = 0
-pitch_persist = 1
-camera_follow = 5
-bow_aim = ootf
-dragon_mode = mouse
-dragon_sensitivity = 1.0
-dragon_smoothing = 0
-dragon_camera_carry = 1
-yaw_sign = -1
-pitch_sign = -1
-stick_full_counts = 40
-stick_sign_x = 1
-stick_sign_y = 1
-
-[keyboard]
-strafe = 1
-dragon_strafe = 1
-walk_scale = 0.5
-curve_compensation = 1
-directional_attack = modifier
-
-[gamepad]
-enabled = 1
-deadzone = 0.15
-layout = auto
-
-[bindings]
-W = LSTICK_UP
-S = LSTICK_DOWN
-A = LSTICK_LEFT
-D = LSTICK_RIGHT
-LSHIFT = WALK
-LALT = DIRECTIONAL_ATTACK
-MOUSE1 = SQUARE
-MOUSE2 = CIRCLE
-MOUSE3 = R2
-SPACE = TRIANGLE
-LCONTROL = CROSS
-C = CROSS
-E = L1
-Q = R1
-F = R2
-R = L2
-V = R3
-TAB = SELECT
-ESC = START
-F5 = QUICKSAVE
-F8 = QUICKLOAD
-F3 = DEBUG_MENU
-1 = QUICK1
-2 = QUICK2
-3 = QUICK3
-4 = QUICK4
-5 = QUICK5
-6 = ACT:0x0e
-I = ACT:0x17
-WHEELUP = ACT:0x114
-WHEELDOWN = ACT:0x115
-UP = DPAD_UP
-DOWN = DPAD_DOWN
-LEFT = DPAD_LEFT
-RIGHT = DPAD_RIGHT
-
-[menu_bindings]
-UP = DPAD_UP
-DOWN = DPAD_DOWN
-LEFT = DPAD_LEFT
-RIGHT = DPAD_RIGHT
-W = DPAD_UP
-S = DPAD_DOWN
-A = DPAD_LEFT
-D = DPAD_RIGHT
-ENTER = CROSS
-SPACE = CROSS
-E = SQUARE
-Q = TRIANGLE
-LBRACKET = L1
-RBRACKET = R1
-PGUP = L1
-PGDN = R1
-MOUSE2 = START | CIRCLE
-BACKSPACE = START | CIRCLE
-ESC = START | CIRCLE
-TAB = SELECT
-)INI";
+    return drakan_input::ini::defaultIniText();
 }
 
 } // namespace dsettings

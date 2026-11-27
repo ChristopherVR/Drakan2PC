@@ -1,8 +1,10 @@
-// drakan_input.ini: configuration + bindings.
+// drakan_input.ini: configuration + bindings. The keys, value rules and name tables are input/IniSchema.h.
 #pragma once
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include "input/IniSchema.h" // keyFromName, padComboFromText, ... (declared there, part of this API)
 
 namespace drakan_input {
 
@@ -37,10 +39,6 @@ enum class GamepadLayout { Auto, Native, TwinStick };
 constexpr float kDirectionalTapSeconds = 0.25f;
 const char* directionalAttackModeName(DirectionalAttackMode m); // "modifier" | "tap" | "always" | "off"
 bool directionalAttackModeFromName(const std::string& name, DirectionalAttackMode* m);
-// "L3+R3" -> the DualShock mask (button names as in the bindings, joined by '+'); NONE / OFF / "" -> 0. False when a
-// name is unknown (*mask is left unchanged).
-bool padComboFromText(const std::string& text, uint16_t* mask);
-std::string padComboToText(uint16_t mask); // "L3+R3"; "NONE" for 0
 
 struct Config {
     bool freeCombat =
@@ -145,7 +143,7 @@ struct Config {
     // [bindings] keys written as "<key> = NONE": migrate() never binds them
     std::vector<int> gameKeysNone;
 
-    // Built from defaultIniText().
+    // Built from defaultIniText(). The scalar keys are described (type, accepted values, default) by ini::keys().
     static Config defaults();
     // Parses text on top of cfg (a bindings section replaces the built-in set as soon as it appears).
     // Problems are appended to *warnings (one per line) and never abort the parse.
@@ -161,12 +159,7 @@ struct Config {
     // loadOrCreate writes it back.
     static std::string upgradeText(const std::string& text, int version);
     static void applyEnvOverrides(Config& c); // DRAKAN_DRAGON_* run overrides (env-flags.md)
-    static const char* defaultIniText();
+    static const char* defaultIniText();      // = ini::defaultIniText()
 };
-
-// Name tables (exposed for tests / the live window).
-bool keyFromName(const std::string& name, int* dik);
-const char* nameOfKey(int dik);
-bool padButtonFromName(const std::string& name, uint16_t* mask);
 
 } // namespace drakan_input

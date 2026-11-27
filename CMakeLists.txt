@@ -103,6 +103,8 @@ endif()
 
 if(DRAKAN_NEED_RUNTIME_LIBS)
     add_subdirectory(third_party/imgui)
+    add_subdirectory(runtime/common)   # header-only text / UTF-8 path helpers (drakan::common)
+    add_subdirectory(runtime/input)    # portable camera/controls core + the drakan_input.ini schema (ui, settings use it)
     add_subdirectory(runtime/hle)
     add_subdirectory(runtime/fmv)
     add_subdirectory(runtime/ui)
@@ -114,7 +116,6 @@ if(DRAKAN_NEED_RUNTIME_LIBS)
     if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux" OR EMSCRIPTEN)
         add_subdirectory(runtime/spu2)
     endif()
-    add_subdirectory(runtime/input)    # portable camera/controls core; Raw Input host remains Windows-only
     add_subdirectory(runtime/settings)
     add_subdirectory(runtime/net)      # multiplayer protocol, match server/client, transports, drakan_server
 endif()

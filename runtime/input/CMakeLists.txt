@@ -5,6 +5,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(input)
+drakan_component_require(common)
+
+# The drakan_input.ini schema (keys, value rules, name tables, default file): no dependencies and platform free, so the
+# settings and ui libraries link it without the rest of the input module.
+add_library(drakan_input_ini STATIC src/IniSchema.cpp)
+add_library(drakan::input_ini ALIAS drakan_input_ini)
+target_include_directories(drakan_input_ini PUBLIC include)
+target_link_libraries(drakan_input_ini PRIVATE drakan::common drakan::options)
 
 add_library(drakan_input STATIC
     src/Config.cpp
@@ -24,7 +32,7 @@ target_include_directories(drakan_input PUBLIC include)
 if(WIN32)
     target_link_libraries(drakan_input PUBLIC user32)
 endif()
-target_link_libraries(drakan_input PRIVATE drakan::options)
+target_link_libraries(drakan_input PUBLIC drakan_input_ini PRIVATE drakan::common drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(menu_mouse_inventory_test tests/menu_mouse_inventory_tests.cpp)
@@ -34,6 +42,9 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     if(MSVC)
         target_compile_options(menu_mouse_map_test PRIVATE /WX)
     endif()
+    add_executable(input_ini_schema_test tests/ini_schema_tests.cpp)
+    target_link_libraries(input_ini_schema_test PRIVATE drakan_input drakan::options)
+    add_test(NAME input_ini_schema_test COMMAND input_ini_schema_test)
     add_executable(input_test tests/input_test.cpp)
     target_link_libraries(input_test PRIVATE drakan_input drakan::options)
     add_test(NAME input_test COMMAND input_test)

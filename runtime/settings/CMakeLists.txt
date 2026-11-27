@@ -13,14 +13,15 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(settings)
-drakan_component_require(imgui gameui)
+drakan_component_require(common imgui gameui input)
 if(WIN32)
     drakan_component_require(hle spu2)
 endif()
 
 add_library(drakan_settings_core STATIC src/IniDoc.cpp src/Store.cpp src/Bindings.cpp src/Apply.cpp src/ModsModel.cpp)
 target_include_directories(drakan_settings_core PUBLIC include)
-target_link_libraries(drakan_settings_core PRIVATE drakan::options)
+# drakan::input_ini: the drakan_input.ini schema shared with the game's reader (runtime/input/include/input/IniSchema.h).
+target_link_libraries(drakan_settings_core PRIVATE drakan::input_ini drakan::common drakan::options)
 
 # The schema both settings UIs draw (the F1 overlay and gameui::SettingsPages) and the modern pages' apply glue.
 add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp src/ModsPage.cpp
@@ -84,7 +85,7 @@ if(DRAKAN_BUILD_RUNTIME_TESTS)
     drakan_enable_asserts(character_preview_test)
     add_test(NAME character_preview_test COMMAND character_preview_test)
     add_executable(settings_test tests/settings_test.cpp)
-    target_link_libraries(settings_test PRIVATE drakan_settings_core drakan::options)
+    target_link_libraries(settings_test PRIVATE drakan_settings_core drakan::input_ini drakan::options)
 
     add_executable(settings_menu_test tests/settings_menu_test.cpp)
     target_link_libraries(settings_menu_test PRIVATE drakan_settings_ui drakan::options)
