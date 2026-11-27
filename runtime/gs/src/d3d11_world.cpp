@@ -664,159 +664,29 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         dumpTemporalStage("prepared-depth", textures.depth.texture);
         dumpTemporalStage("prepared-motion", textures.motion.texture);
     }
+    RaySceneRun run;
+    run.wantWater = wantWater;
+    run.wantShadows = wantShadows;
     const char* compareEffect = cstr(runtimeFlags().matchedCompareEffect);
-    const bool compareWater = compareEffect && std::strcmp(compareEffect, "water") == 0 && !wantSR && !wantNR;
-    const bool compareModels = compareEffect && std::strcmp(compareEffect, "models") == 0 && !wantSR && !wantNR;
-    const bool compareShadows = compareEffect && std::strcmp(compareEffect, "shadows") == 0 && !wantSR && !wantNR;
-    const bool compareTransport = compareEffect && std::strcmp(compareEffect, "transport") == 0 && !wantSR && !wantNR;
-    ComPtr<ID3D11Texture2D> waterBefore;
-    if ((compareWater || compareModels || compareShadows || compareTransport) && wantRayScene &&
-        runtimeFlags().matchedCompareEpoch && motionEpoch == *runtimeFlags().matchedCompareEpoch) {
+    run.compareWater = compareEffect && std::strcmp(compareEffect, "water") == 0 && !wantSR && !wantNR;
+    run.compareModels = compareEffect && std::strcmp(compareEffect, "models") == 0 && !wantSR && !wantNR;
+    run.compareShadows = compareEffect && std::strcmp(compareEffect, "shadows") == 0 && !wantSR && !wantNR;
+    run.compareTransport = compareEffect && std::strcmp(compareEffect, "transport") == 0 && !wantSR && !wantNR;
+    if (run.compareAny() && wantRayScene && runtimeFlags().matchedCompareEpoch &&
+        motionEpoch == *runtimeFlags().matchedCompareEpoch) {
         D3D11_TEXTURE2D_DESC desc{};
         rt.tex->GetDesc(&desc);
-        if (SUCCEEDED(dev->CreateTexture2D(&desc, nullptr, &waterBefore))) {
+        if (SUCCEEDED(dev->CreateTexture2D(&desc, nullptr, &run.waterBefore))) {
             ctx->OMSetRenderTargets(0, nullptr, nullptr);
-            ctx->CopyResource(waterBefore.Get(), rt.tex.Get());
+            ctx->CopyResource(run.waterBefore.Get(), rt.tex.Get());
         }
     }
-    bool waterEvaluated = false, rayEvaluated = false;
-    if (success && wantRayScene) {
-        CpuProfile::Scope stage(cpuProfile, CpuProfile::RayScene); // waterRenderer exists: wantRayScene
-        float waterSeconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - waterStartTime).count();
-        if (runtimeFlags().waterTime) {
-            const float value = *runtimeFlags().waterTime;
-            if (std::isfinite(value) && std::abs(value) < 1000000)
-                waterSeconds = value;
-        }
-        // Resident level geometry keeps its acceleration structures across frames; only this frame's
-        // reconstructed surface triangles are rebuilt.
-        {
-            // The changed triangles since the previous publication travel with it, so the pass repacks only those.
-            auto shared = residentScene.projectedShared();
-            const uint64_t attributes = residentScene.attributeVersion();
-            sharedChanged.clear();
-            const bool known = sharedGeometry == residentScene.geometryVersion &&
-                               residentScene.changedSince(sharedAttributes, sharedChanged);
-            waterRenderer->shareStaticWorld(std::move(shared), residentScene.geometryVersion, attributes,
-                                            known ? &sharedChanged : nullptr);
-            residentScene.forgetChangesUpTo(attributes);
-            sharedGeometry = residentScene.geometryVersion;
-            sharedAttributes = attributes;
-        }
-        // The pass takes this frame's reconstructed triangles (the target's list is not read again this frame).
-        std::vector<surface::Triangle> noTriangles;
-        auto& rayScene = rt.surface.epoch == motionEpoch ? rt.surface.triangles : noTriangles;
-        std::vector<surface::Triangle> compareScene;
-        if ((compareModels || compareShadows || compareTransport) && waterBefore)
-            compareScene = rayScene;
-        if ((compareModels || compareShadows || compareTransport) && waterBefore && waterRenderer->ready() &&
-            waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture, constants,
-                                  compareScene, waterSeconds, rayReflections, reflectionTextures,
-                                  compareModels ? nullptr : nativeModels,
-                                  surface::RayOptions{wantWater, compareShadows ? false : wantShadows, nullptr, true,
-                                                      compareTransport ? false : rayGlobalIllumination,
-                                                      compareTransport ? false : rayReflections})) {
-            ComPtr<ID3D11RenderTargetView> beforeRtv;
-            if (SUCCEEDED(dev->CreateRenderTargetView(waterBefore.Get(), nullptr, &beforeRtv))) {
-                ctx->OMSetRenderTargets(0, nullptr, nullptr);
-                ctx->CopyResource(textures.color.texture, textures.output.texture);
-                neuralGuides->composeRgb(beforeRtv.Get(), false);
-                // Re-prepare the unchanged native image for the full scene.
-                success = neuralGuides->prepare(guide);
-            }
-        }
-        // GSR_VERTEX_SURFACE=gpu: this world's streamed draws, built into frame triangles on the GPU by the pass.
-        surface::GpuFrameTriangles gpuTriangles;
-        const bool gpuBuilt = gpuSurfacesOn() && gpuSurfaceTriangles(rt, gpuTriangles);
-        // GSR_SURFACE_GPU_COMPARE=<n>[:<every>[:<from>]] (with GSR_SURFACE_GPU_VERIFY and GSR_TEMPORAL_DUMP_DIR): in
-        // n worlds with GPU-built draws (every `every`th, default 60, from the `from`th, default 30), the same pass
-        // first with the streamed draws reconstructed on the CPU appended to the frame list (the CPU path's
-        // triangles), written as "water-cpu"; the pass with the GPU-built triangles follows ("water-gpu"). Same frame,
-        // camera, inputs and water clock.
-        static const std::array<unsigned, 3> compareSpec = [] {
-            std::array<unsigned, 3> v{0, 60, 30};
-            if (const char* e = std::getenv("GSR_SURFACE_GPU_COMPARE"))
-                std::sscanf(e, "%u:%u:%u", &v[0], &v[1], &v[2]);
-            v[1] = std::max(v[1], 1u);
-            return v;
-        }();
-        const uint64_t built = gpuSurfaces.worlds;
-        const bool compareGpu = gpuBuilt && runtimeFlags().surfaceGpuVerify && compareSpec[0] > 0 &&
-                                gpuSurfaceCompared < compareSpec[0] && built >= compareSpec[2] &&
-                                (built - compareSpec[2]) % compareSpec[1] == 0 && waterRenderer->ready();
-        if (compareGpu) {
-            std::vector<surface::Triangle> cpuScene(rayScene.begin(), rayScene.end());
-            appendGpuSurfaceReference(cpuScene);
-            if (waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture,
-                                      constants, cpuScene, waterSeconds, rayReflections, reflectionTextures,
-                                      nativeModels,
-                                      surface::RayOptions{wantWater, wantShadows, nullptr, true, rayGlobalIllumination,
-                                                          rayReflections})) {
-                ctx->OMSetRenderTargets(0, nullptr, nullptr);
-                writeStage("water-cpu", textures.output.texture);
-            }
-        }
-        // The interop pass snapshots the input before it queues the result copy back to the guide.
-        if (waterRenderer->ready() &&
-            waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.color.texture, constants,
-                                  rayScene, waterSeconds, rayReflections, reflectionTextures, nativeModels,
-                                  surface::RayOptions{wantWater, wantShadows,
-                                                      motionEpoch == runtimeFlags().raySceneDumpEpoch
-                                                          ? cstr(runtimeFlags().raySceneDump)
-                                                          : nullptr,
-                                                      true, rayGlobalIllumination, rayReflections},
-                                  gpuBuilt ? &gpuTriangles : nullptr)) {
-            ctx->OMSetRenderTargets(0, nullptr, nullptr);
-            waterEvaluated = wantWater;
-            rayEvaluated = true;
-            if (tpLog || runtimeFlags().waterLog)
-                std::fprintf(stderr, "[modern-water] epoch=%llu %s\n", (unsigned long long)motionEpoch,
-                             waterRenderer->status().c_str());
-            dumpTemporalStage("water-color", textures.color.texture);
-            if (compareGpu) {
-                writeStage("water-gpu", textures.color.texture);
-                ++gpuSurfaceCompared;
-                std::fprintf(stderr, "[gsr] gpu surfaces: compare %u written (epoch %llu)\n", gpuSurfaceCompared,
-                             (unsigned long long)motionEpoch);
-            }
-        } else {
-            static bool warned = false;
-            if (!warned) {
-                std::fprintf(stderr, "[modern-water] bypass: %s\n", waterRenderer->status().c_str());
-                warned = true;
-            }
-        }
-    }
+    if (success && wantRayScene)
+        traceRayScene(rt, run, textures, constants, guide, success);
     if (runtimeFlags().vertexSurfaceGpu)
         endGpuSurfaceWorld(rt);
-    if (success && (wantNR || wantSR) && nativeModels) {
-        gpuPasses.mark(gpupass::Pass::ModelMotion);
-        CpuProfile::Scope stage(cpuProfile, CpuProfile::ModelGuides);
-        {
-            CpuProfile::Scope prepareStage(cpuProfile, CpuProfile::ModelPrepare);
-            auto& pending = pendingModels; // complete: the builder was drained above
-            if (pending.ready && pending.scene == nativeModels && pending.previous == modelMotion.previous()) {
-                std::swap(modelFrame, pending.frame);
-                if (constants.reset) { // what prepare(reset = true) returns
-                    modelFrame.vertices.clear();
-                    modelFrame.textures.clear();
-                    modelFrame.matched = modelFrame.rejected = 0;
-                }
-            } else
-                modelMotion.prepare(*nativeModels, constants.reset, modelFrame);
-            pending.ready = false;
-        }
-        const auto& models = modelFrame;
-        if (!neuralGuides->modelMotion(models.vertices, models.textures)) {
-            std::fprintf(stderr, "[native-model-motion] fallback: %s\n", neuralGuides->status().c_str());
-            success = false;
-        }
-        if (runtimeFlags().motionValidate && motionEpoch % 30 == 0)
-            std::fprintf(stderr, "[native-model-motion] epoch=%llu matched=%u rejected=%u vertices=%zu reset=%u\n",
-                         (unsigned long long)motionEpoch, models.matched, models.rejected, models.vertices.size(),
-                         unsigned(constants.reset));
-        dumpTemporalStage("model-motion", neuralGuides->textures().motion.texture);
-    }
+    if (success && (wantNR || wantSR) && nativeModels)
+        prepareModelGuides(constants, success);
     nr::guides::Size neuralSize{};
     // Evaluates NR on the given exact-size guides into t.output. Output mode runs it on the SR output (output size);
     // render mode runs it on the reduced raster before SR. NR keeps the raster sample positions (measured: its output
@@ -929,36 +799,12 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
         dumpTemporalStage("composed-color", rt.tex.Get());
         if (wantNR)
             rt.neuralOutputEpoch = motionEpoch;
-        if (waterEvaluated)
+        if (run.waterEvaluated)
             rt.waterOutputEpoch = motionEpoch;
-        if (rayEvaluated)
+        if (run.rayEvaluated)
             rt.rayOutputEpoch = motionEpoch;
         // The NR on/off compare needs a separate NR image; render-resolution NR has none (its SR image includes it).
-        if (((wantNR && !neuralBeforeSr) ||
-             ((compareWater || compareModels || compareShadows || compareTransport) && waterBefore && rayEvaluated)) &&
-            runtimeFlags().matchedCompareEpoch && motionEpoch == *runtimeFlags().matchedCompareEpoch) {
-            D3D11_TEXTURE2D_DESC desc{};
-            rt.tex->GetDesc(&desc);
-            rt.compareTex.Reset();
-            rt.compareRtv.Reset();
-            rt.compareSrv.Reset();
-            if (SUCCEEDED(dev->CreateTexture2D(&desc, nullptr, &rt.compareTex)) &&
-                SUCCEEDED(dev->CreateRenderTargetView(rt.compareTex.Get(), nullptr, &rt.compareRtv)) &&
-                SUCCEEDED(dev->CreateShaderResourceView(rt.compareTex.Get(), nullptr, &rt.compareSrv))) {
-                ctx->OMSetRenderTargets(0, nullptr, nullptr);
-                ctx->CopyResource(rt.compareTex.Get(), rt.tex.Get());
-                bool offComposed = true;
-                if (compareWater || compareModels || compareShadows || compareTransport) {
-                    ctx->OMSetRenderTargets(0, nullptr, nullptr);
-                    ctx->CopyResource(rt.compareTex.Get(), waterBefore.Get());
-                } else
-                    offComposed =
-                        wantSR ? combinedSr->composeTarget(rt.compareRtv.Get(), {rt.wgeom.outW, rt.wgeom.outH}, upSharp)
-                               : neuralGuides->composeRgb(rt.compareRtv.Get(), false);
-                if (offComposed)
-                    rt.compareEpoch = motionEpoch;
-            }
-        }
+        keepCompareImage(rt, run, wantNR && !neuralBeforeSr, wantSR);
         neuralPrevious = rt.neuralCamera;
         motionHistory.commitFrame();
         modelMotion.commit(nativeModels);
@@ -977,6 +823,180 @@ void D3D11Backend::Impl::finalizeNeuralWorld(RT& rt) {
     ++rt.writes;
     rt.dy0 = 0;
     rt.dy1 = std::min(rt.h, guide.frame.height);
+}
+
+// The ray passes (modern water, ray shadows, reflections, GI) over the prepared guides, into textures.color. A
+// GSR_MATCHED_COMPARE_EFFECT run first traces the scene without the compared effect into run.waterBefore.
+void D3D11Backend::Impl::traceRayScene(RT& rt, RaySceneRun& run, const nr::guides::Textures& textures,
+                                       const nr::guides::FrameConstants& constants, nr::guides::Frame& guide,
+                                       bool& success) {
+    const bool wantWater = run.wantWater, wantShadows = run.wantShadows;
+    const bool compareModels = run.compareModels, compareShadows = run.compareShadows,
+               compareTransport = run.compareTransport;
+    CpuProfile::Scope stage(cpuProfile, CpuProfile::RayScene); // waterRenderer exists: wantRayScene
+    float waterSeconds = std::chrono::duration<float>(std::chrono::steady_clock::now() - waterStartTime).count();
+    if (runtimeFlags().waterTime) {
+        const float value = *runtimeFlags().waterTime;
+        if (std::isfinite(value) && std::abs(value) < 1000000)
+            waterSeconds = value;
+    }
+    // Resident level geometry keeps its acceleration structures across frames; only this frame's
+    // reconstructed surface triangles are rebuilt.
+    {
+        // The changed triangles since the previous publication travel with it, so the pass repacks only those.
+        auto shared = residentScene.projectedShared();
+        const uint64_t attributes = residentScene.attributeVersion();
+        sharedChanged.clear();
+        const bool known = sharedGeometry == residentScene.geometryVersion &&
+                           residentScene.changedSince(sharedAttributes, sharedChanged);
+        waterRenderer->shareStaticWorld(std::move(shared), residentScene.geometryVersion, attributes,
+                                        known ? &sharedChanged : nullptr);
+        residentScene.forgetChangesUpTo(attributes);
+        sharedGeometry = residentScene.geometryVersion;
+        sharedAttributes = attributes;
+    }
+    // The pass takes this frame's reconstructed triangles (the target's list is not read again this frame).
+    std::vector<surface::Triangle> noTriangles;
+    auto& rayScene = rt.surface.epoch == motionEpoch ? rt.surface.triangles : noTriangles;
+    std::vector<surface::Triangle> compareScene;
+    if ((compareModels || compareShadows || compareTransport) && run.waterBefore)
+        compareScene = rayScene;
+    if ((compareModels || compareShadows || compareTransport) && run.waterBefore && waterRenderer->ready() &&
+        waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.output.texture, constants,
+                              compareScene, waterSeconds, rayReflections, reflectionTextures,
+                              compareModels ? nullptr : nativeModels,
+                              surface::RayOptions{wantWater, compareShadows ? false : wantShadows, nullptr, true,
+                                                  compareTransport ? false : rayGlobalIllumination,
+                                                  compareTransport ? false : rayReflections})) {
+        ComPtr<ID3D11RenderTargetView> beforeRtv;
+        if (SUCCEEDED(dev->CreateRenderTargetView(run.waterBefore.Get(), nullptr, &beforeRtv))) {
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            ctx->CopyResource(textures.color.texture, textures.output.texture);
+            neuralGuides->composeRgb(beforeRtv.Get(), false);
+            // Re-prepare the unchanged native image for the full scene.
+            success = neuralGuides->prepare(guide);
+        }
+    }
+    // GSR_VERTEX_SURFACE=gpu: this world's streamed draws, built into frame triangles on the GPU by the pass.
+    surface::GpuFrameTriangles gpuTriangles;
+    const bool gpuBuilt = gpuSurfacesOn() && gpuSurfaceTriangles(rt, gpuTriangles);
+    // GSR_SURFACE_GPU_COMPARE=<n>[:<every>[:<from>]] (with GSR_SURFACE_GPU_VERIFY and GSR_TEMPORAL_DUMP_DIR): in
+    // n worlds with GPU-built draws (every `every`th, default 60, from the `from`th, default 30), the same pass
+    // first with the streamed draws reconstructed on the CPU appended to the frame list (the CPU path's
+    // triangles), written as "water-cpu"; the pass with the GPU-built triangles follows ("water-gpu"). Same frame,
+    // camera, inputs and water clock.
+    static const std::array<unsigned, 3> compareSpec = [] {
+        std::array<unsigned, 3> v{0, 60, 30};
+        if (const char* e = std::getenv("GSR_SURFACE_GPU_COMPARE"))
+            std::sscanf(e, "%u:%u:%u", &v[0], &v[1], &v[2]);
+        v[1] = std::max(v[1], 1u);
+        return v;
+    }();
+    const uint64_t built = gpuSurfaces.worlds;
+    const bool compareGpu = gpuBuilt && runtimeFlags().surfaceGpuVerify && compareSpec[0] > 0 &&
+                            gpuSurfaceCompared < compareSpec[0] && built >= compareSpec[2] &&
+                            (built - compareSpec[2]) % compareSpec[1] == 0 && waterRenderer->ready();
+    if (compareGpu) {
+        std::vector<surface::Triangle> cpuScene(rayScene.begin(), rayScene.end());
+        appendGpuSurfaceReference(cpuScene);
+        if (waterRenderer->submit(
+                textures.color.texture, textures.depth.texture, textures.output.texture, constants, cpuScene,
+                waterSeconds, rayReflections, reflectionTextures, nativeModels,
+                surface::RayOptions{wantWater, wantShadows, nullptr, true, rayGlobalIllumination, rayReflections})) {
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            writeStage("water-cpu", textures.output.texture);
+        }
+    }
+    // The interop pass snapshots the input before it queues the result copy back to the guide.
+    if (waterRenderer->ready() &&
+        waterRenderer->submit(textures.color.texture, textures.depth.texture, textures.color.texture, constants,
+                              rayScene, waterSeconds, rayReflections, reflectionTextures, nativeModels,
+                              surface::RayOptions{wantWater, wantShadows,
+                                                  motionEpoch == runtimeFlags().raySceneDumpEpoch
+                                                      ? cstr(runtimeFlags().raySceneDump)
+                                                      : nullptr,
+                                                  true, rayGlobalIllumination, rayReflections},
+                              gpuBuilt ? &gpuTriangles : nullptr)) {
+        ctx->OMSetRenderTargets(0, nullptr, nullptr);
+        run.waterEvaluated = wantWater;
+        run.rayEvaluated = true;
+        if (tpLog || runtimeFlags().waterLog)
+            std::fprintf(stderr, "[modern-water] epoch=%llu %s\n", (unsigned long long)motionEpoch,
+                         waterRenderer->status().c_str());
+        dumpTemporalStage("water-color", textures.color.texture);
+        if (compareGpu) {
+            writeStage("water-gpu", textures.color.texture);
+            ++gpuSurfaceCompared;
+            std::fprintf(stderr, "[gsr] gpu surfaces: compare %u written (epoch %llu)\n", gpuSurfaceCompared,
+                         (unsigned long long)motionEpoch);
+        }
+    } else {
+        static bool warned = false;
+        if (!warned) {
+            std::fprintf(stderr, "[modern-water] bypass: %s\n", waterRenderer->status().c_str());
+            warned = true;
+        }
+    }
+}
+
+// The native models' motion guides (model_motion.h) for the temporal upscaler. success turns false when the guides
+// cannot take them.
+void D3D11Backend::Impl::prepareModelGuides(const nr::guides::FrameConstants& constants, bool& success) {
+    gpuPasses.mark(gpupass::Pass::ModelMotion);
+    CpuProfile::Scope stage(cpuProfile, CpuProfile::ModelGuides);
+    {
+        CpuProfile::Scope prepareStage(cpuProfile, CpuProfile::ModelPrepare);
+        auto& pending = pendingModels; // complete: the builder was drained above
+        if (pending.ready && pending.scene == nativeModels && pending.previous == modelMotion.previous()) {
+            std::swap(modelFrame, pending.frame);
+            if (constants.reset) { // what prepare(reset = true) returns
+                modelFrame.vertices.clear();
+                modelFrame.textures.clear();
+                modelFrame.matched = modelFrame.rejected = 0;
+            }
+        } else
+            modelMotion.prepare(*nativeModels, constants.reset, modelFrame);
+        pending.ready = false;
+    }
+    const auto& models = modelFrame;
+    if (!neuralGuides->modelMotion(models.vertices, models.textures)) {
+        std::fprintf(stderr, "[native-model-motion] fallback: %s\n", neuralGuides->status().c_str());
+        success = false;
+    }
+    if (runtimeFlags().motionValidate && motionEpoch % 30 == 0)
+        std::fprintf(stderr, "[native-model-motion] epoch=%llu matched=%u rejected=%u vertices=%zu reset=%u\n",
+                     (unsigned long long)motionEpoch, models.matched, models.rejected, models.vertices.size(),
+                     unsigned(constants.reset));
+    dumpTemporalStage("model-motion", neuralGuides->textures().motion.texture);
+}
+
+// GSR_MATCHED_COMPARE_EPOCH: keep the composed world and its "off" version (without NR, or without the compared ray
+// effect) for the on/off comparison. neuralCompare: the NR comparison applies (output-resolution NR).
+void D3D11Backend::Impl::keepCompareImage(RT& rt, const RaySceneRun& run, bool neuralCompare, bool wantSR) {
+    if (!((neuralCompare || (run.compareAny() && run.waterBefore && run.rayEvaluated)) &&
+          runtimeFlags().matchedCompareEpoch && motionEpoch == *runtimeFlags().matchedCompareEpoch))
+        return;
+    D3D11_TEXTURE2D_DESC desc{};
+    rt.tex->GetDesc(&desc);
+    rt.compareTex.Reset();
+    rt.compareRtv.Reset();
+    rt.compareSrv.Reset();
+    if (SUCCEEDED(dev->CreateTexture2D(&desc, nullptr, &rt.compareTex)) &&
+        SUCCEEDED(dev->CreateRenderTargetView(rt.compareTex.Get(), nullptr, &rt.compareRtv)) &&
+        SUCCEEDED(dev->CreateShaderResourceView(rt.compareTex.Get(), nullptr, &rt.compareSrv))) {
+        ctx->OMSetRenderTargets(0, nullptr, nullptr);
+        ctx->CopyResource(rt.compareTex.Get(), rt.tex.Get());
+        bool offComposed = true;
+        if (run.compareAny()) {
+            ctx->OMSetRenderTargets(0, nullptr, nullptr);
+            ctx->CopyResource(rt.compareTex.Get(), run.waterBefore.Get());
+        } else
+            offComposed = wantSR
+                              ? combinedSr->composeTarget(rt.compareRtv.Get(), {rt.wgeom.outW, rt.wgeom.outH}, upSharp)
+                              : neuralGuides->composeRgb(rt.compareRtv.Get(), false);
+        if (offComposed)
+            rt.compareEpoch = motionEpoch;
+    }
 }
 
 void D3D11Backend::Impl::finalizeWorld(RT& rt) {

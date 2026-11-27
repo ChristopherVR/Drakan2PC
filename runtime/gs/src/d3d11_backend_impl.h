@@ -1038,6 +1038,19 @@ struct D3D11Backend::Impl {
     void writeStage(const char* stage, ID3D11Texture2D* texture);
     uint32_t gpuSurfaceCompared = 0; // GSR_SURFACE_GPU_COMPARE: worlds compared so far
     void finalizeNeuralWorld(RT& rt);
+    // The ray scene of one world finalizeNeuralWorld resolves (d3d11_world.cpp).
+    struct RaySceneRun {
+        bool wantWater = false, wantShadows = false;
+        // GSR_MATCHED_COMPARE_EFFECT=<effect>: the ray pass also runs without that effect, for the on/off compare.
+        bool compareWater = false, compareModels = false, compareShadows = false, compareTransport = false;
+        bool compareAny() const { return compareWater || compareModels || compareShadows || compareTransport; }
+        ComPtr<ID3D11Texture2D> waterBefore; // the world before the ray passes (GSR_MATCHED_COMPARE_EPOCH only)
+        bool waterEvaluated = false, rayEvaluated = false;
+    };
+    void traceRayScene(RT& rt, RaySceneRun& run, const nr::guides::Textures& textures,
+                       const nr::guides::FrameConstants& constants, nr::guides::Frame& guide, bool& success);
+    void prepareModelGuides(const nr::guides::FrameConstants& constants, bool& success);
+    void keepCompareImage(RT& rt, const RaySceneRun& run, bool neuralCompare, bool wantSR);
     void finalizeWorld(RT& rt);
     void finalizeAllWorlds();
     bool upscalePhase(RT& rt, DepthBuf& db, bool isWorld, bool depthGE, uint32_t zbp, float zmax, int sx1, int sy1);
