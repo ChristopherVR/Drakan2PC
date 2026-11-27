@@ -33,6 +33,11 @@ const std::string& exeDir() {
     return dir;
 }
 
+const std::filesystem::path& exeDirPath() {
+    static const std::filesystem::path dir = std::filesystem::path(exeDir()).parent_path(); // drop the trailing '/'
+    return dir;
+}
+
 void enableDpiAwareness() {
     // DPI awareness is a Win32 process setting; native window backends own scaling.
 #if !defined(__EMSCRIPTEN__)

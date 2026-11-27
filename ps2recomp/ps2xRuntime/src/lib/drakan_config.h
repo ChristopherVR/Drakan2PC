@@ -3,10 +3,18 @@
 // first run; an existing file (possibly written by other modules, e.g. [general] skip_memcard_warning) is kept and only
 // missing keys/sections are appended.
 #pragma once
+#include <filesystem>
 #include <string>
 
 namespace drakan_cfg {
-// Directory of the running executable, with a trailing native separator.
+// The play folder: directory of the running executable. One implementation per platform; on Windows it is read with
+// the wide GetModuleFileNameW (no MAX_PATH cut, any characters).
+// exeDirPath(): the exact path. Prefer it for new code that opens files (std::filesystem / std::ifstream(path)), it
+// works for every folder name.
+const std::filesystem::path& exeDirPath();
+// exeDir(): the same folder with a trailing native separator, as a narrow string in the encoding the narrow file APIs
+// read (fopen, std::ifstream(std::string), std::filesystem::path(std::string)): the ANSI code page on Windows, UTF-8
+// elsewhere. A folder name the ANSI code page cannot spell gets '?' there, as before; use exeDirPath() for those.
 const std::string& exeDir();
 // Full path of drakan.ini (DRAKAN_INI overrides).
 const std::string& iniPath();

@@ -1484,7 +1484,7 @@ void drakanInstallInput(PS2Runtime& rt) {
     }
     {
         // drakan.ini next to the exe: [general] skip_memcard_warning = 1   (env DRAKAN_SKIP_MEMCARD_WARNING overrides)
-        const std::string cfg = exeDirectory() + "drakan.ini";
+        const std::string cfg = drakan_cfg::exeDir() + "drakan.ini";
         std::FILE* f = std::fopen(cfg.c_str(), "rb");
         if (!f) {
             if (std::FILE* o = std::fopen(cfg.c_str(), "wb")) {
@@ -1510,7 +1510,7 @@ void drakanInstallInput(PS2Runtime& rt) {
     if (const char* e = std::getenv("DRAKAN_INPUT_INI"))
         ini = e;
     else
-        ini = exeDirectory() + "drakan_input.ini";
+        ini = drakan_cfg::exeDir() + "drakan_input.ini";
 
     const char* script = std::getenv("DRAKAN_INPUT_SCRIPT");
     if (script && script[0]) {

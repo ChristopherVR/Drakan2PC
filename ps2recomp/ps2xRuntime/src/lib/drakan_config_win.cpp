@@ -11,13 +11,32 @@
 #include <cstdlib>
 
 namespace drakan_cfg {
+const std::filesystem::path& exeDirPath() {
+    static const std::filesystem::path dir = [] {
+        std::wstring exe(32768, L'\0'); // the longest path Windows returns
+        const DWORD n = GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
+        if (n == 0 || n >= exe.size())
+            return std::filesystem::path();
+        exe.resize(n);
+        return std::filesystem::path(exe).parent_path();
+    }();
+    return dir;
+}
+
 const std::string& exeDir() {
-    static std::string dir = [] {
-        char buf[MAX_PATH * 2];
-        const DWORD n = GetModuleFileNameA(nullptr, buf, sizeof buf);
-        std::string p(buf, n);
-        const size_t s = p.find_last_of("\\/");
-        return s == std::string::npos ? std::string() : p.substr(0, s + 1);
+    static const std::string dir = [] {
+        const std::wstring& wide = exeDirPath().native();
+        if (wide.empty())
+            return std::string();
+        // The ANSI code page: what the narrow CRT and std::filesystem::path(std::string) callers of exeDir() expect.
+        const int wideLen = static_cast<int>(wide.size());
+        const int len = WideCharToMultiByte(CP_ACP, 0, wide.data(), wideLen, nullptr, 0, nullptr, nullptr);
+        std::string out(static_cast<size_t>(len > 0 ? len : 0), '\0');
+        if (len > 0)
+            WideCharToMultiByte(CP_ACP, 0, wide.data(), wideLen, out.data(), len, nullptr, nullptr);
+        if (!out.empty() && out.back() != '\\' && out.back() != '/')
+            out += '\\';
+        return out;
     }();
     return dir;
 }
