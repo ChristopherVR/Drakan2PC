@@ -2,6 +2,7 @@
 #include "ps2recomp/instructions.h"
 #include "ps2recomp/types.h"
 #include "ps2recomp/elf_parser.h"
+#include "ps2recomp/entry_discovery.h"
 #include "ps2recomp/function_index.h"
 #include "ps2recomp/r5900_decoder.h"
 #include "ps2_runtime_calls.h"
@@ -227,453 +228,6 @@ FunctionSelector parseFunctionSelector(const std::string& rawSelector) {
     return selector;
 }
 
-struct EntryDiscoveryStats {
-    size_t discoveredCount = 0;
-    size_t passCount = 0;
-};
-
-bool isEntryFunctionName(const std::string& name) {
-    return name.rfind("entry_", 0) == 0;
-}
-
-EntryDiscoveryStats
-discoverAdditionalEntryPointsImpl(std::vector<Function>& functions,
-                                  std::unordered_map<uint32_t, std::vector<Instruction>>& decodedFunctions,
-                                  const std::vector<Section>& sections, CodeGenerator* codeGenerator,
-                                  const std::function<bool(Function&)>& decodeExternalFunction,
-                                  const std::unordered_set<uint32_t>& seedEntryAddresses = {}) {
-    std::unordered_set<uint32_t> existingStarts;
-    for (const auto& function : functions) {
-        existingStarts.insert(function.start);
-    }
-
-    auto isExecutableAddress = [&](uint32_t address) -> bool {
-        for (const auto& section : sections) {
-            if (!section.isCode) {
-                continue;
-            }
-            if (address >= section.address && address < (section.address + section.size)) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    auto executableSectionEnd = [&](uint32_t address) -> std::optional<uint32_t> {
-        for (const auto& section : sections) {
-            if (!section.isCode || address < section.address || address >= section.address + section.size) {
-                continue;
-            }
-            return section.address + section.size;
-        }
-        return std::nullopt;
-    };
-
-    auto isSimpleReturnThunkStart = [](const Instruction& inst) -> bool {
-        return inst.opcode == OPCODE_SPECIAL && inst.function == SPECIAL_JR && inst.rs == 31;
-    };
-
-    auto findContainingFunction = [&](uint32_t address) -> const Function* {
-        const Function* best = nullptr;
-        for (const auto& function : functions) {
-            if (address < function.start || address >= function.end) {
-                continue;
-            }
-
-            if (!function.isRecompiled || function.isStub || function.isSkipped) {
-                continue;
-            }
-
-            auto decodedIt = decodedFunctions.find(function.start);
-            if (decodedIt == decodedFunctions.end()) {
-                continue;
-            }
-
-            const auto& decoded = decodedIt->second;
-            const bool hasAddress = std::any_of(decoded.begin(), decoded.end(), [&](const Instruction& candidate) {
-                return candidate.address == address;
-            });
-            if (!hasAddress) {
-                continue;
-            }
-
-            if (!best || function.start > best->start) {
-                best = &function;
-            }
-        }
-        return best;
-    };
-
-    EntryDiscoveryStats stats{};
-
-    while (true) {
-        ++stats.passCount;
-        struct PendingEntry {
-            uint32_t target = 0;
-            std::optional<uint32_t> containingStart;
-            uint32_t containingEnd = 0;
-        };
-
-        std::vector<PendingEntry> pendingEntries;
-        std::vector<Function> newEntries;
-        std::unordered_set<uint32_t> pendingStarts;
-
-        auto queuePendingEntry = [&](uint32_t target) {
-            if (!isExecutableAddress(target)) {
-                return;
-            }
-
-            if (existingStarts.contains(target) || pendingStarts.contains(target)) {
-                return;
-            }
-
-            PendingEntry pending{};
-            pending.target = target;
-            if (const Function* containingFunction = findContainingFunction(target)) {
-                pending.containingStart = containingFunction->start;
-                pending.containingEnd = containingFunction->end;
-            }
-
-            pendingEntries.push_back(pending);
-            pendingStarts.insert(target);
-        };
-
-        if (stats.passCount == 1u) {
-            for (uint32_t target : seedEntryAddresses) {
-                queuePendingEntry(target);
-            }
-        }
-
-        const FunctionIndex owners(functions, FunctionIndex::Scope::Owners);
-
-        for (const auto& function : functions) {
-            if (!function.isRecompiled || function.isStub || function.isSkipped) {
-                continue;
-            }
-
-            if (isEntryFunctionName(function.name)) {
-                continue;
-            }
-
-            auto decodedIt = decodedFunctions.find(function.start);
-            if (decodedIt == decodedFunctions.end()) {
-                continue;
-            }
-
-            const auto& instructions = decodedIt->second;
-            CodeGenerator::AnalysisResult analysisResult{};
-            if (codeGenerator) {
-                analysisResult = codeGenerator->collectInternalBranchTargets(function, instructions, owners);
-            } else {
-                analysisResult.resumeEntryPoints.clear();
-                analysisResult.externalEntryPoints.clear();
-            }
-
-            for (uint32_t target : analysisResult.externalEntryPoints) {
-                queuePendingEntry(target);
-            }
-
-            for (uint32_t target : analysisResult.resumeEntryPoints) {
-                queuePendingEntry(target);
-            }
-        }
-
-        if (pendingEntries.empty()) {
-            break;
-        }
-
-        std::sort(pendingEntries.begin(), pendingEntries.end(),
-                  [](const PendingEntry& a, const PendingEntry& b) { return a.target < b.target; });
-
-        std::vector<uint32_t> boundaryStarts;
-        boundaryStarts.reserve(existingStarts.size() + pendingStarts.size());
-        boundaryStarts.insert(boundaryStarts.end(), existingStarts.begin(), existingStarts.end());
-        boundaryStarts.insert(boundaryStarts.end(), pendingStarts.begin(), pendingStarts.end());
-        std::sort(boundaryStarts.begin(), boundaryStarts.end());
-        boundaryStarts.erase(std::unique(boundaryStarts.begin(), boundaryStarts.end()), boundaryStarts.end());
-
-        auto findNextBoundaryStart = [&](uint32_t address) -> std::optional<uint32_t> {
-            auto it = std::upper_bound(boundaryStarts.begin(), boundaryStarts.end(), address);
-            if (it == boundaryStarts.end()) {
-                return std::nullopt;
-            }
-            return *it;
-        };
-
-        std::unordered_set<uint32_t> successfulStarts;
-
-        for (const auto& pending : pendingEntries) {
-            const uint32_t target = pending.target;
-
-            Function entryFunction;
-            std::stringstream name;
-            name << "entry_" << std::hex << target;
-            entryFunction.name = name.str();
-            entryFunction.start = target;
-            entryFunction.isStub = false;
-            entryFunction.isSkipped = false;
-            entryFunction.isRecompiled = true;
-
-            if (pending.containingStart.has_value()) {
-                auto containingDecodedIt = decodedFunctions.find(*pending.containingStart);
-                if (containingDecodedIt == decodedFunctions.end()) {
-                    continue;
-                }
-
-                const auto& containingInstructions = containingDecodedIt->second;
-                auto sliceIt = std::find_if(containingInstructions.begin(), containingInstructions.end(),
-                                            [&](const Instruction& candidate) { return candidate.address == target; });
-
-                if (sliceIt == containingInstructions.end()) {
-                    continue;
-                }
-
-                uint32_t sliceEndAddress = pending.containingEnd;
-                auto nextStartOpt = findNextBoundaryStart(target);
-                if (nextStartOpt.has_value() && nextStartOpt.value() < sliceEndAddress) {
-                    sliceEndAddress = nextStartOpt.value();
-                }
-
-                if (isSimpleReturnThunkStart(*sliceIt) && target <= (std::numeric_limits<uint32_t>::max() - 8u)) {
-                    const uint32_t returnThunkEnd = target + 8u;
-                    if (returnThunkEnd < sliceEndAddress) {
-                        sliceEndAddress = returnThunkEnd;
-                    }
-                }
-
-                if (sliceEndAddress <= target) {
-                    continue;
-                }
-
-                auto sliceEndIt =
-                    std::find_if(sliceIt, containingInstructions.end(),
-                                 [&](const Instruction& candidate) { return candidate.address >= sliceEndAddress; });
-                if (sliceEndIt == sliceIt) {
-                    continue;
-                }
-
-                std::vector<Instruction> slicedInstructions(sliceIt, sliceEndIt);
-                decodedFunctions[target] = std::move(slicedInstructions);
-                entryFunction.end = sliceEndAddress;
-            } else {
-                const auto sectionEndOpt = executableSectionEnd(target);
-                if (!sectionEndOpt.has_value()) {
-                    continue;
-                }
-
-                uint32_t entryEnd = sectionEndOpt.value();
-                auto nextStartOpt = findNextBoundaryStart(target);
-                if (nextStartOpt.has_value() && nextStartOpt.value() < entryEnd) {
-                    entryEnd = nextStartOpt.value();
-                }
-                if (entryEnd <= target) {
-                    continue;
-                }
-
-                entryFunction.end = entryEnd;
-                if (!decodeExternalFunction(entryFunction)) {
-                    continue;
-                }
-            }
-
-            newEntries.push_back(entryFunction);
-            successfulStarts.insert(target);
-        }
-
-        if (newEntries.empty()) {
-            break;
-        }
-
-        stats.discoveredCount += newEntries.size();
-        functions.insert(functions.end(), newEntries.begin(), newEntries.end());
-        existingStarts.insert(successfulStarts.begin(), successfulStarts.end());
-        std::sort(functions.begin(), functions.end(),
-                  [](const Function& a, const Function& b) { return a.start < b.start; });
-    }
-
-    return stats;
-}
-size_t resliceEntryFunctionsImpl(std::vector<Function>& functions,
-                                 std::unordered_map<uint32_t, std::vector<Instruction>>& decodedFunctions) {
-    std::vector<uint32_t> boundaryStarts;
-    boundaryStarts.reserve(functions.size());
-    for (const auto& function : functions) {
-        if (!function.isRecompiled || function.isStub || function.isSkipped) {
-            continue;
-        }
-        boundaryStarts.push_back(function.start);
-    }
-
-    std::sort(boundaryStarts.begin(), boundaryStarts.end());
-    boundaryStarts.erase(std::unique(boundaryStarts.begin(), boundaryStarts.end()), boundaryStarts.end());
-
-    auto findContainingFunction = [&](uint32_t address) -> const Function* {
-        const Function* best = nullptr;
-        for (const auto& function : functions) {
-            if (!function.isRecompiled || function.isStub || function.isSkipped) {
-                continue;
-            }
-
-            if (isEntryFunctionName(function.name)) {
-                continue;
-            }
-
-            if (address < function.start || address >= function.end) {
-                continue;
-            }
-
-            auto decodedIt = decodedFunctions.find(function.start);
-            if (decodedIt == decodedFunctions.end()) {
-                continue;
-            }
-
-            const auto& decoded = decodedIt->second;
-            const bool hasAddress = std::any_of(decoded.begin(), decoded.end(), [&](const Instruction& candidate) {
-                return candidate.address == address;
-            });
-            if (!hasAddress) {
-                continue;
-            }
-
-            if (!best || function.start > best->start) {
-                best = &function;
-            }
-        }
-        return best;
-    };
-
-    size_t reslicedCount = 0;
-
-    for (auto& function : functions) {
-        if (!function.isRecompiled || function.isStub || function.isSkipped) {
-            continue;
-        }
-
-        if (!isEntryFunctionName(function.name)) {
-            continue;
-        }
-
-        const Function* containingFunction = findContainingFunction(function.start);
-        uint32_t sliceEndAddress = containingFunction ? containingFunction->end : function.end;
-        auto nextIt = std::upper_bound(boundaryStarts.begin(), boundaryStarts.end(), function.start);
-        if (nextIt != boundaryStarts.end() && *nextIt < sliceEndAddress) {
-            sliceEndAddress = *nextIt;
-        }
-
-        if (sliceEndAddress <= function.start) {
-            continue;
-        }
-
-        const std::vector<Instruction>* sourceInstructions = nullptr;
-        if (containingFunction) {
-            auto containingDecodedIt = decodedFunctions.find(containingFunction->start);
-            if (containingDecodedIt == decodedFunctions.end()) {
-                continue;
-            }
-            sourceInstructions = &containingDecodedIt->second;
-        } else {
-            auto entryDecodedIt = decodedFunctions.find(function.start);
-            if (entryDecodedIt == decodedFunctions.end()) {
-                continue;
-            }
-            sourceInstructions = &entryDecodedIt->second;
-        }
-
-        auto sliceBeginIt =
-            std::find_if(sourceInstructions->begin(), sourceInstructions->end(),
-                         [&](const Instruction& candidate) { return candidate.address == function.start; });
-        if (sliceBeginIt == sourceInstructions->end()) {
-            continue;
-        }
-
-        auto sliceEndIt = std::find_if(sliceBeginIt, sourceInstructions->end(), [&](const Instruction& candidate) {
-            return candidate.address >= sliceEndAddress;
-        });
-        if (sliceEndIt == sliceBeginIt) {
-            continue;
-        }
-
-        std::vector<Instruction> slicedInstructions(sliceBeginIt, sliceEndIt);
-        bool changed = (function.end != sliceEndAddress);
-        auto existingIt = decodedFunctions.find(function.start);
-        if (existingIt == decodedFunctions.end()) {
-            changed = true;
-        } else if (!changed) {
-            const auto& existing = existingIt->second;
-            if (existing.size() != slicedInstructions.size()) {
-                changed = true;
-            } else if (!existing.empty()) {
-                if (existing.front().address != slicedInstructions.front().address ||
-                    existing.back().address != slicedInstructions.back().address) {
-                    changed = true;
-                }
-            }
-        }
-
-        function.end = sliceEndAddress;
-        decodedFunctions[function.start] = std::move(slicedInstructions);
-
-        if (changed) {
-            ++reslicedCount;
-        }
-    }
-
-    return reslicedCount;
-}
-
-size_t collectInternalEntryTargetsImpl(const std::vector<Function>& functions,
-                                       const std::unordered_map<uint32_t, std::vector<Instruction>>& decodedFunctions,
-                                       const std::unordered_set<uint32_t>& entryAddresses,
-                                       std::unordered_map<uint32_t, std::vector<uint32_t>>& targetsByOwner) {
-    std::unordered_set<uint32_t> functionStarts;
-    functionStarts.reserve(functions.size());
-    for (const auto& function : functions) {
-        functionStarts.insert(function.start);
-    }
-
-    size_t addedCount = 0u;
-    for (uint32_t entryAddress : entryAddresses) {
-        if (functionStarts.contains(entryAddress)) {
-            continue;
-        }
-
-        const Function* owner = nullptr;
-        for (const auto& function : functions) {
-            if (!function.isRecompiled || function.isStub || function.isSkipped || entryAddress <= function.start ||
-                entryAddress >= function.end) {
-                continue;
-            }
-
-            const auto decodedIt = decodedFunctions.find(function.start);
-            if (decodedIt == decodedFunctions.end()) {
-                continue;
-            }
-
-            const bool containsInstruction = std::any_of(
-                decodedIt->second.begin(), decodedIt->second.end(),
-                [entryAddress](const Instruction& instruction) { return instruction.address == entryAddress; });
-            if (!containsInstruction) {
-                continue;
-            }
-
-            if (!owner || function.start > owner->start) {
-                owner = &function;
-            }
-        }
-
-        if (!owner) {
-            continue;
-        }
-
-        auto& targets = targetsByOwner[owner->start];
-        if (std::find(targets.begin(), targets.end(), entryAddress) == targets.end()) {
-            targets.push_back(entryAddress);
-            ++addedCount;
-        }
-    }
-
-    return addedCount;
-}
 } // namespace
 
 PS2Recompiler::PS2Recompiler(const std::string& configPath) : m_configManager(configPath) {
@@ -1736,6 +1290,8 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
         return;
     }
 
+    // Configured entry points (entry_point_hints, code pointers) and stubs without a runtime handler must stay callable
+    // as guest code.
     std::unordered_set<uint32_t> guestFallbackEntryAddresses = m_entryPointHintStarts;
     for (uint32_t address : m_stubFunctionStarts) {
         const auto bindingIt = m_stubHandlerBindingsByStart.find(address);
@@ -1745,12 +1301,13 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
         }
     }
 
-    // Prefer the existing wrapper when a configured entry lies inside a
-    // decoded function. If Ghidra/analyzer omitted the whole routine,
-    // synthesize a standalone guest function bounded by the next known
-    // function instead of leaving a valid executable target unregistered.
-    collectInternalEntryTargetsImpl(m_functions, m_decodedFunctions, guestFallbackEntryAddresses,
-                                    m_resumeEntryTargetsByOwner);
+    EntryDiscovery discovery(m_functions, m_decodedFunctions, m_sections);
+
+    // Prefer the existing wrapper when a configured entry lies inside a decoded function. If Ghidra/analyzer omitted
+    // the whole routine, synthesize a standalone guest function bounded by the next known function instead of leaving a
+    // valid executable target unregistered.
+    EntryDiscovery::collectInternalEntryTargets(m_functions, m_decodedFunctions, guestFallbackEntryAddresses,
+                                                m_resumeEntryTargetsByOwner);
 
     std::unordered_set<uint32_t> coveredEntryAddresses;
     coveredEntryAddresses.reserve(m_functions.size() + guestFallbackEntryAddresses.size());
@@ -1769,123 +1326,18 @@ void PS2Recompiler::discoverAdditionalEntryPoints() {
     }
 
     if (!standaloneEntryAddresses.empty()) {
-        const EntryDiscoveryStats configuredStats = discoverAdditionalEntryPointsImpl(
-            m_functions, m_decodedFunctions, m_sections, nullptr,
-            [this](Function& function) { return decodeFunction(function); }, standaloneEntryAddresses);
-        if (configuredStats.discoveredCount > 0u) {
-            m_reporter.recordAdditionalEntryPoints(configuredStats.discoveredCount);
+        const size_t synthesized = discovery.synthesizeEntryFunctions(
+            nullptr, [this](Function& function) { return decodeFunction(function); }, standaloneEntryAddresses);
+        if (synthesized > 0u) {
+            m_reporter.recordAdditionalEntryPoints(synthesized);
             std::ostringstream msg;
-            msg << "synthesized " << configuredStats.discoveredCount << " standalone configured guest entry point(s)";
+            msg << "synthesized " << synthesized << " standalone configured guest entry point(s)";
             m_reporter.progress(msg.str());
         }
     }
 
-    auto findContainingFunction = [&](uint32_t address) -> const Function* {
-        const Function* best = nullptr;
-        for (const auto& function : m_functions) {
-            if (!function.isRecompiled || function.isStub || function.isSkipped) {
-                continue;
-            }
-
-            if (isEntryFunctionName(function.name)) {
-                continue;
-            }
-
-            if (address < function.start || address >= function.end) {
-                continue;
-            }
-
-            auto decodedIt = m_decodedFunctions.find(function.start);
-            if (decodedIt == m_decodedFunctions.end()) {
-                continue;
-            }
-
-            const auto& decoded = decodedIt->second;
-            const bool hasAddress = std::any_of(decoded.begin(), decoded.end(), [&](const Instruction& candidate) {
-                return candidate.address == address;
-            });
-            if (!hasAddress) {
-                continue;
-            }
-
-            if (!best || function.start > best->start) {
-                best = &function;
-            }
-        }
-        return best;
-    };
-
-    // Ghidra exports standalone code blocks (static initializers, thunks, ...) as entry_* labels. Only entry_*
-    // blocks nested inside a real function are synthetic wrappers; standalone ones need their own resume
-    // points, otherwise a thread switched out inside a call from them cannot be resumed.
-    std::vector<std::pair<uint32_t, uint32_t>> ownerRanges;
-    for (const auto& function : m_functions) {
-        if (function.isRecompiled && !function.isStub && !function.isSkipped && !isEntryFunctionName(function.name) &&
-            function.end > function.start) {
-            ownerRanges.emplace_back(function.start, function.end);
-        }
-    }
-    std::sort(ownerRanges.begin(), ownerRanges.end());
-    uint32_t maxEnd = 0u;
-    std::vector<uint32_t> prefixMaxEnd;
-    prefixMaxEnd.reserve(ownerRanges.size());
-    for (const auto& range : ownerRanges) {
-        maxEnd = std::max(maxEnd, range.second);
-        prefixMaxEnd.push_back(maxEnd);
-    }
-    auto nestedInRealFunction = [&](uint32_t address) -> bool {
-        auto it = std::upper_bound(ownerRanges.begin(), ownerRanges.end(), std::make_pair(address, UINT32_MAX));
-        if (it == ownerRanges.begin()) {
-            return false;
-        }
-        const size_t idx = static_cast<size_t>(std::distance(ownerRanges.begin(), it)) - 1u;
-        return prefixMaxEnd[idx] > address;
-    };
-
     std::vector<std::pair<uint32_t, std::string>> unresolvedJumps;
-    const FunctionIndex owners(m_functions, FunctionIndex::Scope::Owners);
-    for (const auto& function : m_functions) {
-        if (!function.isRecompiled || function.isStub || function.isSkipped) {
-            continue;
-        }
-
-        if (isEntryFunctionName(function.name) && nestedInRealFunction(function.start)) {
-            continue;
-        }
-
-        auto decodedIt = m_decodedFunctions.find(function.start);
-        if (decodedIt == m_decodedFunctions.end()) {
-            continue;
-        }
-
-        const auto& instructions = decodedIt->second;
-        CodeGenerator::AnalysisResult analysisResult =
-            m_codeGenerator->collectInternalBranchTargets(function, instructions, owners);
-
-        auto& ownerTargets = m_resumeEntryTargetsByOwner[function.start];
-        ownerTargets.insert(ownerTargets.end(), analysisResult.resumeEntryPoints.begin(),
-                            analysisResult.resumeEntryPoints.end());
-        ownerTargets.insert(ownerTargets.end(), analysisResult.indirectFallbackEntryPoints.begin(),
-                            analysisResult.indirectFallbackEntryPoints.end());
-
-        for (uint32_t jumpAddress : analysisResult.unresolvedIndirectJumps) {
-            unresolvedJumps.emplace_back(jumpAddress, function.name);
-        }
-
-        for (uint32_t target : analysisResult.externalEntryPoints) {
-            const Function* owner = findContainingFunction(target);
-            if (!owner) {
-                continue;
-            }
-
-            if (owner->start == target) {
-                continue;
-            }
-
-            auto& targets = m_resumeEntryTargetsByOwner[owner->start];
-            targets.push_back(target);
-        }
-    }
+    discovery.collectResumeTargets(*m_codeGenerator, m_resumeEntryTargetsByOwner, unresolvedJumps);
 
     size_t totalTargets = 0u;
     for (auto it = m_resumeEntryTargetsByOwner.begin(); it != m_resumeEntryTargetsByOwner.end();) {
@@ -2257,14 +1709,14 @@ PS2Recompiler::DiscoverAdditionalEntryPoints(std::vector<Function>& functions,
                                              std::unordered_map<uint32_t, std::vector<Instruction>>& decodedFunctions,
                                              const std::vector<Section>& sections) {
     CodeGenerator codeGenerator({}, sections);
-    const EntryDiscoveryStats stats = discoverAdditionalEntryPointsImpl(
-        functions, decodedFunctions, sections, &codeGenerator, [](Function&) { return false; });
-    return stats.discoveredCount;
+    return EntryDiscovery(functions, decodedFunctions, sections)
+        .synthesizeEntryFunctions(&codeGenerator, [](Function&) { return false; });
 }
 
 size_t PS2Recompiler::ResliceEntryFunctions(std::vector<Function>& functions,
                                             std::unordered_map<uint32_t, std::vector<Instruction>>& decodedFunctions) {
-    return resliceEntryFunctionsImpl(functions, decodedFunctions);
+    static const std::vector<Section> kNoSections;
+    return EntryDiscovery(functions, decodedFunctions, kNoSections).resliceEntryFunctions();
 }
 
 size_t PS2Recompiler::CollectInternalEntryTargets(
@@ -2272,7 +1724,7 @@ size_t PS2Recompiler::CollectInternalEntryTargets(
     const std::unordered_map<uint32_t, std::vector<Instruction>>& decodedFunctions,
     const std::unordered_set<uint32_t>& entryAddresses,
     std::unordered_map<uint32_t, std::vector<uint32_t>>& targetsByOwner) {
-    return collectInternalEntryTargetsImpl(functions, decodedFunctions, entryAddresses, targetsByOwner);
+    return EntryDiscovery::collectInternalEntryTargets(functions, decodedFunctions, entryAddresses, targetsByOwner);
 }
 
 StubTarget PS2Recompiler::resolveStubTarget(const std::string& name) {
