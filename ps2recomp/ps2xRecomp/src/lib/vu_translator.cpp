@@ -52,8 +52,8 @@ std::string VuTranslator::translate(const Instruction& inst) {
                 case VU0_CR_FBRST:
                     return fmt::format("SET_GPR_U32(ctx, {}, ctx->vu0_fbrst);", rt);
                 case VU0_CR_VPU_STAT:
-                    return fmt::format(
-                        "SET_GPR_U32(ctx, {}, (ctx->vu0_vpu_stat & ~0x0600u) | runtime->vu1VpuStatBits());", rt);
+                    return m_codeGenerator.callsRuntime(fmt::format(
+                        "SET_GPR_U32(ctx, {}, (ctx->vu0_vpu_stat & ~0x0600u) | runtime->vu1VpuStatBits());", rt));
                 case VU0_CR_CMSAR1:
                     return fmt::format("SET_GPR_U32(ctx, {}, ctx->vu0_cmsar1);", rt);
                 default:

@@ -36,7 +36,8 @@ std::string FunctionEmitter::emit(const Function& function, const std::vector<In
         ss << "#include \"ps2_runtime_macros.h\"\n";
         ss << "#include \"ps2_runtime.h\"\n";
         ss << "#include <ps2_recompiled_functions.h>\n";
-        ss << "#include <ps2_recompiled_stubs.h>\n\n";
+        ss << "#include <ps2_recompiled_stubs.h>\n";
+        ss << "#include <ps2_recompiled_memory.h>\n\n";
         ss << "#include \"ps2_syscalls.h\"\n";
         ss << "#include \"ps2_stubs.h\"\n\n";
         ss << "#ifdef PS2_FUNCTION_LOG_TRACKER\n";
@@ -165,13 +166,13 @@ std::string FunctionEmitter::emit(const Function& function, const std::vector<In
                 }
 
                 const MemoryAccessHint memoryHint = resolveMemoryAccessHint(inst, constantRegisters);
-                const std::string translated = cg.translateInstruction(inst, memoryHint);
-                // ctx->pc is only observable by runtime calls (exceptions, syscalls, stubs): skip the store otherwise.
-                if (cg.m_alwaysWritePc || translated.find("runtime->") != std::string::npos ||
-                    translated.find("ctx->pc") != std::string::npos || translated.find("throw") != std::string::npos) {
+                const TranslatedInstruction translated = cg.translate(inst, memoryHint);
+                // ctx->pc is only observable by runtime calls (exceptions, syscalls, stubs, MMIO): skip the store
+                // otherwise. Run-time-address loads and stores store it themselves on their slow path.
+                if (cg.m_alwaysWritePc || translated.entersRuntime) {
                     ss << "    ctx->pc = 0x" << std::hex << inst.address << "u;\n" << std::dec;
                 }
-                ss << "    " << translated;
+                ss << "    " << translated.code;
                 if (inst.isMmio) {
                     ss << " // MMIO: 0x" << std::hex << inst.mmioAddress << std::dec;
                 }

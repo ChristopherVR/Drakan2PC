@@ -90,6 +90,7 @@ void writeCombinedOutputPreamble(std::ostream& output) {
     output << "#include \"ps2_runtime_macros.h\"\n";
     output << "#include \"ps2_runtime.h\"\n";
     output << "#include <ps2_recompiled_stubs.h>\n";
+    output << "#include <ps2_recompiled_memory.h>\n";
     output << "#include \"ps2_syscalls.h\"\n";
     output << "#include \"ps2_stubs.h\"\n";
     output << "#ifdef _DEBUG\n";
@@ -1068,6 +1069,10 @@ void PS2Recompiler::generateOutput() {
         if (!generateFunctionHeader()) {
             throw std::runtime_error("Failed to generate function header");
         }
+        const fs::path memoryHeaderPath = fs::path(m_config.outputPath) / "ps2_recompiled_memory.h";
+        if (!writeToFile(memoryHeaderPath.string(), CodeGenerator::memoryAccessHeader())) {
+            throw std::runtime_error("Failed to write " + memoryHeaderPath.string());
+        }
 
         std::vector<const Function*> outputFunctions;
         outputFunctions.reserve(m_functions.size());
@@ -1558,6 +1563,7 @@ std::string PS2Recompiler::generateFunctionVariants() {
     code << "#include <stdexcept>\n";
     code << "#include \"ps2_runtime_macros.h\"\n";
     code << "#include \"ps2_function_variants.h\"\n";
+    code << "#include <ps2_recompiled_memory.h>\n";
     code << "#ifdef PS2_FUNCTION_LOG_TRACKER\n#include \"ps2_log.h\"\n#endif\n\n";
     size_t emitted = 0;
     for (const FunctionVariantConfig& variant : m_config.variants) {

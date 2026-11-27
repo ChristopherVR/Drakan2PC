@@ -172,25 +172,25 @@ std::string CodeGenerator::translateVU_VCALLMS(const Instruction& inst) {
     uint16_t instr_index = static_cast<uint16_t>((inst.raw >> 6) & 0x1FF); // imm15[8:0]
     uint32_t target_byte_addr = static_cast<uint32_t>(instr_index) << 3;   // Convert instruction index to byte address
 
-    return fmt::format("{{ "
-                       "    ctx->vu0_tpc = 0x{:X}; " // Set target program counter
-                       "    runtime->executeVU0Microprogram(rdram, ctx, 0x{:X}); "
-                       "}}",
-                       target_byte_addr, target_byte_addr);
+    return callsRuntime(fmt::format("{{ "
+                                    "    ctx->vu0_tpc = 0x{:X}; " // Set target program counter
+                                    "    runtime->executeVU0Microprogram(rdram, ctx, 0x{:X}); "
+                                    "}}",
+                                    target_byte_addr, target_byte_addr));
 }
 
 std::string CodeGenerator::translateVU_VCALLMSR(const Instruction& inst) {
     // VCALLMSR calls a VU0 microprogram at address stored in integer register
     uint8_t vis_reg_idx = inst.rd; // Source integer register (vis)
 
-    return fmt::format(
+    return callsRuntime(fmt::format(
         "{{ "
         "    uint16_t instr_index = ctx->vi[{}] & 0x1FF; " // Get instruction index from VI[IS], mask to 9 bits
         "    uint32_t target_byte_addr = (uint32_t)instr_index << 3; " // Convert to byte address
         "    ctx->vu0_pc = target_byte_addr; "
         "    runtime->vu0StartMicroProgram(rdram, ctx, target_byte_addr); "
         "}}",
-        vis_reg_idx);
+        vis_reg_idx));
 }
 
 std::string CodeGenerator::translateVU_VRNEXT(const Instruction& inst) {

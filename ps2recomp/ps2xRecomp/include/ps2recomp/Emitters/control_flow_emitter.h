@@ -47,7 +47,7 @@ private:
     bool isInternalTarget(uint32_t target) const;
     std::vector<uint32_t> resolvedLocalIndirectTargets() const;
 
-    std::string delaySlotCode() const;
+    TranslatedInstruction delaySlotCode() const;
     void emitDelaySlot(std::string_view indent);
     void emitResumeFromDelaySlotEntry();
     void emitInternalTarget(uint32_t target, uint32_t sourcePc, std::string_view indent);

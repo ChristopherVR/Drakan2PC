@@ -75,13 +75,13 @@ std::vector<uint32_t> ControlFlowEmitter::resolvedLocalIndirectTargets() const {
     return targets;
 }
 
-std::string ControlFlowEmitter::delaySlotCode() const {
+TranslatedInstruction ControlFlowEmitter::delaySlotCode() const {
     if (!hasRealDelaySlot()) {
         return {};
     }
 
     if (!m_delaySlotOverride.empty()) {
-        return m_delaySlotOverride;
+        return {m_delaySlotOverride, true}; // the coalesced GIF DMA kick calls the runtime
     }
 
     std::string code;
@@ -94,8 +94,9 @@ std::string ControlFlowEmitter::delaySlotCode() const {
         code += " (Delay Slot)\n";
     }
 
-    code += m_gen.translateInstruction(m_delaySlot);
-    return code;
+    TranslatedInstruction translated = m_gen.translate(m_delaySlot);
+    translated.code = code + translated.code;
+    return translated;
 }
 
 void ControlFlowEmitter::emitDelaySlot(std::string_view indent) {
@@ -103,10 +104,10 @@ void ControlFlowEmitter::emitDelaySlot(std::string_view indent) {
         return;
     }
 
-    const std::string code = delaySlotCode();
+    const TranslatedInstruction delaySlot = delaySlotCode();
+    const std::string& code = delaySlot.code;
     // Delay-slot bookkeeping is only observable by runtime calls (syscall-in-delay-slot check, exceptions).
-    const bool needsState = m_gen.m_alwaysWritePc || code.find("runtime->") != std::string::npos ||
-                            code.find("ctx->pc") != std::string::npos || code.find("throw") != std::string::npos;
+    const bool needsState = m_gen.m_alwaysWritePc || delaySlot.entersRuntime;
     if (needsState) {
         m_ss << fmt::format("{}ctx->pc = 0x{:X}u;\n", indent, delayPc());
         m_ss << fmt::format("{}ctx->in_delay_slot = true;\n", indent);

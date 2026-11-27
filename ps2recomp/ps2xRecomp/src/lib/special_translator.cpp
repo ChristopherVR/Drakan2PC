@@ -39,10 +39,11 @@ std::string SpecialTranslator::translate(const Instruction& inst) {
         case SPECIAL_JALR:
             return fmt::format("// JALR ${}, ${} - Handled by branch logic", inst.rd, inst.rs);
         case SPECIAL_SYSCALL:
-            return fmt::format("ctx->pc = 0x{:X}u;\nruntime->handleSyscall(rdram, ctx, 0x{:X}u);", inst.address + 4u,
-                               (inst.raw >> 6) & 0xFFFFFu);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("ctx->pc = 0x{:X}u;\nruntime->handleSyscall(rdram, ctx, 0x{:X}u);", inst.address + 4u,
+                            (inst.raw >> 6) & 0xFFFFFu));
         case SPECIAL_BREAK:
-            return fmt::format("runtime->handleBreak(rdram, ctx);");
+            return m_codeGenerator.callsRuntime(fmt::format("runtime->handleBreak(rdram, ctx);"));
         case SPECIAL_SYNC:
             return "// SYNC instruction - memory barrier\n// In recompiled code, we don't need explicit memory "
                    "barriers";
@@ -100,26 +101,28 @@ std::string SpecialTranslator::translate(const Instruction& inst) {
                                "0xFFFFFFFFFFFFFFFFull; ctx->hi = (uint64_t)(int64_t)(int32_t)GPR_U32(ctx,{}); }} }}",
                                inst.rt, inst.rs, inst.rs, inst.rs);
         case SPECIAL_ADD:
-            return fmt::format("{{ "
-                               "    int32_t rs_val = GPR_S32(ctx, {}); "
-                               "    int32_t rt_val = GPR_S32(ctx, {}); "
-                               "    int64_t result = (int64_t)rs_val + (int64_t)rt_val; "
-                               "    if (result > INT32_MAX || result < INT32_MIN) {{ "
-                               "        runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                               "    }} else {{ "
-                               "        SET_GPR_S32(ctx, {}, (int32_t)result); "
-                               "    }} "
-                               "}}",
-                               inst.rs, inst.rt, inst.rd);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("{{ "
+                            "    int32_t rs_val = GPR_S32(ctx, {}); "
+                            "    int32_t rt_val = GPR_S32(ctx, {}); "
+                            "    int64_t result = (int64_t)rs_val + (int64_t)rt_val; "
+                            "    if (result > INT32_MAX || result < INT32_MIN) {{ "
+                            "        runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                            "    }} else {{ "
+                            "        SET_GPR_S32(ctx, {}, (int32_t)result); "
+                            "    }} "
+                            "}}",
+                            inst.rs, inst.rt, inst.rd));
         case SPECIAL_ADDU:
             return fmt::format("SET_GPR_S32(ctx, {}, (int32_t)ADD32(GPR_U32(ctx, {}), GPR_U32(ctx, {})));", inst.rd,
                                inst.rs, inst.rt);
         case SPECIAL_SUB:
-            return fmt::format("{{ uint32_t tmp; bool ov; "
-                               "SUB32_OV(GPR_U32(ctx, {}), GPR_U32(ctx, {}), tmp, ov); "
-                               "if (ov) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                               "else SET_GPR_S32(ctx, {}, (int32_t)tmp); }}",
-                               inst.rs, inst.rt, inst.rd);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("{{ uint32_t tmp; bool ov; "
+                            "SUB32_OV(GPR_U32(ctx, {}), GPR_U32(ctx, {}), tmp, ov); "
+                            "if (ov) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                            "else SET_GPR_S32(ctx, {}, (int32_t)tmp); }}",
+                            inst.rs, inst.rt, inst.rd));
         case SPECIAL_SUBU:
             return fmt::format("SET_GPR_S32(ctx, {}, (int32_t)SUB32(GPR_U32(ctx, {}), GPR_U32(ctx, {})));", inst.rd,
                                inst.rs, inst.rt);
@@ -151,24 +154,24 @@ std::string SpecialTranslator::translate(const Instruction& inst) {
         case SPECIAL_MTSA:
             return fmt::format("ctx->sa = GPR_U32(ctx, {}) & 0x7F;", inst.rs);
         case SPECIAL_DADD:
-            return fmt::format(
+            return m_codeGenerator.callsRuntime(fmt::format(
                 "{{ int64_t a = (int64_t)GPR_S64(ctx, {}); "
                 "int64_t b = (int64_t)GPR_S64(ctx, {}); "
                 "int64_t r = a + b; "
                 "if (((a ^ b) >= 0) && ((a ^ r) < 0)) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
                 "else SET_GPR_S64(ctx, {}, r); }}",
-                inst.rs, inst.rt, inst.rd);
+                inst.rs, inst.rt, inst.rd));
         case SPECIAL_DADDU:
             return fmt::format("SET_GPR_U64(ctx, {}, (uint64_t)GPR_U64(ctx, {}) + (uint64_t)GPR_U64(ctx, {}));",
                                inst.rd, inst.rs, inst.rt);
         case SPECIAL_DSUB:
-            return fmt::format(
+            return m_codeGenerator.callsRuntime(fmt::format(
                 "{{ int64_t a = (int64_t)GPR_S64(ctx, {}); "
                 "int64_t b = (int64_t)GPR_S64(ctx, {}); "
                 "int64_t r = a - b; "
                 "if (((a ^ b) < 0) && ((a ^ r) < 0)) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
                 "else SET_GPR_S64(ctx, {}, r); }}",
-                inst.rs, inst.rt, inst.rd);
+                inst.rs, inst.rt, inst.rd));
         case SPECIAL_DSUBU:
             return fmt::format("SET_GPR_U64(ctx, {}, GPR_U64(ctx, {}) - GPR_U64(ctx, {}));", inst.rd, inst.rs, inst.rt);
         case SPECIAL_DSLL:
@@ -193,23 +196,23 @@ std::string SpecialTranslator::translate(const Instruction& inst) {
         case SPECIAL_DSRA32:
             return fmt::format("SET_GPR_S64(ctx, {}, GPR_S64(ctx, {}) >> (32 + {}));", inst.rd, inst.rt, inst.sa);
         case SPECIAL_TGE:
-            return fmt::format("if (GPR_S64(ctx, {}) >= GPR_S64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}",
-                               inst.rs, inst.rt);
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "if (GPR_S64(ctx, {}) >= GPR_S64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}", inst.rs, inst.rt));
         case SPECIAL_TGEU:
-            return fmt::format("if (GPR_U64(ctx, {}) >= GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}",
-                               inst.rs, inst.rt);
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "if (GPR_U64(ctx, {}) >= GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}", inst.rs, inst.rt));
         case SPECIAL_TLT:
-            return fmt::format("if (GPR_S64(ctx, {}) < GPR_S64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}",
-                               inst.rs, inst.rt);
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "if (GPR_S64(ctx, {}) < GPR_S64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}", inst.rs, inst.rt));
         case SPECIAL_TLTU:
-            return fmt::format("if (GPR_U64(ctx, {}) < GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}",
-                               inst.rs, inst.rt);
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "if (GPR_U64(ctx, {}) < GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}", inst.rs, inst.rt));
         case SPECIAL_TEQ:
-            return fmt::format("if (GPR_U64(ctx, {}) == GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}",
-                               inst.rs, inst.rt);
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "if (GPR_U64(ctx, {}) == GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}", inst.rs, inst.rt));
         case SPECIAL_TNE:
-            return fmt::format("if (GPR_U64(ctx, {}) != GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}",
-                               inst.rs, inst.rt);
+            return m_codeGenerator.callsRuntime(fmt::format(
+                "if (GPR_U64(ctx, {}) != GPR_U64(ctx, {})) {{ runtime->handleTrap(rdram, ctx); }}", inst.rs, inst.rt));
         default:
             return m_codeGenerator.emitUnhandledInstruction(
                 inst, fmt::format("Unhandled SPECIAL instruction: 0x{:X}", inst.function));

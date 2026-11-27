@@ -22,6 +22,16 @@ class RecompilerReporter;
 
 extern const std::unordered_set<std::string> kKeywords;
 
+// One translated guest instruction (CodeGenerator::translate).
+struct TranslatedInstruction {
+    std::string code;
+    // The code calls into the runtime (MMIO at a known address, syscall, trap, exception, VU0 microprogram, COP0, an
+    // unhandled-instruction throw) or uses ctx->pc itself, so the emitter stores the instruction's pc before it. Loads
+    // and stores whose address is only known at run time do not set this: they pass their pc to the slow path of the
+    // access helpers (ps2_recompiled_memory.h), which store it only when the access leaves guest RAM.
+    bool entersRuntime = false;
+};
+
 class CodeGenerator {
 public:
     explicit CodeGenerator(const std::vector<Symbol>& symbols, const std::vector<Section>& sections);
@@ -81,8 +91,19 @@ public:
     RecompilerReporter* m_reporter = nullptr;
     std::string m_currentFunctionName;
 
+    TranslatedInstruction translate(const Instruction& inst);
+    TranslatedInstruction translate(const Instruction& inst, const MemoryAccessHint& memoryHint);
     std::string translateInstruction(const Instruction& inst);
     std::string translateInstruction(const Instruction& inst, const MemoryAccessHint& memoryHint);
+    // Translators wrap every emitted statement that enters the runtime in this, which marks the instruction being
+    // translated (TranslatedInstruction::entersRuntime).
+    std::string callsRuntime(std::string code) {
+        m_translationEntersRuntime = true;
+        return code;
+    }
+    bool m_translationEntersRuntime = false;
+    // Text of ps2_recompiled_memory.h: the access helpers generated code uses for run-time addresses.
+    static std::string memoryAccessHeader();
     std::string emitUnhandledInstruction(const Instruction& inst, const std::string& message);
     std::string translateMMIInstruction(const Instruction& inst);
     std::string translateVUInstruction(const Instruction& inst);

@@ -67,15 +67,16 @@ std::string InstructionTranslator::translateMemoryRead(const Instruction& inst, 
             width == 128 ? (memoryHint.address & ~15u) : memoryHint.address; // LQ/SQ ignore the low 4 address bits
         const std::string resolvedAddressExpr = addressLiteral(resolvedAddress);
         if (inst.isMmio || Ps2IsSpecialAddress(resolvedAddress)) {
-            return fmt::format("runtime->Load{}(rdram, ctx, {})", width, resolvedAddressExpr);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("runtime->Load{}(rdram, ctx, {})", width, resolvedAddressExpr));
         }
         return fmt::format("FAST_READ{}({})", width, resolvedAddressExpr);
     }
 
     if (inst.isMmio) {
-        return fmt::format("runtime->Load{}(rdram, ctx, {})", width, addr);
+        return m_codeGenerator.callsRuntime(fmt::format("runtime->Load{}(rdram, ctx, {})", width, addr));
     }
-    return fmt::format("READ{}({})", width, addr);
+    return fmt::format("READ{}_AT({}, 0x{:X}u)", width, addr, inst.address);
 }
 
 std::string InstructionTranslator::translateMemoryWrite(const Instruction& inst, const MemoryAccessHint& memoryHint,
@@ -85,15 +86,16 @@ std::string InstructionTranslator::translateMemoryWrite(const Instruction& inst,
         const uint32_t resolvedAddress = width == 128 ? (memoryHint.address & ~15u) : memoryHint.address;
         const std::string resolvedAddressExpr = addressLiteral(resolvedAddress);
         if (inst.isMmio || Ps2IsSpecialAddress(resolvedAddress)) {
-            return fmt::format("runtime->Store{}(rdram, ctx, {}, {})", width, resolvedAddressExpr, value);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("runtime->Store{}(rdram, ctx, {}, {})", width, resolvedAddressExpr, value));
         }
         return genFastWrite(width, resolvedAddress, value);
     }
 
     if (inst.isMmio) {
-        return fmt::format("runtime->Store{}(rdram, ctx, {}, {})", width, addr, value);
+        return m_codeGenerator.callsRuntime(fmt::format("runtime->Store{}(rdram, ctx, {}, {})", width, addr, value));
     }
-    return fmt::format("WRITE{}({}, {})", width, addr, value);
+    return fmt::format("WRITE{}_AT({}, {}, 0x{:X}u)", width, addr, value, inst.address);
 }
 
 std::string InstructionTranslator::translate(const Instruction& inst, const MemoryAccessHint& memoryHint) {
@@ -125,11 +127,12 @@ std::string InstructionTranslator::translate(const Instruction& inst, const Memo
         case OPCODE_ADDI:
             if (inst.rt == 0)
                 return "// NOP (addi to $zero)";
-            return fmt::format("{{ uint32_t tmp; bool ov; "
-                               "ADD32_OV(GPR_U32(ctx, {}), (int32_t){}, tmp, ov); "
-                               "if (ov) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                               "else SET_GPR_S32(ctx, {}, (int32_t)tmp); }}",
-                               inst.rs, inst.simmediate, inst.rt);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("{{ uint32_t tmp; bool ov; "
+                            "ADD32_OV(GPR_U32(ctx, {}), (int32_t){}, tmp, ov); "
+                            "if (ov) runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                            "else SET_GPR_S32(ctx, {}, (int32_t)tmp); }}",
+                            inst.rs, inst.simmediate, inst.rt));
 
         case OPCODE_ADDIU:
             if (inst.rt == 0)
@@ -218,13 +221,14 @@ std::string InstructionTranslator::translate(const Instruction& inst, const Memo
                             fmt::format("_mm_castps_si128(ctx->vu0_vf[{}])", inst.rt)) +
                    ";";
         case OPCODE_DADDI:
-            return fmt::format("{{ int64_t src = (int64_t)GPR_S64(ctx, {}); "
-                               "int64_t imm = (int64_t)(int32_t){}; "
-                               "int64_t res = src + imm; "
-                               "if (((src ^ imm) >= 0) && ((src ^ res) < 0)) "
-                               "    runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
-                               "else SET_GPR_S64(ctx, {}, res); }}",
-                               inst.rs, inst.simmediate, inst.rt);
+            return m_codeGenerator.callsRuntime(
+                fmt::format("{{ int64_t src = (int64_t)GPR_S64(ctx, {}); "
+                            "int64_t imm = (int64_t)(int32_t){}; "
+                            "int64_t res = src + imm; "
+                            "if (((src ^ imm) >= 0) && ((src ^ res) < 0)) "
+                            "    runtime->SignalException(ctx, EXCEPTION_INTEGER_OVERFLOW); "
+                            "else SET_GPR_S64(ctx, {}, res); }}",
+                            inst.rs, inst.simmediate, inst.rt));
         case OPCODE_DADDIU:
             return fmt::format("SET_GPR_S64(ctx, {}, (int64_t)GPR_S64(ctx, {}) + (int64_t)(int32_t){});", inst.rt,
                                inst.rs, inst.simmediate);
@@ -346,16 +350,16 @@ std::string InstructionTranslator::translate(const Instruction& inst, const Memo
             return "// PREF instruction (ignored)";
         case OPCODE_LL:
             return fmt::format("{{ uint32_t addr = ADD32(GPR_U32(ctx, {}), {}); "
-                               "SET_GPR_S32(ctx, {}, (int32_t)READ32(addr)); "
+                               "SET_GPR_S32(ctx, {}, (int32_t)READ32_AT(addr, 0x{:X}u)); "
                                "ctx->llbit = 1; ctx->lladdr = addr; }}",
-                               inst.rs, inst.simmediate, inst.rt);
+                               inst.rs, inst.simmediate, inst.rt, inst.address);
         case OPCODE_SC:
             return fmt::format("{{ uint32_t addr = ADD32(GPR_U32(ctx, {}), {}); "
-                               "if (ctx->llbit && ctx->lladdr == addr) {{ WRITE32(addr, GPR_U32(ctx, {})); "
+                               "if (ctx->llbit && ctx->lladdr == addr) {{ WRITE32_AT(addr, GPR_U32(ctx, {}), 0x{:X}u); "
                                "SET_GPR_S32(ctx, {}, 1); }} "
                                "else {{ SET_GPR_S32(ctx, {}, 0); }} "
                                "ctx->llbit = 0; ctx->lladdr = 0; }}",
-                               inst.rs, inst.simmediate, inst.rt, inst.rt, inst.rt);
+                               inst.rs, inst.simmediate, inst.rt, inst.address, inst.rt, inst.rt);
         default:
             return m_codeGenerator.emitUnhandledInstruction(inst, fmt::format("Unhandled opcode: 0x{:X}", inst.opcode));
     }

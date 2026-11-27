@@ -382,7 +382,13 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "Cannot create generated case files in %s\n", outdir.c_str());
             return 2;
         }
-        outs.back() << "#include \"difftest_common.h\"\n\n";
+        outs.back() << "#include \"difftest_common.h\"\n#include \"ps2_recompiled_memory.h\"\n\n";
+    }
+    {
+        std::ofstream memoryHeader(outdir + "/ps2_recompiled_memory.h", std::ios::binary);
+        memoryHeader << CodeGenerator::memoryAccessHeader();
+        if (!memoryHeader)
+            return 2;
     }
     std::ofstream tbl(outdir + "/difftest_table.cpp");
     if (!tbl)

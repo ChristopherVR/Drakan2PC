@@ -36,7 +36,8 @@ std::string Cop0Translator::translate(const Instruction& inst) {
                 case COP0_REG_BADVADDR:
                     return fmt::format("SET_GPR_S32(ctx, {}, (int32_t)ctx->cop0_badvaddr);", rt);
                 case COP0_REG_COUNT:
-                    return fmt::format("SET_GPR_S32(ctx, {}, (int32_t)runtime->readEeCount(ctx));", rt);
+                    return m_codeGenerator.callsRuntime(
+                        fmt::format("SET_GPR_S32(ctx, {}, (int32_t)runtime->readEeCount(ctx));", rt));
                 case COP0_REG_ENTRYHI:
                     return fmt::format("SET_GPR_S32(ctx, {}, (int32_t)ctx->cop0_entryhi);", rt);
                 case COP0_REG_COMPARE:
@@ -123,25 +124,26 @@ std::string Cop0Translator::translate(const Instruction& inst) {
             uint8_t function = FUNCTION(inst.raw);
             switch (function) {
                 case COP0_CO_TLBR:
-                    return fmt::format("runtime->handleTLBR(rdram, ctx);");
+                    return m_codeGenerator.callsRuntime(fmt::format("runtime->handleTLBR(rdram, ctx);"));
                 case COP0_CO_TLBWI:
-                    return fmt::format("runtime->handleTLBWI(rdram, ctx);");
+                    return m_codeGenerator.callsRuntime(fmt::format("runtime->handleTLBWI(rdram, ctx);"));
                 case COP0_CO_TLBWR:
-                    return fmt::format("runtime->handleTLBWR(rdram, ctx);");
+                    return m_codeGenerator.callsRuntime(fmt::format("runtime->handleTLBWR(rdram, ctx);"));
                 case COP0_CO_TLBP:
-                    return fmt::format("runtime->handleTLBP(rdram, ctx);");
+                    return m_codeGenerator.callsRuntime(fmt::format("runtime->handleTLBP(rdram, ctx);"));
                 case COP0_CO_ERET:
-                    return fmt::format("if (ctx->cop0_status & 0x4) {{ \n" // Check ERL bit (bit 2)
-                                       "    ctx->pc = ctx->cop0_errorepc; \n"
-                                       "    ctx->cop0_status &= ~0x4; \n" // Clear ERL bit
-                                       "}} else {{ \n" // If ERL is not set, use EPC and clear EXL (bit 1)
-                                       "    ctx->pc = ctx->cop0_epc; \n"  // Note: If neither ERL/EXL set, behavior is
-                                                                          // undefined; using EPC is common.
-                                       "    ctx->cop0_status &= ~0x2; \n" // Clear EXL bit
-                                       "}} \n"
-                                       "runtime->clearLLBit(ctx); \n" // Essential: Clear Load-Linked bit
-                                       "return;"                      // Stop execution in this recompiled block
-                    );
+                    return m_codeGenerator.callsRuntime(
+                        fmt::format("if (ctx->cop0_status & 0x4) {{ \n" // Check ERL bit (bit 2)
+                                    "    ctx->pc = ctx->cop0_errorepc; \n"
+                                    "    ctx->cop0_status &= ~0x4; \n" // Clear ERL bit
+                                    "}} else {{ \n" // If ERL is not set, use EPC and clear EXL (bit 1)
+                                    "    ctx->pc = ctx->cop0_epc; \n"  // Note: If neither ERL/EXL set, behavior is
+                                                                       // undefined; using EPC is common.
+                                    "    ctx->cop0_status &= ~0x2; \n" // Clear EXL bit
+                                    "}} \n"
+                                    "runtime->clearLLBit(ctx); \n" // Essential: Clear Load-Linked bit
+                                    "return;"                      // Stop execution in this recompiled block
+                                    ));
                 case COP0_CO_EI:
                     return fmt::format("ctx->cop0_status |= 0x10000; // Enable interrupts");
                 case COP0_CO_DI:
