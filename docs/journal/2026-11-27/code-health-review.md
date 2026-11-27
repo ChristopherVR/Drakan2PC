@@ -33,15 +33,15 @@ Game glue and netplay
   atomic `g_host` set inside the handover lock.
 - Server: chat/ready flood starves reliable gameplay messages; unbounded peer creation; Query reflection
   amplification; scoreboard rows missing lives/eliminated; pvp event queue unbounded and carried across matches; RPC
-  timeout releases the server lock while the guest still reads the buffer. Fix batch in progress.
+  timeout releases the server lock while the guest still reads the buffer. Fixed.
 - HD movie index: `std::stoull` and a throwing directory iterator on player files. Fixed.
 
 Guest runtime core
 - EE invocation stack slots (64 in a 1 MB pool) are never returned; after about 64 distinct thread ids the game thread
-  dies with "EE invocation stack space exhausted". Fix batch in progress.
+  dies with "EE invocation stack space exhausted". Fixed.
 - Guest-length writes through `getMemPtr()` (fioRead, sceMcRead, fread, GS copies) can run past the scratchpad or RAM;
   SIF allocates a guest-sized vector before validating; `publishSnapshot` rebuilds debug state on every sema op;
-  `m_liveContext` dangles; `reset()` leaves host tasks queued. Fix batch in progress.
+  `m_liveContext` dangles; `reset()` leaves host tasks queued. Fixed.
 
 VU1
 - The async VU1 worker ran jobs without try/catch (a throw terminated the game and left every sync waiting
@@ -52,7 +52,7 @@ Libraries
 - Mod zip entry sizes never checked against the archive (4 GB allocation in an unguarded worker thread); SPU2
   `procBatchEx` missing braces writes `rets[-1]` and builds the wrong voice bit; WASAPI fallback resampler drops its
   phase each period (buzz); XInput polls disconnected pads every frame; input sink thread can hang exit;
-  `world::Reader` off by one; settings accept nan. Fix batch in progress.
+  `world::Reader` off by one; settings accept nan. Fixed.
 
 Recompiler (`ps2xRecomp`), not changed yet: these alter generated code and need a full rebuild plus play testing.
 - With `indirect_fallback = false` the jump-table detector never runs; a switch missing from `jumptables.csv` only
@@ -87,3 +87,13 @@ Cross-cutting duplication that causes real bugs:
   `guest_layout.h` with named constants.
 - Three `exeDir` variants with different encodings (UTF-8 vs ANSI) and a dozen `lower`/`trim` helpers: one utility.
 - `drakan_input.ini` parsed twice with different validation (`input/Config.cpp`, `settings/Store.cpp`): one schema.
+
+## Verification
+
+- `runtime-tests-asan`: 185 tests, no AddressSanitizer reports (the timing test `precise_sleep` only fails while a
+  parallel build saturates the CPU; it passes on an idle machine).
+- Incremental game build clean; `scripts/harness/lifecycle_run.py` boot, save_surdana and restore phases pass (11/11)
+  on `dist/DrakanPC`.
+- Kept on purpose: guest `sprintf`/`vsprintf` still cut at 255 characters (the cap guards guest stack buffers; lifting
+  it needs a gameplay check). `world::Reader` keeps its inclusive record bound (the native allocator checks inclusively).
+- Not yet checked in real play: multiplayer under load, co-op object replays, long sessions with many guest threads.
