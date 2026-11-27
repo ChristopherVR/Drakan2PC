@@ -7,25 +7,14 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include "common/Text.h"
 
 namespace dsettings {
 
+using drakan::common::asciiLower;
+using drakan::common::trim;
+
 namespace {
-
-std::string lower(std::string s) {
-    for (char& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    return s.substr(a, b - a);
-}
 
 // A mods.ini line that names a pack ("key = on"): not blank, not a comment, not a section header.
 bool isKeyLine(const std::string& raw) {
@@ -48,9 +37,9 @@ void ModsModel::setSnapshot(std::string folder, std::vector<ModInfo> mods, std::
 }
 
 int ModsModel::indexOf(const std::string& key) const {
-    const std::string k = lower(key);
+    const std::string k = asciiLower(key);
     for (size_t i = 0; i < mods_.size(); ++i)
-        if (lower(mods_[i].key) == k)
+        if (asciiLower(mods_[i].key) == k)
             return static_cast<int>(i);
     return -1;
 }
@@ -121,10 +110,10 @@ bool ModsModel::restartRequired() const {
     std::vector<std::string> now, then;
     for (const ModInfo& m : mods_)
         if (m.enabled)
-            now.push_back(lower(m.key));
+            now.push_back(asciiLower(m.key));
     for (const ModInfo& m : boot_)
         if (m.bootEnabled)
-            then.push_back(lower(m.key));
+            then.push_back(asciiLower(m.key));
     return now != then;
 }
 
@@ -144,12 +133,12 @@ std::string ModsModel::stateText(const ModInfo& m) const {
 }
 
 std::vector<std::string> ModsModel::conflictLines(const std::string& key) const {
-    const std::string k = lower(key);
+    const std::string k = asciiLower(key);
     std::map<std::string, std::vector<std::string>> over, under; // other pack key -> entries
     for (const ModConflict& c : conflicts_) {
-        if (lower(c.winnerKey) == k)
+        if (asciiLower(c.winnerKey) == k)
             over[c.loserKey].push_back(c.what);
-        else if (lower(c.loserKey) == k)
+        else if (asciiLower(c.loserKey) == k)
             under[c.winnerKey].push_back(c.what);
     }
     auto line = [&](const char* verb, const std::string& other, const std::vector<std::string>& what) {
@@ -182,7 +171,7 @@ std::string ModsModel::iniText(const std::string& existing) const {
             line.pop_back();
         if (isKeyLine(line))
             continue; // rewritten below
-        if (lower(trim(line)) == "[mods]")
+        if (asciiLower(trim(line)) == "[mods]")
             hasSection = true;
         keep.push_back(line);
     }
@@ -249,7 +238,7 @@ bool ModsModel::apply(const std::string& rowKey, const std::string& value, std::
     const std::string en = kKeyModsEnable, ord = kKeyModsOrder;
     bool changed = false;
     if (rowKey.rfind(en, 0) == 0) {
-        changed = setEnabled(rowKey.substr(en.size()), value == "1" || lower(value) == "on");
+        changed = setEnabled(rowKey.substr(en.size()), value == "1" || asciiLower(value) == "on");
     } else if (rowKey.rfind(ord, 0) == 0) {
         char* e = nullptr;
         const long pos = std::strtol(value.c_str(), &e, 10);

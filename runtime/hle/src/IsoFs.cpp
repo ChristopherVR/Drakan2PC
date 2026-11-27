@@ -5,8 +5,11 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include "common/Text.h"
 
 namespace hle {
+
+using drakan::common::asciiUpper;
 
 // ---------------------------------------------------------------- logging
 static LogSink g_sink;
@@ -82,13 +85,6 @@ std::string manglePath(const std::string& p) {
     return r;
 }
 
-static std::string upper(std::string s) {
-    for (auto& c : s)
-        if (c >= 'a' && c <= 'z')
-            c -= 32;
-    return s;
-}
-
 static const char* kLangs[] = {"ENGLISH", "GERMAN", "FRENCH", "ITALIAN", "SPANISH"};
 
 // ---------------------------------------------------------------- IsoFs
@@ -130,7 +126,7 @@ void IsoFs::walk(u32 lba, u32 size, const std::string& prefix, int depth) {
                 name.resize(semi);
             if (!name.empty() && name.back() == '.')
                 name.pop_back();
-            name = upper(name);
+            name = asciiUpper(name);
             Node n;
             n.dir = isDir;
             n.lba = le32(r + 2);
@@ -182,7 +178,7 @@ bool IsoFs::openFolder(const std::string& rootDir, std::string* err) {
         std::string key;
         for (char c : rel)
             key += (c == '/' ? '\\' : c);
-        key = upper(key);
+        key = asciiUpper(key);
         // strip ";1" if the folder was produced with version suffixes
         size_t semi = key.find(';');
         if (semi != std::string::npos)

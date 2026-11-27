@@ -8,6 +8,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(net)
+drakan_component_require(common)
 
 # The multiplayer maps (configs/mp_maps.ini) are compiled in as the defaults; the player's own mp_maps.ini and mod packs
 # add to them at run time. MSVC limits one string literal to ~16 KB, so the text goes in as 8 KB raw-string pieces.
@@ -35,7 +36,7 @@ add_library(drakan_net STATIC
     "${CMAKE_CURRENT_BINARY_DIR}/ArenaMapsBuiltin.cpp")
 add_library(drakan::net ALIAS drakan_net)
 target_include_directories(drakan_net PUBLIC include)
-target_link_libraries(drakan_net PRIVATE drakan::options)
+target_link_libraries(drakan_net PRIVATE drakan::common drakan::options)
 
 # Raw UDP does not exist in the browser; a WebSocket / WebRTC Transport joins here for the web build.
 if(NOT EMSCRIPTEN)

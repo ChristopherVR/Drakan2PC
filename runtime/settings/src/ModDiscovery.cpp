@@ -6,16 +6,13 @@
 #include <string_view>
 
 #include "gameui/MenuText.h"
+#include "common/Text.h"
 
 namespace dsettings {
 
-namespace {
+using drakan::common::asciiLower;
 
-std::string lower(std::string s) {
-    for (char& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+namespace {
 
 std::string displayName(const ModInfo& m) {
     return m.name.empty() ? m.key : m.name;
@@ -48,7 +45,7 @@ std::string format(bool translate, std::string_view pattern, std::initializer_li
 ModNoticeMode modNoticeModeFrom(const char* value) {
     if (!value || !*value)
         return ModNoticeMode::Auto;
-    const std::string v = lower(value);
+    const std::string v = asciiLower(value);
     if (v == "0" || v == "off" || v == "no" || v == "false")
         return ModNoticeMode::Off;
     if (v == "1" || v == "on" || v == "yes" || v == "true")
@@ -118,7 +115,7 @@ bool campaignOffered(const ModInfo& m, const GameChoiceState& state) {
     if (m.campaign.empty() || state.refused.count(m.id))
         return false;
     return std::any_of(state.cardCampaigns.begin(), state.cardCampaigns.end(),
-                       [&](const std::string& id) { return lower(id) == lower(m.campaign); });
+                       [&](const std::string& id) { return asciiLower(id) == asciiLower(m.campaign); });
 }
 
 GameChoiceNote gameChoiceNote(const ModsModel& model, const GameChoiceState& state) {

@@ -5,6 +5,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(hle)
+drakan_component_require(common)
 
 add_library(drakan_hle STATIC
     src/IsoFs.cpp
@@ -26,7 +27,7 @@ else()
     target_sources(drakan_hle PRIVATE src/IsoSourceFile.cpp)
 endif()
 target_include_directories(drakan_hle PUBLIC include)
-target_link_libraries(drakan_hle PRIVATE drakan::options)
+target_link_libraries(drakan_hle PRIVATE drakan::common drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(arena_level_test tests/arena_level_test.cpp)

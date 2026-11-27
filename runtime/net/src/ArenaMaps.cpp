@@ -7,24 +7,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <sstream>
+#include "common/Text.h"
 
 namespace drakan::net {
+
+using drakan::common::asciiLower;
+using drakan::common::trim;
 namespace {
-
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    return s.substr(a, b - a);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
 
 std::vector<std::string> words(const std::string& s) {
     std::vector<std::string> out;
@@ -152,11 +141,11 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             skipMode = false;
             sectionLine = lineNo;
             open = true;
-            if (head.size() == 2 && lower(head[0]) == "mode") {
+            if (head.size() == 2 && asciiLower(head[0]) == "mode") {
                 open = false; // [mode <id>] sections belong to ModeCatalog (GameModes.h)
                 skipMode = true;
-            } else if (head.size() == 2 && lower(head[0]) == "arena" && validId(head[1])) {
-                cur.id = lower(head[1]);
+            } else if (head.size() == 2 && asciiLower(head[0]) == "arena" && validId(head[1])) {
+                cur.id = asciiLower(head[1]);
             } else {
                 err(lineNo, "bad section header (expected [arena <id>])");
                 bad = true;
@@ -174,21 +163,21 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             bad = true;
             continue;
         }
-        const std::string key = lower(trim(line.substr(0, eq))), val = trim(line.substr(eq + 1));
+        const std::string key = asciiLower(trim(line.substr(0, eq))), val = trim(line.substr(eq + 1));
         const std::vector<std::string> w = words(val);
         if (key == "name") {
             cur.name = val;
         } else if (key == "level") {
             cur.level = val;
         } else if (key == "game") { // which game the map belongs to (menu tag)
-            const std::string g = lower(val);
+            const std::string g = asciiLower(val);
             cur.game = g == "d1" || g == "ootf" || g == "drakan 1" || g == "drakan1"     ? "Drakan 1"
                        : g == "d2" || g == "drakan 2" || g == "drakan2" || g == "drakan" ? "Drakan 2"
                                                                                          : val.substr(0, 16);
         } else if (key == "description") {
             cur.description = val;
         } else if (key == "ootf_rules") {
-            const std::string rule = lower(val);
+            const std::string rule = asciiLower(val);
             if (rule == "air")
                 cur.ootfRules = OotfArenaRules::Air;
             else if (rule == "ground")
@@ -220,7 +209,7 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             std::string v = val;
             std::replace(v.begin(), v.end(), ',', ' ');
             for (const std::string& m : words(v)) {
-                const std::string ml = lower(m);
+                const std::string ml = asciiLower(m);
                 if (ml == "dm" || ml == "deathmatch") {
                     cur.deathmatch = true;
                 } else if (ml == "tdm" || ml == "team" || ml == "teamdeathmatch") {
@@ -306,7 +295,7 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
             }
         } else if (key == "marker") {
             ArenaMarker m;
-            const std::string kind = w.empty() ? "" : lower(w[0]);
+            const std::string kind = w.empty() ? "" : asciiLower(w[0]);
             bool ok = w.size() >= 4 && (kind == "base" || kind == "flag" || kind == "zone") &&
                       parseFloat(w[1], m.pos[0]) && parseFloat(w[2], m.pos[1]) && parseFloat(w[3], m.pos[2]);
             m.kind = kind == "base"   ? ArenaMarker::Kind::Base
@@ -430,9 +419,9 @@ size_t ArenaCatalog::add(const std::string& text, const std::string& source, std
 }
 
 const ArenaDef* ArenaCatalog::find(const std::string& idOrName) const {
-    const std::string k = lower(trim(idOrName));
+    const std::string k = asciiLower(trim(idOrName));
     for (const ArenaDef& a : arenas_)
-        if (a.id == k || lower(a.name) == k)
+        if (a.id == k || asciiLower(a.name) == k)
             return &a;
     return nullptr;
 }

@@ -6,22 +6,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include "common/Text.h"
 
 namespace hle::mods {
+
+using drakan::common::asciiLower;
+using drakan::common::trim;
 namespace {
-std::string trim(const std::string& s) {
-    const size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos)
-        return {};
-    const size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
-std::string lower(std::string s) {
-    for (char& c : s)
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
 std::vector<std::string> split(const std::string& s, char sep) {
     std::vector<std::string> out;
     size_t pos = 0;
@@ -89,7 +80,7 @@ bool readDatabases(const std::vector<u8>& data, std::vector<std::string>& databa
         std::string name(reinterpret_cast<const char*>(&data[pos]), size);
         name.erase(std::find(name.begin(), name.end(), '\0'), name.end());
         std::replace(name.begin(), name.end(), '\\', '/');
-        databases.push_back(lower(std::move(name)));
+        databases.push_back(asciiLower(std::move(name)));
         pos += size;
     }
     return pos == data.size();
@@ -152,7 +143,7 @@ std::string formatSaveRevisionRule(const SaveRevisionRule& r) {
 }
 
 bool ruleLevelMatches(const std::string& ruleLevel, const std::string& saveStem) {
-    const std::string want = lower(trim(saveStem)), have = lower(trim(ruleLevel));
+    const std::string want = asciiLower(trim(saveStem)), have = asciiLower(trim(ruleLevel));
     if (want.empty())
         return false;
     if (want == have)

@@ -6,6 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(gameui)
+drakan_component_require(common)
 
 add_library(drakan_gameui STATIC
     src/GuestMemory.cpp
@@ -33,7 +34,7 @@ add_library(drakan_gameui STATIC
     src/UiSkin.cpp)
 add_library(drakan::gameui ALIAS drakan_gameui)
 target_include_directories(drakan_gameui PUBLIC include)
-target_link_libraries(drakan_gameui PRIVATE drakan::options)
+target_link_libraries(drakan_gameui PRIVATE drakan::common drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(gameui_locale_test tests/gameui_locale_test.cpp)

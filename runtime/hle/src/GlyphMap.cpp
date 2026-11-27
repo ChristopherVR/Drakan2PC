@@ -1,8 +1,11 @@
 #include "hle/GlyphMap.h"
 #include <cstdio>
 #include <cstdlib>
+#include "common/Text.h"
 
 namespace hle {
+
+using drakan::common::trim;
 namespace {
 
 // The game's 35-entry special-code table (code -> glyph 189 + position). Windows-1252 punctuation, then the control
@@ -26,11 +29,6 @@ constexpr Cp1252 kCp1252[] = {
 
 bool isDigit(char c) {
     return c >= '0' && c <= '9';
-}
-
-std::string trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
-    return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
 }
 
 // Decodes one UTF-8 sequence at s[i]; advances i. Returns false (and skips one byte) on a malformed sequence.

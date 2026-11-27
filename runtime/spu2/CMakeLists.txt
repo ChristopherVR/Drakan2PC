@@ -6,7 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(spu2)
-drakan_component_require(hle)
+drakan_component_require(common hle)
 
 add_library(drakan_spu2 STATIC
     src/Spu2.cpp src/Mixer.cpp src/Adpcm.cpp src/Sdr.cpp src/AudioOutput.cpp src/LibsdPresets.cpp)
@@ -25,7 +25,7 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(drakan_spu2 PRIVATE Threads::Threads)
 target_compile_definitions(drakan_spu2 PRIVATE $<$<BOOL:${MSVC}>:NOMINMAX>)
-target_link_libraries(drakan_spu2 PUBLIC drakan::hle PRIVATE drakan::options)
+target_link_libraries(drakan_spu2 PUBLIC drakan::hle PRIVATE drakan::common drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)

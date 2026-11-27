@@ -7,8 +7,12 @@
 #include <fstream>
 #include <iterator>
 #include <system_error>
+#include "common/Text.h"
 
 namespace hle {
+
+using drakan::common::asciiUpper;
+using drakan::common::trim;
 namespace fs = std::filesystem;
 
 // path::string() throws std::system_error on MSVC for a name the ANSI code page cannot hold; such an entry of a
@@ -20,16 +24,6 @@ static bool narrowPath(const fs::path& p, std::string& out) {
     } catch (const std::system_error&) {
         return false;
     }
-}
-
-static std::string upperStr(std::string s) {
-    for (auto& c : s)
-        c = (char)toupper((unsigned char)c);
-    return s;
-}
-static std::string trimStr(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
-    return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
 }
 
 // ---- DirectoryOverride
@@ -83,14 +77,14 @@ size_t DirectoryOverride::load(const std::string& root) {
         std::error_code sec; // a failed stat skips the entry, not the rest of the scan
         if (!d->is_directory(sec) || !narrowPath(d->path().filename(), file))
             continue;
-        file = upperStr(file);
+        file = asciiUpper(file);
         std::error_code fec;
         for (fs::directory_iterator f(d->path(), fec), fEnd; !fec && f != fEnd; f.increment(fec)) {
             std::string n, ext, full;
             if (!f->is_regular_file(sec) || !narrowPath(f->path().filename(), n) ||
                 !narrowPath(f->path().extension(), ext) || !narrowPath(f->path(), full))
                 continue;
-            if (upperStr(ext) != ".BIN")
+            if (asciiUpper(ext) != ".BIN")
                 continue;
             n = n.substr(0, n.size() - 4);
             Key k;
@@ -169,7 +163,7 @@ std::vector<u8> encode(const std::vector<std::string>& slots) {
     return out;
 }
 int langFromName(const std::string& s) {
-    std::string u = upperStr(s);
+    std::string u = asciiUpper(s);
     if (u.empty() || u == "*")
         return -1;
     static const char* n[] = {"EN", "DE", "FR", "IT", "ES"};
@@ -187,7 +181,7 @@ static bool isXdbText(const ResourceId& id) {
 }
 
 void XdbTextOverride::setText(const std::string& file, u16 id, int lang, std::string text) {
-    patches_.push_back({upperStr(file), id, lang, std::move(text)});
+    patches_.push_back({asciiUpper(file), id, lang, std::move(text)});
 }
 
 static std::string unescape(const std::string& s) {
@@ -203,7 +197,7 @@ static std::string unescape(const std::string& s) {
 }
 
 bool isTextIniDirective(const std::string& key) {
-    std::string k = trimStr(key);
+    std::string k = trim(key);
     for (auto& c : k)
         c = (char)tolower((unsigned char)c);
     return k == "encoding";
@@ -213,12 +207,12 @@ bool textIniEncoding(const std::string& content, bool& utf8, std::string* bad) {
     size_t pos = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0;
     while (pos < content.size()) {
         size_t e = content.find('\n', pos);
-        std::string t = trimStr(content.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
+        std::string t = trim(content.substr(pos, e == std::string::npos ? std::string::npos : e - pos));
         pos = e == std::string::npos ? content.size() : e + 1;
         size_t eq = t.find('=');
         if (t.empty() || t[0] == ';' || t[0] == '#' || eq == std::string::npos || !isTextIniDirective(t.substr(0, eq)))
             continue;
-        std::string v = trimStr(t.substr(eq + 1));
+        std::string v = trim(t.substr(eq + 1));
         for (auto& c : v)
             c = (char)tolower((unsigned char)c);
         utf8 = v == "utf-8" || v == "utf8";
@@ -244,13 +238,13 @@ size_t XdbTextOverride::loadIni(const std::string& file, const std::string& cont
         pos = e == std::string::npos ? content.size() + 1 : e + 1;
         if (!line.empty() && line.back() == '\r')
             line.pop_back();
-        std::string t = trimStr(line);
+        std::string t = trim(line);
         if (t.empty() || t[0] == ';' || t[0] == '#')
             continue;
         size_t eq = line.find('=');
         if (eq == std::string::npos)
             continue;
-        std::string key = trimStr(line.substr(0, eq));
+        std::string key = trim(line.substr(0, eq));
         if (isTextIniDirective(key))
             continue;
         std::string val = line.substr(eq + 1);
@@ -312,7 +306,7 @@ size_t XdbTextOverride::loadDirectory(const std::string& root) {
     std::string name, mapPath;
     for (fs::directory_iterator d(root, ec), end; !ec && d != end; d.increment(ec))
         if (std::error_code sec; d->is_directory(sec) && narrowPath(d->path().filename(), name) &&
-                                 upperStr(name) == kGlyphMapDir && narrowPath(d->path() / kGlyphMapName, mapPath))
+                                 asciiUpper(name) == kGlyphMapDir && narrowPath(d->path() / kGlyphMapName, mapPath))
             glyphs = loadGlyphMapFile(mapPath, name + "/" + kGlyphMapName);
     ec.clear();
     for (fs::directory_iterator d(root, ec), end; !ec && d != end; d.increment(ec)) {
@@ -323,7 +317,7 @@ size_t XdbTextOverride::loadDirectory(const std::string& root) {
         if (!in)
             continue;
         std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-        n += loadIni(upperStr(name), content, glyphs.get());
+        n += loadIni(asciiUpper(name), content, glyphs.get());
     }
     return n;
 }

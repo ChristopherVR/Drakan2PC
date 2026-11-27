@@ -4,18 +4,12 @@
 #include <cctype>
 #include <fstream>
 #include <sstream>
+#include "common/Text.h"
 
 namespace drakan_ui {
 
-static std::string up(std::string s) {
-    for (auto& c : s)
-        c = (char)std::toupper((unsigned char)c);
-    return s;
-}
-static std::string trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
-    return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
-}
+using drakan::common::asciiUpper;
+using drakan::common::trim;
 
 Bindings Bindings::defaults() {
     Bindings b;
@@ -62,7 +56,7 @@ void Bindings::parse(const std::string& text) {
         if (line.empty())
             continue;
         if (line.front() == '[' && line.back() == ']') {
-            section = up(trim(line.substr(1, line.size() - 2)));
+            section = asciiUpper(trim(line.substr(1, line.size() - 2)));
             continue;
         }
         if (section != "BINDINGS" && section != "MENU_BINDINGS")
@@ -70,13 +64,13 @@ void Bindings::parse(const std::string& text) {
         size_t eq = line.find('=');
         if (eq == std::string::npos)
             continue;
-        std::string src = up(trim(line.substr(0, eq)));
+        std::string src = asciiUpper(trim(line.substr(0, eq)));
         std::stringstream acts(line.substr(eq + 1));
         std::string a;
         auto& v = section == "BINDINGS" ? game_ : menu_;
         (section == "BINDINGS" ? haveGame_ : haveMenu_) = true;
         while (std::getline(acts, a, '|')) {
-            a = up(trim(a));
+            a = asciiUpper(trim(a));
             if (!a.empty())
                 v.push_back({src, a});
         }
@@ -85,7 +79,7 @@ void Bindings::parse(const std::string& text) {
 
 std::vector<std::string> Bindings::sources(const std::string& action, bool menu) const {
     std::vector<std::string> r;
-    std::string A = up(action);
+    std::string A = asciiUpper(action);
     for (auto& e : menu ? menu_ : game_)
         if (e.action == A)
             r.push_back(e.source);
@@ -151,13 +145,13 @@ Bindings Bindings::pad(PadStyle style) {
 
 Label Bindings::primary(const std::string& action, bool menu) const {
     if (pad_ != PadStyle::None)
-        return padLabel(pad_, up(action));
+        return padLabel(pad_, asciiUpper(action));
     auto s = sources(action, menu);
     return s.empty() ? Label{} : labelFor(s.front());
 }
 
 Label Bindings::labelFor(const std::string& source) {
-    std::string s = up(source);
+    std::string s = asciiUpper(source);
     Label l;
     if (s.size() == 6 && s.rfind("MOUSE", 0) == 0 && s[5] >= '1' && s[5] <= '5') {
         int n = s[5] - '0';

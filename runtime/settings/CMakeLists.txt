@@ -27,7 +27,8 @@ target_link_libraries(drakan_settings_core PRIVATE drakan::input_ini drakan::com
 add_library(drakan_settings_schema STATIC src/Schema.cpp src/ModernSettings.cpp src/ModsPage.cpp
     src/ModDiscovery.cpp)
 target_include_directories(drakan_settings_schema PUBLIC include)
-target_link_libraries(drakan_settings_schema PUBLIC drakan_settings_core drakan::gameui PRIVATE drakan::options)
+target_link_libraries(drakan_settings_schema PUBLIC drakan_settings_core drakan::gameui PRIVATE drakan::common
+    drakan::options)
 
 add_library(drakan_settings_ui STATIC src/Menu.cpp src/Skin.cpp src/GameUiRenderer.cpp src/Hud.cpp src/CharacterPreview.cpp)
 # third_party/fonts: the vendored Gelasio faces (OFL), compressed into sources.

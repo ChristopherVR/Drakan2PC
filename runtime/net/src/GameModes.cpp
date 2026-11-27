@@ -3,24 +3,13 @@
 #include <cctype>
 #include <cstdlib>
 #include <sstream>
+#include "common/Text.h"
 
 namespace drakan::net {
+
+using drakan::common::asciiLower;
+using drakan::common::trim;
 namespace {
-
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    return s.substr(a, b - a);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
 
 std::vector<std::string> words(const std::string& s) {
     std::vector<std::string> out;
@@ -115,13 +104,13 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
             const std::vector<std::string> head =
                 close == std::string::npos ? std::vector<std::string>() : words(line.substr(1, close - 1));
             open = false;
-            if (head.size() == 2 && lower(head[0]) == "mode") {
+            if (head.size() == 2 && asciiLower(head[0]) == "mode") {
                 cur = ModeDef();
                 bad = false;
                 sectionLine = lineNo;
                 open = true;
                 if (validId(head[1])) {
-                    cur.id = lower(head[1]);
+                    cur.id = asciiLower(head[1]);
                 } else {
                     err(lineNo, "bad mode id");
                     bad = true;
@@ -137,7 +126,7 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
             bad = true;
             continue;
         }
-        const std::string key = lower(trim(line.substr(0, eq))), val = trim(line.substr(eq + 1));
+        const std::string key = asciiLower(trim(line.substr(0, eq))), val = trim(line.substr(eq + 1));
         const std::vector<std::string> w = words(val);
         long long n = 0;
         const auto num = [&](long long lo, long long hi) {
@@ -152,7 +141,7 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
         } else if (key == "description") {
             cur.description = val;
         } else if (key == "base") {
-            const std::string b = lower(val);
+            const std::string b = asciiLower(val);
             if (b == "dm" || b == "tdm") {
                 cur.teamBase = b == "tdm";
             } else {
@@ -187,7 +176,7 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
             if (num(0, 60))
                 cur.respawnDelaySec = static_cast<uint8_t>(n);
         } else if (key == "friendly_fire") {
-            const std::string b = lower(val);
+            const std::string b = asciiLower(val);
             if (b == "on" || b == "off" || b == "true" || b == "false" || b == "1" || b == "0") {
                 cur.friendlyFire = b == "on" || b == "true" || b == "1";
             } else {
@@ -206,7 +195,7 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
             }
         } else if (key == "objective") {
             ModeObjective o;
-            const std::string kind = w.empty() ? "" : lower(w[0]);
+            const std::string kind = w.empty() ? "" : asciiLower(w[0]);
             bool ok = kind == "capture" || kind == "hold";
             o.kind = kind == "hold" ? ModeObjective::Kind::Hold : ModeObjective::Kind::Capture;
             for (size_t i = 1; ok && i < w.size(); ++i) {
@@ -242,7 +231,7 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
             if (num(0, 10))
                 cur.spawnProtectionSec = static_cast<int16_t>(n);
         } else if (key == "pickup_respawn") {
-            const std::string b = lower(val);
+            const std::string b = asciiLower(val);
             if (b == "map") {
                 cur.pickupRespawnSec = -1;
             } else if (b == "never") {
@@ -290,9 +279,9 @@ size_t ModeCatalog::add(const std::string& text, const std::string& source, std:
 }
 
 const ModeDef* ModeCatalog::find(const std::string& idOrName) const {
-    const std::string k = lower(trim(idOrName));
+    const std::string k = asciiLower(trim(idOrName));
     for (const ModeDef& m : modes_)
-        if (m.id == k || lower(m.name) == k)
+        if (m.id == k || asciiLower(m.name) == k)
             return &m;
     return nullptr;
 }

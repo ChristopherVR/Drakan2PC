@@ -5,13 +5,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR) # standalone configure
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/DrakanComponents.cmake")
 drakan_component_begin(ui)
-drakan_component_require(hle imgui input)
+drakan_component_require(common hle imgui input)
 
 add_library(drakan_ui STATIC src/Txd.cpp src/Bindings.cpp src/Draw.cpp src/Prompts.cpp src/TextRules.cpp src/FontAtlas.cpp)
 add_library(drakan::ui ALIAS drakan_ui)
 target_include_directories(drakan_ui PUBLIC include)
 # FontAtlas.cpp reuses Dear ImGui's bundled stb_truetype (imstb_truetype.h).
-target_link_libraries(drakan_ui PUBLIC drakan::hle PRIVATE drakan::input_ini drakan::imgui drakan::options)
+target_link_libraries(drakan_ui PUBLIC drakan::hle PRIVATE drakan::input_ini drakan::common drakan::imgui drakan::options)
 
 if(DRAKAN_BUILD_RUNTIME_TESTS)
     add_executable(font_atlas_test tests/font_atlas_test.cpp)

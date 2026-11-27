@@ -3,6 +3,8 @@
 #include <cctype>
 #include <cstdio>
 
+#include "common/Text.h"
+
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -17,15 +19,7 @@ namespace drakan_input {
 
 namespace {
 std::string trimLower(std::string_view s) {
-    size_t b = 0, e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b])))
-        ++b;
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
-        --e;
-    std::string r(s.substr(b, e - b));
-    for (char& c : r)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return r;
+    return drakan::common::asciiLower(drakan::common::trim(s));
 }
 int popcount64(uint64_t v) {
     int n = 0;

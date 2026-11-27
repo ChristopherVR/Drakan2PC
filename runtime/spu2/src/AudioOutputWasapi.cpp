@@ -15,8 +15,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <vector>
+#include "common/Text.h"
 
 namespace spu2 {
+
+using drakan::common::asciiLower;
 
 namespace {
 
@@ -78,12 +81,6 @@ std::string utf8(const wchar_t* w) {
     return n > 0 ? std::string(buf) : std::string();
 }
 
-std::string lowerStr(std::string s) {
-    for (char& c : s)
-        c = (char)std::tolower((unsigned char)c);
-    return s;
-}
-
 std::string friendlyName(IMMDevice* dev) {
     std::string out;
     IPropertyStore* ps = nullptr;
@@ -111,7 +108,7 @@ std::string deviceId(IMMDevice* dev) {
 // Picks the endpoint: the Windows default render device, or the first active one whose friendly name contains `want`.
 IMMDevice* pickDevice(IMMDeviceEnumerator* en, const std::string& want) {
     IMMDevice* dev = nullptr;
-    const std::string w = lowerStr(want);
+    const std::string w = asciiLower(want);
     if (!w.empty() && w != "default") {
         IMMDeviceCollection* col = nullptr;
         if (SUCCEEDED(en->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &col)) && col) {
@@ -120,7 +117,7 @@ IMMDevice* pickDevice(IMMDeviceEnumerator* en, const std::string& want) {
             for (UINT i = 0; i < n && !dev; ++i) { // exact endpoint id first
                 IMMDevice* d = nullptr;
                 if (SUCCEEDED(col->Item(i, &d)) && d) {
-                    if (lowerStr(deviceId(d)) == w)
+                    if (asciiLower(deviceId(d)) == w)
                         dev = d;
                     else
                         d->Release();
@@ -129,7 +126,7 @@ IMMDevice* pickDevice(IMMDeviceEnumerator* en, const std::string& want) {
             for (UINT i = 0; i < n && !dev; ++i) {
                 IMMDevice* d = nullptr;
                 if (SUCCEEDED(col->Item(i, &d)) && d) {
-                    if (lowerStr(friendlyName(d)).find(w) != std::string::npos)
+                    if (asciiLower(friendlyName(d)).find(w) != std::string::npos)
                         dev = d;
                     else
                         d->Release();

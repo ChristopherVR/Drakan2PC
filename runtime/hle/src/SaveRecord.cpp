@@ -2,25 +2,16 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include "common/Text.h"
 
 namespace hle::mods {
+
+using drakan::common::asciiLower;
+using drakan::common::trim;
 namespace {
-std::string asciiLower(std::string s) {
-    for (char& c : s)
-        if (c >= 'A' && c <= 'Z')
-            c = static_cast<char>(c - 'A' + 'a');
-    return s;
-}
 std::string slashes(std::string s) {
     std::replace(s.begin(), s.end(), '\\', '/');
     return s;
-}
-std::string trim(const std::string& s) {
-    const size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos)
-        return {};
-    const size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
 }
 // One line: record values never span lines.
 std::string oneLine(const std::string& s) {

@@ -18,25 +18,16 @@
 #include <thread>
 #include <tuple>
 #include <unordered_map>
+#include "common/Text.h"
 
 namespace hle::mods {
+
+using drakan::common::asciiLower;
+using drakan::common::asciiUpper;
+using drakan::common::trim;
 namespace fs = std::filesystem;
 
 // ---- small helpers ----------------------------------------------------------------------------------------------
-static std::string lower(std::string s) {
-    for (auto& c : s)
-        c = (char)tolower((unsigned char)c);
-    return s;
-}
-static std::string upper(std::string s) {
-    for (auto& c : s)
-        c = (char)toupper((unsigned char)c);
-    return s;
-}
-static std::string trim(const std::string& s) {
-    size_t a = s.find_first_not_of(" \t\r\n"), b = s.find_last_not_of(" \t\r\n");
-    return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
-}
 static bool readWhole(const fs::path& p, std::vector<u8>& out) {
     std::ifstream in(p, std::ios::binary);
     if (!in)
@@ -45,7 +36,7 @@ static bool readWhole(const fs::path& p, std::vector<u8>& out) {
     return true;
 }
 static bool parseHex64(std::string s, u64& v) {
-    s = lower(trim(s));
+    s = asciiLower(trim(s));
     if (s.rfind("0x", 0) == 0)
         s = s.substr(2);
     if (s.empty() || s.size() > 16)
@@ -1362,7 +1353,7 @@ static bool readManifestFrom(const ModArchive& a, Manifest& m, std::string& pref
     std::string found;
     bool json = false;
     for (auto& it : a.list()) {
-        std::string l = lower(it.path);
+        std::string l = asciiLower(it.path);
         for (const char* n : {"mod.toml", "mod.json"}) {
             std::string nm = n;
             bool root = l == nm;
@@ -1402,7 +1393,7 @@ static bool stemOf(const fs::path& p, std::string& out) {
 // Lower-cased extension of a mods-folder entry, empty when it has no ANSI form.
 static std::string lowerExt(const fs::path& p) {
     try {
-        return lower(p.extension().string());
+        return asciiLower(p.extension().string());
     } catch (const std::system_error&) {
         return {};
     }
@@ -1431,11 +1422,11 @@ size_t ModManager::load(const std::string& modsDir) {
             size_t eq = line.find('=');
             if (eq == std::string::npos)
                 continue;
-            std::string k = trim(line.substr(0, eq)), v = lower(trim(line.substr(eq + 1)));
-            if (k.empty() || !listed.insert(lower(k)).second)
+            std::string k = trim(line.substr(0, eq)), v = asciiLower(trim(line.substr(eq + 1)));
+            if (k.empty() || !listed.insert(asciiLower(k)).second)
                 continue;
             if (v == "new")
-                unseen.insert(lower(k));
+                unseen.insert(asciiLower(k));
             order.emplace_back(k, v == "on" || v == "1" || v == "true" || v == "yes");
         }
     }
@@ -1457,7 +1448,7 @@ size_t ModManager::load(const std::string& modsDir) {
         // are decisions and stay (a missing `on` pack is named on the title screen, docs/reference/modding.md).
         std::set<std::string> onDisk, stale;
         for (auto& n : names)
-            onDisk.insert(lower(n));
+            onDisk.insert(asciiLower(n));
         for (auto& k : unseen)
             if (!onDisk.count(k))
                 stale.insert(k);
@@ -1470,8 +1461,8 @@ size_t ModManager::load(const std::string& modsDir) {
                     const std::string line = trim(raw);
                     const size_t eq = line.find('=');
                     if (!line.empty() && line[0] != ';' && line[0] != '#' && line[0] != '[' &&
-                        eq != std::string::npos && lower(trim(line.substr(eq + 1))) == "new" &&
-                        stale.count(lower(trim(line.substr(0, eq)))))
+                        eq != std::string::npos && asciiLower(trim(line.substr(eq + 1))) == "new" &&
+                        stale.count(asciiLower(trim(line.substr(0, eq)))))
                         continue;
                     keep.push_back(raw);
                 }
@@ -1491,20 +1482,20 @@ size_t ModManager::load(const std::string& modsDir) {
             if (!written)
                 fs::remove(tmp, ec);
             for (auto& [k, on] : order)
-                if (stale.count(lower(k)))
+                if (stale.count(asciiLower(k)))
                     logf("mods: new pack '%s' is no longer in the mods folder: %s", k.c_str(),
                          written ? "removed from mods.ini" : "mods.ini could not be rewritten, ignored for this start");
             order.erase(std::remove_if(order.begin(), order.end(),
-                                       [&](const auto& o) { return stale.count(lower(o.first)) != 0; }),
+                                       [&](const auto& o) { return stale.count(asciiLower(o.first)) != 0; }),
                         order.end());
             for (auto& k : stale)
                 unseen.erase(k);
         }
         for (auto& n : names)
-            if (listed.insert(lower(n)).second) {
+            if (listed.insert(asciiLower(n)).second) {
                 order.emplace_back(n, false);
                 fresh.push_back(n);
-                unseen.insert(lower(n));
+                unseen.insert(asciiLower(n));
             }
         if (!fresh.empty()) {
             const bool isNew = !fs::exists(iniPath, ec) || fs::file_size(iniPath, ec) == 0;
@@ -1524,7 +1515,7 @@ size_t ModManager::load(const std::string& modsDir) {
     }
     const size_t loaded = load(modsDir, order);
     for (ModStatus& st : status_) {
-        st.isNew = !st.enabled && unseen.count(lower(st.key)) != 0;
+        st.isNew = !st.enabled && unseen.count(asciiLower(st.key)) != 0;
         if (st.isNew && st.state == ModState::Disabled)
             st.message = "new pack, not enabled yet";
     }
@@ -1557,14 +1548,14 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             bool zip = e->is_regular_file(sec) && lowerExt(e->path()) == ".zip";
             std::string stem;
             if ((e->is_directory(sec) || zip) && stemOf(e->path(), stem))
-                found.emplace(lower(stem), e->path());
+                found.emplace(asciiLower(stem), e->path());
         }
     // ---- phase A: manifests and per-pack validation
     for (auto& [key, on] : order) {
         Cand c;
         c.st.key = key;
         c.st.enabled = on;
-        auto it = found.find(lower(key));
+        auto it = found.find(asciiLower(key));
         if (it == found.end()) {
             c.st.state = ModState::Skipped;
             c.st.message = "listed in mods.ini but not found in " + modsDir;
@@ -1582,11 +1573,12 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             c.st.readError = err.empty() ? std::string("cannot be read") : err;
         if (c.archive && c.st.hasManifest) {
             // The cover: the pack's picture for the Mods page (names matched case-insensitively, like the scans below).
-            const std::string want1 = lower(c.prefix) + "previews/pack.png",
-                              want2 = lower(c.prefix) + "previews/campaign-" + lower(c.st.manifest.id) + ".png";
+            const std::string want1 = asciiLower(c.prefix) + "previews/pack.png",
+                              want2 =
+                                  asciiLower(c.prefix) + "previews/campaign-" + asciiLower(c.st.manifest.id) + ".png";
             std::string found1, found2;
             for (const auto& it : c.archive->list()) {
-                const std::string lp = lower(it.path);
+                const std::string lp = asciiLower(it.path);
                 if (it.size == 0 || it.size > (8u << 20))
                     continue;
                 if (lp == want1)
@@ -1617,7 +1609,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             else {
                 bool pOk = m.profiles.empty(), hOk = m.profileHashes.empty();
                 for (auto& p : m.profiles)
-                    if (p == "*" || lower(p) == lower(profile_.id))
+                    if (p == "*" || asciiLower(p) == asciiLower(profile_.id))
                         pOk = true;
                 for (auto& h : m.profileHashes) {
                     u64 v;
@@ -1734,17 +1726,17 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             continue;
         }
         const std::string mid = c.st.manifest.id;
-        const std::string root = lower(c.prefix) + "overrides/";
-        const std::string filesRoot = lower(c.prefix) + "files/", newRoot = lower(c.prefix) + "new/";
+        const std::string root = asciiLower(c.prefix) + "overrides/";
+        const std::string filesRoot = asciiLower(c.prefix) + "files/", newRoot = asciiLower(c.prefix) + "new/";
         size_t nEntries = 0, nTexts = 0, nRejected = 0, nFiles = 0, nNew = 0, nLevels = 0;
         ++modIndex;
         // The pack's glyph map (overrides/INTERFCE.TXD/glyphs.ini) is read before any of its text.ini files, whatever
         // the archive order; it only affects text.ini files that declare `encoding = utf-8`.
         std::shared_ptr<GlyphMap> glyphs;
         {
-            const std::string glyphPath = root + lower(kGlyphMapDir) + "/" + kGlyphMapName;
+            const std::string glyphPath = root + asciiLower(kGlyphMapDir) + "/" + kGlyphMapName;
             for (auto& it : c.archive->list()) {
-                if (lower(it.path) != glyphPath)
+                if (asciiLower(it.path) != glyphPath)
                     continue;
                 std::vector<u8> b;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, b))
@@ -1763,7 +1755,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             }
             bool dup = false;
             for (auto& d : levelDefs_)
-                if (lower(d.name) == lower(ln)) {
+                if (asciiLower(d.name) == asciiLower(ln)) {
                     dup = true;
                     logf("mods: conflict: level '%s' is registered by '%s' and '%s'; '%s' keeps it", ln.c_str(),
                          d.modId.c_str(), mid.c_str(), d.modId.c_str());
@@ -1773,7 +1765,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 std::string copyOf;
                 for (const std::string& lc : c.st.manifest.levelCopies) {
                     const size_t eq = lc.find('=');
-                    if (eq != std::string::npos && lower(trim(lc.substr(0, eq))) == lower(ln))
+                    if (eq != std::string::npos && asciiLower(trim(lc.substr(0, eq))) == asciiLower(ln))
                         copyOf = trim(lc.substr(eq + 1));
                 }
                 levelDefs_.push_back({ln, mid, "\\Levels\\" + ln + "\\" + ln + ".lvl", -1, copyOf});
@@ -1781,20 +1773,20 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             }
         }
         for (auto& it : c.archive->list()) {
-            const std::string lowPath = lower(it.path);
-            if (lowPath == lower(c.prefix) + "gameplay/bows.ini") {
+            const std::string lowPath = asciiLower(it.path);
+            if (lowPath == asciiLower(c.prefix) + "gameplay/bows.ini") {
                 std::vector<u8> text;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, text))
                     bowAimFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
-            if (lowPath == lower(c.prefix) + "gameplay/crystals.ini") {
+            if (lowPath == asciiLower(c.prefix) + "gameplay/crystals.ini") {
                 std::vector<u8> text;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, text))
                     crystalFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
-            const std::string mapsRoot = lower(c.prefix) + "maps/";
+            const std::string mapsRoot = asciiLower(c.prefix) + "maps/";
             if (lowPath.rfind(mapsRoot, 0) == 0 && lowPath.size() > mapsRoot.size() + 4 &&
                 lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&
                 lowPath.find('/', mapsRoot.size()) == std::string::npos) {
@@ -1803,7 +1795,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     mapFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
-            const std::string uiRoot = lower(c.prefix) + "ui/";
+            const std::string uiRoot = asciiLower(c.prefix) + "ui/";
             if (lowPath.rfind(uiRoot, 0) == 0 && lowPath.size() > uiRoot.size() + 4 &&
                 lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&
                 lowPath.find('/', uiRoot.size()) == std::string::npos) {
@@ -1812,8 +1804,8 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     uiFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
                 continue;
             }
-            const bool firstCredits = lowPath == lower(c.prefix) + "credits/credits.txt";
-            if (firstCredits || lowPath == lower(c.prefix) + "credits/credits-2.txt") {
+            const bool firstCredits = lowPath == asciiLower(c.prefix) + "credits/credits.txt";
+            if (firstCredits || lowPath == asciiLower(c.prefix) + "credits/credits-2.txt") {
                 std::vector<u8> text;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, text)) {
                     auto& credits = creditsFiles_[mid];
@@ -1821,13 +1813,13 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 }
                 continue;
             }
-            if (lowPath == lower(c.prefix) + "sounds/swaps.ini") {
+            if (lowPath == asciiLower(c.prefix) + "sounds/swaps.ini") {
                 std::vector<u8> text;
                 if (it.size <= (64u << 10) && c.archive->read(it.path, text))
                     soundSwapFiles_.emplace_back(mid, std::string(text.begin(), text.end()));
                 continue;
             }
-            const std::string prevRoot = lower(c.prefix) + "previews/";
+            const std::string prevRoot = asciiLower(c.prefix) + "previews/";
             if (lowPath.rfind(prevRoot, 0) == 0 && lowPath.size() > prevRoot.size() + 4 &&
                 lowPath.compare(lowPath.size() - 4, 4, ".png") == 0 &&
                 lowPath.find('/', prevRoot.size()) == std::string::npos) {
@@ -1864,14 +1856,14 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     const std::string nm = sl == std::string::npos ? std::string() : rest.substr(sl + 1);
                     NewEntryKey k;
                     if (sl == std::string::npos || nm.find('/') != std::string::npos || nm.size() < 5 ||
-                        lower(nm.substr(nm.size() - 4)) != ".bin" ||
+                        asciiLower(nm.substr(nm.size() - 4)) != ".bin" ||
                         !parseEntryName(nm.substr(0, nm.size() - 4), k.type, k.id, k.sub) || k.sub == 0xFFFF) {
                         ++nRejected;
                         logf("mods: %s: ignoring %s (want new/<FILE>/<type hex>_<id>_<sub>.bin with an exact sub)",
                              mid.c_str(), it.path.c_str());
                         continue;
                     }
-                    k.file = upper(rest.substr(0, sl));
+                    k.file = asciiUpper(rest.substr(0, sl));
                     auto old = newEntries_.find(k);
                     if (old != newEntries_.end() && old->second.modId != mid) {
                         conflicts_.push_back({"new " + k.file, mid, old->second.modId});
@@ -1883,14 +1875,14 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 }
                 continue;
             }
-            if (lower(it.path).rfind(root, 0) != 0)
+            if (asciiLower(it.path).rfind(root, 0) != 0)
                 continue;
             std::string rest = it.path.substr(root.size()); // <FILE>/<name>
             size_t sl = rest.find('/');
             if (sl == std::string::npos || sl == 0 || rest.find('/', sl + 1) != std::string::npos)
                 continue;
-            std::string file = upper(rest.substr(0, sl)), name = rest.substr(sl + 1);
-            if (lower(name) == "text.ini") {
+            std::string file = asciiUpper(rest.substr(0, sl)), name = rest.substr(sl + 1);
+            if (asciiLower(name) == "text.ini") {
                 std::vector<u8> b;
                 if (!c.archive->read(it.path, b)) {
                     ++nRejected;
@@ -1908,7 +1900,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                     if (ln.empty() || ln[0] == ';' || ln[0] == '#' || eq == std::string::npos ||
                         isTextIniDirective(ln.substr(0, eq)))
                         continue;
-                    std::string k = lower(trim(ln.substr(0, eq)));
+                    std::string k = asciiLower(trim(ln.substr(0, eq)));
                     if (k.find('.') == std::string::npos)
                         k += ".*";
                     auto r = textOwner.emplace(file + "|" + k, mid);
@@ -1921,7 +1913,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
                 }
                 continue;
             }
-            if (name.size() < 5 || lower(name.substr(name.size() - 4)) != ".bin")
+            if (name.size() < 5 || asciiLower(name.substr(name.size() - 4)) != ".bin")
                 continue;
             ModOverride::Key k;
             k.file = file;
@@ -1959,10 +1951,10 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
         c.st.levels = nLevels;
         { // the save compatibility id (SaveRecord.h, modding.md "Saves and pack builds")
             std::vector<ContentItem> items;
-            const std::string pre = lower(c.prefix);
+            const std::string pre = asciiLower(c.prefix);
             c.st.buildDeclared = !c.st.manifest.build.empty();
             for (auto& it : c.archive->list()) {
-                if (lower(it.path).compare(0, pre.size(), pre) != 0 || !isContentPath(it.path.substr(pre.size())))
+                if (asciiLower(it.path).compare(0, pre.size(), pre) != 0 || !isContentPath(it.path.substr(pre.size())))
                     continue;
                 c.st.content = true;
                 if (c.st.buildDeclared)
@@ -1996,7 +1988,7 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
 // ---- files, patched containers, levels -----------------------------------------------------------------------------
 static bool isSrscFile(const std::string& name) {
     static const char* const kExt[] = {".LVL", ".MOD", ".TXD", ".ODB", ".ADB", ".SDB", ".XDB", ".VDB", ".SSD", ".RRC"};
-    const std::string up = upper(name);
+    const std::string up = asciiUpper(name);
     for (const char* e : kExt)
         if (up.size() > strlen(e) && up.compare(up.size() - strlen(e), strlen(e), e) == 0)
             return true;
@@ -2005,7 +1997,7 @@ static bool isSrscFile(const std::string& name) {
 // Containers the guest reads with plain 0x1201 file reads: entry overrides never reach the 0x1202 override layer, so
 // they are applied by rebuilding the file. (Everything else is patched per request.)
 static bool isPlainReadContainer(const std::string& name) {
-    const std::string up = upper(name);
+    const std::string up = asciiUpper(name);
     // .LVL and .ODB are read by the guest with plain file reads (no 0x1202 entry requests are ever made for them:
     // checked with DRAKAN_HLE_LOG on SYSTEM.ODB), so a per-request override never reaches them; their entry patches
     // rebuild the file.
@@ -2427,7 +2419,7 @@ size_t ModManager::installFiles(IsoFs& fsys) {
                 }
                 bool present = false;
                 for (auto& l : lines)
-                    if (lower(l) == lower(d.path))
+                    if (asciiLower(l) == asciiLower(d.path))
                         present = true;
                 if (present) {
                     logf("mods: %s: level '%s' is already in LEVELLST.TXT", d.modId.c_str(), d.name.c_str());
@@ -2465,7 +2457,7 @@ size_t ModManager::installFiles(IsoFs& fsys) {
         const std::string levelDir = lvl.key.substr(0, sl), levelsDir = lvl.key.substr(0, ps);
         for (const std::string& dep : levelDependencyPaths(fsys, lvl)) {
             if (dep.empty() || dep.find_first_of("\\/") != std::string::npos ||
-                (dep.size() >= 7 && lower(dep.substr(dep.size() - 7)) == "_splats"))
+                (dep.size() >= 7 && asciiLower(dep.substr(dep.size() - 7)) == "_splats"))
                 continue;
             const std::string stem = mangleComponent(dep);
             auto hasStem = [&](const std::string& dir) {
@@ -2484,7 +2476,7 @@ size_t ModManager::installFiles(IsoFs& fsys) {
             for (const std::string& k : hasStem(from)) {
                 const std::string nm = baseOf(k);
                 IsoFs::Node src;
-                if (upper(nm.substr(nm.size() - 4)) == ".LVL" || !fsys.findKey(k, src) || src.dir)
+                if (asciiUpper(nm.substr(nm.size() - 4)) == ".LVL" || !fsys.findKey(k, src) || src.dir)
                     continue;
                 fsys.addAlias(levelDir + "\\" + nm, src);
                 ++n;

@@ -5,8 +5,12 @@
 #include <cstdlib>
 
 #include "gameui/Addresses.h"
+#include "common/Text.h"
 
 namespace gameui {
+
+using drakan::common::asciiLower;
+using drakan::common::trim;
 
 ItemCategory categoryFor(uint32_t classId, uint32_t objectType) {
     namespace c = addr::cls;
@@ -309,24 +313,9 @@ std::string objectiveLabel(const Snapshot& s, const QuestEntry& q, const std::st
 
 namespace {
 
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    return s.substr(a, b - a);
-}
-
-std::string lower(std::string s) {
-    for (char& c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
-
 // Orderable value of a stat: leading number, or the rank of a Speed / Range word. false = not comparable.
 bool rankOf(const std::string& value, double& out) {
-    const std::string v = lower(trim(value));
+    const std::string v = asciiLower(trim(value));
     if (v.empty())
         return false;
     if (std::isdigit(static_cast<unsigned char>(v[0])) || ((v[0] == '-' || v[0] == '+') && v.size() > 1)) {
@@ -349,7 +338,7 @@ bool rankOf(const std::string& value, double& out) {
 
 // +1: a higher value is better, -1: lower is better, 0: neutral (prices).
 int directionOf(const std::string& label) {
-    const std::string l = lower(label);
+    const std::string l = asciiLower(label);
     if (l.find("price") != std::string::npos || l.find("sell") != std::string::npos ||
         l.find("repair") != std::string::npos)
         return 0;
@@ -370,7 +359,7 @@ std::vector<Stat> statsOf(const ItemEntry& it) {
             out.push_back(std::move(s));
     }
     auto has = [&](const char* l) {
-        return std::any_of(out.begin(), out.end(), [&](const Stat& s) { return lower(s.label) == lower(l); });
+        return std::any_of(out.begin(), out.end(), [&](const Stat& s) { return asciiLower(s.label) == asciiLower(l); });
     };
     if (it.category == ItemCategory::Melee && it.meleeDamage > 0 && !has("Damage"))
         out.push_back({"Damage", std::to_string(it.meleeDamage)});
@@ -395,7 +384,7 @@ std::vector<StatDelta> compareItems(const ItemEntry& candidate, const ItemEntry&
     std::vector<StatDelta> out;
     auto find = [](const std::vector<Stat>& v, const std::string& label) -> const Stat* {
         for (const Stat& s : v)
-            if (lower(s.label) == lower(label))
+            if (asciiLower(s.label) == asciiLower(label))
                 return &s;
         return nullptr;
     };
