@@ -1414,7 +1414,9 @@ void PS2Memory::startDmaChannel(uint32_t channelBase, uint32_t chcr) {
         return;
 
     const uint32_t madr = m_ioRegisters[channelBase + kDmaMadr];
-    const uint32_t qwc = m_ioRegisters[channelBase + kDmaQwc];
+    // QWC is a 16-bit register; the upper bits of a 32-bit store are not part of it (a stray value there used to
+    // make one GIF / VIF transfer walk gigabytes of the RAM ring).
+    const uint32_t qwc = m_ioRegisters[channelBase + kDmaQwc] & 0xFFFFu;
     m_dmaStartCount.fetch_add(1, std::memory_order_relaxed);
 
     if (tryProcessScratchpadDma(channelBase, chcr))
