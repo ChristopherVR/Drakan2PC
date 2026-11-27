@@ -778,23 +778,28 @@ uint64_t GSR_IMPL::rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spa
     return h;
 }
 
+// The texture of a draw: a render target it samples, a cached texture whose memory is unchanged, or a new decode.
+// False: the texture cannot be bound (an invalid or depth format, or the GPU texture could not be made).
 bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint) {
     CpuProfile::Scope profile(cpuProfile, CpuProfile::ResolveTexture);
     const uint64_t t0 = s.tex0;
-    const uint32_t tbp = (uint32_t)bitsOf(t0, 0, 14), tbw = (uint32_t)bitsOf(t0, 14, 6),
-                   psm = (uint32_t)bitsOf(t0, 20, 6);
-    const uint32_t tw = (uint32_t)std::min<uint64_t>(bitsOf(t0, 26, 4), 10),
-                   th = (uint32_t)std::min<uint64_t>(bitsOf(t0, 30, 4), 10);
-    const uint32_t csa = (uint32_t)bitsOf(t0, 56, 5);
-    const uint32_t W = 1u << tw, H = 1u << th;
-    if (!isValidPsm(psm) || isZ(psm))
+    TexRequest r;
+    r.tbp = (uint32_t)bitsOf(t0, 0, 14);
+    r.tbw = (uint32_t)bitsOf(t0, 14, 6);
+    r.psm = (uint32_t)bitsOf(t0, 20, 6);
+    r.tw = (uint32_t)std::min<uint64_t>(bitsOf(t0, 26, 4), 10);
+    r.th = (uint32_t)std::min<uint64_t>(bitsOf(t0, 30, 4), 10);
+    r.csa = (uint32_t)bitsOf(t0, 56, 5);
+    r.W = 1u << r.tw;
+    r.H = 1u << r.th;
+    if (!isValidPsm(r.psm) || isZ(r.psm))
         return false;
     // The texture's mip chain: creation, the per-level uploads, HD copies and the shader's LOD clamp all use this one
     // count. A raw TEX1.MXL past the last level the size allows (seen on 1 x 1 and 4 x 4 textures) made texture
     // creation fail validation.
     const uint32_t mxlReg = (uint32_t)bitsOf(s.tex1, 2, 3);
-    const uint32_t mxl = textureMipLevelMax(tw, th, mxlReg);
-    if (mxl != mxlReg) {
+    r.mxl = textureMipLevelMax(r.tw, r.th, mxlReg);
+    if (r.mxl != mxlReg) {
         st.texMipClamped++;
         static int mipLogged = 0;
         if (mipLogged < 16 || texLog) {
@@ -802,222 +807,258 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
             std::fprintf(stderr,
                          "[gsr-tex] TEX1.MXL %u past the %ux%u texture's last level %u (tbp=%u tbw=%u psm=%02x "
                          "tex0=%016llx tex1=%016llx miptbp1=%016llx miptbp2=%016llx frame %llu)\n",
-                         mxlReg, W, H, mxl, tbp, tbw, psm, (unsigned long long)t0, (unsigned long long)s.tex1,
-                         (unsigned long long)s.miptbp1, (unsigned long long)s.miptbp2, (unsigned long long)frame);
+                         mxlReg, r.W, r.H, r.mxl, r.tbp, r.tbw, r.psm, (unsigned long long)t0,
+                         (unsigned long long)s.tex1, (unsigned long long)s.miptbp1, (unsigned long long)s.miptbp2,
+                         (unsigned long long)frame);
         }
     }
 
-    // framebuffer-as-texture
-    float ox, oy;
-    if (RT* rt = findRTForTexture(tbp, tbw, psm, W, H, ox, oy)) {
-        if (rt_sync::lazySyncTarget(*rt))
-            syncRows(*rt, rt_sync::sampleRows((uint32_t)oy, H, rt->pageH(), (uint32_t)rt->rowStamp.size()));
-        else
-            syncRT(*rt);
-        if (texLog)
-            std::fprintf(
-                stderr,
-                "[gsr-tex] sample render target fbp=%u fbw=%u cls=%u as tbp=%u psm=%02x %ux%u tcc=%u texa=%llx\n",
-                rt->fbp, rt->fbw, rt->cls, tbp, psm, W, H, (unsigned)bitsOf(t0, 34, 1), (unsigned long long)s.texa);
-        out.isRT = true;
-        out.rt = rt;
-        out.ox = ox;
-        out.oy = oy;
-        out.mxl = 0;
-        st.rtSamples++;
+    if (bindTargetTexture(s, r, out))
         return true;
-    }
-
-    const auto fromReadback = [&] { return psm == PSM_CT32 && mxl == 0 && mem.containsReadbackCT32(tbp, tbw, W, H); };
 
     TexKey key{};
-    key.tbp = tbp;
-    key.tbw = tbw;
-    key.psm = psm;
-    key.tw = tw;
-    key.th = th;
-    key.mxl = mxl;
-    const bool indexed = isIndexed(psm);
-    key.clutKind = indexed ? (1u | (csa << 4)) : 0u;
-    key.clutHash = indexed ? hashClut(clut, psm, csa) : 0;
-    key.texa = (psm == PSM_CT32 || indexed) && !indexed ? 0 : s.texa;
-    if (psm == PSM_CT32)
+    key.tbp = r.tbp;
+    key.tbw = r.tbw;
+    key.psm = r.psm;
+    key.tw = r.tw;
+    key.th = r.th;
+    key.mxl = r.mxl;
+    r.indexed = isIndexed(r.psm);
+    key.clutKind = r.indexed ? (1u | (r.csa << 4)) : 0u;
+    key.clutHash = r.indexed ? hashClut(clut, r.psm, r.csa) : 0;
+    // TEXA expands 16 and 24-bit colours (also those of a 16-bit CLUT) to 32 bits; CT32 texels do not use it.
+    key.texa = (r.psm == PSM_CT32 || r.indexed) && !r.indexed ? 0 : s.texa;
+    if (r.psm == PSM_CT32)
         key.texa = 0;
-    key.mip1 = mxl ? s.miptbp1 : 0;
-    key.mip2 = mxl ? s.miptbp2 : 0;
+    key.mip1 = r.mxl ? s.miptbp1 : 0;
+    key.mip2 = r.mxl ? s.miptbp2 : 0;
 
     auto it = texCache.find(key);
     if (it != texCache.end()) {
         TexEntry& e = it->second;
-        bool valid = true;
-        if (W == 128 && H == 128 && e.previewVersion != savePreview(e.previewHash).version)
-            valid = false;
-        if (e.paletteWait) {
-            const auto pit = palettePlanes.find(e.paletteWait);
-            if (pit == palettePlanes.end() || pit->second->ready.load(std::memory_order_acquire))
-                valid = false;
-        }
-        // The guest may finish loading a thumbnail during its first draw;
-        // the EE identifies it at the next input boundary. Rebuild an
-        // already-cached pixel-art upscale once after that registration.
-        if (W == 128 && H == 128 && e.upWanted && !(e.upKey.packed & (3u << 16)) &&
-            (e.upKey.packed & 255u) != (uint32_t)texup::Algo::Smooth && isPhotographicTexture(e.upKey.hash))
-            valid = false;
-        // GPU draws mark RT rows dirty without advancing the RAM clock.
-        // Flush overlapping rows before the clock shortcut, or a decoded
-        // fallback (e.g. a shifted-row alias) can reuse pre-draw pixels.
-        {
-            CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCoherenceFlush);
-            // Both the alias search and every level's flush act only on a dirty target whose rows overlap a span. One
-            // pass over the targets with the spans' union says whether any can (most draws: none), instead of one pass
-            // per mip level and one for the alias.
-            bool touched = true;
-            if (!cpuCutsOld && !e.spans.empty()) {
-                uint32_t ulo = ~0u, uhi = 0;
-                bool ordered = true;
-                for (const auto& sp : e.spans) {
-                    ordered &= sp.first <= sp.second;
-                    ulo = std::min(ulo, sp.first);
-                    uhi = std::max(uhi, sp.second);
-                }
-                if (ordered) {
-                    touched = false;
-                    for (const auto& r : rts) {
-                        if (!r->dirty)
-                            continue;
-                        uint32_t lo, hi;
-                        rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
-                        if (!(hi < ulo || lo > uhi)) {
-                            touched = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            RT* aliased = touched ? aliasedTarget(psm, mxl, e.spans) : nullptr;
-            if (!touched && runtimeFlags().cpuOffloadVerify) {
-                ++cpuCuts.flushSkipped;
-                bool any = aliasedTarget(psm, mxl, e.spans) != nullptr;
-                for (const auto& r : rts) {
-                    if (!r->dirty)
-                        continue;
-                    uint32_t lo, hi;
-                    rowSpan(*r, r->dy0, std::min(r->dy1, r->h), lo, hi);
-                    for (const auto& sp : e.spans)
-                        any |= !(hi < sp.first || lo > sp.second);
-                }
-                cpuCuts.flushDiffer += any;
-            }
-            if (!touched) {
-                if (e.aliasTarget)
-                    valid = false; // the target was read back: memory is authoritative again
-            } else if (aliased) {
-                // Built from the target's GPU copy: current until the target changes again.
-                if (e.aliasTarget != aliased || e.aliasWrites != aliased->writes)
-                    valid = false;
-            } else {
-                if (e.aliasTarget)
-                    valid = false; // the target was read back: memory is authoritative again
-                for (uint32_t level = 0; level < e.spans.size(); ++level) {
-                    const auto& sp = e.spans[level];
-                    const auto rect = textureMemoryRect(psm, tbp, tbw, W, H, s.miptbp1, s.miptbp2, level);
-                    flushForRead(sp.first, sp.second, &rect);
-                }
-            }
-        }
-        if (valid && e.checkedClock != mem.clock()) {
-            CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureStampCheck);
-            bool written = false;
-            for (auto& sp : e.spans)
-                if (mem.maxStamp(sp.first, sp.second - sp.first + 1) > e.stamp) {
-                    written = true;
-                    break;
-                }
-            // The game re-uploads most textures every frame. Identical bytes keep the decoded, created and
-            // upscaled texture; only a real content change decodes again.
-            if (written && (rawHash(e.spans) != e.rawHash || fromReadback() != e.fromReadback))
-                valid = false;
-            else {
-                if (written) {
-                    e.stamp = mem.clock();
-                    st.textureRevalidated++;
-                }
-                e.checkedClock = mem.clock();
-            }
-        }
-        if (valid) {
-            if (cfg.onTexture && !e.cpu.empty()) {
-                TextureEvent ev;
-                ev.tex0 = s.tex0;
-                ev.tex1 = s.tex1;
-                ev.texa = s.texa;
-                ev.clamp = s.clamp;
-                ev.miptbp1 = s.miptbp1;
-                ev.miptbp2 = s.miptbp2;
-                ev.width = e.w;
-                ev.height = e.h;
-                ev.mipLevels = mxl + 1;
-                ev.cached = true;
-                for (uint32_t l = 0; l <= mxl && l < 7 && l < e.cpu.size(); ++l) {
-                    ev.level[l] = e.cpu[l].data();
-                    ev.levelW[l] = std::max(1u, e.w >> l);
-                    ev.levelH[l] = std::max(1u, e.h >> l);
-                }
-                ev.clutRaw = clut.raw;
-                ev.clutCpsm = clut.cpsm;
-                ev.frame = frame;
-                {
-                    CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCallback);
-                    cfg.onTexture(ev);
-                }
-            }
-            e.lastFrame = frame;
-            if (e.upWanted) {
-                pumpUp();
-                adoptUp(e);
-            }
-            if (e.up) {
-                e.up->lastFrame = frame;
-                out.srv = e.up->tex.get();
-                out.factor = e.up->factor;
-                out.materialSrv = e.up->material.get();
-                out.materialClass = e.up->materialClass;
-                out.mxl = upDrawMxl(mxl, *e.up);
-            } else {
-                out.srv = e.tex.get();
-                out.mxl = mxl;
-                if (e.upWanted)
-                    st.texUpNativeDraws++;
-            }
-            out.fontAtlas = e.fontAtlas;
-            out.menuArtwork = e.menuArtwork;
-            out.titleArtwork = hud::titleArtwork(e.previewHash);
-            std::copy(e.averageColor, e.averageColor + 3, out.averageColor);
-            out.minimumAlpha = e.minimumAlpha;
-            out.reflectionTexture = e.reflectionTexture;
-            st.textureCacheHits++;
+        if (cachedTextureValid(s, r, e)) {
+            bindCachedTexture(s, clut, r, e, out);
             return true;
         }
-        if (texLog) {
-            uint32_t wb = 0;
-            uint64_t ws = 0;
-            for (auto& sp : e.spans)
-                for (uint32_t b = sp.first; b <= sp.second; ++b)
-                    if (mem.blockStamp(b) > e.stamp && mem.blockStamp(b) > ws) {
-                        ws = mem.blockStamp(b);
-                        wb = b;
-                    }
-            std::fprintf(stderr,
-                         "[gsr-tex] invalidate tbp=%u psm=%u %ux%u spans=%u..%u entryStamp=%llu newest block %u "
-                         "stamp %llu (clock %llu)\n",
-                         key.tbp, key.psm, 1u << key.tw, 1u << key.th, e.spans[0].first, e.spans[0].second,
-                         (unsigned long long)e.stamp, wb, (unsigned long long)ws, (unsigned long long)mem.clock());
-        }
+        if (texLog)
+            logTextureInvalidation(key, e);
         texBytes -= e.bytes;
         texCache.erase(it);
     }
+    return decodeTexture(s, clut, r, key, out, uiHint);
+}
 
-    // decode
+// Framebuffer as texture: the draw samples memory a render target covers, so it binds the target itself.
+bool GSR_IMPL::bindTargetTexture(const GsDrawState& s, const TexRequest& r, TexBind& out) {
+    float ox, oy;
+    RT* rt = findRTForTexture(r.tbp, r.tbw, r.psm, r.W, r.H, ox, oy);
+    if (!rt)
+        return false;
+    if (rt_sync::lazySyncTarget(*rt))
+        syncRows(*rt, rt_sync::sampleRows((uint32_t)oy, r.H, rt->pageH(), (uint32_t)rt->rowStamp.size()));
+    else
+        syncRT(*rt);
+    if (texLog)
+        std::fprintf(stderr,
+                     "[gsr-tex] sample render target fbp=%u fbw=%u cls=%u as tbp=%u psm=%02x %ux%u tcc=%u texa=%llx\n",
+                     rt->fbp, rt->fbw, rt->cls, r.tbp, r.psm, r.W, r.H, (unsigned)bitsOf(s.tex0, 34, 1),
+                     (unsigned long long)s.texa);
+    out.isRT = true;
+    out.rt = rt;
+    out.ox = ox;
+    out.oy = oy;
+    out.mxl = 0;
+    st.rtSamples++;
+    return true;
+}
+
+// The texture's memory holds CT32 pixels read back from a render target.
+bool GSR_IMPL::textureFromReadback(const TexRequest& r) {
+    return r.psm == PSM_CT32 && r.mxl == 0 && mem.containsReadbackCT32(r.tbp, r.tbw, r.W, r.H);
+}
+
+// Whether a cached texture still shows what its memory holds: no target drew over it, and no write since it was
+// decoded changed its bytes. Flushes the targets that overlap its memory first.
+bool GSR_IMPL::cachedTextureValid(const GsDrawState& s, const TexRequest& r, TexEntry& e) {
+    const uint32_t psm = r.psm, mxl = r.mxl, W = r.W, H = r.H;
+    bool valid = true;
+    // 128x128 is the size of a save game's preview picture.
+    if (W == 128 && H == 128 && e.previewVersion != savePreview(e.previewHash).version)
+        valid = false;
+    if (e.paletteWait) {
+        const auto pit = palettePlanes.find(e.paletteWait);
+        if (pit == palettePlanes.end() || pit->second->ready.load(std::memory_order_acquire))
+            valid = false;
+    }
+    // The guest may finish loading a thumbnail during its first draw;
+    // the EE identifies it at the next input boundary. Rebuild an
+    // already-cached pixel-art upscale once after that registration.
+    if (W == 128 && H == 128 && e.upWanted && !(e.upKey.packed & (3u << 16)) &&
+        (e.upKey.packed & 255u) != (uint32_t)texup::Algo::Smooth && isPhotographicTexture(e.upKey.hash))
+        valid = false;
+    // GPU draws mark RT rows dirty without advancing the RAM clock.
+    // Flush overlapping rows before the clock shortcut, or a decoded
+    // fallback (e.g. a shifted-row alias) can reuse pre-draw pixels.
+    {
+        CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCoherenceFlush);
+        // Both the alias search and every level's flush act only on a dirty target whose rows overlap a span. One
+        // pass over the targets with the spans' union says whether any can (most draws: none), instead of one pass
+        // per mip level and one for the alias.
+        bool touched = true;
+        if (!cpuCutsOld && !e.spans.empty()) {
+            uint32_t ulo = ~0u, uhi = 0;
+            bool ordered = true;
+            for (const auto& sp : e.spans) {
+                ordered &= sp.first <= sp.second;
+                ulo = std::min(ulo, sp.first);
+                uhi = std::max(uhi, sp.second);
+            }
+            if (ordered) {
+                touched = false;
+                for (const auto& rt : rts) {
+                    if (!rt->dirty)
+                        continue;
+                    uint32_t lo, hi;
+                    rowSpan(*rt, rt->dy0, std::min(rt->dy1, rt->h), lo, hi);
+                    if (!(hi < ulo || lo > uhi)) {
+                        touched = true;
+                        break;
+                    }
+                }
+            }
+        }
+        RT* aliased = touched ? aliasedTarget(psm, mxl, e.spans) : nullptr;
+        if (!touched && runtimeFlags().cpuOffloadVerify) {
+            ++cpuCuts.flushSkipped;
+            bool any = aliasedTarget(psm, mxl, e.spans) != nullptr;
+            for (const auto& rt : rts) {
+                if (!rt->dirty)
+                    continue;
+                uint32_t lo, hi;
+                rowSpan(*rt, rt->dy0, std::min(rt->dy1, rt->h), lo, hi);
+                for (const auto& sp : e.spans)
+                    any |= !(hi < sp.first || lo > sp.second);
+            }
+            cpuCuts.flushDiffer += any;
+        }
+        if (!touched) {
+            if (e.aliasTarget)
+                valid = false; // the target was read back: memory is authoritative again
+        } else if (aliased) {
+            // Built from the target's GPU copy: current until the target changes again.
+            if (e.aliasTarget != aliased || e.aliasWrites != aliased->writes)
+                valid = false;
+        } else {
+            if (e.aliasTarget)
+                valid = false; // the target was read back: memory is authoritative again
+            for (uint32_t level = 0; level < e.spans.size(); ++level) {
+                const auto& sp = e.spans[level];
+                const auto rect = textureMemoryRect(psm, r.tbp, r.tbw, W, H, s.miptbp1, s.miptbp2, level);
+                flushForRead(sp.first, sp.second, &rect);
+            }
+        }
+    }
+    if (valid && e.checkedClock != mem.clock()) {
+        CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureStampCheck);
+        bool written = false;
+        for (auto& sp : e.spans)
+            if (mem.maxStamp(sp.first, sp.second - sp.first + 1) > e.stamp) {
+                written = true;
+                break;
+            }
+        // The game re-uploads most textures every frame. Identical bytes keep the decoded, created and
+        // upscaled texture; only a real content change decodes again.
+        if (written && (rawHash(e.spans) != e.rawHash || textureFromReadback(r) != e.fromReadback))
+            valid = false;
+        else {
+            if (written) {
+                e.stamp = mem.clock();
+                st.textureRevalidated++;
+            }
+            e.checkedClock = mem.clock();
+        }
+    }
+    return valid;
+}
+
+// A cache hit: the entry's (upscaled when ready) texture and what the draw needs to know about it.
+void GSR_IMPL::bindCachedTexture(const GsDrawState& s, const ClutBuf& clut, const TexRequest& r, TexEntry& e,
+                                 TexBind& out) {
+    const uint32_t mxl = r.mxl;
+    if (cfg.onTexture && !e.cpu.empty()) {
+        TextureEvent ev;
+        ev.tex0 = s.tex0;
+        ev.tex1 = s.tex1;
+        ev.texa = s.texa;
+        ev.clamp = s.clamp;
+        ev.miptbp1 = s.miptbp1;
+        ev.miptbp2 = s.miptbp2;
+        ev.width = e.w;
+        ev.height = e.h;
+        ev.mipLevels = mxl + 1;
+        ev.cached = true;
+        for (uint32_t l = 0; l <= mxl && l < 7 && l < e.cpu.size(); ++l) {
+            ev.level[l] = e.cpu[l].data();
+            ev.levelW[l] = std::max(1u, e.w >> l);
+            ev.levelH[l] = std::max(1u, e.h >> l);
+        }
+        ev.clutRaw = clut.raw;
+        ev.clutCpsm = clut.cpsm;
+        ev.frame = frame;
+        {
+            CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureCallback);
+            cfg.onTexture(ev);
+        }
+    }
+    e.lastFrame = frame;
+    if (e.upWanted) {
+        pumpUp();
+        adoptUp(e);
+    }
+    if (e.up) {
+        e.up->lastFrame = frame;
+        out.srv = e.up->tex.get();
+        out.factor = e.up->factor;
+        out.materialSrv = e.up->material.get();
+        out.materialClass = e.up->materialClass;
+        out.mxl = upDrawMxl(mxl, *e.up);
+    } else {
+        out.srv = e.tex.get();
+        out.mxl = mxl;
+        if (e.upWanted)
+            st.texUpNativeDraws++;
+    }
+    out.fontAtlas = e.fontAtlas;
+    out.menuArtwork = e.menuArtwork;
+    out.titleArtwork = hud::titleArtwork(e.previewHash);
+    std::copy(e.averageColor, e.averageColor + 3, out.averageColor);
+    out.minimumAlpha = e.minimumAlpha;
+    out.reflectionTexture = e.reflectionTexture;
+    st.textureCacheHits++;
+}
+
+// GSR_TEXLOG: which block of a cached texture was written since it was decoded.
+void GSR_IMPL::logTextureInvalidation(const TexKey& key, const TexEntry& e) {
+    uint32_t wb = 0;
+    uint64_t ws = 0;
+    for (auto& sp : e.spans)
+        for (uint32_t b = sp.first; b <= sp.second; ++b)
+            if (mem.blockStamp(b) > e.stamp && mem.blockStamp(b) > ws) {
+                ws = mem.blockStamp(b);
+                wb = b;
+            }
+    std::fprintf(stderr,
+                 "[gsr-tex] invalidate tbp=%u psm=%u %ux%u spans=%u..%u entryStamp=%llu newest block %u "
+                 "stamp %llu (clock %llu)\n",
+                 key.tbp, key.psm, 1u << key.tw, 1u << key.th, e.spans[0].first, e.spans[0].second,
+                 (unsigned long long)e.stamp, wb, (unsigned long long)ws, (unsigned long long)mem.clock());
+}
+
+// A cache miss: decode every level from GS memory, create the texture (and its HD replacement or upscale), cache it.
+bool GSR_IMPL::decodeTexture(const GsDrawState& s, const ClutBuf& clut, const TexRequest& r, const TexKey& key,
+                             TexBind& out, bool uiHint) {
+    const uint32_t tbp = r.tbp, tbw = r.tbw, psm = r.psm, csa = r.csa, W = r.W, H = r.H, mxl = r.mxl;
+    // A single-level texture over render target memory is copied from the target's GPU image (no readback).
     RT* aliased = nullptr;
     if (mxl == 0) {
         uint32_t lo, hi;
@@ -1031,6 +1072,7 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
         const uint32_t w = std::max(1u, W >> l), h = std::max(1u, H >> l);
         uint32_t lbp = tbp, lbw = tbw;
         if (l > 0) {
+            // MIPTBP1 holds levels 1..3, MIPTBP2 levels 4..6: 14 bits base and 6 bits width each, 20 bits apart.
             const uint64_t m = (l <= 3) ? s.miptbp1 : s.miptbp2;
             const uint32_t k = (l - 1) % 3;
             lbp = (uint32_t)bitsOf(m, 20 * k, 14);
@@ -1052,116 +1094,15 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
         lw.push_back(w);
         lh.push_back(h);
     }
-    // --- palette / pixel animated textures: a texture-memory slot whose decoded content keeps changing
-    // ("volatile": the highlighted menu entry, palette cycled water / fire). Content hashing only starts once a
-    // slot was re-decoded; slots the game merely re-uploads unchanged every frame (the title background tiles)
-    // never become volatile.
-    bool volatileSlot = false, paletteOnly = false;
-    std::vector<uint8_t> paletteIndices;
-    uint64_t paletteIndexHash = 0;
-    uint64_t decodedHash = 0;
-    bool decodedHashValid = false;
-    {
-        const uint64_t slotKey = ((uint64_t)tbp << 40) ^ ((uint64_t)tbw << 32) ^ ((uint64_t)psm << 24) ^
-                                 ((uint64_t)tw << 12) ^ ((uint64_t)th << 4) ^ ((uint64_t)(indexed ? 1 : 0));
-        SlotInfo& sl = slots[slotKey];
-        if (sl.isVolatile && frame - sl.lastDecode > 600) {
-            sl.isVolatile = false;
-            sl.count = sl.changes = sl.sameRun = 0;
-            sl.hashValid = false;
-        }
-        if (frame - sl.windowStart > 90) {
-            sl.windowStart = frame;
-            sl.count = sl.changes = sl.sameRun = 0;
-            sl.hashValid = false;
-        }
-        ++sl.count;
-        sl.lastDecode = frame;
-        if (!sl.isVolatile &&
-            sl.sameRun < 6) // after 6 identical re-decodes the slot is a plain re-upload: stop hashing for this window
-        {
-            const uint64_t h = texup::hashContent(levels[0].data(), W, H);
-            decodedHash = h;
-            decodedHashValid = true;
-            if (sl.hashValid && h != sl.lastHash) {
-                sl.changes++;
-                sl.sameRun = 0;
-            } else if (sl.hashValid)
-                sl.sameRun++;
-            sl.lastHash = h;
-            sl.hashValid = true;
-        }
-        if (!sl.isVolatile && sl.changes >= 3) {
-            sl.isVolatile = true;
-            st.texVolatile++;
-            if (texLog || texDump)
-                std::fprintf(stderr,
-                             "[gsr-tex] volatile (content changed %u times in %llu frames): tbp=%u psm=%02x %ux%u%s\n",
-                             sl.changes, (unsigned long long)(frame - sl.windowStart), tbp, psm, W, H,
-                             indexed ? " indexed" : "");
-            if (texDump && !dumpDir.empty()) {
-                if (std::FILE* vf = std::fopen((dumpDir + "/volatile.txt").c_str(), "ab")) {
-                    std::fprintf(vf, "tbp=%u psm=%02x %ux%u %s\n", tbp, psm, W, H,
-                                 indexed ? "palette-animated (not dumped, never replaced)"
-                                         : "pixel-animated (not dumped, never replaced)");
-                    std::fclose(vf);
-                }
-            }
-        }
-        volatileSlot = sl.isVolatile;
-        // Palette-only animation: the indices did not change since the last decode of this slot, only the CLUT.
-        if (volatileSlot && indexed && texPaletteHd) {
-            palhd::decodeIndexPlane(mem, psm, tbp, tbw, W, H, paletteIndices);
-            const uint64_t ih = palhd::hashIndexPlane(paletteIndices, W, H, psm);
-            paletteOnly = sl.indexValid && sl.lastIndexHash == ih;
-            paletteIndexHash = ih;
-            sl.lastIndexHash = ih;
-            sl.indexValid = true;
-        }
-    }
-    // --- smooth_menu_highlight: the highlighted menu entry is a 128x128 fire cellular automaton (T8 heat map +
-    // CT16 glow, both rewritten every frame) drawn as an additive sprite (ALPHA = Cs*As + Cd) with nearest
-    // sampling. A TV blurred the 1-texel checkerboard it produces; on a PC it is noise.
-    if (const char* hd = cstr(runtimeFlags().hlDump)) {
-        static int cand = 0;
-        if (cand < 40 && W == 128 && H == 128 && mxl == 0 && (psm == PSM_T8 || psm == PSM_CT16) &&
-            (s.flags & DF_SPRITE) && (s.flags & DF_ABE) && (s.alpha & 0xFF) == 0x48) {
-            char nm[512];
-            std::snprintf(nm, sizeof nm, "%s/cand_%d_tbp%u_psm%02x%s.png", hd, cand++, tbp, psm,
-                          volatileSlot ? "_vol" : "");
-            texup::writePngRGBA(nm, levels[0].data(), W, H);
-        }
-    }
-    const bool hlShape = W == 128 && H == 128 && mxl == 0 && (psm == PSM_T8 || psm == PSM_CT16) &&
-                         (s.flags & DF_SPRITE) && (s.flags & DF_ABE) && (s.alpha & 0xFF) == 0x48;
-    // the fire heat map (T8, volatile) starts a highlight frame; the stable CT16 glyph-outline overlay drawn with
-    // the same state in that frame belongs to it
-    const bool hlHit =
-        smoothHL && hlShape && ((volatileSlot && psm == PSM_T8) || (psm == PSM_CT16 && frame - hlFrame <= 1));
-    if (smoothHL && hlShape && volatileSlot && psm == PSM_T8)
-        hlFrame = frame;
-    if (hlHit) {
-        static int hlDumped = 0;
-        const char* hd = cstr(runtimeFlags().hlDump);
-        if (hd && hlDumped < 6) {
-            char nm[512];
-            std::snprintf(nm, sizeof nm, "%s/hl_%d_%02x_before.png", hd, hlDumped, psm);
-            texup::writePngRGBA(nm, levels[0].data(), W, H);
-        }
-        smoothBinomial3(levels[0], W, H);
-        decodedHashValid = false; // Replacement identity follows the smoothed pixels.
-        if (hd && hlDumped < 6) {
-            char nm[512];
-            std::snprintf(nm, sizeof nm, "%s/hl_%d_%02x_after.png", hd, hlDumped, psm);
-            texup::writePngRGBA(nm, levels[0].data(), W, H);
-            hlDumped++;
-        }
-        st.hlSmoothed++;
-    }
+    SlotAnimation anim;
+    noteSlotAnimation(r, levels[0], anim);
+    const bool hlHit = smoothMenuHighlight(s, r, levels[0], anim.volatileSlot);
+    if (hlHit)
+        anim.decodedHashValid = false; // Replacement identity follows the smoothed pixels.
     if (texLog)
         std::fprintf(stderr, "[gsr-tex] decode f%llu tbp=%u tbw=%u psm=%02x %ux%u csa=%u clut=%016llx%s\n",
                      (unsigned long long)frame, tbp, tbw, psm, W, H, csa, (unsigned long long)key.clutHash,
-                     volatileSlot ? " VOLATILE" : "");
+                     anim.volatileSlot ? " VOLATILE" : "");
     uint64_t bytes = 0;
     for (uint32_t l = 0; l <= mxl; ++l)
         bytes += (uint64_t)lw[l] * lh[l] * 4;
@@ -1192,49 +1133,8 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
     TexEntry e;
     e.w = W;
     e.h = H;
-    if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) && !levels.empty() &&
-        !levels[0].empty()) {
-        if (engineWorldOpen && !(s.zbuf & (1ull << 32))) {
-            // Owned material texels survive the current view and GS slot reuse.
-            // Never use a per-triangle average as reflected surface detail.
-            uint64_t hash = 14695981039346656037ull;
-            surface::Texture texture;
-            texture.pixels.resize(surface::Texture::size * surface::Texture::size);
-            for (unsigned y = 0; y < surface::Texture::size; ++y)
-                for (unsigned x = 0; x < surface::Texture::size; ++x) {
-                    auto pixel = levels[0][size_t(y * H / surface::Texture::size) * W + x * W / surface::Texture::size];
-                    texture.pixels[y * surface::Texture::size + x] = pixel;
-                    hash ^= pixel;
-                    hash *= 1099511628211ull;
-                }
-            auto existing = reflectionTextureHashes.find(hash);
-            if (existing != reflectionTextureHashes.end())
-                e.reflectionTexture = existing->second;
-            else if (reflectionTextures.size() < 256) {
-                e.reflectionTexture = uint32_t(reflectionTextures.size());
-                texture.identity = hash;
-                reflectionTextures.push_back(std::move(texture));
-                reflectionTextureHashes[hash] = e.reflectionTexture;
-            }
-        }
-        e.minimumAlpha = 255;
-        for (auto pixel : levels[0])
-            e.minimumAlpha = std::min(e.minimumAlpha, uint8_t(pixel >> 24));
-        double sum[3]{};
-        uint64_t samples = 0;
-        const size_t step = std::max<size_t>(1, levels[0].size() / 256);
-        for (size_t i = 0; i < levels[0].size(); i += step) {
-            const auto color = levels[0][i];
-            if ((color >> 24) == 0)
-                continue;
-            for (unsigned c = 0; c < 3; ++c)
-                sum[c] += float((color >> (c * 8)) & 255) / 255.f;
-            ++samples;
-        }
-        if (samples)
-            for (unsigned c = 0; c < 3; ++c)
-                e.averageColor[c] = float(sum[c] / samples);
-    }
+    if ((modernWater || rayShadows || rayReflections || rayGlobalIllumination) && !levels.empty() && !levels[0].empty())
+        sampleRayMaterial(s, r, levels[0], e);
     std::copy(e.averageColor, e.averageColor + 3, out.averageColor);
     out.minimumAlpha = e.minimumAlpha;
     out.reflectionTexture = e.reflectionTexture;
@@ -1258,14 +1158,15 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
     e.bytes = bytes;
     e.rawHash = rawHash(spans);
     e.spans = std::move(spans);
-    e.fromReadback = fromReadback();
+    e.fromReadback = textureFromReadback(r);
     { // Explicit runtime atlases also apply when automatic upscaling is off.
         CpuProfile::Scope detail(cpuProfile, CpuProfile::TextureUpscale);
         // A saved pack image must not replace live HUD pixels, whether the GPU supplied them directly or through RAM.
         if (!aliased && !e.fromReadback &&
-            !(paletteOnly && !hlHit &&
-              setupPaletteHd(e, paletteIndices, paletteIndexHash, levels[0], W, H, mxl, s, uiHint)))
-            setupUpscale(e, levels[0], W, H, mxl, s, uiHint, volatileSlot, decodedHashValid ? &decodedHash : nullptr);
+            !(anim.paletteOnly && !hlHit &&
+              setupPaletteHd(e, anim.paletteIndices, anim.paletteIndexHash, levels[0], W, H, mxl, s, uiHint)))
+            setupUpscale(e, levels[0], W, H, mxl, s, uiHint, anim.volatileSlot,
+                         anim.decodedHashValid ? &anim.decodedHash : nullptr);
     }
     out.srv = e.tex.get();
     out.mxl = mxl;
@@ -1285,6 +1186,166 @@ bool GSR_IMPL::resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind
     texCache[key] = std::move(e);
     st.textureDecodes++;
     return true;
+}
+
+// --- palette / pixel animated textures: a texture-memory slot whose decoded content keeps changing
+// ("volatile": the highlighted menu entry, palette cycled water / fire). Content hashing only starts once a
+// slot was re-decoded; slots the game merely re-uploads unchanged every frame (the title background tiles)
+// never become volatile.
+void GSR_IMPL::noteSlotAnimation(const TexRequest& r, const std::vector<uint32_t>& level0, SlotAnimation& a) {
+    const uint32_t tbp = r.tbp, tbw = r.tbw, psm = r.psm, W = r.W, H = r.H;
+    const bool indexed = r.indexed;
+    // In frames: a slot is volatile after 3 content changes within 90 frames, and stops being volatile after 600
+    // frames without a decode.
+    constexpr uint64_t kVolatileWindow = 90, kVolatileExpiry = 600;
+    const uint64_t slotKey = ((uint64_t)tbp << 40) ^ ((uint64_t)tbw << 32) ^ ((uint64_t)psm << 24) ^
+                             ((uint64_t)r.tw << 12) ^ ((uint64_t)r.th << 4) ^ ((uint64_t)(indexed ? 1 : 0));
+    SlotInfo& sl = slots[slotKey];
+    if (sl.isVolatile && frame - sl.lastDecode > kVolatileExpiry) {
+        sl.isVolatile = false;
+        sl.count = sl.changes = sl.sameRun = 0;
+        sl.hashValid = false;
+    }
+    if (frame - sl.windowStart > kVolatileWindow) {
+        sl.windowStart = frame;
+        sl.count = sl.changes = sl.sameRun = 0;
+        sl.hashValid = false;
+    }
+    ++sl.count;
+    sl.lastDecode = frame;
+    if (!sl.isVolatile &&
+        sl.sameRun < 6) // after 6 identical re-decodes the slot is a plain re-upload: stop hashing for this window
+    {
+        const uint64_t h = texup::hashContent(level0.data(), W, H);
+        a.decodedHash = h;
+        a.decodedHashValid = true;
+        if (sl.hashValid && h != sl.lastHash) {
+            sl.changes++;
+            sl.sameRun = 0;
+        } else if (sl.hashValid)
+            sl.sameRun++;
+        sl.lastHash = h;
+        sl.hashValid = true;
+    }
+    if (!sl.isVolatile && sl.changes >= 3) {
+        sl.isVolatile = true;
+        st.texVolatile++;
+        if (texLog || texDump)
+            std::fprintf(
+                stderr, "[gsr-tex] volatile (content changed %u times in %llu frames): tbp=%u psm=%02x %ux%u%s\n",
+                sl.changes, (unsigned long long)(frame - sl.windowStart), tbp, psm, W, H, indexed ? " indexed" : "");
+        if (texDump && !dumpDir.empty()) {
+            if (std::FILE* vf = std::fopen((dumpDir + "/volatile.txt").c_str(), "ab")) {
+                std::fprintf(vf, "tbp=%u psm=%02x %ux%u %s\n", tbp, psm, W, H,
+                             indexed ? "palette-animated (not dumped, never replaced)"
+                                     : "pixel-animated (not dumped, never replaced)");
+                std::fclose(vf);
+            }
+        }
+    }
+    a.volatileSlot = sl.isVolatile;
+    // Palette-only animation: the indices did not change since the last decode of this slot, only the CLUT.
+    if (a.volatileSlot && indexed && texPaletteHd) {
+        palhd::decodeIndexPlane(mem, psm, tbp, tbw, W, H, a.paletteIndices);
+        const uint64_t ih = palhd::hashIndexPlane(a.paletteIndices, W, H, psm);
+        a.paletteOnly = sl.indexValid && sl.lastIndexHash == ih;
+        a.paletteIndexHash = ih;
+        sl.lastIndexHash = ih;
+        sl.indexValid = true;
+    }
+}
+
+// --- smooth_menu_highlight: the highlighted menu entry is a 128x128 fire cellular automaton (T8 heat map +
+// CT16 glow, both rewritten every frame) drawn as an additive sprite (ALPHA = Cs*As + Cd) with nearest
+// sampling. A TV blurred the 1-texel checkerboard it produces; on a PC it is noise. True: level0 was smoothed.
+bool GSR_IMPL::smoothMenuHighlight(const GsDrawState& s, const TexRequest& r, std::vector<uint32_t>& level0,
+                                   bool volatileSlot) {
+    const uint32_t tbp = r.tbp, psm = r.psm, W = r.W, H = r.H, mxl = r.mxl;
+    constexpr uint64_t kAdditiveAlpha = 0x48; // ALPHA (Cs - 0) * As + Cd
+    if (const char* hd = cstr(runtimeFlags().hlDump)) {
+        static int cand = 0;
+        if (cand < 40 && W == 128 && H == 128 && mxl == 0 && (psm == PSM_T8 || psm == PSM_CT16) &&
+            (s.flags & DF_SPRITE) && (s.flags & DF_ABE) && (s.alpha & 0xFF) == kAdditiveAlpha) {
+            char nm[512];
+            std::snprintf(nm, sizeof nm, "%s/cand_%d_tbp%u_psm%02x%s.png", hd, cand++, tbp, psm,
+                          volatileSlot ? "_vol" : "");
+            texup::writePngRGBA(nm, level0.data(), W, H);
+        }
+    }
+    const bool hlShape = W == 128 && H == 128 && mxl == 0 && (psm == PSM_T8 || psm == PSM_CT16) &&
+                         (s.flags & DF_SPRITE) && (s.flags & DF_ABE) && (s.alpha & 0xFF) == kAdditiveAlpha;
+    // the fire heat map (T8, volatile) starts a highlight frame; the stable CT16 glyph-outline overlay drawn with
+    // the same state in that frame belongs to it
+    const bool hlHit =
+        smoothHL && hlShape && ((volatileSlot && psm == PSM_T8) || (psm == PSM_CT16 && frame - hlFrame <= 1));
+    if (smoothHL && hlShape && volatileSlot && psm == PSM_T8)
+        hlFrame = frame;
+    if (hlHit) {
+        static int hlDumped = 0;
+        const char* hd = cstr(runtimeFlags().hlDump);
+        if (hd && hlDumped < 6) {
+            char nm[512];
+            std::snprintf(nm, sizeof nm, "%s/hl_%d_%02x_before.png", hd, hlDumped, psm);
+            texup::writePngRGBA(nm, level0.data(), W, H);
+        }
+        smoothBinomial3(level0, W, H);
+        if (hd && hlDumped < 6) {
+            char nm[512];
+            std::snprintf(nm, sizeof nm, "%s/hl_%d_%02x_after.png", hd, hlDumped, psm);
+            texup::writePngRGBA(nm, level0.data(), W, H);
+            hlDumped++;
+        }
+        st.hlSmoothed++;
+    }
+    return hlHit;
+}
+
+// What the ray passes need from a texture: a small copy for reflections (shared by identical copies), its minimum
+// alpha and its average colour.
+void GSR_IMPL::sampleRayMaterial(const GsDrawState& s, const TexRequest& r, const std::vector<uint32_t>& level0,
+                                 TexEntry& e) {
+    const uint32_t W = r.W, H = r.H;
+    constexpr size_t kMaxReflectionTextures = 256;
+    if (engineWorldOpen && !(s.zbuf & (1ull << 32))) { // ZBUF.ZMSK clear: a depth-writing world surface
+        // Owned material texels survive the current view and GS slot reuse.
+        // Never use a per-triangle average as reflected surface detail.
+        uint64_t hash = 14695981039346656037ull;
+        surface::Texture texture;
+        texture.pixels.resize(surface::Texture::size * surface::Texture::size);
+        for (unsigned y = 0; y < surface::Texture::size; ++y)
+            for (unsigned x = 0; x < surface::Texture::size; ++x) {
+                auto pixel = level0[size_t(y * H / surface::Texture::size) * W + x * W / surface::Texture::size];
+                texture.pixels[y * surface::Texture::size + x] = pixel;
+                hash ^= pixel;
+                hash *= 1099511628211ull;
+            }
+        auto existing = reflectionTextureHashes.find(hash);
+        if (existing != reflectionTextureHashes.end())
+            e.reflectionTexture = existing->second;
+        else if (reflectionTextures.size() < kMaxReflectionTextures) {
+            e.reflectionTexture = uint32_t(reflectionTextures.size());
+            texture.identity = hash;
+            reflectionTextures.push_back(std::move(texture));
+            reflectionTextureHashes[hash] = e.reflectionTexture;
+        }
+    }
+    e.minimumAlpha = 255;
+    for (auto pixel : level0)
+        e.minimumAlpha = std::min(e.minimumAlpha, uint8_t(pixel >> 24));
+    double sum[3]{};
+    uint64_t samples = 0;
+    const size_t step = std::max<size_t>(1, level0.size() / 256); // about 256 samples
+    for (size_t i = 0; i < level0.size(); i += step) {
+        const auto color = level0[i];
+        if ((color >> 24) == 0)
+            continue;
+        for (unsigned c = 0; c < 3; ++c)
+            sum[c] += float((color >> (c * 8)) & 255) / 255.f;
+        ++samples;
+    }
+    if (samples)
+        for (unsigned c = 0; c < 3; ++c)
+            e.averageColor[c] = float(sum[c] / samples);
 }
 
 void GSR_IMPL::flushTexCaches() {

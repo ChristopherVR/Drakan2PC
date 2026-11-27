@@ -207,6 +207,26 @@ struct TexEntryOf {
     uint32_t w = 0, h = 0;
 };
 
+// The texture a draw asks for (TEX0 / TEX1), decoded once by resolveTexture (gs_texture_cache.inl).
+struct TexRequest {
+    uint32_t tbp = 0, tbw = 0, psm = 0; // base block, buffer width (in 64 texels), pixel format
+    uint32_t tw = 0, th = 0;            // log2 of the size, at most 10 (1024 texels)
+    uint32_t W = 0, H = 0;              // size in texels
+    uint32_t csa = 0;                   // first CLUT entry (TEX0.CSA)
+    uint32_t mxl = 0;                   // last mip level, at most what the size allows
+    bool indexed = false;               // a palette format (T4 / T8)
+};
+
+// What resolveTexture learned about the slot of a texture it decodes (noteSlotAnimation).
+struct SlotAnimation {
+    bool volatileSlot = false; // the slot's content keeps changing (never dumped or replaced)
+    bool paletteOnly = false;  // ... and only its CLUT changed since the last decode (HD index map path)
+    std::vector<uint8_t> paletteIndices;
+    uint64_t paletteIndexHash = 0;
+    uint64_t decodedHash = 0; // content hash of level 0, when decodedHashValid
+    bool decodedHashValid = false;
+};
+
 // Per texture-memory slot bookkeeping for palette / pixel animated textures (see resolveTexture): a slot that is
 // re-decoded many times in a short time is "volatile" (the highlighted menu entry, water / fire palette effects); it is
 // never dumped beyond the first variants and never replaced / upscaled.

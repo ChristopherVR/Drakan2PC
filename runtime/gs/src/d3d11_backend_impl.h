@@ -973,6 +973,18 @@ struct D3D11Backend::Impl {
     RT* findRTForTexture(uint32_t tbp, uint32_t tbw, uint32_t psm, uint32_t w, uint32_t h, float& ox, float& oy);
     std::pair<uint32_t, uint32_t> rowsFromMemory(const RT& rt, uint32_t py, uint32_t h) const;
     bool resolveTexture(const GsDrawState& s, const ClutBuf& clut, TexBind& out, bool uiHint = false);
+    // The steps of resolveTexture (gs_texture_cache.inl).
+    bool bindTargetTexture(const GsDrawState& s, const TexRequest& r, TexBind& out);
+    bool textureFromReadback(const TexRequest& r);
+    bool cachedTextureValid(const GsDrawState& s, const TexRequest& r, TexEntry& e);
+    void bindCachedTexture(const GsDrawState& s, const ClutBuf& clut, const TexRequest& r, TexEntry& e, TexBind& out);
+    void logTextureInvalidation(const TexKey& key, const TexEntry& e);
+    bool decodeTexture(const GsDrawState& s, const ClutBuf& clut, const TexRequest& r, const TexKey& key, TexBind& out,
+                       bool uiHint);
+    void noteSlotAnimation(const TexRequest& r, const std::vector<uint32_t>& level0, SlotAnimation& a);
+    bool smoothMenuHighlight(const GsDrawState& s, const TexRequest& r, std::vector<uint32_t>& level0,
+                             bool volatileSlot);
+    void sampleRayMaterial(const GsDrawState& s, const TexRequest& r, const std::vector<uint32_t>& level0, TexEntry& e);
     bool readBoundTexture(const TexBind& tb, Image& out); // debug dumps
     uint64_t rawHash(const std::vector<std::pair<uint32_t, uint32_t>>& spans) const;
 
