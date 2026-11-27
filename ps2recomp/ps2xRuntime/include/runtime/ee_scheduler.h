@@ -383,6 +383,12 @@ private:
     void makeReady(GuestThread& thread, int result, bool interruptSafe);
     void requestPreemptionIfHigher(const GuestThread& readyThread, bool interruptSafe);
     void applyPendingPreemption();
+    // run()'s pieces.
+    void configureRun();
+    bool startNextThread();
+    void retireReturnedContext(GuestThread& running);
+    void handleMissingFunction(GuestThread& running, R5900Context& context);
+    void preemptIfRequested();
     void processPendingEvents();
     void processDueDeadlines();
     void processEvent(const EeEvent& event);

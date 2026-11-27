@@ -206,8 +206,8 @@ void EeScheduler::reset(uint8_t* rdram, const R5900Context& mainContext) {
     publishSnapshotNow();
 }
 
-void EeScheduler::run() {
-    assertExecutor();
+// Per-run settings read once before the dispatch loop (world_rate, DRAKAN_FRAME_AUDIT, PS2X_FTZ).
+void EeScheduler::configureRun() {
     // Initialise the executor-local policy and its cached deadline here.
     const auto worldRate = drakan_cfg::getString("video", "world_rate", "DRAKAN_WORLD_RATE", nullptr);
     g_hostVblank = drakan_host::asciiEqual(worldRate, "uncapped");
@@ -226,7 +226,6 @@ void EeScheduler::run() {
         std::lock_guard lock(m_eventMutex);
         updateNextDeadline();
     }
-    m_running.store(true, std::memory_order_release);
 
     // The EE FPU has no denormals: an operand with exponent 0 is zero and a result below the smallest normal number is
     // flushed to zero. MXCSR DAZ (bit 6) + FTZ (bit 15) give the host SSE operations exactly that behaviour on the
@@ -238,6 +237,123 @@ void EeScheduler::run() {
             _mm_setcsr(_mm_getcsr() | 0x8040u);
     }
 #endif
+}
+
+// No thread is running: start the highest-priority ready thread, or a pending host-to-guest invocation on a spare
+// thread. Returns false when there is neither (then it has waited for the next event and the caller loops).
+bool EeScheduler::startNextThread() {
+    GuestThread* next = selectReady();
+    if (!next && m_pendingInvocations.empty()) {
+        copyMainContextToRuntime();
+        publishIdleDebugContext();
+        // Every guest thread is blocked, so their contexts only change through kernel operations, which mark the
+        // snapshot dirty.
+        if (m_snapshotDirty) {
+            publishSnapshotNow();
+        }
+        {
+            drakan_runtime_profile::Scope profile(drakan_runtime_profile::SchedulerIdle);
+            waitForEvent();
+        }
+        return false;
+    }
+    if (next) {
+        makeRunning(*next);
+        return true;
+    }
+    GuestThread* owner = &acquireInvocationThread();
+    GuestInvocation invocation = std::move(m_pendingInvocations.front());
+    m_pendingInvocations.pop_front();
+    owner->status = EeThreadStatus::Running;
+    m_currentThreadId = owner->id;
+    renewTimeSlice();
+    if (getRegU32(&invocation.context, 29) == 0u) {
+        SET_GPR_U32(&invocation.context, 29, invocationStackTop());
+    }
+    owner->invocations.push_back(std::move(invocation));
+    return true;
+}
+
+// The running context returned to pc 0: its outermost guest function returned. For an invocation (an interrupt
+// handler, a callback the host called) that is its end: pop it and resume what it interrupted. For a thread it is
+// the thread's exit.
+void EeScheduler::retireReturnedContext(GuestThread& running) {
+    if (!running.invocations.empty()) {
+        GuestInvocation completed = std::move(running.invocations.back());
+        running.invocations.pop_back();
+        if (completed.onComplete) {
+            try {
+                completed.onComplete(completed.context, running.activeContext());
+            } catch (const EeDispatcherTransfer&) {
+            }
+        }
+        return;
+    }
+    if (running.id == kMainThreadId && m_runtime.missingFunctionReported()) {
+        // A branch to an unknown target (typically a call through a null vtable slot, target 0) left pc at 0, so
+        // every guest frame above it returned and the main thread ended. Without this the game just stops flipping
+        // frames while the vblank thread keeps ticking (docs/journal/2026-11-07/surdana-null-jalr.md).
+        std::fprintf(stderr, "[fatal] main thread unwound to pc 0 after a missing branch target (see the "
+                             "[guest-branch:missing-target] line above for the call chain): stopping the game\n");
+        m_runtime.requestStop();
+    }
+    if (running.id == kMainThreadId && std::getenv("PS2X_TRACE_RING")) {
+        ps2TraceRingFlush("main thread returned to pc 0");
+        ps2WatchFlush();
+    }
+    makeDormant(running);
+    m_currentThreadId = 0;
+    copyMainContextToRuntime();
+    publishIdleDebugContext();
+    publishSnapshotNow();
+}
+
+// No recompiled function at the context's pc. Inside an invocation that ends the invocation (pc 0, retired on the
+// next pass); a thread is reported and made dormant.
+void EeScheduler::handleMissingFunction(GuestThread& running, R5900Context& context) {
+    if (!running.invocations.empty()) {
+        context.pc = 0u;
+        return;
+    }
+    std::fprintf(stderr,
+                 "[sched] MISSING FUNCTION on tid=%d prio=%d status=%d pc=0x%x ra=0x%x sp=0x%x inv=%zu "
+                 "suspend=%d wakeup=%u\n",
+                 m_currentThreadId, running.currentPriority, (int)running.status, context.pc, getRegU32(&context, 31),
+                 getRegU32(&context, 29), running.invocations.size(), running.suspendCount,
+                 (unsigned)running.wakeupCount);
+    m_runtime.reportMissingFunction(m_rdram, &context, context.pc, context.pc, PS2Runtime::GuestBranchKind::DirectJump,
+                                    "EE scheduler");
+    makeDormant(running);
+    m_currentThreadId = 0;
+}
+
+// A kernel call or event during the last dispatch asked for a reschedule: put the running thread back in its ready
+// queue (at the front unless its time slice ran out) so the next pass picks again.
+void EeScheduler::preemptIfRequested() {
+    if (!m_rescheduleRequested || m_currentThreadId == 0)
+        return;
+    GuestThread* preempted = currentThread();
+    assert(preempted != nullptr);
+    if (g_traceSched)
+        std::fprintf(stderr, "[sched] cyc=%llu preempt tid=%d pc=0x%x ra=0x%x sp=0x%x s0=0x%x inv=%zu slice=%d\n",
+                     (unsigned long long)m_eeCycle, preempted->id, preempted->activeContext().pc,
+                     getRegU32(&preempted->activeContext(), 31), getRegU32(&preempted->activeContext(), 29),
+                     getRegU32(&preempted->activeContext(), 16), preempted->invocations.size(),
+                     (int)m_timeSliceExpired);
+    enqueueReady(*preempted, !m_timeSliceExpired);
+    m_currentThreadId = 0;
+    m_rescheduleRequested = false;
+    m_timeSliceExpired = false;
+}
+
+// The EE executor: every guest thread runs on this host thread, one recompiled function call at a time. Each pass picks
+// the thread to run, settles returns and missing code, then calls the recompiled function at its pc. Control comes
+// back when that call returns or unwinds (EeDispatcherTransfer); events (vblank, timers, DMA ends) are handled between
+// calls.
+void EeScheduler::run() {
+    assertExecutor();
+    configureRun();
+    m_running.store(true, std::memory_order_release);
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
         processPendingEvents();
@@ -245,37 +361,8 @@ void EeScheduler::run() {
             break;
         }
 
-        if (m_currentThreadId == 0) {
-            GuestThread* next = selectReady();
-            if (!next && m_pendingInvocations.empty()) {
-                copyMainContextToRuntime();
-                publishIdleDebugContext();
-                // Every guest thread is blocked, so their contexts only change through kernel operations, which
-                // mark the snapshot dirty.
-                if (m_snapshotDirty) {
-                    publishSnapshotNow();
-                }
-                {
-                    drakan_runtime_profile::Scope profile(drakan_runtime_profile::SchedulerIdle);
-                    waitForEvent();
-                }
-                continue;
-            }
-            if (next) {
-                makeRunning(*next);
-            } else {
-                GuestThread* owner = &acquireInvocationThread();
-                GuestInvocation invocation = std::move(m_pendingInvocations.front());
-                m_pendingInvocations.pop_front();
-                owner->status = EeThreadStatus::Running;
-                m_currentThreadId = owner->id;
-                renewTimeSlice();
-                if (getRegU32(&invocation.context, 29) == 0u) {
-                    SET_GPR_U32(&invocation.context, 29, invocationStackTop());
-                }
-                owner->invocations.push_back(std::move(invocation));
-            }
-        }
+        if (m_currentThreadId == 0 && !startNextThread())
+            continue;
 
         GuestThread* running = currentThread();
         assert(running != nullptr);
@@ -302,38 +389,11 @@ void EeScheduler::run() {
         publishDebugContext(context);
 
         if (context.pc == 0u) {
-            if (!running->invocations.empty()) {
-                GuestInvocation completed = std::move(running->invocations.back());
-                running->invocations.pop_back();
-                if (completed.onComplete) {
-                    try {
-                        completed.onComplete(completed.context, running->activeContext());
-                    } catch (const EeDispatcherTransfer&) {
-                    }
-                }
-                continue;
-            }
-            if (running->id == kMainThreadId && m_runtime.missingFunctionReported()) {
-                // A branch to an unknown target (typically a call through a null vtable slot, target 0) left pc at 0,
-                // so every guest frame above it returned and the main thread ended. Without this the game just stops
-                // flipping frames while the vblank thread keeps ticking (docs/journal/2026-11-07/surdana-null-jalr.md).
-                std::fprintf(stderr,
-                             "[fatal] main thread unwound to pc 0 after a missing branch target (see the "
-                             "[guest-branch:missing-target] line above for the call chain): stopping the game\n");
-                m_runtime.requestStop();
-            }
-            if (running->id == kMainThreadId && std::getenv("PS2X_TRACE_RING")) {
-                ps2TraceRingFlush("main thread returned to pc 0");
-                ps2WatchFlush();
-            }
-            makeDormant(*running);
-            m_currentThreadId = 0;
-            copyMainContextToRuntime();
-            publishIdleDebugContext();
-            publishSnapshotNow();
+            retireReturnedContext(*running);
             continue;
         }
 
+        // A queued invocation (interrupt handler, host callback) runs on top of the current thread's context.
         if (!m_pendingInvocations.empty() && running->invocations.empty()) {
             GuestInvocation invocation = std::move(m_pendingInvocations.front());
             m_pendingInvocations.pop_front();
@@ -345,20 +405,7 @@ void EeScheduler::run() {
         }
 
         if (!m_runtime.hasFunction(context.pc)) {
-            if (!running->invocations.empty()) {
-                context.pc = 0u;
-            } else {
-                std::fprintf(stderr,
-                             "[sched] MISSING FUNCTION on tid=%d prio=%d status=%d pc=0x%x ra=0x%x sp=0x%x inv=%zu "
-                             "suspend=%d wakeup=%u\n",
-                             m_currentThreadId, running->currentPriority, (int)running->status, context.pc,
-                             getRegU32(&context, 31), getRegU32(&context, 29), running->invocations.size(),
-                             running->suspendCount, (unsigned)running->wakeupCount);
-                m_runtime.reportMissingFunction(m_rdram, &context, context.pc, context.pc,
-                                                PS2Runtime::GuestBranchKind::DirectJump, "EE scheduler");
-                makeDormant(*running);
-                m_currentThreadId = 0;
-            }
+            handleMissingFunction(*running, context);
             continue;
         }
         PS2Runtime::RecompiledFunction function = m_runtime.lookupFunction(context.pc);
@@ -384,6 +431,7 @@ void EeScheduler::run() {
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
         } catch (const EeDispatcherTransfer&) {
+            // A kernel call that blocked or switched threads unwinds the guest call stack to here.
             m_liveContext.store(nullptr, std::memory_order_relaxed);
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
@@ -396,20 +444,7 @@ void EeScheduler::run() {
         }
 
         processPendingEvents();
-        if (m_rescheduleRequested && m_currentThreadId != 0) {
-            GuestThread* preempted = currentThread();
-            assert(preempted != nullptr);
-            if (g_traceSched)
-                std::fprintf(
-                    stderr, "[sched] cyc=%llu preempt tid=%d pc=0x%x ra=0x%x sp=0x%x s0=0x%x inv=%zu slice=%d\n",
-                    (unsigned long long)m_eeCycle, preempted->id, preempted->activeContext().pc,
-                    getRegU32(&preempted->activeContext(), 31), getRegU32(&preempted->activeContext(), 29),
-                    getRegU32(&preempted->activeContext(), 16), preempted->invocations.size(), (int)m_timeSliceExpired);
-            enqueueReady(*preempted, !m_timeSliceExpired);
-            m_currentThreadId = 0;
-            m_rescheduleRequested = false;
-            m_timeSliceExpired = false;
-        }
+        preemptIfRequested();
     }
 
     m_guestExecuting.store(false, std::memory_order_release);
