@@ -1,5 +1,6 @@
 // Drakan: Order of the Flame Magic Crystals (drakan_crystals.h). PAL addresses.
 #include "drakan_crystals.h"
+#include "drakan_guest_layout.h"
 #include "drakan_crystals_policy.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -24,7 +25,7 @@ namespace {
 // use message it adds the class's Mana Boost to the player's mana. The item's actor handle is item + 0xc.
 constexpr uint32_t kUseHandler = 0x392aa0u;
 // Public spawn (docs/journal/2026-10-31/actor-spawn.md): (engine, owner, transform*, extra*, extraLen, resIndex).
-constexpr uint32_t kFactory = 0x181ad8u, kContextPtr = 0x5565d4u;
+constexpr uint32_t kFactory = drakan_layout::fn::kSpawnActor, kContextPtr = drakan_layout::kEngineContextPtr;
 constexpr uint32_t kRynnClass = 0x10009u;
 constexpr uint32_t kFrame = 0x60u; // the trampoline's stack frame (transform at +0x10)
 
@@ -210,7 +211,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
         g_pending.pop_front();
     }
     const uint32_t ctx = guest::readHeap32(rdram, kContextPtr);
-    const uint32_t player = ramPtr(ctx) ? guest::readHeap32(rdram, ctx + 0x4b0u) : 0;
+    const uint32_t player = ramPtr(ctx) ? guest::readHeap32(rdram, ctx + drakan_layout::engine::kControlledActor) : 0;
     const uint32_t rec = recordOf(rdram, player);
     if (!rec || guest::readHeap32(rdram, rec + 8u) != kRynnClass) {
         logf("effect %x dropped: the controlled actor is not Rynn", effect);

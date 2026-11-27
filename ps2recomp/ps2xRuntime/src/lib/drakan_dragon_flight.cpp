@@ -1,4 +1,5 @@
 #include "drakan_dragon_flight.h"
+#include "drakan_guest_layout.h"
 #include "drakan_dragon_flight_policy.h"
 #include "drakan_game.h"
 #include "drakan_region.h"
@@ -57,8 +58,8 @@ void dragonAiEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         g_extendedCall = 0;
     if (calling && g_extendedCall != dragon && ram.u32(dragon + 0x98u) == 13u &&
         drakan_game::current() == drakan_game::Game::Ootf) {
-        const uint32_t context = ram.u32(0x5565d4u);
-        const uint32_t rynn = ram.u32(context + 0x4b0u);
+        const uint32_t context = ram.u32(drakan_layout::kEngineContextPtr);
+        const uint32_t rynn = ram.u32(context + drakan_layout::engine::kControlledActor);
         const uint32_t ref = ram.u32(actorData(ram, rynn) + 0x4d8u) & 0xffffu;
         const uint32_t table = ram.u32(context + 0x7cu);
         const uint32_t handle = ram.u32(dragon + 0x80u);

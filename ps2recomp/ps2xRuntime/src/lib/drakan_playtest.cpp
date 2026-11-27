@@ -1,4 +1,5 @@
 #include "drakan_playtest.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_autoaim.h"
 #include "drakan_ghost.h"
@@ -86,9 +87,9 @@ bool parsePose(const char* text, float pos[3], float& yaw, bool& hasYaw) {
 
 namespace {
 
-constexpr uint32_t kContextPtr = 0x5565d4u; // engine object pointer (PAL)
-constexpr uint32_t kControlled = 0x4b0u;    // engine + 0x4b0: the controlled actor
-constexpr unsigned kWaitTicks = 240;        // boundaries after the player appears before the first move
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr; // engine object pointer (PAL)
+constexpr uint32_t kControlled = 0x4b0u;                           // engine + 0x4b0: the controlled actor
+constexpr unsigned kWaitTicks = 240; // boundaries after the player appears before the first move
 // DRAKAN_FAST_START (the editor's Play): 60 (about 1 s); a move onto floor that is not resident yet is retried anyway.
 unsigned waitTicks() {
     static const unsigned v = [] {
@@ -142,8 +143,8 @@ static void keepAlive(drakan_input::IGuest& guest) {
     static const bool god = std::getenv("DRAKAN_PLAYTEST_GOD") != nullptr;
     if (!god)
         return;
-    const uint32_t key = guest.read32(drakan_region::guestAddress(0x4fe86cu));
-    const uint32_t stats = drakan_region::guestAddress(0x4fbac8u);
+    const uint32_t key = guest.read32(drakan_region::guestAddress(drakan_layout::kHpKey));
+    const uint32_t stats = drakan_region::guestAddress(drakan_layout::kPlayerStats);
     const uint32_t raw = guest.read32(stats + 0x10) ^ key;
     const uint32_t max = (raw >> 8) | (raw << 24);
     if (max > 0 && max < 100000u)
@@ -244,7 +245,7 @@ static void autoSteer(drakan_input::IGuest& guest) {
     const uint32_t table = guest.read32(eng + 0x7c), top = guest.read32(eng + 0x84), res = guest.read32(eng + 0x320);
     if (!table || !res || top > 20000)
         return;
-    const uint32_t vt = drakan_region::guestAddress(0x51b8b0u);
+    const uint32_t vt = drakan_region::guestAddress(drakan_layout::kHandleVtable);
     const uint32_t classes = guest.read32(res + 8), nClasses = guest.read32(res + 0x10);
     const float px = guest.readF(pl + 0x14), pz = guest.readF(pl + 0x1c);
     float best = range * range, bdx = 0, bdy = 0, bdz = 0;

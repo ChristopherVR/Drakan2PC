@@ -1,4 +1,5 @@
 #include "drakan_terrain_chunks.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
 #include "drakan_region.h"
@@ -37,7 +38,8 @@ std::atomic<bool> g_wide{false};
 
 // ---- watch (diagnosis) ----
 
-constexpr uint32_t kMalloc = 0x4ac628u, kRealloc = 0x4acef0u, kFree = 0x4acc40u;
+constexpr uint32_t kMalloc = drakan_layout::fn::kMalloc, kRealloc = drakan_layout::fn::kRealloc,
+                   kFree = drakan_layout::fn::kFree;
 
 PS2Runtime::RecompiledFunction g_origMalloc = nullptr, g_origRealloc = nullptr, g_origFree = nullptr;
 

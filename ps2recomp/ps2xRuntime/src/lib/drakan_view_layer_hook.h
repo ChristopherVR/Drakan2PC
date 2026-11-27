@@ -2,6 +2,7 @@
 // Hook on the PAL cell lookup 0x14b6b8. The camera caller uses drakan_view_layer.h. The actor reinsertion caller
 // handles the stacked floors under the Ruined Village tomb landing during both save and restore.
 #include "drakan_config.h"
+#include "drakan_guest_layout.h"
 #include "drakan_game.h"
 #include "drakan_region.h"
 #include "drakan_view_layer.h"
@@ -33,7 +34,7 @@ constexpr uint32_t kActorInsertReturn = 0x149ab4u;
 constexpr float kLandingHeight = 22890.0f, kLandingHeadroom = 1024.0f;
 constexpr uint32_t kLayerStride = 0x164u; // runtime layer record: world +8 array, +0x10 count
 constexpr uint32_t kLayerVisible = 0x70u, kLayerVisibleCount = 0x78u; // u16 layer indices
-constexpr uint32_t kEngineContext = 0x5565d4u;                        // engine object; +0x4b0 the controlled actor
+constexpr uint32_t kEngineContext = drakan_layout::kEngineContextPtr; // engine object; +0x4b0 the controlled actor
 constexpr uint32_t kActorPosition = 0x14u, kActorLayer = 0x7cu;
 
 enum class LookupMode { Off, On, Verify };
@@ -396,7 +397,8 @@ inline void lookupHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     if (count <= 0 || count > 0x4000 || !guestPointer(layers, static_cast<uint32_t>(count) * kLayerStride))
         return;
     const uint32_t engine = guestWord(ram, kEngineContext);
-    const uint32_t actor = guestPointer(engine, 0x4b4) ? guestWord(ram, engine + 0x4b0) : 0;
+    const uint32_t actor =
+        guestPointer(engine, 0x4b4) ? guestWord(ram, engine + drakan_layout::engine::kControlledActor) : 0;
     if (!guestPointer(actor, 0x100)) {
         settleActor = 0;
         return;

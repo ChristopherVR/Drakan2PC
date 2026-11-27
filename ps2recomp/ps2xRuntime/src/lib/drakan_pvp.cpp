@@ -1,6 +1,7 @@
 // Drakan: PvP combat glue (drakan_pvp.h). PAL addresses are canonical, translated through the disc profile.
 // Evidence and the design: docs/journal/2026-10-31/pvp.md, docs/reference/netcode.md "PvP".
 #include "drakan_pvp.h"
+#include "drakan_guest_layout.h"
 #include "drakan_pvp_targets.h"
 #include "drakan_arena.h"
 #include "drakan_combat_guest.h"
@@ -32,7 +33,8 @@ namespace {
 
 using drakan_region::guestAddress;
 
-constexpr uint32_t kContextPtr = 0x5565d4u, kBladeHit = 0x498020u, kStatsBlock = 0x4fbac8u, kHpKey = 0x4fe86cu;
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr, kBladeHit = 0x498020u,
+                   kStatsBlock = drakan_layout::kPlayerStats, kHpKey = drakan_layout::kHpKey;
 constexpr uint32_t kDeathClip = 0x20577u; // Rynn's death clip (lower channel when the engine kills her)
 constexpr float kDeathClipHold = 4.0f;    // seconds of the clip shown; the last pose is held after that
 constexpr uint32_t kRightHolder = 0xeb4u, kLeftHolder = 0xe90u, kHolderRef = 0x1cu;
@@ -131,7 +133,7 @@ uint32_t dataOf(const uint8_t* rdram, uint32_t h) {
 }
 uint32_t controlledActor(const uint8_t* rdram) {
     const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
-    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x4b0) : 0;
+    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + drakan_layout::engine::kControlledActor) : 0;
 }
 
 bool isGhost(uint32_t handle, int* id = nullptr) {
@@ -343,7 +345,8 @@ void scanProjectiles(drakan_input::IGuest& guest, const uint8_t* rdram, uint32_t
     std::vector<uint32_t> alive;
     for (uint32_t i = 0; i < n; ++i) {
         const uint32_t h = guest::read32(rdram, table + i * 8);
-        if (!guest::isHeapPtr(h) || h == player || guest::read32(rdram, h) != guestAddress(0x51b8b0u))
+        if (!guest::isHeapPtr(h) || h == player ||
+            guest::read32(rdram, h) != guestAddress(drakan_layout::kHandleVtable))
             continue;
         const uint32_t type = guest::read32(rdram, h + 0xc);
         if (type != 9 && type != 12 && type != 13)
@@ -574,7 +577,7 @@ void probeNewActors(const uint8_t* rdram, uint32_t player) {
         const uint32_t h = guest::read32(rdram, table + i * 8);
         if (!guest::isHeapPtr(h))
             continue;
-        const bool isActor = guest::read32(rdram, h) == guestAddress(0x51b8b0u);
+        const bool isActor = guest::read32(rdram, h) == guestAddress(drakan_layout::kHandleVtable);
         const uint32_t cls = isActor ? classOfActor(rdram, h) : 0xdead0000u + (guest::read32(rdram, h) & 0xffffu);
         now[h] = cls;
         auto it = seen.find(h);

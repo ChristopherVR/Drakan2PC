@@ -15,6 +15,7 @@
 //
 // See docs/reference/iop-and-io.md section 7 and docs/status/recomp-status.md.
 #include "game_overrides.h"
+#include "drakan_guest_layout.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ee_scheduler.h"
@@ -1279,7 +1280,7 @@ void soundPump(HleHost* h) {
             if (drakan_region::supports(drakan_region::Feature::StereoSync) && h->rdramPtr) {
                 const auto& layout = drakan_region::build().audio;
                 const uint32_t manager = drakan_region::guestAddress(0x4db4f0u);
-                const uint32_t options = drakan_region::guestAddress(0x4fb6d0u);
+                const uint32_t options = drakan_region::guestAddress(drakan_layout::kOptions);
                 uint32_t vt = 0, opt = 0, cur = 0;
                 std::memcpy(&vt, h->rdramPtr + manager, 4);
                 std::memcpy(&opt, h->rdramPtr + options + layout.optionStereo, 4);
@@ -1469,7 +1470,8 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
                 std::memcpy(&f, &v, 4);
                 return f;
             };
-            const uint32_t npc = getRegU32(ctx, 4), pl = rd(rd(0x5565d4u) + 0x4b0u), h = rd(npc + 0x23c);
+            const uint32_t npc = getRegU32(ctx, 4), pl = rd(rd(drakan_layout::kEngineContextPtr) + 0x4b0u),
+                           h = rd(npc + 0x23c);
             std::fprintf(stderr, "[talk-gate] npc=%x handler=%x active=%x player=%x\n", npc, h, rd(h + 4), pl);
             std::fprintf(stderr, "[talk-gate] handler pos=(%.0f %.0f %.0f) zaxis=(%.3f %.3f %.3f) scale=%.3f\n",
                          rf(h + 0x14), rf(h + 0x18), rf(h + 0x1c), rf(h + 0x28), rf(h + 0x34), rf(h + 0x40),
@@ -1538,9 +1540,9 @@ void soundDebugGainHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
     const uint32_t inst = getRegU32(ctx, 4);
     if (g_gainLog.fetch_add(1) < 3000) {
         const uint32_t lm = sdbgRd32(rdram, 0x4e0b1c), h = lm ? (sdbgRd32(rdram, lm + 0x24) & 0xffffu) : 0u,
-                       gctx = sdbgRd32(rdram, 0x5565d4);
+                       gctx = sdbgRd32(rdram, drakan_layout::kEngineContextPtr);
         const uint32_t lobj = h ? sdbgRd32(rdram, sdbgRd32(rdram, gctx + 0x7c) + (h - 1) * 8) : 0u;
-        float lx = sdbgF(sdbgRd32(rdram, 0x4dad58)), ly = sdbgF(sdbgRd32(rdram, 0x4dad5c)),
+        float lx = sdbgF(sdbgRd32(rdram, drakan_layout::kWorldView)), ly = sdbgF(sdbgRd32(rdram, 0x4dad5c)),
               lz = sdbgF(sdbgRd32(rdram, 0x4dad60));
         if (lobj) {
             lx = sdbgF(sdbgRd32(rdram, lobj + 0x14));
@@ -2194,8 +2196,8 @@ void installRegionInput(PS2Runtime& runtime) {
         g_regionAutoPressUntil = std::atol(e);
     const char* autoStart = std::getenv("DRAKAN_INPUT_AUTOSTART");
     g_regionAutoStart = (autoStart && *autoStart == '1') || std::getenv("DRAKAN_AUTOSTART") != nullptr;
-    g_origRegionPadMgr = runtime.lookupFunction(guestAddress(0x1e3970u));
-    runtime.replaceFunction(guestAddress(0x1e3970u), &hookRegionPadMgr);
+    g_origRegionPadMgr = runtime.lookupFunction(guestAddress(drakan_layout::fn::kPadMgrUpdate));
+    runtime.replaceFunction(guestAddress(drakan_layout::fn::kPadMgrUpdate), &hookRegionPadMgr);
     // SDK entry points translated through the audited disc profile.
     for (uint32_t pal : {0x4b0948u /* scePadInit */, 0x4b0ba8u /* scePadPortOpen */, 0x4b1490u /* SetMainMode */,
                          0x4b1548u /* SetActDirect */})

@@ -15,6 +15,7 @@
 //   navigation)
 #if defined(PS2X_HAVE_DRAKAN_INPUT) || defined(PS2X_HAVE_PORTABLE_UI)
 #include "runtime/ee_no_preempt.h"
+#include "drakan_guest_layout.h"
 #include "ps2_runtime.h"
 #include "runtime/guest_access.h"
 #include "ps2_runtime_macros.h"
@@ -108,8 +109,9 @@ namespace {
 using namespace drakan_input;
 
 constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x4b0ef8u, kPadGetState = 0x4b0f78u,
-                   kPadSetMainMode = 0x4b1490u, kPadSetActDirect = 0x4b1548u, kPadMgrUpdate = 0x1e3970u,
-                   kCameraUpdateLook = 0x44e4a8u, kCameraFollowTick = 0x41f848u, kBowLaunch = 0x20e6c8u;
+                   kPadSetMainMode = 0x4b1490u, kPadSetActDirect = 0x4b1548u,
+                   kPadMgrUpdate = drakan_layout::fn::kPadMgrUpdate, kCameraUpdateLook = 0x44e4a8u,
+                   kCameraFollowTick = 0x41f848u, kBowLaunch = 0x20e6c8u;
 
 // Bow diagnostics switches, read once: the bow hooks below run on every call of the player's update and getenv walks
 // the environment each time.
@@ -625,14 +627,14 @@ void dumpState(RecompGuest& g, const char* label) {
             ilog(" %8.4f", g.readF(heading + i * 4));
         }
     {
-        const uint32_t o = 0x4fb6d0; // options object (docs/reference/input.md 3.2)
+        const uint32_t o = drakan_layout::kOptions; // options object (docs/reference/input.md 3.2)
         ilog("  options: invertY(+0x64)=%u look-sens(+0x78)=%.3f scheme(+0x2e8)=%u stickCfg(+0x7c..)= %d %d %d %d\n",
              g.read32(o + 0x64), g.readF(o + 0x78), g.read32(o + 0x2e8), static_cast<int>(g.read32(o + 0x7c)),
              static_cast<int>(g.read32(o + 0x80)), static_cast<int>(g.read32(o + 0x84)),
              static_cast<int>(g.read32(o + 0x88)));
     }
-    const uint32_t ctx = g.read32(0x5565d4);
-    const uint32_t camH = ctx ? g.read32(ctx + 0x4b4) : 0;
+    const uint32_t ctx = g.read32(drakan_layout::kEngineContextPtr);
+    const uint32_t camH = ctx ? g.read32(ctx + drakan_layout::engine::kCameraActor) : 0;
     const uint32_t inner = camH ? g.read32(camH + 0xfc) : 0;
     const uint32_t cam = inner ? g.read32(inner + 0x10) : 0;
     ilog("\n  cam=0x%x", cam);
@@ -955,7 +957,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
              m.frame().focused ? 1 : 0);
         if (p) {
             const uint32_t h = g.read32(p + 0x80);
-            const uint32_t cx = g.read32(0x5565d4);
+            const uint32_t cx = g.read32(drakan_layout::kEngineContextPtr);
             const uint32_t ch = cx ? g.read32(cx + 0x4b4) : 0;
             const uint32_t ci = ch ? g.read32(ch + 0xfc) : 0;
             const uint32_t cam = ci ? g.read32(ci + 0x10) : 0;
@@ -1000,7 +1002,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         std::getenv("DRAKAN_DEBUG_SKILL_POINTS") ? std::atoi(std::getenv("DRAKAN_DEBUG_SKILL_POINTS")) : 0;
     if (skillPoints > 0 && gameplay && scr < 0 && g_playRun > 150) {
         const uint32_t n = uint32_t(skillPoints), rotated = (n << 8) | (n >> 24);
-        g.write32(0x4fbaf4u, rotated ^ g.read32(0x4fe86cu));
+        g.write32(0x4fbaf4u, rotated ^ g.read32(drakan_layout::kHpKey));
         ilog("[in] debug skill points: %d\n", skillPoints);
         skillPoints = 0;
     }
@@ -1009,7 +1011,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     static int debugGold = std::getenv("DRAKAN_DEBUG_GOLD") ? std::atoi(std::getenv("DRAKAN_DEBUG_GOLD")) : -1;
     if (debugGold >= 0 && gameplay && scr < 0 && g_playRun > 150) {
         const uint32_t n = uint32_t(debugGold), rotated = (n << 8) | (n >> 24);
-        g.write32(0x4fbae0u, rotated ^ g.read32(0x4fe86cu));
+        g.write32(0x4fbae0u, rotated ^ g.read32(drakan_layout::kHpKey));
         ilog("[in] debug gold: %d\n", debugGold);
         debugGold = -1;
     }
@@ -1020,7 +1022,7 @@ void hookPadMgrUpdate(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         const char* next = std::strchr(shopList, ',');
         shopList = next ? next + 1 : nullptr;
         const auto ok = [](uint32_t a) { return a >= 0x100000u && a < PS2_RAM_SIZE - 0x100u && (a & 3u) == 0; };
-        const uint32_t G = g.read32(0x5565d4u), base = ok(G) ? g.read32(G + 0x7c) : 0,
+        const uint32_t G = g.read32(drakan_layout::kEngineContextPtr), base = ok(G) ? g.read32(G + 0x7c) : 0,
                        db = ok(G) ? g.read32(G + 0x320) : 0;
         const uint32_t handles = ok(G) ? std::min<uint32_t>(g.read32(G + 0x84) + 1, 8192) : 0;
         uint32_t chosen = 0;
@@ -1259,7 +1261,7 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         SET_GPR_U32(c, 29, sp);
     }
     const uint32_t context = g.read32(module().config().addrCtxPtr);
-    const uint32_t actor = context ? g.read32(context + 0x4b0) : 0;
+    const uint32_t actor = context ? g.read32(context + drakan_layout::engine::kControlledActor) : 0;
     const uint32_t inner = actor ? g.read32(actor + 0xfc) : 0;
     const uint32_t player = inner ? g.read32(inner + 0x10) : 0;
     if (target && player) {

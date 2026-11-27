@@ -1,4 +1,5 @@
 #include "drakan_save_reference_probe.h"
+#include "drakan_guest_layout.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -141,7 +142,8 @@ void resolve(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         const uint32_t total = read(ram, context + 0x68), statics = read(ram, 0x569688);
         const uint32_t first = total >= statics ? total - statics : 0;
         // Only the actual world-context resolver has this table layout. No arbitrary pointer dereferences.
-        if (context == read(ram, 0x5565d4) && total < 0x100000 && statics <= total && slot >= first && slot < total) {
+        if (context == read(ram, drakan_layout::kEngineContextPtr) && total < 0x100000 && statics <= total &&
+            slot >= first && slot < total) {
             ++g_staticCalls;
             const Owner who = owner(rt);
             uint32_t source = 0xffffffff;

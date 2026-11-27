@@ -1,5 +1,6 @@
 // Drakan: game menu additions (title "Quit", save pages). See drakan_menus.h and docs/reference/save-slots.md.
 #include "runtime/ee_no_preempt.h"
+#include "drakan_guest_layout.h"
 #include "drakan_menus.h"
 #include "drakan_save_guard.h"
 #include "drakan_save_previews.h"
@@ -57,8 +58,9 @@ constexpr uint32_t kSlotNameCells = 0x5325c8u; // "Slot1" .. "Slot4", 8 bytes ea
 constexpr uint32_t kSlotNamePtrs = 0x4fe3b8u;  // char *[4] -> the cells above
 constexpr uint32_t kFmtSlotLoad = 0x54e3a0u;   // "%d - %s" (slot caption on the load / save screens)
 constexpr uint32_t kFmtSlotSave = 0x54f040u;   // "%d - %s" (confirm text of the save screen)
-constexpr uint32_t kActiveScreenVar = 0x4fb60cu;
-constexpr uint32_t kGuiSizeObj = 0x5565c8u;      // *(u32*) + 0xf8 / 0xfc = GUI coordinate space (512 x 512)
+constexpr uint32_t kActiveScreenVar = drakan_layout::kActiveScreenPtr;
+constexpr uint32_t kGuiSizeObj =
+    drakan_layout::kRenderViewPtr;               // *(u32*) + 0xf8 / 0xfc = GUI coordinate space (512 x 512)
 constexpr uint32_t kFnLineHeight = 0x288658u;    // (font) -> line height
 constexpr uint32_t kFnTextWidth = 0x2885c8u;     // (str, font, 0, len + 1) -> width in pixels
 constexpr uint32_t kFnSetFocus = 0x2be528u;      // (screen, widget) focus a widget (0 = clear)
@@ -662,12 +664,12 @@ void nativeOptionsTick(MGuest& g, int screen) {
         // Never invoke the blocking audio/controller apply routine from a
         // nested input hook: its semaphore waits need the real guest scheduler.
         for (size_t i = 0; i < g_savedOptions.size(); ++i)
-            g_savedOptions[i] = g.read32(0x4fb6d0u + kNativeOptions[i].offset);
+            g_savedOptions[i] = g.read32(drakan_layout::kOptions + kNativeOptions[i].offset);
         g_optionsReady = true;
     }
     decltype(g_savedOptions) current;
     for (size_t i = 0; i < current.size(); ++i) {
-        current[i] = g.read32(0x4fb6d0u + kNativeOptions[i].offset);
+        current[i] = g.read32(drakan_layout::kOptions + kNativeOptions[i].offset);
         if (kNativeOptions[i].offset == 0x2e8)
             publishControllerScheme(static_cast<int32_t>(current[i]));
     }
@@ -864,7 +866,7 @@ float loadingGroupOffset(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     const uint32_t self = GPR_U32(ctx, 4) & 0x1fffffffu;
     if (!okPtr(self) || self > PS2_RAM_SIZE - 640)
         return 0;
-    const uint32_t state = g.read32(0x5565d4u);
+    const uint32_t state = g.read32(drakan_layout::kEngineContextPtr);
     const bool alternate = g.read32(self + 0xa8) == 3 || (okPtr(state) && ((g.read32(state + 0x4c4) >> 3) & 1));
     const uint32_t text = self + (alternate ? 0x1acu : 0xacu);
     unsigned length = 0;

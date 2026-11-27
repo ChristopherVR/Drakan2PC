@@ -1,4 +1,5 @@
 #include "drakan_view_distance.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
 #include "drakan_lifecycle.h"
@@ -40,16 +41,17 @@ constexpr uint32_t kRecord = 0x394u;            // 8 x f32 fog record
 constexpr uint32_t kRamSize = 32u * 1024u * 1024u;
 
 // Far scenery: the terrain draw walks the view layer's visible list (layer +0x70 u16 list, +0x78 count).
-constexpr uint32_t kTerrainDraw = 0x152330u;       // a0 = terrain (layers at +8, count at +0x10)
-constexpr uint32_t kCellLookup = 0x14b6b8u;        // cell lookup: searches the old layer's list (actors, the view)
-constexpr uint32_t kViewLayer = 0x4dad58u + 0x8cu; // index of the layer the camera is in, -1 for none
+constexpr uint32_t kTerrainDraw = 0x152330u; // a0 = terrain (layers at +8, count at +0x10)
+constexpr uint32_t kCellLookup = 0x14b6b8u;  // cell lookup: searches the old layer's list (actors, the view)
+constexpr uint32_t kViewLayer =
+    drakan_layout::kWorldView + drakan_layout::kWorldViewLayer; // index of the layer the camera is in, -1 for none
 constexpr uint32_t kLayerStride = 0x164u;
 constexpr uint32_t kLayerList = 0x70u;
 constexpr uint32_t kLayerListCount = 0x78u;
-constexpr uint32_t kMalloc = 0x4ac628u;       // a0 = size
-constexpr uint32_t kFree = 0x4acc40u;         // a0 = block
-constexpr uint32_t kSignalSema = 0x4bc180u;   // a0 = semaphore
-constexpr uint32_t kHeapSemaWord = 0x515260u; // the semaphore the game holds round its heap calls
+constexpr uint32_t kMalloc = drakan_layout::fn::kMalloc; // a0 = size
+constexpr uint32_t kFree = drakan_layout::fn::kFree;     // a0 = block
+constexpr uint32_t kSignalSema = 0x4bc180u;              // a0 = semaphore
+constexpr uint32_t kHeapSemaWord = 0x515260u;            // the semaphore the game holds round its heap calls
 constexpr size_t kMaxEntries = 4096;
 
 std::atomic<bool> g_installed{false};
@@ -109,7 +111,9 @@ std::vector<std::vector<farland::Point>> g_farTargets;
 // Lists per view layer and camera cell (x, z: 2048 units, height: 1024), bounded.
 std::unordered_map<uint64_t, std::vector<uint16_t>> g_farLists;
 constexpr size_t kFarListsMax = 1024;
-constexpr uint32_t kCameraPos = 0x4dad58u + 0x6cu; // camera position x, y, z (the object distance test reads it)
+constexpr uint32_t kCameraPos =
+    drakan_layout::kWorldView +
+    drakan_layout::kWorldViewCameraPos; // camera position x, y, z (the object distance test reads it)
 
 inline bool inRam(uint32_t a, uint32_t bytes) {
     return a >= 0x100000u && bytes <= kRamSize && a <= kRamSize - bytes;

@@ -1,5 +1,6 @@
 // PS2-era engine budgets the PC lifts (PAL). See drakan_engine_limits.h.
 #include "drakan_engine_limits.h"
+#include "drakan_guest_layout.h"
 #include "drakan_extended_heap.h"
 
 #include "drakan_config.h"
@@ -27,7 +28,7 @@ namespace ai = world::ai_run_max;
 constexpr uint32_t kShadowSetter = 0x1431e8u; // (a0 this, a1 start, a2 end, a3, t0): squared distances x 4194.304
 constexpr uint32_t kShadowEnd = 0x4e0ad4u, kShadowCutoff = 0x4e0ad8u, kShadowStart = 0x4e0adcu;
 constexpr uint32_t kCacheTrim = 0x12c850u; // (a0 cache, a1 bytes to make room for, 0 = down to the budget)
-constexpr uint32_t kModelCache = 0x4dae20u, kAnimationCache = 0x4db050u;
+constexpr uint32_t kModelCache = drakan_layout::kModelManager, kAnimationCache = 0x4db050u;
 constexpr uint32_t kBudget = 4u, kInUse = 8u;
 // The AI limiter: 0x5130b0 {+0 slot list, +4 capacity, +8 slots in use, +12 run max}. 0x2dc718 (level load) stores the
 // level's "AI Run Max" at +12 and empties the list; 0x48a4a0 (per limited creature) takes a slot while fewer than +12

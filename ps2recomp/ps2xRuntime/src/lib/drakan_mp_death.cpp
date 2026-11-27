@@ -1,5 +1,6 @@
 // Drakan: environmental deaths in a multiplayer session (drakan_mp_death.h).
 #include "drakan_mp_death.h"
+#include "drakan_guest_layout.h"
 #include "drakan_arena.h"
 #include "drakan_netplay.h"
 #include "drakan_region.h"
@@ -14,9 +15,9 @@
 namespace drakan_mp_death {
 namespace {
 
-constexpr uint32_t kHpSetter = 0x3d5710u;   // (stats block, new HP): the leaf of the damage method 0x314ab0
-constexpr uint32_t kStatsBlock = 0x4fbac8u; // the local player's stats
-constexpr uint32_t kHpKey = 0x4fe86cu;      // HP is stored as rotl8(v) ^ key
+constexpr uint32_t kHpSetter = 0x3d5710u; // (stats block, new HP): the leaf of the damage method 0x314ab0
+constexpr uint32_t kStatsBlock = drakan_layout::kPlayerStats; // the local player's stats
+constexpr uint32_t kHpKey = drakan_layout::kHpKey;            // HP is stored as rotl8(v) ^ key
 constexpr uint32_t kHpField = 0xcu;
 
 PS2Runtime::RecompiledFunction g_origSetter = nullptr;

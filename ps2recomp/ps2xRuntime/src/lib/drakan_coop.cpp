@@ -1,5 +1,6 @@
 // Drakan: co-op prototype (drakan_coop.h).
 #include "runtime/ee_no_preempt.h"
+#include "drakan_guest_layout.h"
 #include "drakan_coop.h"
 #include "drakan_combat_guest.h"
 #include "drakan_coop_target.h"
@@ -459,7 +460,7 @@ uint32_t engineCtx(const uint8_t* rdram) {
 }
 uint32_t controlled(const uint8_t* rdram) {
     const uint32_t ctx = engineCtx(rdram);
-    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x4b0) : 0;
+    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + drakan_layout::engine::kControlledActor) : 0;
 }
 uint32_t creatureData(const uint8_t* rdram, uint32_t h) {
     const uint32_t inner = guest::read32(rdram, h + 0xfc);
@@ -523,7 +524,7 @@ bool isGhostHandle(uint32_t h) {
 // is swapped for one that swallows everything but the destroy, and Rynn's death clip is written into her skeleton every
 // tick. The host sees it through the replicated pose of the ghost. The host answers with a respawn after a delay and
 // the player gets up beside the host (or where she fell when the host is too far for the floor to be resident).
-constexpr uint32_t kStatsBlock = 0x4fbac8u, kDeathClip = 0x20577u;
+constexpr uint32_t kStatsBlock = drakan_layout::kPlayerStats, kDeathClip = 0x20577u;
 constexpr float kDeathClipHold = 4.0f;
 
 struct Life {
@@ -781,7 +782,7 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (event == 4 && g_retarget) {
         ++g_st.aiTicks;
         ctxAddr = engineCtx(rdram);
-        saved = guest::isHeapPtr(ctxAddr) ? guest::read32(rdram, ctxAddr + 0x4b0) : 0;
+        saved = guest::isHeapPtr(ctxAddr) ? guest::read32(rdram, ctxAddr + drakan_layout::engine::kControlledActor) : 0;
         if (guest::isHeapPtr(saved)) {
             const float cp[3] = {guest::readF(rdram, actor + 0x14), guest::readF(rdram, actor + 0x18),
                                  guest::readF(rdram, actor + 0x1c)};
@@ -846,7 +847,7 @@ void aiHandler(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // A door the host reported open (late join catch-up): its tick sees "the player" standing at the door.
     if (event == 4 && !g_forceOpen.empty() && g_forceOpen.count(actor)) {
         ctxAddr = engineCtx(rdram);
-        saved = guest::isHeapPtr(ctxAddr) ? guest::read32(rdram, ctxAddr + 0x4b0) : 0;
+        saved = guest::isHeapPtr(ctxAddr) ? guest::read32(rdram, ctxAddr + drakan_layout::engine::kControlledActor) : 0;
         if (guest::isHeapPtr(saved))
             alt = actor;
     }
@@ -1062,7 +1063,7 @@ void destroyActor(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
     if (detached)
         coopLog("pickup copy %08x: cleared %u inventory references before removal", actor, detached);
     // 0x1413c0 only flags the actor and appends it to the kill list; the engine frees it in its frame tail flush.
-    guest.call(drakan_input::GuestCall(drakan_region::guestAddress(0x1413c0)).arg(eng).arg(actor));
+    guest.call(drakan_input::GuestCall(drakan_region::guestAddress(drakan_layout::fn::kKillActor)).arg(eng).arg(actor));
 }
 
 // The engine's message send (vtable +0x14 of the message object at ctx+0x33c = 0x171150): replays a message on an
@@ -2375,7 +2376,7 @@ uint64_t g_lastTestClaim = 0, g_lastForcedLog = 0;
 
 void testAids(drakan_input::IGuest& guest, uint8_t* rdram) {
     if (g_god) {
-        const uint32_t S = drakan_region::guestAddress(0x4fbac8u);
+        const uint32_t S = drakan_region::guestAddress(drakan_layout::kPlayerStats);
         const uint32_t key = guest::read32(rdram, g_globals.hpKey);
         auto dec = [&](uint32_t off) {
             const uint32_t raw = guest::read32(rdram, S + off) ^ key;

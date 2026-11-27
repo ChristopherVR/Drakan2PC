@@ -3,6 +3,7 @@
 // on semaphores), so the return address is redirected to a host trampoline that fires them whenever the call finally
 // returns. The hook itself fires "before" only on a real entry (c->pc == the function), never on a resume.
 #include "runtime/ee_no_preempt.h"
+#include "drakan_guest_layout.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
 #include "drakan_region.h"
@@ -26,14 +27,15 @@ namespace drakan_lifecycle {
 namespace {
 
 // SCES-500.06. Guest function addresses go through the disc profile; object offsets are PAL layouts.
-constexpr uint32_t kLevelLoad = 0x1c94c8u;    // (path char*, flags): 0 on success; flags 0 = fresh, 1 / 3 = from a save
-constexpr uint32_t kSaveWrite = 0x169c28u;    // (engine, ?, path char*, buffer): flushes the kill list first, 0 = ok
-constexpr uint32_t kSaveRestore = 0x16adb8u;  // (engine, path char*): the loader; calls Level_Load itself
-constexpr uint32_t kPadMgrUpdate = 0x1e3970u; // once per frame, before the actor lists are walked
-constexpr uint32_t kKillFlush = 0x142e50u;    // (engine)
-constexpr uint32_t kKillActor = 0x1413c0u;    // (engine, actor): engine vtable slot 0x51a884
-constexpr uint32_t kContextPtr = 0x5565d4u;   // *kContextPtr = engine (0x4de5e0)
-constexpr uint32_t kHandleVtable = 0x51b8b0u;
+constexpr uint32_t kLevelLoad = 0x1c94c8u;   // (path char*, flags): 0 on success; flags 0 = fresh, 1 / 3 = from a save
+constexpr uint32_t kSaveWrite = 0x169c28u;   // (engine, ?, path char*, buffer): flushes the kill list first, 0 = ok
+constexpr uint32_t kSaveRestore = 0x16adb8u; // (engine, path char*): the loader; calls Level_Load itself
+constexpr uint32_t kPadMgrUpdate =
+    drakan_layout::fn::kPadMgrUpdate;                              // once per frame, before the actor lists are walked
+constexpr uint32_t kKillFlush = 0x142e50u;                         // (engine)
+constexpr uint32_t kKillActor = drakan_layout::fn::kKillActor;     // (engine, actor): engine vtable slot 0x51a884
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr; // *kContextPtr = engine (0x4de5e0)
+constexpr uint32_t kHandleVtable = drakan_layout::kHandleVtable;
 constexpr uint32_t kClassRynn = 0x10009u, kClassArokh = 0x1001cu;
 
 struct Ram {
@@ -149,7 +151,7 @@ Mount mountOf(const Ram& r) {
     const uint32_t engine = engineOf(r);
     if (!engine)
         return Mount::None;
-    const uint32_t cls = classOf(r, engine, r.u32(engine + 0x4b0));
+    const uint32_t cls = classOf(r, engine, r.u32(engine + drakan_layout::engine::kControlledActor));
     return cls == kClassRynn ? Mount::Rynn : cls == kClassArokh ? Mount::Arokh : Mount::None;
 }
 
@@ -168,7 +170,7 @@ void pollMount(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     e.kind = Kind::MountChanged;
     e.previous = before;
     e.current = now;
-    e.controlled = r.u32(engineOf(r) + 0x4b0);
+    e.controlled = r.u32(engineOf(r) + drakan_layout::engine::kControlledActor);
     fire(e, rdram, c, rt);
 }
 
@@ -456,7 +458,8 @@ uint32_t findHandleOfClass(const Event& e, uint32_t cls) {
     if (!eng)
         return 0;
     const uint32_t table = r.u32(eng + 0x7c), top = r.u32(eng + 0x84);
-    const uint32_t player = r.u32(eng + 0x4b0), camera = r.u32(eng + 0x4b4);
+    const uint32_t player = r.u32(eng + drakan_layout::engine::kControlledActor),
+                   camera = r.u32(eng + drakan_layout::engine::kCameraActor);
     for (uint32_t i = 0; i < top + 1 && i < 0x4000; ++i) {
         const uint32_t h = r.u32(table + i * 8);
         if (!h || h == player || h == camera || !actorAlive(e, h))

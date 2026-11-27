@@ -8,6 +8,7 @@
 //   DRAKAN_MELEE_TRACE=2  also one line per live tick (weapon position and axes)
 // Nothing is changed: both hooks run the original first and only read guest memory afterwards. PAL addresses.
 #include "drakan_region.h"
+#include "drakan_guest_layout.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include <chrono>
@@ -17,9 +18,10 @@
 
 namespace drakan_melee_trace {
 
-constexpr uint32_t kSweep = 0x4979a8u;   // (a0 blade)
-constexpr uint32_t kHit = 0x498020u;     // (a0 blade, a1 contact)
-constexpr uint32_t kContext = 0x5565d4u; // engine object; +0x4b0 controlled actor, +0x7c registry, +0x320 classes
+constexpr uint32_t kSweep = 0x4979a8u; // (a0 blade)
+constexpr uint32_t kHit = 0x498020u;   // (a0 blade, a1 contact)
+constexpr uint32_t kContext =
+    drakan_layout::kEngineContextPtr; // engine object; +0x4b0 controlled actor, +0x7c registry, +0x320 classes
 constexpr uint32_t kBladeModel = 0xcu, kBladeFlags = 0x1cu, kBladeOwner = 0x60u, kBladeHits = 0x1a0u;
 constexpr uint32_t kBladeLive = 8u;
 constexpr int kMaxBlades = 4;
@@ -62,7 +64,7 @@ inline double seconds() {
 }
 inline uint32_t controlled(const uint8_t* ram) {
     const uint32_t engine = word(ram, kContext);
-    return pointer(engine, 0x4b4) ? word(ram, engine + 0x4b0) : 0;
+    return pointer(engine, 0x4b4) ? word(ram, engine + drakan_layout::engine::kControlledActor) : 0;
 }
 // The registry object a 16 bit reference names (1 based; 0 = none).
 inline uint32_t registryObject(const uint8_t* ram, uint32_t ref) {
@@ -152,7 +154,7 @@ struct Attack {
 };
 inline Attack attack; // EE game thread only
 inline int32_t playerHitPoints(const uint8_t* ram) {
-    const uint32_t x = word(ram, 0x4fbac8u + 0xcu) ^ word(ram, 0x4fe86cu);
+    const uint32_t x = word(ram, drakan_layout::kPlayerStats + 0xcu) ^ word(ram, drakan_layout::kHpKey);
     return static_cast<int32_t>((x >> 8) | (x << 24));
 }
 inline void watchPlayer(const uint8_t* ram, bool bladeLive, double now) {

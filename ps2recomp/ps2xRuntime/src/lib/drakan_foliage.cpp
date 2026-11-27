@@ -1,4 +1,5 @@
 #include "drakan_foliage.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
 #include "drakan_extended_heap.h"
@@ -27,15 +28,16 @@ namespace {
 
 namespace wf = world::foliage;
 
-constexpr uint32_t kRenderObject = 0x189b38u; // per-object render method, a0 = the registered handle
-constexpr uint32_t kInlineParts = 0x1ed8f0u;  // a1 = prepared mesh: parts (+0xc count, +0x10 array of 0x30)
-constexpr uint32_t kCoreParts[2] = {0x1ec160u, 0x1ec8f0u}; // a0 = VU renderer, renderer +0xc = position source
-constexpr uint32_t kContextPtr = 0x5565d4u;                // word holding the engine object
-constexpr uint32_t kHandleVtable = 0x51b8b0u;
+constexpr uint32_t kRenderObject =
+    drakan_layout::fn::kRenderObject;        // per-object render method, a0 = the registered handle
+constexpr uint32_t kInlineParts = 0x1ed8f0u; // a1 = prepared mesh: parts (+0xc count, +0x10 array of 0x30)
+constexpr uint32_t kCoreParts[2] = {0x1ec160u, 0x1ec8f0u};         // a0 = VU renderer, renderer +0xc = position source
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr; // word holding the engine object
+constexpr uint32_t kHandleVtable = drakan_layout::kHandleVtable;
 constexpr uint32_t kResourceDb = 0x4db4c0u; // record +8 = the object's class
-constexpr uint32_t kModelManager = 0x4dae20u, kModelVt = 0x51cc98u, kModelLodVt = 0x519a00u;
-constexpr uint32_t kTextureManager = 0x4db280u, kTextureVt = 0x51cfe8u;
-constexpr uint32_t kMalloc = 0x4ac628u, kSignalSema = 0x4bc180u, kHeapSemaWord = 0x515260u;
+constexpr uint32_t kModelManager = drakan_layout::kModelManager, kModelVt = 0x51cc98u, kModelLodVt = 0x519a00u;
+constexpr uint32_t kTextureManager = drakan_layout::kTextureManager, kTextureVt = 0x51cfe8u;
+constexpr uint32_t kMalloc = drakan_layout::fn::kMalloc, kSignalSema = 0x4bc180u, kHeapSemaWord = 0x515260u;
 constexpr uint32_t kRamMask = 0x1fffffffu;
 constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 // Static prop classes (level pieces 0x100d3 / 0x100d8, the tree class 0x10011): the only objects the tree look
@@ -589,7 +591,8 @@ void drawLeaning(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t h, int 
     if (kind == wf::Plant) {
         // Grass bends away from whoever the player controls (Rynn, or Arokh when mounted).
         const uint32_t ctx = u32(ram, kContextPtr) & kRamMask;
-        const uint32_t actor = inRam(ctx, 0x4c0) ? u32(ram, ctx + 0x4b0) & kRamMask : 0;
+        const uint32_t actor =
+            inRam(ctx, 0x4c0) ? u32(ram, ctx + drakan_layout::engine::kControlledActor) & kRamMask : 0;
         if (inRam(actor, 0x20) && u32(ram, actor) == kHandleVtable) {
             const wf::Lean push = wf::pushLean(px - f32(ram, actor + 0x14), pz - f32(ram, actor + 0x1c), strength);
             lean.x += push.x;

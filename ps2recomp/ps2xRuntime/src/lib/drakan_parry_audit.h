@@ -1,6 +1,7 @@
 // Private SCES_500.06 observer. No guest calls, writes, timing or input changes.
 #pragma once
 #include "runtime/ps2_memory.h"
+#include "drakan_guest_layout.h"
 
 #include <cmath>
 #include <cstdint>
@@ -34,7 +35,7 @@ struct Ram {
         return valid(inner, 0x14) ? u(inner + 0x10) : 0;
     }
     uint32_t resource(uint32_t handle) const {
-        const auto c = u(0x5565d4), r = valid(c, 0x324) ? u(c + 0x320) : 0;
+        const auto c = u(drakan_layout::kEngineContextPtr), r = valid(c, 0x324) ? u(c + 0x320) : 0;
         if (!valid(handle, 0x12) || !valid(r, 0x14))
             return 0;
         const auto ix = h(handle + 0x10);
@@ -44,7 +45,7 @@ struct Ram {
         return a <= 0xffffffffu && valid(uint32_t(a), 0x24) ? u(uint32_t(a) + 8) : 0;
     }
     uint32_t reference(uint16_t ref) const {
-        const auto c = u(0x5565d4);
+        const auto c = u(drakan_layout::kEngineContextPtr);
         if (!valid(c, 0x88) || !ref || ref > u(c + 0x84))
             return 0;
         const uint64_t a = uint64_t(u(c + 0x7c)) + uint64_t(ref - 1) * 8;
@@ -62,7 +63,7 @@ struct Ram {
         return a <= 0xffffffffu && valid(uint32_t(a)) ? uint32_t(a) : 0;
     }
     int hp() const {
-        const uint32_t v = u(0x4fbad4) ^ u(0x4fe86c);
+        const uint32_t v = u(0x4fbad4) ^ u(drakan_layout::kHpKey);
         return int32_t((v >> 8) | (v << 24));
     }
     uint32_t animation(uint32_t p) const {
@@ -111,9 +112,9 @@ struct PendingReduction {
 };
 inline bool hpUpdateMatches(const Ram& r, const PendingReduction& saved, uint32_t ra, uint32_t stats, int newHp,
                             uint32_t player, uint32_t stack, int amount, uint32_t damagePtr) {
-    return saved.id && ra == 0x314ed0u && stats == 0x4fbac8u && saved.player == player && saved.stack == stack &&
-           saved.result == amount && r.valid(damagePtr) && saved.result == int32_t(r.u(damagePtr)) &&
-           newHp == r.hp() - saved.result;
+    return saved.id && ra == 0x314ed0u && stats == drakan_layout::kPlayerStats && saved.player == player &&
+           saved.stack == stack && saved.result == amount && r.valid(damagePtr) &&
+           saved.result == int32_t(r.u(damagePtr)) && newHp == r.hp() - saved.result;
 }
 
 // Installed only for DRAKAN_PARRY_AUDIT=1. Hooks use the real native routines

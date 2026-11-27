@@ -1,5 +1,6 @@
 #pragma once
 #include "ps2_runtime.h"
+#include "drakan_guest_layout.h"
 #include "ps2_runtime_macros.h"
 #include "drakan_config.h"
 #include "drakan_frame_policy.h"
@@ -232,7 +233,7 @@ inline void velocityHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     }
     const uint32_t out = GPR_U32(ctx, resumed ? 16 : 4), player = GPR_U32(ctx, resumed ? 17 : 5);
     const uint32_t ra = resumed ? readWord(ram, sp + 96) : GPR_U32(ctx, 31);
-    const uint32_t engine = readWord(ram, 0x5565d4u);
+    const uint32_t engine = readWord(ram, drakan_layout::kEngineContextPtr);
     velocityOriginal(ram, ctx, rt);
     if (ctx->pc != ra || out < 0x100000u || out > PS2_RAM_SIZE - 12 || engine < 0x100000u ||
         engine > PS2_RAM_SIZE - 0x4c8)
@@ -385,7 +386,8 @@ inline void windHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
 inline PS2Runtime::RecompiledFunction ropeUpdateOriginal = nullptr;
 // The rope update 3e3610 in steps of at most the console's tick: ropeTicks (drakan_frame_policy.h).
 inline void ropeUpdateHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
-    const uint32_t rope = GPR_U32(ctx, 4), engine = readWord(ram, 0x5565d4u), ra = GPR_U32(ctx, 31);
+    const uint32_t rope = GPR_U32(ctx, 4), engine = readWord(ram, drakan_layout::kEngineContextPtr),
+                   ra = GPR_U32(ctx, 31);
     if (rope < 0x100000u || rope > PS2_RAM_SIZE - 0x28 || engine < 0x100000u || engine > PS2_RAM_SIZE - 0x28) {
         ropeUpdateOriginal(ram, ctx, rt);
         return;
@@ -420,7 +422,7 @@ inline void timerHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     static double total = 0, localTotal = 0;
     static unsigned frames = 0, capped = 0;
     float dt = 0;
-    std::memcpy(&dt, ram + 0x4de604u, 4);
+    std::memcpy(&dt, ram + drakan_layout::kWorldDt, 4);
     drakan_presentation::g_frameMetrics.gameDelta(dt);
     static const int audit = [] {
         const char* value = std::getenv("DRAKAN_FRAME_AUDIT");

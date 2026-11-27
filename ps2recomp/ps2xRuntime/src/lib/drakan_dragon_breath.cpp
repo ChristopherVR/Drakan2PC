@@ -1,5 +1,6 @@
 // Arokh's breath while Rynn rides him (drakan_dragon_breath.h). PAL addresses.
 #include "drakan_dragon_breath.h"
+#include "drakan_guest_layout.h"
 #include "drakan_arena.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
@@ -20,11 +21,11 @@
 namespace drakan_dragon_breath {
 namespace {
 
-constexpr uint32_t kContextPtr = 0x5565d4u;
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr;
 constexpr uint32_t kDragonClass = 0x1001cu, kRynnClass = 0x10009u;
 constexpr uint32_t kProjectileClass = 0x10008u, kStreamClass = 0x10015u; // breath ball / breath stream engines
 constexpr uint16_t kFireBall = 0x340au, kFlameBreath = 0x29e4u;          // RESOURES 13322 / 10724
-constexpr uint32_t kFactory = 0x181ad8u;
+constexpr uint32_t kFactory = drakan_layout::fn::kSpawnActor;
 constexpr uint32_t kNpcDeath = 0x47a8b0u;
 constexpr uint32_t kDamageHandlerReturn = 0x476b0cu, kDamageDeathReturn = 0x474308u;
 constexpr uint16_t kBurnDamage = 0x10d7u;
@@ -46,7 +47,7 @@ constexpr ImpactEffect kFireBallImpactEffects[] = {
     {0x39c998u, 0x29ddu, 0x10086u}, // FireBall Shrapnel
     {0x39c7ecu, 0x3470u, 0x10001u}, // Fire Ball3D Fire Ring
 };
-constexpr uint32_t kCameraPosition = 0x4dad58u + 0x6cu;
+constexpr uint32_t kCameraPosition = drakan_layout::kWorldView + drakan_layout::kWorldViewCameraPos;
 constexpr float kNearBurstDistance = 6.0f * 2048.0f;
 constexpr uint32_t kDragonHandler = 0x27d0e0u; // (dragon instance, message {sender, u16* payload})
 constexpr uint16_t kAddBreath = 0x1028u;       // payload: id, then (weapon, alternate weapon, 0, 0) at +4
@@ -123,7 +124,7 @@ bool isCloseMountedFireBallBurst(const uint8_t* ram, const R5900Context* c) {
     if (!visual || drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
         return false;
     const uint32_t game = guest::readHeap32(ram, kContextPtr);
-    if (classOf(ram, guest::readHeap32(ram, game + 0x4b0u)) != kDragonClass)
+    if (classOf(ram, guest::readHeap32(ram, game + drakan_layout::engine::kControlledActor)) != kDragonClass)
         return false;
     const uint32_t projectile = actorResource(ram, getRegU32(c, 5));
     const uint32_t effect = resourceRecord(ram, game, getRegU32(c, 9));
@@ -420,7 +421,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
             g_breakups.pop_front();
     }
     const uint32_t ctx = guest::readHeap32(rdram, kContextPtr);
-    const uint32_t h = ramPtr(ctx, 0x4b4) ? guest::readHeap32(rdram, ctx + 0x4b0u) : 0;
+    const uint32_t h = ramPtr(ctx, 0x4b4) ? guest::readHeap32(rdram, ctx + drakan_layout::engine::kControlledActor) : 0;
     if (classOf(rdram, h) != kDragonClass)
         return;
     const uint32_t dragon = dataOf(rdram, h);

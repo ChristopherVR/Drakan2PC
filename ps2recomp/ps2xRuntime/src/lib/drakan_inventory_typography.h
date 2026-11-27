@@ -1,6 +1,7 @@
 // Capture only. Header-only so the parent needs no CMake or settings-host edits.
 #pragma once
 #include "ps2_runtime.h"
+#include "drakan_guest_layout.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -87,7 +88,7 @@ inline void glyphHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* runtime) {
         }
         if (native && output && glyphRecords < limit && glyphsThisVsync < 32 && getRegU32(ctx, 31) == 0x286530) {
             uint32_t screen = 0, id = ~0u, p = 0;
-            word(ram, 0x4fb60c, screen);
+            word(ram, drakan_layout::kActiveScreenPtr, screen);
             if (span(screen, 0x1c, p))
                 word(ram, p + 0x18, id);
             if (allScreens || id == 21) {
@@ -185,11 +186,11 @@ inline void hook(uint8_t* ram, R5900Context* ctx, PS2Runtime* runtime) {
     if (ctx->pc == 0x286170u) {
         std::lock_guard<std::mutex> lock(mutex);
         uint32_t screen = 0, screenId = ~0u, gui = 0, width = 0, height = 0;
-        word(ram, 0x4fb60c, screen);
+        word(ram, drakan_layout::kActiveScreenPtr, screen);
         uint32_t p;
         if (span(screen, 0x1c, p))
             word(ram, p + 0x18, screenId);
-        word(ram, 0x5565c8, gui);
+        word(ram, drakan_layout::kRenderViewPtr, gui);
         if (span(gui, 0x100, p)) {
             word(ram, p + 0xf8, width);
             word(ram, p + 0xfc, height);

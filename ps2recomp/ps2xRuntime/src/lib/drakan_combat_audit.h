@@ -2,6 +2,7 @@
 // DRAKAN_COMBAT_AUDIT=N: log input edges, plus an idle sample every N frames.
 #pragma once
 #include "runtime/ps2_memory.h"
+#include "drakan_guest_layout.h"
 
 #include <cstdlib>
 #include <cstdint>
@@ -34,8 +35,8 @@ void sample(Guest& g, Module& module, Log log, int frame, int screen, bool drago
     lastSuspended = module.suspended();
     if (!edge && frame % every != 0)
         return;
-    const uint32_t ctx = g.read32(0x5565d4);
-    const uint32_t handle = ram(ctx, 0x4b4) ? g.read32(ctx + 0x4b0) : 0;
+    const uint32_t ctx = g.read32(drakan_layout::kEngineContextPtr);
+    const uint32_t handle = ram(ctx, 0x4b4) ? g.read32(ctx + drakan_layout::engine::kControlledActor) : 0;
     const uint32_t inner = ram(handle, 0x100) ? g.read32(handle + 0xfc) : 0;
     const uint32_t player = ram(inner, 0x14) ? g.read32(inner + 0x10) : 0;
     const bool valid = ram(player, 0x1044);

@@ -2,6 +2,7 @@
 // context actor's resource class, not from the last optional camera-look call.
 #pragma once
 #include "runtime/ps2_memory.h"
+#include "drakan_guest_layout.h"
 
 #include <cstdint>
 
@@ -17,10 +18,10 @@ struct State {
 template <class Guest>
 State read(Guest& g) {
     State result;
-    const uint32_t context = g.read32(0x5565d4u);
+    const uint32_t context = g.read32(drakan_layout::kEngineContextPtr);
     if (!ram(context, 0x4b8))
         return result;
-    const uint32_t handle = g.read32(context + 0x4b0);
+    const uint32_t handle = g.read32(context + drakan_layout::engine::kControlledActor);
     if (!ram(handle, 0x100))
         return result;
     const uint32_t resources = g.read32(context + 0x320);
@@ -37,7 +38,7 @@ State read(Guest& g) {
     result.dragon = g.read32(table + offset + 8) == 0x1001cu;
     const uint32_t inner = g.read32(handle + 0xfc);
     const uint32_t data = ram(inner, 0x14) ? g.read32(inner + 0x10) : 0;
-    const uint32_t cameraHandle = g.read32(context + 0x4b4);
+    const uint32_t cameraHandle = g.read32(context + drakan_layout::engine::kCameraActor);
     const uint32_t cameraInner = ram(cameraHandle, 0x100) ? g.read32(cameraHandle + 0xfc) : 0;
     const uint32_t camera = ram(cameraInner, 0x14) ? g.read32(cameraInner + 0x10) : 0;
     if (!result.dragon || !ram(data, 0x98) || !ram(camera, 0x150))

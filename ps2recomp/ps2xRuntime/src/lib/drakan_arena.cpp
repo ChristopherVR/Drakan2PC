@@ -2,6 +2,7 @@
 // profile. Design, the list of removed classes and the evidence: docs/reference/netcode.md "Multiplayer maps",
 // docs/journal/2026-10-31/mp-arenas.md.
 #include "drakan_arena.h"
+#include "drakan_guest_layout.h"
 #include "drakan_config.h"
 #include "drakan_coop_character.h"
 #include "drakan_arena_filter.h"
@@ -51,7 +52,8 @@ using drakan::net::ArenaDef;
 using drakan::net::ArenaPickup;
 using drakan_region::guestAddress;
 
-constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kKillActor = 0x1413c0u;
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr, kFactory = drakan_layout::fn::kSpawnActor,
+                   kKillActor = drakan_layout::fn::kKillActor;
 constexpr uint32_t kMoveActor = 0x17ea70u, kRootMotionReturn = 0x11a32cu, kRootBlendReturn = 0x11a424u;
 // Inventory (docs/reference/world-model.md "Inventory", combat-controls.md): the controller is player+0x584 with 24
 // cells of 16 bytes at +0x30 {equipped, hot, handle, icon}; kStow(player, item) hides the item model and files it in a
@@ -298,7 +300,7 @@ uint32_t engineCtx(const uint8_t* rdram) {
 }
 uint32_t controlledActor(const uint8_t* rdram) {
     const uint32_t ctx = engineCtx(rdram);
-    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + 0x4b0) : 0;
+    return guest::isHeapPtr(ctx) ? guest::read32(rdram, ctx + drakan_layout::engine::kControlledActor) : 0;
 }
 
 void dropFromInventory(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t handle);
@@ -1607,7 +1609,7 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
                                                .arg(0xffffffffu));
             const uint32_t need = guest::isHeapPtr(pp) ? guest::read32(rdram, pp) : 0;
             const uint32_t skill = guest.call(drakan_input::GuestCall(guestAddress(0x3d5a30u))
-                                                  .arg(guestAddress(0x4fbac8u))
+                                                  .arg(guestAddress(drakan_layout::kPlayerStats))
                                                   .arg(cls == kClassBow ? 2u : 1u));
             if (!guest::isHeapPtr(skill) || need > 50)
                 continue;
@@ -1648,8 +1650,8 @@ void armTick(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t actor) {
         const uint32_t r4a8 = guest.call(drakan_input::GuestCall(guestAddress(0x3414a8u)).arg(ctl).arg(item));
         const uint32_t r510 = guest.call(drakan_input::GuestCall(guestAddress(0x341510u)).arg(ctl).arg(item));
         arenaLog("  equip checks: stats+0x70 %u, player+0x1040 %u, can %u, 3414a8 %u, 341510 %u",
-                 guest::read32(rdram, guestAddress(0x4fbac8u) + 0x70), guest::read32(rdram, player + 0x1040), r858,
-                 r4a8, r510);
+                 guest::read32(rdram, guestAddress(drakan_layout::kPlayerStats) + 0x70),
+                 guest::read32(rdram, player + 0x1040), r858, r4a8, r510);
     }
     // Equipping needs the engine's own use path (a posted message / a direct call did nothing visible): mark the cell
     // as the only quick slot and let the input glue press QUICK1 (the native bar confirms and equips).

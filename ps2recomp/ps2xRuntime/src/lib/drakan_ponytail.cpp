@@ -1,4 +1,5 @@
 #include "drakan_ponytail.h"
+#include "drakan_guest_layout.h"
 #include "drakan_ponytail_policy.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
@@ -18,7 +19,7 @@ using Fn = PS2Runtime::RecompiledFunction;
 // (and measure the anchors' velocities), the length constraints, the body collisions. Each pass is called only from
 // the step.
 constexpr uint32_t kClothStep = 0x11d368u, kRebase = 0x11fd58u, kConstraints = 0x11ead8u, kCollide = 0x11f1a0u;
-constexpr uint32_t kWorldDt = 0x4de604u, kWorldInvDt = 0x4de608u;
+constexpr uint32_t kWorldDt = drakan_layout::kWorldDt, kWorldInvDt = 0x4de608u;
 // Cloth state: +0 flags (bit 0 started, 0x10 teleported), +0xc the body's position and matrix of the last step
 // (12 words, the frame the particles are kept in), +0x3c the resource. Resource +0x2c: air drag. Object +0x14:
 // position.

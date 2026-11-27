@@ -1,5 +1,6 @@
 // Level change from the host (drakan_levelchange.h). See docs/journal/2026-10-31/level-change.md for the mechanism.
 #include "drakan_levelchange.h"
+#include "drakan_guest_layout.h"
 #include "drakan_dragon_arrival.h"
 #include "drakan_exit_guard.h"
 #include "drakan_game.h"
@@ -40,13 +41,13 @@ namespace drakan_levelchange {
 namespace {
 
 // SCES-500.06 (identity addresses only; install() refuses other profiles).
-constexpr uint32_t kPadMgrUpdate = 0x1e3970u;
+constexpr uint32_t kPadMgrUpdate = drakan_layout::fn::kPadMgrUpdate;
 constexpr uint32_t kTransition = 0x362d38u;    // the level transition on the main thread
 constexpr uint32_t kArrivalLookup = 0x362a60u; // (old level name): the new level's arrival marker, 0 when none
 // Where a substituted old-level name is put for the lookup: the speech controller's idle text buffer, clear of the
 // level-path rewrite at 0x5b7d20 (drakan_lifecycle) and the scratch words at 0x5b8480 (drakan_pvp / drakan_coop).
 constexpr uint32_t kArrivalName = 0x5b7f20u;
-constexpr uint32_t kContextPtr = 0x5565d4u;
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr;
 constexpr uint32_t kExitClass = 0x10037u;    // "Level Transition"
 constexpr uint32_t kPendingExit = 0x4fbba4u; // handle of the trigger the main loop is about to process (0 = none)
 constexpr uint32_t kBusy = 0x4fb6fcu;        // cleared by the trigger when it arms the transition
@@ -313,10 +314,10 @@ void scan(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t eng = r.u32(addr(kContextPtr));
     if (Ram::ok(eng, 0x4b8)) {
         const uint32_t table = r.u32(eng + 0x7c), top = r.u32(eng + 0x84);
-        const uint32_t player = r.u32(eng + 0x4b0);
+        const uint32_t player = r.u32(eng + drakan_layout::engine::kControlledActor);
         for (uint32_t i = 0; i < top + 1 && i < 0x4000; ++i) {
             const uint32_t h = r.u32(table + i * 8);
-            if (!Ram::ok(h, 0x120) || r.u32(h) != addr(0x51b8b0u) || r.u16(h + 0x12) != i + 1)
+            if (!Ram::ok(h, 0x120) || r.u32(h) != addr(drakan_layout::kHandleVtable) || r.u16(h + 0x12) != i + 1)
                 continue;
             if (classOf(r, eng, h) != kExitClass)
                 continue;
@@ -455,7 +456,7 @@ void bringDragon(const Ram& r, uint32_t eng) {
         return;
     if (drakan_game::isCampaignPackLevel(g_currentLevel))
         return;
-    const uint32_t pl = r.u32(eng + 0x4b0);
+    const uint32_t pl = r.u32(eng + drakan_layout::engine::kControlledActor);
     if (!Ram::ok(pl, 0x100) || classOf(r, eng, pl) != 0x10009u)
         return;
     const uint32_t inner = r.u32(pl + 0xfc);
@@ -466,7 +467,7 @@ void bringDragon(const Ram& r, uint32_t eng) {
     if (!ref || ref > r.u32(eng + 0x84) + 1 || !Ram::ok(table, ref * 8))
         return;
     const uint32_t dh = r.u32(table + (ref - 1) * 8);
-    if (!Ram::ok(dh, 0x30) || r.u32(dh) != addr(0x51b8b0u) || classOf(r, eng, dh) != 0x1001cu)
+    if (!Ram::ok(dh, 0x30) || r.u32(dh) != addr(drakan_layout::kHandleVtable) || classOf(r, eng, dh) != 0x1001cu)
         return;
     const float rynn[3] = {f32(r, pl + 0x14), f32(r, pl + 0x18), f32(r, pl + 0x1c)};
     const float dragon[3] = {f32(r, dh + 0x14), f32(r, dh + 0x18), f32(r, dh + 0x1c)};
@@ -491,7 +492,8 @@ void transitionEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     const uint32_t h = r.u32(addr(kPendingExit));
     if (g_firedByHost.exchange(false) && Ram::ok(eng, 0x4b8) && Ram::ok(h, 0x20) &&
         !std::getenv("DRAKAN_LEVELCHANGE_NOMOVE")) {
-        const uint32_t pl = r.u32(eng + 0x4b0), cam = r.u32(eng + 0x4b4);
+        const uint32_t pl = r.u32(eng + drakan_layout::engine::kControlledActor),
+                       cam = r.u32(eng + drakan_layout::engine::kCameraActor);
         float t[3], cp[3];
         for (uint32_t k = 0; k < 3; ++k) {
             t[k] = f32(r, h + 0x14 + 4 * k);
@@ -508,7 +510,7 @@ void transitionEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             setPos(r, cam, cp);
     }
     bringDragon(r, eng);
-    if (Ram::ok(h, 0x20) && r.u32(h) == addr(0x51b8b0u)) {
+    if (Ram::ok(h, 0x20) && r.u32(h) == addr(drakan_layout::kHandleVtable)) {
         std::lock_guard<std::mutex> l(g_m);
         for (const ExitInfo& e : g_exits)
             if (e.handle == h)
@@ -585,9 +587,10 @@ void touchEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         // a touch queues the exit unless the game mode (0x4fbac8+0x70) is 1 or 2 or the exit handle's flags (+4) have
         // bit 2 or 3 set (already queued).
         const uint32_t handle = r.u32(inst + 0x28);
-        std::fprintf(
-            stderr, "[levelchange] trace touch handler inst %x msg %x event %x state %x handle %x flags %x mode %x\n",
-            inst, msg, r.u16(r.u32(msg + 4)), r.u16(inst), handle, r.u32(handle + 4), r.u32(addr(0x4fbac8u) + 0x70));
+        std::fprintf(stderr,
+                     "[levelchange] trace touch handler inst %x msg %x event %x state %x handle %x flags %x mode %x\n",
+                     inst, msg, r.u16(r.u32(msg + 4)), r.u16(inst), handle, r.u32(handle + 4),
+                     r.u32(addr(drakan_layout::kPlayerStats) + 0x70));
     }
     g_origTouch(rdram, c, rt);
 }
@@ -644,7 +647,7 @@ void exitHandlerEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     }
     if (msg == 0x20 && event != kTouchEvent && drakan_game::current() == drakan_game::Game::Ootf && Ram::ok(h, 0x20)) {
         const uint32_t eng = r.u32(addr(kContextPtr));
-        const uint32_t pl = Ram::ok(eng, 0x4b8) ? r.u32(eng + 0x4b0) : 0;
+        const uint32_t pl = Ram::ok(eng, 0x4b8) ? r.u32(eng + drakan_layout::engine::kControlledActor) : 0;
         if (Ram::ok(pl, 0x20)) {
             const float dx = f32(r, pl + 0x14) - f32(r, h + 0x14), dz = f32(r, pl + 0x1c) - f32(r, h + 0x1c);
             const float dist = std::sqrt(dx * dx + dz * dz);
@@ -702,7 +705,8 @@ bool fire(uint8_t* rdram, PS2Runtime* rt, uint32_t handle) {
         std::fprintf(stderr, "[levelchange] firing exit %x block:%s\n", handle, m.c_str());
     }
     {
-        const uint32_t pl = r.u32(eng + 0x4b0), cam = r.u32(eng + 0x4b4);
+        const uint32_t pl = r.u32(eng + drakan_layout::engine::kControlledActor),
+                       cam = r.u32(eng + drakan_layout::engine::kCameraActor);
         for (uint32_t k = 0; k < 3; ++k)
             g_camOff[k] =
                 Ram::ok(cam, 0x20) && Ram::ok(pl, 0x20) ? f32(r, cam + 0x14 + 4 * k) - f32(r, pl + 0x14 + 4 * k) : 0.f;
@@ -725,7 +729,7 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
         if (!g_following.load() && e.rdram) {
             const Ram r{e.rdram};
             const uint32_t h = r.u32(addr(kPendingExit));
-            if (Ram::ok(h, 0x20) && r.u32(h) == addr(0x51b8b0u)) {
+            if (Ram::ok(h, 0x20) && r.u32(h) == addr(drakan_layout::kHandleVtable)) {
                 const float pos[3] = {f32(r, h + 0x14), f32(r, h + 0x18), f32(r, h + 0x1c)};
                 std::function<void(const float*)> cb;
                 {
@@ -733,7 +737,8 @@ void onLevelEvent(const drakan_lifecycle::Event& e) {
                     cb = g_exitListener;
                 }
                 {
-                    const uint32_t engp = r.u32(addr(kContextPtr)), pl = r.u32(engp + 0x4b0);
+                    const uint32_t engp = r.u32(addr(kContextPtr)),
+                                   pl = r.u32(engp + drakan_layout::engine::kControlledActor);
                     std::fprintf(stderr, "[levelchange] at the save the player %08x is at %.0f %.0f %.0f body %08x\n",
                                  pl, static_cast<double>(f32(r, pl + 0x14)), static_cast<double>(f32(r, pl + 0x18)),
                                  static_cast<double>(f32(r, pl + 0x1c)), r.u32(pl + 0x50));
@@ -787,11 +792,11 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == addr(kPadMgrUpdate) && !g_loading.load() && !drakan_lifecycle::transitionActive()) {
         const Ram r{rdram};
         const uint32_t eng = r.u32(addr(kContextPtr));
-        const bool live = Ram::ok(eng, 0x4b8) && r.u32(eng + 0x4b0) != 0;
+        const bool live = Ram::ok(eng, 0x4b8) && r.u32(eng + drakan_layout::engine::kControlledActor) != 0;
         if (live) {
             ++g_framesInLevel;
             {
-                const uint32_t gp = r.u32(eng + 0x4b0);
+                const uint32_t gp = r.u32(eng + drakan_layout::engine::kControlledActor);
                 const float px = f32(r, gp + 0x14), pz = f32(r, gp + 0x1c);
                 std::lock_guard<std::mutex> l(g_guardMutex);
                 if (g_framesInLevel == 1)
@@ -800,7 +805,7 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
                     std::fprintf(stderr, "[levelchange] the player walked off her arrival spot: exits armed\n");
             }
             if (g_probe.steps.size() && (g_framesInLevel <= 3 || g_framesInLevel == 60 || g_framesInLevel % 100 == 0)) {
-                const uint32_t pl = r.u32(eng + 0x4b0);
+                const uint32_t pl = r.u32(eng + drakan_layout::engine::kControlledActor);
                 std::fprintf(stderr, "[levelchange] arrival report '%s' frame %llu player %08x pos %.0f %.0f %.0f\n",
                              g_currentLevel.c_str(), static_cast<unsigned long long>(g_framesInLevel), pl,
                              static_cast<double>(f32(r, pl + 0x14)), static_cast<double>(f32(r, pl + 0x18)),

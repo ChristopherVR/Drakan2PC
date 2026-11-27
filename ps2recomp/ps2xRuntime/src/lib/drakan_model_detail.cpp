@@ -1,4 +1,5 @@
 #include "drakan_model_detail.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
 #include "drakan_region.h"
@@ -28,8 +29,8 @@ namespace rules = world::model_detail;
 constexpr uint32_t kLodSelect = 0x102c90u;      // a0 = skeleton controller, a1 = model resource (or 0), f12 = d^2
 constexpr uint32_t kFarModelSelect = 0x18b760u; // a0 = object, a1 = model resource, f12 = d^2
 constexpr uint32_t kDistanceTest = 0x18ba28u;   // a0 = object, a1 = bounds; v0 = 1 when beyond the draw distance
-constexpr uint32_t kRenderObject = 0x189b38u;   // a0 = object
-constexpr uint32_t kObjectVtable = 0x51b8b0u;
+constexpr uint32_t kRenderObject = drakan_layout::fn::kRenderObject; // a0 = object
+constexpr uint32_t kObjectVtable = drakan_layout::kHandleVtable;
 constexpr uint32_t kSkinnedModelVtable = 0x519a00u;
 constexpr uint32_t kRamMask = 0x1fffffffu;
 constexpr uint32_t kRamSize = PS2_RAM_SIZE;
@@ -202,8 +203,8 @@ void logReport() {
     std::unordered_map<uint32_t, uint32_t> models;
     if (g_ram && !g_logState.extra.empty())
         for (uint32_t b = 0; b < 128; ++b)
-            for (uint32_t m = u32(g_ram, 0x4dae20u + 0x20 + b * 4) & kRamMask, n = 0; inRam(m, 0xc8) && n < 8192;
-                 m = u32(g_ram, m + 20) & kRamMask, ++n)
+            for (uint32_t m = u32(g_ram, drakan_layout::kModelManager + 0x20 + b * 4) & kRamMask, n = 0;
+                 inRam(m, 0xc8) && n < 8192; m = u32(g_ram, m + 20) & kRamMask, ++n)
                 models.emplace(u32(g_ram, m), m);
     uint32_t extraVertices = 0, extraPolygons = 0;
     for (const auto& [object, e] : g_logState.extra) {
@@ -392,7 +393,8 @@ void hookDistanceTest(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         const float limit = (stored < far ? stored : far) + f32(ram, bounds + 12);
         float d2 = 0;
         for (uint32_t i = 0; i < 3; ++i) {
-            const float d = f32(ram, 0x4dad58u + 0x6c + 4 * i) - f32(ram, bounds + 4 * i);
+            const float d = f32(ram, drakan_layout::kWorldView + drakan_layout::kWorldViewCameraPos + 4 * i) -
+                            f32(ram, bounds + 4 * i);
             d2 += d * d;
         }
         hiddenAtOne = limit * limit <= d2;

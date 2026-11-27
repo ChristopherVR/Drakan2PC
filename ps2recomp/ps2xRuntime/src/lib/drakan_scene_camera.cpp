@@ -1,4 +1,5 @@
 #include "drakan_scene_camera.h"
+#include "drakan_guest_layout.h"
 #include "drakan_scene_camera_policy.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
@@ -144,7 +145,7 @@ bool range(uint32_t a, uint32_t bytes) {
     return a >= 0x100000u && bytes <= PS2_RAM_SIZE && a <= PS2_RAM_SIZE - bytes;
 }
 int screen(const uint8_t* ram) {
-    uint32_t p = rd(ram, 0x4fb60cu) & 0x1fffffffu;
+    uint32_t p = rd(ram, drakan_layout::kActiveScreenPtr) & 0x1fffffffu;
     return range(p, 0x1c) ? (int)rd(ram, p + 0x18) : -1;
 }
 // Deny known front-end/loading/movie screens; retain gameplay/pause/subtitles.
@@ -170,11 +171,11 @@ void begin(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         p.rendererAddress = GPR_U32(c, 4) & 0x1fffffffu;
         p.sourceAddress = GPR_U32(c, 5) & 0x1fffffffu;
         p.guiScreen = screen(ram);
-        const uint32_t obj = rd(ram, 0x5565c8u) & 0x1fffffffu;
+        const uint32_t obj = rd(ram, drakan_layout::kRenderViewPtr) & 0x1fffffffu;
         if (range(p.sourceAddress, 48) && range(obj, 0x110)) {
             float s[12], raw[12], expected[12];
             std::memcpy(s, ram + p.sourceAddress, 48);
-            std::memcpy(raw, ram + 0x4dad58u, 48);
+            std::memcpy(raw, ram + drakan_layout::kWorldView, 48);
             std::memcpy(expected, raw, 48);
             const float sx = rf(ram, obj + 0x48), sy = rf(ram, obj + 0x4c);
             p.projectionScale[0] = sx;

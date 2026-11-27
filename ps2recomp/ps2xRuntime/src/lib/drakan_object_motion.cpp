@@ -1,4 +1,5 @@
 #include "drakan_object_motion.h"
+#include "drakan_guest_layout.h"
 #include "ps2_vu1_batch_capture.h"
 #include "drakan_scene_models.h"
 #include "runtime/object_motion_capture.h"
@@ -206,7 +207,7 @@ void object(uint8_t* ram, R5900Context* c, PS2Runtime* rt, uint32_t expectedRa, 
         return;
     }
     const uint32_t vt = phys(u32(ram, obj));
-    if (vt != 0x51b8b0u) {
+    if (vt != drakan_layout::kHandleVtable) {
         bump(DVtable);
         if (sample(4))
             std::fprintf(stderr, "[object-motion-diag-owner] pc=%x ra=%x sp=%x owner=%x vt=%x mesh=%x\n", pc,
@@ -333,7 +334,7 @@ void cpuHook(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         bump(DCpu);
         static const bool log = std::getenv("DRAKAN_OBJECT_MOTION_LOG") != nullptr;
         const uint32_t object = phys(GPR_U32(c, 4));
-        if (log && valid(object, 0x120) && u32(ram, object) == 0x51b8b0u) {
+        if (log && valid(object, 0x120) && u32(ram, object) == drakan_layout::kHandleVtable) {
             const auto pose = provenPoseSource(ram, PS2_RAM_SIZE, object);
             std::fprintf(stderr,
                          "[object-motion-cpu-unsupported] epoch=%llu owner=%08x resource=%08x first=%u count=%u "
@@ -350,7 +351,7 @@ void sendHook(uint8_t* r, R5900Context* c, PS2Runtime* rt) {
     origSend(r, c, rt);
 }
 void freeHook(uint8_t* r, R5900Context* c, PS2Runtime* rt) {
-    if (on() && c->pc == 0x4acc40u) {
+    if (on() && c->pc == drakan_layout::fn::kFree) {
         const uint32_t p = phys(GPR_U32(c, 4));
         if (valid(p, 4) && p >= 8) {
             const uint32_t n = u32(r, p - 4) & ~3u;
@@ -424,7 +425,7 @@ void emit(const Scope& p, void*) {
 bool install(PS2Runtime& rt, Sink cb, void* opaque) {
     if (installed)
         return installed == &rt;
-    const uint32_t pcs[] = {0x152330, 0x1485c8, 0x1c7410, 0x1ec160, 0x1ec8f0, 0x1f1420, 0x4acc40,
+    const uint32_t pcs[] = {0x152330, 0x1485c8, 0x1c7410, 0x1ec160, 0x1ec8f0, 0x1f1420, drakan_layout::fn::kFree,
                             0x147690, 0x178d98, 0x178f28, 0x159670, 0x1ed8f0, 0x18bb90};
     for (auto pc : pcs)
         if (!rt.hasFunction(pc))

@@ -1,4 +1,5 @@
 #include "drakan_extended_heap.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
 #include "drakan_region.h"
@@ -20,11 +21,11 @@ namespace {
 
 namespace rules = world::extended_heap;
 
-constexpr uint32_t kMalloc = 0x4ac628u;  // a0 = size
-constexpr uint32_t kRealloc = 0x4acef0u; // a0 = pointer, a1 = size
-constexpr uint32_t kFree = 0x4acc40u;    // a0 = pointer
-constexpr uint32_t kSbrk = 0x4bc7b8u;    // a0 = signed increment; v0 = old break or -1
-constexpr uint32_t kBreak = 0x517084u;   // sbrk's current break
+constexpr uint32_t kMalloc = drakan_layout::fn::kMalloc;   // a0 = size
+constexpr uint32_t kRealloc = drakan_layout::fn::kRealloc; // a0 = pointer, a1 = size
+constexpr uint32_t kFree = drakan_layout::fn::kFree;       // a0 = pointer
+constexpr uint32_t kSbrk = 0x4bc7b8u;                      // a0 = signed increment; v0 = old break or -1
+constexpr uint32_t kBreak = 0x517084u;                     // sbrk's current break
 constexpr uint32_t kExtBase = PS2_RETAIL_RAM_SIZE;
 constexpr uint32_t kMaxExtendedMb = (PS2_RAM_SIZE - PS2_RETAIL_RAM_SIZE) >> 20;
 constexpr uint32_t kReportStep = 1u << 20; // log each new MB of peak

@@ -1,6 +1,7 @@
 // SCES-500.06 native Controls screen typography. No guest calls or allocation.
 #pragma once
 #include "ps2_runtime.h"
+#include "drakan_guest_layout.h"
 #include <cstring>
 namespace drakan_controls_menu {
 inline PS2Runtime::RecompiledFunction original = nullptr, originalText = nullptr;
@@ -15,7 +16,7 @@ inline uint32_t word(const uint8_t* ram, uint32_t p) {
 inline void layout(uint8_t* ram, uint32_t screen) {
     if (!span(screen, 0xa0) || word(ram, screen + 0x18) != 10)
         return;
-    const auto gui = word(ram, 0x5565c8);
+    const auto gui = word(ram, drakan_layout::kRenderViewPtr);
     if (!span(gui, 0x100))
         return;
     const auto width = word(ram, gui + 0xf8);

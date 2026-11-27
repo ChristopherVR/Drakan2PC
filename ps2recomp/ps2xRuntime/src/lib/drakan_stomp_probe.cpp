@@ -1,5 +1,6 @@
 // Bounded, read-only observations of native cinematic readiness. No guest calls, readiness overrides or timing writes.
 #include "drakan_stomp_probe.h"
+#include "drakan_guest_layout.h"
 #include "drakan_region.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -25,9 +26,9 @@ Fn g_pose = nullptr, g_camera = nullptr, g_model = nullptr;
 uint32_t g_sequence = 0, g_actor = 0;
 using Owner = std::pair<int, size_t>;
 Owner g_sequenceOwner{}, g_actorOwner{};
-constexpr uint32_t kFrame = 0x1e3970;
+constexpr uint32_t kFrame = drakan_layout::fn::kPadMgrUpdate;
 Fn g_frame = nullptr;
-constexpr uint32_t kSpawn = 0x181ad8;
+constexpr uint32_t kSpawn = drakan_layout::fn::kSpawnActor;
 Fn g_spawn = nullptr;
 constexpr uint32_t kItemEnable = 0x17e418, kItemBaseInit = 0x346180, kMeleeInit = 0x497478;
 Fn g_itemEnable = nullptr, g_itemBaseInit = nullptr, g_meleeInit = nullptr;
@@ -110,7 +111,7 @@ uint32_t activeSequence(const Ram& r) {
     return count > 0 && count <= 8 ? r.u32(list) : 0;
 }
 bool loadingScene(const Ram& r, uint32_t sequence) {
-    return sequence && r.u32(0x4fb60c) && r.u32(r.u32(sequence + 0xc)) == 0x8003c;
+    return sequence && r.u32(drakan_layout::kActiveScreenPtr) && r.u32(r.u32(sequence + 0xc)) == 0x8003c;
 }
 uint32_t objectId(const Ram& r, uint32_t sequence, uint32_t actor) {
     if (!actor)
@@ -142,7 +143,7 @@ void preload(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         const Ram r{ram};
         log("preload pending seq=%08x ref=%08x elapsed=%.4f pause=%u action=%u preload=%u count=%u dt=%.6f", sequence,
             r.u32(r.u32(sequence + 0xc)), r.f32(sequence + 0x18), r.u32(sequence + 0x1c), r.u32(sequence + 0x10),
-            r.u32(sequence + 0x14), r.u32(sequence + 0x48), r.f32(0x4de604));
+            r.u32(sequence + 0x14), r.u32(sequence + 0x48), r.f32(drakan_layout::kWorldDt));
     }
 }
 void actorReady(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
@@ -193,13 +194,15 @@ void tick(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         const uint32_t manager = getRegU32(c, 4), table = r.u32(manager + 0x234);
         const uint32_t count = std::min(r.u32(manager + 0x23c), 8u);
         if (!count)
-            log("tick manager=%08x sequences=0 dt=%.6f gui=%08x", manager, r.f32(0x4de604), r.u32(0x4fb60c));
+            log("tick manager=%08x sequences=0 dt=%.6f gui=%08x", manager, r.f32(drakan_layout::kWorldDt),
+                r.u32(drakan_layout::kActiveScreenPtr));
         for (uint32_t i = 0; i < count; ++i) {
             const uint32_t s = r.u32(table + 4 * i);
             log("tick seq=%08x ref=%08x elapsed=%.4f pause=%u flags=%08x action=%u preload=%u count=%u dt=%.6f "
                 "gui=%08x",
                 s, r.u32(r.u32(s + 0xc)), r.f32(s + 0x18), r.u32(s + 0x1c), r.u32(s + 8), r.u32(s + 0x10),
-                r.u32(s + 0x14), r.u32(s + 0x48), r.f32(0x4de604), r.u32(0x4fb60c));
+                r.u32(s + 0x14), r.u32(s + 0x48), r.f32(drakan_layout::kWorldDt),
+                r.u32(drakan_layout::kActiveScreenPtr));
         }
     }
     g_tick(ram, c, rt);
@@ -211,12 +214,13 @@ void itemLifecycle(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
     const Ram r{ram};
     const bool entry = c->pc == Entry;
     const uint32_t actor = getRegU32(c, Entry == kItemEnable ? 4 : 5), caller = getRegU32(c, 31);
-    const uint32_t context = r.u32(0x5565d4), registry = r.u32(context + 0x320), table = r.u32(registry + 8);
+    const uint32_t context = r.u32(drakan_layout::kEngineContextPtr), registry = r.u32(context + 0x320),
+                   table = r.u32(registry + 8);
     const uint32_t index = r.u16(actor + 0x10);
     bool observe = false;
     uint32_t resource = 0;
     unsigned sample = 0;
-    if (entry && Ram::valid(actor, 0x120) && r.u32(actor) == 0x51b8b0 && index != 0xffff &&
+    if (entry && Ram::valid(actor, 0x120) && r.u32(actor) == drakan_layout::kHandleVtable && index != 0xffff &&
         index <= r.u32(registry + 0x10) && Ram::valid(table, index * 0x24 + 0x24)) {
         const uint32_t record = table + index * 0x24;
         resource = r.u32(record);
@@ -277,7 +281,7 @@ void spawn(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
                         getRegU32(c, 16), getRegU32(c, 17), getRegU32(c, 18), getRegU32(c, 19), getRegU32(c, 20),
                         getRegU32(c, 21), getRegU32(c, 22), getRegU32(c, 23));
                     const auto actorInfo = [&](const char* label, uint32_t handle) {
-                        if (!Ram::valid(handle, 0x14) || r.u32(handle) != 0x51b8b0)
+                        if (!Ram::valid(handle, 0x14) || r.u32(handle) != drakan_layout::kHandleVtable)
                             return;
                         const uint32_t actorIndex = r.u16(handle + 0x10);
                         if (actorIndex > r.u32(registry + 0x10) || !Ram::valid(table, actorIndex * 0x24 + 0x24))
@@ -311,7 +315,7 @@ void frame(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         last = Clock::now();
         const auto state = rt->eeScheduler().snapshot();
         log("kernel seq=%08x ref=%08x elapsed=%.4f gui=%08x running=%d snapshot=%llu", sequence, ref,
-            r.f32(sequence + 0x18), r.u32(0x4fb60c), state.runningThreadId,
+            r.f32(sequence + 0x18), r.u32(drakan_layout::kActiveScreenPtr), state.runningThreadId,
             static_cast<unsigned long long>(state.sequence));
         size_t count = 0;
         for (const auto& thread : state.threads) {

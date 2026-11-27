@@ -1,4 +1,5 @@
 #include "drakan_portable_camera.h"
+#include "drakan_guest_layout.h"
 #include "drakan_config.h"
 #include "drakan_controlled_actor.h"
 #include "drakan_game.h"
@@ -124,7 +125,7 @@ void pad(uint8_t* memory, R5900Context* context, PS2Runtime* runtime) {
     CameraGuest guest(memory, context, runtime);
     const auto actor = drakan_controlled_actor::read(guest);
     const auto mouse = ps2HostMouseFrame();
-    const uint32_t screen = guest.read32(0x4fb60cu);
+    const uint32_t screen = guest.read32(drakan_layout::kActiveScreenPtr);
     const bool menu = drakan_controlled_actor::ram(screen, 0x1c);
     const bool scripted = guest.read32(0x4fbafcu) != 0;
     // Physical input is already cleared by the host on blur. Keep ownership
@@ -212,7 +213,7 @@ void follow(uint8_t* memory, R5900Context* context, PS2Runtime* runtime) {
 } // namespace
 
 void drakanInstallPortableCamera(PS2Runtime& runtime) {
-    g_pad = runtime.lookupFunction(0x1e3970u);
+    g_pad = runtime.lookupFunction(drakan_layout::fn::kPadMgrUpdate);
     g_look = runtime.lookupFunction(0x44e4a8u);
     g_follow = runtime.lookupFunction(0x41f848u);
     if (!g_pad || !g_look || !g_follow)
@@ -230,7 +231,7 @@ void drakanInstallPortableCamera(PS2Runtime& runtime) {
     config.strafeKeys = false;
     g_camera.initHeadless(config);
     drakanInstallPortableMenuHooks(runtime);
-    runtime.replaceFunction(0x1e3970u, &pad);
+    runtime.replaceFunction(drakan_layout::fn::kPadMgrUpdate, &pad);
     runtime.replaceFunction(0x44e4a8u, &look);
     runtime.replaceFunction(0x41f848u, &follow);
     std::fprintf(stderr, "[input] portable direct mouse camera active\n");

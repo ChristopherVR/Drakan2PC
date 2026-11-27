@@ -1,5 +1,6 @@
 // Drakan: widescreen (anamorphic Hor+) - see drakan_widescreen.h and docs/reference/widescreen.md.
 #include "drakan_widescreen.h"
+#include "drakan_guest_layout.h"
 #include "drakan_widescreen_policy.h"
 #include "drakan_inventory_viewport_policy.h"
 #include "drakan_widescreen_scope.h"
@@ -43,10 +44,10 @@ constexpr uint32_t kCropViewport = 0x132f60u;    // later screen-manager crop, a
 constexpr uint32_t kRenderWorld = 0x139010u;
 constexpr uint32_t kEndWorld = 0x147690u; // only RA 0x139344 ends the world before native HUD/GUI callbacks
 constexpr uint32_t kBuildFrustum = 0x199ff0u;
-constexpr uint32_t kViewCells = 0x1535b8u;           // terrain draw cell rect from the far corners of the view
-constexpr float kEdgeCullMargin = 1.1f;              // view cell rect: 10 % wider and taller than the projection
-constexpr uint32_t kRenderObjPtr = 0x5565c8u;        // *(u32*)0x5565c8 = render / viewport object
-constexpr uint32_t kScreenManagerActive = 0x4fb60cu; // active GUI screen object, its id at +0x18
+constexpr uint32_t kViewCells = 0x1535b8u; // terrain draw cell rect from the far corners of the view
+constexpr float kEdgeCullMargin = 1.1f;    // view cell rect: 10 % wider and taller than the projection
+constexpr uint32_t kRenderObjPtr = drakan_layout::kRenderViewPtr;          // *(u32*)0x5565c8 = render / viewport object
+constexpr uint32_t kScreenManagerActive = drakan_layout::kActiveScreenPtr; // active GUI screen object, its id at +0x18
 constexpr float k43 = 4.0f / 3.0f;
 
 PS2Runtime::RecompiledFunction g_origCameraUpdateMat = nullptr;
@@ -203,8 +204,8 @@ void hookRenderWorld(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             return v;
         };
         scripted = read(0x4fbafc);
-        ctx = read(0x5565d4);
-        handle = ctx ? read(ctx + 0x4b4) : 0;
+        ctx = read(drakan_layout::kEngineContextPtr);
+        handle = ctx ? read(ctx + drakan_layout::engine::kCameraActor) : 0;
         inner = handle ? read(handle + 0xfc) : 0;
         camera = inner ? read(inner + 0x10) : 0;
         mode = camera ? read(camera + 0x14c) : 0;

@@ -1,5 +1,6 @@
 // Native texture cache budget for campaign packs and pack levels (PAL). See drakan_texture_budget.h.
 #include "drakan_texture_budget.h"
+#include "drakan_guest_layout.h"
 #include "drakan_config.h"
 #include "drakan_game.h"
 #include "drakan_lifecycle.h"
@@ -26,7 +27,7 @@ namespace {
 // 32 KiB) least recently used ones. When none fits, the texture is not loaded and whatever waits for it (a cut scene's
 // start, see the header) waits until a buffer happens to free up. It is also called when the request fits (seen with
 // 0 bytes in use at boot), so the counters below test the condition themselves.
-constexpr uint32_t kManager = 0x4db280, kOverBudget = 0x1bf3e0;
+constexpr uint32_t kManager = drakan_layout::kTextureManager, kOverBudget = 0x1bf3e0;
 PS2Runtime::RecompiledFunction g_original = nullptr;
 std::string g_setting;
 uint32_t g_lastLogged = 0;

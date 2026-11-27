@@ -1,6 +1,7 @@
 // The engine's developer debug menu (drakan_debug_menu.h, docs/reference/debug-menu.md). Addresses are PAL canonical,
 // translated through the disc profile (feature DebugMenu).
 #include "drakan_debug_menu.h"
+#include "drakan_guest_layout.h"
 #include "drakan_config.h"
 #include "drakan_controlled_actor.h"
 #include "drakan_game.h"
@@ -420,15 +421,15 @@ void beforePadMgr(drakan_input::IGuest& g, drakan_input::InputModule& input, boo
         return;
     }
     const auto& layout = drakan_region::build().inputFlow;
-    const uint32_t ctx = g.read32(guestAddress(0x5565d4u));
+    const uint32_t ctx = g.read32(guestAddress(drakan_layout::kEngineContextPtr));
     const uint32_t camera = cameraObject(g, ctx);
     const int mode = drakan_controlled_actor::ram(camera, layout.cameraMode + 4)
                          ? static_cast<int>(g.read32(camera + layout.cameraMode))
                          : -1;
     g_cameraDetached = mode == kFlyCameraMode;
     const bool gameplay = (g_cameraDetached || drakan_input_flow::inMask(mode, layout.gameplayModes)) &&
-                          !g.read32(guestAddress(0x4fb60cu)) && drakan_input_flow::worldActive(g) &&
-                          drakan_input_flow::playerHealth(g) > 0;
+                          !g.read32(guestAddress(drakan_layout::kActiveScreenPtr)) &&
+                          drakan_input_flow::worldActive(g) && drakan_input_flow::playerHealth(g) > 0;
     const uint32_t target = g_cameraDetached && gameplay ? flyTarget(g, ctx, camera) : 0u;
     const uint32_t actor = !g_cameraDetached && gameplay && (g_toggleFlight || g_rynnFlight) ? rynnActor(g, ctx) : 0;
     if (g_rynnFlight && g_rynnFlight->actor != actor)

@@ -1,5 +1,6 @@
 // Drakan: ghost players (drakan_ghost.h). PAL addresses are canonical, translated through the disc profile.
 #include "drakan_ghost.h"
+#include "drakan_guest_layout.h"
 #include "drakan_dlss.h"
 #include "drakan_arena.h"
 #include "drakan_coop_character.h"
@@ -35,9 +36,10 @@ namespace {
 
 using drakan_region::guestAddress;
 
-constexpr uint32_t kContextPtr = 0x5565d4u, kFactory = 0x181ad8u, kDestroy = 0x1413c0u, kRynnHandler = 0x30ea30u,
-                   kFreeCamHandler = 0x2a3378u;
-constexpr uint32_t kHandleVtable = 0x51b8b0u, kRynnClass = 0x10009u, kDragonClass = 0x1001cu, kRynnRecord = 0x20a50u;
+constexpr uint32_t kContextPtr = drakan_layout::kEngineContextPtr, kFactory = drakan_layout::fn::kSpawnActor,
+                   kDestroy = drakan_layout::fn::kKillActor, kRynnHandler = 0x30ea30u, kFreeCamHandler = 0x2a3378u;
+constexpr uint32_t kHandleVtable = drakan_layout::kHandleVtable, kRynnClass = 0x10009u, kDragonClass = 0x1001cu,
+                   kRynnRecord = 0x20a50u;
 constexpr uint32_t kDikF9 = 0x43u, kDikF10 = 0x44u;
 constexpr uint32_t kBoneAttach = 0x13b878u, kBoneDetach = 0x13b8c8u; // (model, item, bone, 0, 0) / (model, bone)
 constexpr uint32_t kPropHand[2] = {0x45u, 0x46u};
@@ -134,7 +136,7 @@ void clearLocalCharacterView();
 void resetLocalCharacter();
 
 void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc == guestAddress(0x189b38u)) {
+    if (c->pc == guestAddress(drakan_layout::fn::kRenderObject)) {
         const uint32_t object = getRegU32(c, 4);
         uint32_t draw = drakan_local_character::g_view.nativeObject(object);
         if (drakan_arena::hidesWorldActor(object))
@@ -293,8 +295,8 @@ void spawnStage1(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
         guest::write32(rdram, g_flight.camModeAddr, 7u);
     }
     const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
-    g_flight.player = guest::read32(rdram, ctx + 0x4b0);
-    g_flight.camera = guest::read32(rdram, ctx + 0x4b4);
+    g_flight.player = guest::read32(rdram, ctx + drakan_layout::engine::kControlledActor);
+    g_flight.camera = guest::read32(rdram, ctx + drakan_layout::engine::kCameraActor);
     g_flight.linkA = linkOf(rdram, g_flight.player);
     g_flight.partner = linkedActor(rdram, ctx, g_flight.linkA);
     g_flight.linkB = linkOf(rdram, g_flight.partner);
@@ -351,11 +353,12 @@ void spawnStage2(uint8_t* rdram, R5900Context* c, PS2Runtime*) {
         guest::write32(rdram, g_flight.camModeAddr, g_flight.oldMode);
     {
         const uint32_t ctx = guest::read32(rdram, guestAddress(kContextPtr));
-        const uint32_t p = guest::read32(rdram, ctx + 0x4b0), cam = guest::read32(rdram, ctx + 0x4b4);
+        const uint32_t p = guest::read32(rdram, ctx + drakan_layout::engine::kControlledActor),
+                       cam = guest::read32(rdram, ctx + drakan_layout::engine::kCameraActor);
         std::fprintf(stderr, "[ghost] after factory: ctx+4b0 %x -> %x, ctx+4b4 %x -> %x (mode word now %x)\n",
                      g_flight.player, p, g_flight.camera, cam, guest::read32(rdram, g_flight.camModeAddr));
-        guest::write32(rdram, ctx + 0x4b0, g_flight.player);
-        guest::write32(rdram, ctx + 0x4b4, g_flight.camera);
+        guest::write32(rdram, ctx + drakan_layout::engine::kControlledActor, g_flight.player);
+        guest::write32(rdram, ctx + drakan_layout::engine::kCameraActor, g_flight.camera);
         // The local player's own dragon link (rider <-> Arokh, data+0x4d8 at both ends) must survive the spawn.
         const uint32_t a = linkOf(rdram, g_flight.player), pa = linkedActor(rdram, ctx, a), b = linkOf(rdram, pa);
         std::fprintf(
@@ -1094,7 +1097,7 @@ void applyLocalHide(drakan_input::IGuest& guest, uint32_t ctx, bool bodyPending)
     }
     if (!view.body) {
         // No selected body yet (or Rynn is the choice): name the original model and its held items directly.
-        const uint32_t player = guest.read32(ctx + 0x4b0);
+        const uint32_t player = guest.read32(ctx + drakan_layout::engine::kControlledActor);
         if (!guest::isHeapPtr(player) || guest.read32(player) != guestAddress(kHandleVtable))
             return;
         const uint32_t inner = guest.read32(player + 0xfc);
@@ -1220,7 +1223,7 @@ void install(PS2Runtime& rt) {
         g_playSound = rt.lookupFunction(play);
         rt.replaceFunction(play, &hookPlaySound);
     }
-    if (const uint32_t draw = guestAddress(0x189b38u); draw && rt.hasFunction(draw)) {
+    if (const uint32_t draw = guestAddress(drakan_layout::fn::kRenderObject); draw && rt.hasFunction(draw)) {
         g_renderObject = rt.lookupFunction(draw);
         rt.replaceFunction(draw, &hookRenderObject);
     }
@@ -1606,7 +1609,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         engineDt = 1.0f / 60.0f;
     g_gameTime += static_cast<double>(engineDt);
     localCharacterTick(guest, ctx);
-    refreshVoiceOwners(guest.read32(ctx + 0x4b0));
+    refreshVoiceOwners(guest.read32(ctx + drakan_layout::engine::kControlledActor));
     if (g_mirror) {
         // Record the local player and replay the pose from 1.0 s ago beside it (EE thread).
         world::PlayerPose cur, past;
@@ -1711,7 +1714,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
             if (g.info.handle && g.animSet) {
                 const uint32_t sk = guest.read32(g.info.handle + world::skel::kHandleSkeleton);
                 const uint32_t ch = guest::isHeapPtr(sk) ? guest.read32(sk + world::skel::kChannels) : 0;
-                const uint32_t pl = guest.read32(ctx + 0x4b0);
+                const uint32_t pl = guest.read32(ctx + drakan_layout::engine::kControlledActor);
                 std::fprintf(
                     stderr,
                     "[gtrace] %u %.4f dt %.4f gpos %.3f %.3f ghostch0t %.4f wrote %.4f clip %x ppos %.3f %.3f\n",
@@ -1779,8 +1782,9 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                     std::fprintf(stderr, "[ghost] id %d pos %g %g %g  player %x camera %x\n", g.info.id,
                                  static_cast<double>(guest.readF(g.info.handle + 0x14)),
                                  static_cast<double>(guest.readF(g.info.handle + 0x18)),
-                                 static_cast<double>(guest.readF(g.info.handle + 0x1c)), guest.read32(ctx + 0x4b0),
-                                 guest.read32(ctx + 0x4b4));
+                                 static_cast<double>(guest.readF(g.info.handle + 0x1c)),
+                                 guest.read32(ctx + drakan_layout::engine::kControlledActor),
+                                 guest.read32(ctx + drakan_layout::engine::kCameraActor));
     }
 
     // One spawn at a time.
@@ -1802,7 +1806,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         g_ghosts.erase(g_ghosts.begin() + (want - g_ghosts.data()));
         return;
     }
-    const uint32_t player = guest.read32(ctx + 0x4b0);
+    const uint32_t player = guest.read32(ctx + drakan_layout::engine::kControlledActor);
     uint32_t res = guest::isHeapPtr(player) ? guest.read16(player + 0x10) : 0xffffu;
     const uint32_t db = guest.read32(ctx + 0x320);
     const uint32_t records = guest::isHeapPtr(db) ? guest.read32(db + 8) : 0;
@@ -1864,7 +1868,7 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         g_flight.dragon = want->dragon || chosen == kDragonRecord;
     }
     // Camera mode word: *(*(ctx+0x4b4)+0xfc)+0x10 = camera instance data, +0x14c
-    const uint32_t cam = guest.read32(ctx + 0x4b4);
+    const uint32_t cam = guest.read32(ctx + drakan_layout::engine::kCameraActor);
     const uint32_t inner = guest::isHeapPtr(cam) ? guest.read32(cam + 0xfc) : 0;
     const uint32_t data = guest::isHeapPtr(inner) ? guest.read32(inner + 0x10) : 0;
     g_flight.camModeAddr = guest::isHeapPtr(data) && (!g_flight.npc || g_flight.dragon) ? data + 0x14c : 0;

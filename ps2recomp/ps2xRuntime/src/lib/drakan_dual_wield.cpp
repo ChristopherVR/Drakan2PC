@@ -16,6 +16,7 @@
 // Guest functions that may block (the skeleton attach can allocate under the allocator semaphore) are tail-called on
 // the real context, never nested; 0x31ca20's result is restored by a host trampoline afterwards.
 #include "drakan_dual_wield.h"
+#include "drakan_guest_layout.h"
 #include "drakan_pose_mirror.h"
 #include "gameui/DualWield.h"
 #include "drakan_config.h"
@@ -41,7 +42,7 @@ constexpr uint32_t kFnBoneAttach = 0x13b878u;  // *0x4fd57c: (model, item, bone,
 constexpr uint32_t kFnBoneDetach = 0x13b8c8u;  // *0x4fd580: (model, bone) -> detached item
 constexpr uint32_t kFnHideItem = 0x34d068u, kFnShowItem = 0x34d1f8u; // (item data), updates scene membership too
 constexpr uint32_t kFnModelVisible = 0x17e418u; // (model, visible), the attachment visibility setter
-constexpr uint32_t kContext = 0x5565d4u;
+constexpr uint32_t kContext = drakan_layout::kEngineContextPtr;
 constexpr uint32_t kCtl = 0x584u, kRightHolder = 0xeb4u;
 // Inventory controller (player+0x584): shop mode, selection, slot records (16 bytes, item at +8), the range line of
 // the details text (0x40 bytes).
@@ -180,7 +181,7 @@ public:
         return i;
     }
     uint32_t rynn() const {
-        const uint32_t actor = u32(ctx() + 0x4b0);
+        const uint32_t actor = u32(ctx() + drakan_layout::engine::kControlledActor);
         return actor ? data(actor) : 0;
     }
     uint32_t slot(uint32_t player, uint32_t n) const { return u32(player + kPlayerSlots + n * kSlotStride); }

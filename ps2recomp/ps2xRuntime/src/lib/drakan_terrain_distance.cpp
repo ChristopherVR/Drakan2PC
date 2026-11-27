@@ -1,4 +1,5 @@
 #include "drakan_terrain_distance.h"
+#include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
 #include "drakan_region.h"
@@ -18,9 +19,9 @@ namespace {
 
 namespace rules = world::terrain_distance;
 
-constexpr uint32_t kChunkDraw = 0x158148u;   // a0 = layer, a1 = draw page: emits the base pass and the splat passes
-constexpr uint32_t kViewPointer = 0x5565c8u; // pointer to the view the terrain draw reads
-constexpr uint32_t kViewScale = 0x3cu;       // view: f32 the chunk distance is multiplied with (1.0 in play)
+constexpr uint32_t kChunkDraw = 0x158148u; // a0 = layer, a1 = draw page: emits the base pass and the splat passes
+constexpr uint32_t kViewPointer = drakan_layout::kRenderViewPtr; // pointer to the view the terrain draw reads
+constexpr uint32_t kViewScale = 0x3cu; // view: f32 the chunk distance is multiplied with (1.0 in play)
 constexpr uint32_t kRamMask = 0x1fffffffu;
 constexpr uint32_t kRamSize = PS2_RAM_SIZE;
 
