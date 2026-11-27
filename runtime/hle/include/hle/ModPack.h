@@ -203,6 +203,8 @@ struct NewEntryKey {
 
 class ModOverride; // merged entry replacements
 
+struct PackCandidate; // one mods.ini pack while ModManager::load() checks it (ModPack.cpp)
+
 class ModManager {
 public:
     explicit ModManager(DiscProfile profile, ModLimits limits = {});
@@ -272,6 +274,17 @@ public:
 private:
     struct Prefetch;
     std::shared_ptr<Prefetch> readFiles(const std::string& language) const;
+    // load() in steps (ModPack.cpp): clear the merged state, then merge one checked pack at a time.
+    void resetMerged();
+    void mergePack(PackCandidate& c, size_t modIndex, std::map<std::string, std::string>& textOwner);
+    void registerLevels(PackCandidate& c);
+    bool takeSideFile(PackCandidate& c, const ModArchive::Item& item, const std::string& lowPath);
+    void mergeFileOrNewEntry(PackCandidate& c, const ModArchive::Item& item, const std::string& lowPath,
+                             size_t modIndex);
+    void mergeTextIni(PackCandidate& c, const ModArchive::Item& item, const std::string& file, const GlyphMap* glyphs,
+                      std::map<std::string, std::string>& textOwner);
+    void mergeOverrideEntry(PackCandidate& c, const ModArchive::Item& item, const std::string& file,
+                            const std::string& name, size_t modIndex);
     std::shared_ptr<Prefetch> prefetch_;
     bool e_nonEmpty() const { return entryCount() != 0 || textCount_ != 0; }
     DiscProfile profile_;

@@ -1399,14 +1399,6 @@ static std::string lowerExt(const fs::path& p) {
     }
 }
 
-namespace {
-struct Cand {
-    ModStatus st;
-    std::shared_ptr<ModArchive> archive;
-    std::string prefix;
-};
-} // namespace
-
 size_t ModManager::load(const std::string& modsDir) {
     std::error_code ec;
     std::vector<std::pair<std::string, bool>> order;
@@ -1535,24 +1527,493 @@ static bool validLevelName(const std::string& n, std::string& why) {
     return true;
 }
 
+// ---- ModManager::load: check every listed pack, then merge the loaded ones in mods.ini order ----------------------
+// Phases: findPacks (what is in the mods folder) -> per pack: open, manifest, cover, disc profile -> duplicate ids ->
+// dependencies -> load order hints (warnings only) -> mergePack for each pack still Loaded.
+
+// One mods.ini pack while load() checks and merges it.
+struct PackCandidate {
+    ModStatus st;
+    std::shared_ptr<ModArchive> archive;
+    std::string prefix; // the pack's root inside the archive ("" or "<folder>/", where its mod.toml sits)
+};
+
+namespace {
+
+// Read caps per kind of side file (a pack cannot make the start-up read an unbounded file).
+constexpr u64 kPictureMaxBytes = 8u << 20;    // previews/*.png and the Mods page cover
+constexpr u64 kSmallTextMaxBytes = 64u << 10; // gameplay/*.ini, sounds/swaps.ini, credits/*.txt, glyphs.ini
+constexpr u64 kMenuIniMaxBytes = 1u << 20;    // maps/*.ini, ui/*.ini
+
+// Every pack in the mods folder by key (folder name or zip stem, lower case) -> host path.
+std::map<std::string, fs::path> findPacks(const std::string& modsDir) {
+    std::map<std::string, fs::path> found;
+    std::error_code ec;
+    if (!fs::is_directory(modsDir, ec))
+        return found;
+    for (fs::directory_iterator e(modsDir, ec), end; !ec && e != end; e.increment(ec)) {
+        std::error_code sec; // a failed stat skips the entry, not the rest of the scan
+        bool zip = e->is_regular_file(sec) && lowerExt(e->path()) == ".zip";
+        std::string stem;
+        if ((e->is_directory(sec) || zip) && stemOf(e->path(), stem))
+            found.emplace(asciiLower(stem), e->path());
+    }
+    return found;
+}
+
+// The cover: the pack's picture for the Mods page, previews/pack.png else previews/campaign-<id>.png (names matched
+// case-insensitively, like the scans of mergePack).
+void readCover(PackCandidate& c) {
+    const std::string want1 = asciiLower(c.prefix) + "previews/pack.png",
+                      want2 = asciiLower(c.prefix) + "previews/campaign-" + asciiLower(c.st.manifest.id) + ".png";
+    std::string found1, found2;
+    for (const auto& item : c.archive->list()) {
+        const std::string lp = asciiLower(item.path);
+        if (item.size == 0 || item.size > kPictureMaxBytes)
+            continue;
+        if (lp == want1)
+            found1 = item.path;
+        else if (lp == want2)
+            found2 = item.path;
+    }
+    const std::string& pick = !found1.empty() ? found1 : found2;
+    if (!pick.empty() && !c.archive->read(pick, c.st.cover))
+        c.st.cover.clear();
+}
+
+// Why a pack with a readable manifest cannot run on this build (newer mod format, no or another disc profile); empty
+// when it can.
+std::string packRefusal(const Manifest& m, const DiscProfile& profile) {
+    if (m.format > kManifestFormat)
+        return "needs mod format " + std::to_string(m.format) + " (this runtime reads up to " +
+               std::to_string(kManifestFormat) + ")";
+    if (m.profiles.empty() && m.profileHashes.empty())
+        return "manifest has no target profile (set target.profile = \"" + profile.id + "\" or \"*\")";
+    // A pack may name profiles, hashes or both; each list it names has to match.
+    bool pOk = m.profiles.empty(), hOk = m.profileHashes.empty();
+    for (auto& p : m.profiles)
+        if (p == "*" || asciiLower(p) == asciiLower(profile.id))
+            pOk = true;
+    for (auto& h : m.profileHashes) {
+        u64 v;
+        if (parseHex64(h, v) && v == profile.hash)
+            hOk = true;
+    }
+    if (pOk && hOk)
+        return {};
+    std::string want;
+    for (auto& p : m.profiles)
+        want += (want.empty() ? "" : ",") + p;
+    for (auto& h : m.profileHashes)
+        want += (want.empty() ? "" : ",") + h;
+    return "targets disc profile " + want + " but this build is " + profile.id + " (" + hex64(profile.hash) + ")";
+}
+
+void skip(PackCandidate& c, std::string why) {
+    c.st.state = ModState::Skipped;
+    c.st.message = std::move(why);
+    logf("mods: skipping '%s': %s", c.st.key.c_str(), c.st.message.c_str());
+}
+
+// Duplicate ids: the pack listed earlier keeps the id.
+void rejectDuplicateIds(std::vector<PackCandidate>& cands) {
+    std::map<std::string, std::string> seen; // id -> key of the pack that has it
+    for (auto& c : cands)
+        if (c.st.state == ModState::Loaded) {
+            auto r = seen.emplace(c.st.manifest.id, c.st.key);
+            if (!r.second)
+                skip(c, "id '" + c.st.manifest.id + "' is already used by '" + r.first->second + "'");
+        }
+}
+
+// Dependencies ("id" or "id >= version"), repeated until nothing changes: skipping one pack can break the packs
+// that depend on it.
+void resolveDependencies(std::vector<PackCandidate>& cands) {
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (auto& c : cands) {
+            if (c.st.state != ModState::Loaded)
+                continue;
+            for (auto& d : c.st.manifest.dependencies) {
+                std::string id = d, req;
+                size_t op = d.find(">=");
+                if (op != std::string::npos) {
+                    id = d.substr(0, op);
+                    req = trim(d.substr(op + 2));
+                }
+                id = trim(id);
+                const PackCandidate* dep = nullptr;
+                for (auto& o : cands)
+                    if (o.st.state == ModState::Loaded && o.st.manifest.id == id)
+                        dep = &o;
+                std::string why;
+                if (!dep)
+                    why = "needs '" + id + "', which is not installed, not enabled or was skipped";
+                else if (!req.empty() && compareVersions(dep->st.manifest.version, req) < 0)
+                    why = "needs '" + id + "' >= " + req + " but " + dep->st.manifest.version + " is installed";
+                if (!why.empty()) {
+                    skip(c, why);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+// Load order hints of the manifests: warnings only, the mods.ini order is authoritative.
+void warnLoadOrder(const std::vector<PackCandidate>& cands) {
+    std::map<std::string, size_t> pos;
+    for (size_t i = 0; i < cands.size(); ++i)
+        if (cands[i].st.state == ModState::Loaded)
+            pos[cands[i].st.manifest.id] = i;
+    for (size_t i = 0; i < cands.size(); ++i) {
+        if (cands[i].st.state != ModState::Loaded)
+            continue;
+        const Manifest& m = cands[i].st.manifest;
+        auto after = m.loadAfter;
+        for (auto& d : m.dependencies)
+            after.push_back(trim(d.substr(0, d.find(">="))));
+        for (auto& a : after) {
+            auto it = pos.find(a);
+            if (it != pos.end() && it->second > i)
+                logf("mods: '%s' asks to load after '%s' but mods.ini lists it later", m.id.c_str(), a.c_str());
+        }
+        for (auto& b : m.loadBefore) {
+            auto it = pos.find(b);
+            if (it != pos.end() && it->second < i)
+                logf("mods: '%s' asks to load before '%s' but mods.ini lists it earlier", m.id.c_str(), b.c_str());
+        }
+    }
+}
+
+// The pack's glyph map (overrides/INTERFCE.TXD/glyphs.ini). Read before any of its text.ini files, whatever the archive
+// order; it only affects text.ini files that declare `encoding = utf-8`.
+std::shared_ptr<GlyphMap> readGlyphMap(const PackCandidate& c, const std::string& overridesRoot) {
+    const std::string& mid = c.st.manifest.id;
+    const std::string glyphPath = overridesRoot + asciiLower(kGlyphMapDir) + "/" + kGlyphMapName;
+    for (auto& item : c.archive->list()) {
+        if (asciiLower(item.path) != glyphPath)
+            continue;
+        std::vector<u8> b;
+        if (item.size <= kSmallTextMaxBytes && c.archive->read(item.path, b))
+            return parseGlyphMap(std::string(b.begin(), b.end()), "mod " + mid + ": " + item.path);
+        logf("mods: %s: cannot read %s", mid.c_str(), item.path.c_str());
+        return nullptr;
+    }
+    return nullptr;
+}
+
+// lowPath is a file directly in dir (no further '/') with the 4-character extension ext (".ini", ".png").
+bool isDirectChild(const std::string& lowPath, const std::string& dir, const char* ext) {
+    return lowPath.rfind(dir, 0) == 0 && lowPath.size() > dir.size() + 4 &&
+           lowPath.compare(lowPath.size() - 4, 4, ext) == 0 && lowPath.find('/', dir.size()) == std::string::npos;
+}
+
+// Reads a side file of at most `cap` bytes as text; false (out untouched) when it is larger or unreadable.
+bool readText(const PackCandidate& c, const ModArchive::Item& item, u64 cap, std::string& out) {
+    std::vector<u8> bytes;
+    if (item.size > cap || !c.archive->read(item.path, bytes))
+        return false;
+    out.assign(bytes.begin(), bytes.end());
+    return true;
+}
+
+// The save compatibility id (SaveRecord.h, modding.md "Saves and pack builds"): the manifest's build, else the hash of
+// the pack's content files.
+void computeBuildId(PackCandidate& c) {
+    std::vector<ContentItem> items;
+    const std::string pre = asciiLower(c.prefix);
+    c.st.buildDeclared = !c.st.manifest.build.empty();
+    for (auto& item : c.archive->list()) {
+        if (asciiLower(item.path).compare(0, pre.size(), pre) != 0 || !isContentPath(item.path.substr(pre.size())))
+            continue;
+        c.st.content = true;
+        if (c.st.buildDeclared)
+            break;
+        u32 crc = item.crc;
+        if (!item.hasCrc) { // folder packs: read it once (a pack that names its build is never read here)
+            std::vector<u8> data;
+            crc = c.archive->read(item.path, data) ? crc32Of(data.data(), data.size()) : 0;
+        }
+        items.push_back({item.path.substr(pre.size()), item.size, crc});
+    }
+    c.st.build = c.st.buildDeclared ? c.st.manifest.build : hex64(packContentHash(std::move(items)));
+}
+
+// "12 entries, 3 text lines, 2 files" for the Mods page and the log.
+std::string loadSummary(const ModStatus& st) {
+    auto part = [](size_t n, const char* what) { return n ? ", " + std::to_string(n) + what : std::string(); };
+    return std::to_string(st.entries) + " entries, " + std::to_string(st.texts) + " text lines" +
+           part(st.files, " files") + part(st.added, " new entries") + part(st.levels, " levels") +
+           part(st.rejected, " rejected");
+}
+
+} // namespace
+
+void ModManager::resetMerged() {
+    merged_->map.clear();
+    files_.clear();
+    newEntries_.clear();
+    levelDefs_.clear();
+    extraLevels_.clear();
+    mapFiles_.clear();
+    previewFiles_.clear();
+    uiFiles_.clear();
+    creditsFiles_.clear();
+    soundSwapFiles_.clear();
+    bowAimFiles_.clear();
+    crystalFiles_.clear();
+    texts_ = std::make_shared<XdbTextOverride>();
+    textCount_ = 0;
+}
+
+// The manifest's `levels`: a name that is valid and not yet registered by an earlier pack becomes a new level
+// (\Levels\<name>\<name>.lvl), optionally a copy of a disc level (`level_copies` "<name> = <disc level>").
+void ModManager::registerLevels(PackCandidate& c) {
+    const std::string& mid = c.st.manifest.id;
+    for (const std::string& ln : c.st.manifest.levels) {
+        std::string why;
+        if (!validLevelName(ln, why)) {
+            ++c.st.rejected;
+            logf("mods: %s: ignoring level '%s': %s", mid.c_str(), ln.c_str(), why.c_str());
+            continue;
+        }
+        bool dup = false;
+        for (auto& d : levelDefs_)
+            if (asciiLower(d.name) == asciiLower(ln)) {
+                dup = true;
+                logf("mods: conflict: level '%s' is registered by '%s' and '%s'; '%s' keeps it", ln.c_str(),
+                     d.modId.c_str(), mid.c_str(), d.modId.c_str());
+                conflicts_.push_back({"level " + ln, d.modId, mid});
+            }
+        if (dup)
+            continue;
+        std::string copyOf;
+        for (const std::string& lc : c.st.manifest.levelCopies) {
+            const size_t eq = lc.find('=');
+            if (eq != std::string::npos && asciiLower(trim(lc.substr(0, eq))) == asciiLower(ln))
+                copyOf = trim(lc.substr(eq + 1));
+        }
+        levelDefs_.push_back({ln, mid, "\\Levels\\" + ln + "\\" + ln + ".lvl", -1, copyOf});
+        ++c.st.levels;
+    }
+}
+
+// The side files a pack may ship next to its game data (gameplay ini files, map / menu definitions, credits, sound
+// swaps, pictures). True when `lowPath` is one of them (read or not): it is not game data then.
+bool ModManager::takeSideFile(PackCandidate& c, const ModArchive::Item& item, const std::string& lowPath) {
+    const std::string& mid = c.st.manifest.id;
+    const std::string pre = asciiLower(c.prefix);
+    const std::string label = "mod " + mid + ": " + item.path;
+    std::string text;
+    if (lowPath == pre + "gameplay/bows.ini") {
+        if (readText(c, item, kSmallTextMaxBytes, text))
+            bowAimFiles_.emplace_back(label, std::move(text));
+        return true;
+    }
+    if (lowPath == pre + "gameplay/crystals.ini") {
+        if (readText(c, item, kSmallTextMaxBytes, text))
+            crystalFiles_.emplace_back(label, std::move(text));
+        return true;
+    }
+    if (isDirectChild(lowPath, pre + "maps/", ".ini")) {
+        if (readText(c, item, kMenuIniMaxBytes, text))
+            mapFiles_.emplace_back(label, std::move(text));
+        return true;
+    }
+    if (isDirectChild(lowPath, pre + "ui/", ".ini")) {
+        if (readText(c, item, kMenuIniMaxBytes, text))
+            uiFiles_.emplace_back(label, std::move(text));
+        return true;
+    }
+    const bool firstCredits = lowPath == pre + "credits/credits.txt";
+    if (firstCredits || lowPath == pre + "credits/credits-2.txt") {
+        if (readText(c, item, kSmallTextMaxBytes, text)) {
+            auto& credits = creditsFiles_[mid];
+            (firstCredits ? credits.first : credits.second) = std::move(text);
+        }
+        return true;
+    }
+    if (lowPath == pre + "sounds/swaps.ini") {
+        if (readText(c, item, kSmallTextMaxBytes, text))
+            soundSwapFiles_.emplace_back(mid, std::move(text));
+        return true;
+    }
+    const std::string prevRoot = pre + "previews/";
+    if (isDirectChild(lowPath, prevRoot, ".png")) {
+        std::vector<u8> png;
+        if (item.size <= kPictureMaxBytes && c.archive->read(item.path, png))
+            previewFiles_.emplace_back(item.path.substr(prevRoot.size(), item.path.size() - prevRoot.size() - 4),
+                                       std::move(png));
+        return true;
+    }
+    return false;
+}
+
+// files/<disc path> (a whole disc file) or new/<FILE>/<type>_<id>_<sub>.bin (an SRSC entry the disc file lacks). A
+// later pack wins a conflict.
+void ModManager::mergeFileOrNewEntry(PackCandidate& c, const ModArchive::Item& item, const std::string& lowPath,
+                                     size_t modIndex) {
+    const std::string& mid = c.st.manifest.id;
+    const std::string filesRoot = asciiLower(c.prefix) + "files/", newRoot = asciiLower(c.prefix) + "new/";
+    const bool isFile = lowPath.rfind(filesRoot, 0) == 0;
+    const std::string rest = item.path.substr((isFile ? filesRoot : newRoot).size());
+    if (rest.empty() || rest.back() == '/')
+        return;
+    const u64 cap = isFile ? limits_.maxWholeFile : limits_.maxFileBytes;
+    if (item.size == 0 || item.size > cap) {
+        ++c.st.rejected;
+        logf("mods: %s: rejecting %s: %llu bytes (allowed 1..%llu)", mid.c_str(), item.path.c_str(),
+             (unsigned long long)item.size, (unsigned long long)cap);
+        return;
+    }
+    if (isFile) {
+        const std::string key = manglePath(rest);
+        auto old = files_.find(key);
+        if (old != files_.end() && old->second.modId != mid) {
+            conflicts_.push_back({"file " + key, mid, old->second.modId});
+            logf("mods: conflict: file %s from '%s' and '%s'; '%s' wins", key.c_str(), old->second.modId.c_str(),
+                 mid.c_str(), mid.c_str());
+        }
+        files_[key] = PackSource{c.archive, item.path, modIndex, mid, item.size};
+        ++c.st.files;
+        return;
+    }
+    const size_t sl = rest.find('/');
+    const std::string nm = sl == std::string::npos ? std::string() : rest.substr(sl + 1);
+    NewEntryKey k;
+    if (sl == std::string::npos || nm.find('/') != std::string::npos || nm.size() < 5 ||
+        asciiLower(nm.substr(nm.size() - 4)) != ".bin" ||
+        !parseEntryName(nm.substr(0, nm.size() - 4), k.type, k.id, k.sub) || k.sub == 0xFFFF) {
+        ++c.st.rejected;
+        logf("mods: %s: ignoring %s (want new/<FILE>/<type hex>_<id>_<sub>.bin with an exact sub)", mid.c_str(),
+             item.path.c_str());
+        return;
+    }
+    k.file = asciiUpper(rest.substr(0, sl));
+    auto old = newEntries_.find(k);
+    if (old != newEntries_.end() && old->second.modId != mid) {
+        conflicts_.push_back({"new " + k.file, mid, old->second.modId});
+        logf("mods: conflict: new entry %s %04x/%u/%u from '%s' and '%s'; '%s' wins", k.file.c_str(), k.type, k.id,
+             k.sub, old->second.modId.c_str(), mid.c_str(), mid.c_str());
+    }
+    newEntries_[k] = PackSource{c.archive, item.path, modIndex, mid, item.size};
+    ++c.st.added;
+}
+
+// overrides/<FILE>/text.ini: the pack's text lines for that disc file. textOwner ("FILE|id.lang" -> mod id) reports
+// the lines a later pack takes over from an earlier one.
+void ModManager::mergeTextIni(PackCandidate& c, const ModArchive::Item& item, const std::string& file,
+                              const GlyphMap* glyphs, std::map<std::string, std::string>& textOwner) {
+    const std::string& mid = c.st.manifest.id;
+    std::vector<u8> b;
+    if (!c.archive->read(item.path, b)) {
+        ++c.st.rejected;
+        logf("mods: %s: cannot read %s", mid.c_str(), item.path.c_str());
+        return;
+    }
+    std::string content(b.begin(), b.end());
+    c.st.texts += texts_->loadIni(file, content, glyphs);
+    size_t p = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0; // UTF-8 BOM, as loadIni
+    while (p < content.size()) {
+        size_t e = content.find('\n', p);
+        std::string ln = trim(content.substr(p, e == std::string::npos ? std::string::npos : e - p));
+        p = e == std::string::npos ? content.size() : e + 1;
+        size_t eq = ln.find('=');
+        if (ln.empty() || ln[0] == ';' || ln[0] == '#' || eq == std::string::npos ||
+            isTextIniDirective(ln.substr(0, eq)))
+            continue;
+        std::string k = asciiLower(trim(ln.substr(0, eq)));
+        if (k.find('.') == std::string::npos)
+            k += ".*";
+        auto r = textOwner.emplace(file + "|" + k, mid);
+        if (!r.second && r.first->second != mid) {
+            conflicts_.push_back({file + " text " + k, mid, r.first->second});
+            logf("mods: conflict: %s text %s set by '%s' and '%s'; '%s' wins", file.c_str(), k.c_str(),
+                 r.first->second.c_str(), mid.c_str(), mid.c_str());
+            r.first->second = mid;
+        }
+    }
+}
+
+// overrides/<FILE>/<type hex>_<id>_<sub|x>.bin: replaces one SRSC entry (x = every sub). A later pack wins a conflict,
+// also when a wildcard sub overlaps a specific one.
+void ModManager::mergeOverrideEntry(PackCandidate& c, const ModArchive::Item& item, const std::string& file,
+                                    const std::string& name, size_t modIndex) {
+    const std::string& mid = c.st.manifest.id;
+    if (name.size() < 5 || asciiLower(name.substr(name.size() - 4)) != ".bin")
+        return;
+    ModOverride::Key k;
+    k.file = file;
+    if (!parseEntryName(name.substr(0, name.size() - 4), k.type, k.id, k.sub)) {
+        ++c.st.rejected;
+        logf("mods: %s: ignoring file name %s (want <type hex>_<id>_<sub|x>.bin)", mid.c_str(), item.path.c_str());
+        return;
+    }
+    if (item.size == 0 || item.size > limits_.maxFileBytes) {
+        ++c.st.rejected;
+        logf("mods: %s: rejecting %s: %llu bytes (allowed 1..%llu)", mid.c_str(), item.path.c_str(),
+             (unsigned long long)item.size, (unsigned long long)limits_.maxFileBytes);
+        return;
+    }
+    for (auto m = merged_->map.lower_bound(ModOverride::Key{k.file, k.type, k.id, 0});
+         m != merged_->map.end() && m->first.file == k.file && m->first.type == k.type && m->first.id == k.id; ++m) {
+        bool overlap = m->first.sub == k.sub || m->first.sub == 0xFFFF || k.sub == 0xFFFF;
+        if (overlap && m->second.modId != mid) {
+            conflicts_.push_back({keyStr(k), mid, m->second.modId});
+            logf("mods: conflict: %s overlaps %s from '%s'; '%s' wins", keyStr(k).c_str(), keyStr(m->first).c_str(),
+                 m->second.modId.c_str(), mid.c_str());
+        }
+    }
+    merged_->map[k] = ModOverride::Src{c.archive, item.path, modIndex, mid, item.size};
+    ++c.st.entries;
+}
+
+// Every file of one Loaded pack, sorted into side files, whole files / new entries, text lines and entry overrides.
+void ModManager::mergePack(PackCandidate& c, size_t modIndex, std::map<std::string, std::string>& textOwner) {
+    const std::string mid = c.st.manifest.id;
+    const std::string root = asciiLower(c.prefix) + "overrides/";
+    const std::string filesRoot = asciiLower(c.prefix) + "files/", newRoot = asciiLower(c.prefix) + "new/";
+    const std::shared_ptr<GlyphMap> glyphs = readGlyphMap(c, root);
+    registerLevels(c);
+    for (auto& item : c.archive->list()) {
+        const std::string lowPath = asciiLower(item.path);
+        if (takeSideFile(c, item, lowPath))
+            continue;
+        if (lowPath.rfind(filesRoot, 0) == 0 || lowPath.rfind(newRoot, 0) == 0) {
+            mergeFileOrNewEntry(c, item, lowPath, modIndex);
+            continue;
+        }
+        if (lowPath.rfind(root, 0) != 0)
+            continue;
+        std::string rest = item.path.substr(root.size()); // <FILE>/<name>
+        size_t sl = rest.find('/');
+        if (sl == std::string::npos || sl == 0 || rest.find('/', sl + 1) != std::string::npos)
+            continue;
+        std::string file = asciiUpper(rest.substr(0, sl)), name = rest.substr(sl + 1);
+        if (asciiLower(name) == "text.ini")
+            mergeTextIni(c, item, file, glyphs.get(), textOwner);
+        else
+            mergeOverrideEntry(c, item, file, name, modIndex);
+    }
+    computeBuildId(c);
+    c.st.message = loadSummary(c.st);
+    logf("mods: loaded '%s' %s (%s): %s", mid.c_str(), c.st.manifest.version.c_str(), c.st.key.c_str(),
+         c.st.message.c_str());
+    if (c.st.content)
+        logf("mods: '%s' build %s (%s)", mid.c_str(), c.st.build.c_str(),
+             c.st.buildDeclared ? "from the manifest" : "content hash");
+}
+
 size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<std::string, bool>>& order) {
     status_.clear();
     conflicts_.clear();
-    std::vector<Cand> cands;
-    // locate every pack by key (folder name or zip stem), case-insensitively
-    std::map<std::string, fs::path> found;
-    std::error_code ec;
-    if (fs::is_directory(modsDir, ec))
-        for (fs::directory_iterator e(modsDir, ec), end; !ec && e != end; e.increment(ec)) {
-            std::error_code sec; // a failed stat skips the entry, not the rest of the scan
-            bool zip = e->is_regular_file(sec) && lowerExt(e->path()) == ".zip";
-            std::string stem;
-            if ((e->is_directory(sec) || zip) && stemOf(e->path(), stem))
-                found.emplace(asciiLower(stem), e->path());
-        }
-    // ---- phase A: manifests and per-pack validation
+    const std::map<std::string, fs::path> found = findPacks(modsDir);
+    // ---- per pack: archive, manifest, cover, disc profile
+    std::vector<PackCandidate> cands;
     for (auto& [key, on] : order) {
-        Cand c;
+        PackCandidate c;
         c.st.key = key;
         c.st.enabled = on;
         auto it = found.find(asciiLower(key));
@@ -1571,25 +2032,8 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             c.st.hasManifest = true;
         else
             c.st.readError = err.empty() ? std::string("cannot be read") : err;
-        if (c.archive && c.st.hasManifest) {
-            // The cover: the pack's picture for the Mods page (names matched case-insensitively, like the scans below).
-            const std::string want1 = asciiLower(c.prefix) + "previews/pack.png",
-                              want2 =
-                                  asciiLower(c.prefix) + "previews/campaign-" + asciiLower(c.st.manifest.id) + ".png";
-            std::string found1, found2;
-            for (const auto& it : c.archive->list()) {
-                const std::string lp = asciiLower(it.path);
-                if (it.size == 0 || it.size > (8u << 20))
-                    continue;
-                if (lp == want1)
-                    found1 = it.path;
-                else if (lp == want2)
-                    found2 = it.path;
-            }
-            const std::string& pick = !found1.empty() ? found1 : found2;
-            if (!pick.empty() && !c.archive->read(pick, c.st.cover))
-                c.st.cover.clear();
-        }
+        if (c.archive && c.st.hasManifest)
+            readCover(c); // also for a disabled pack: the Mods page shows it before it is turned on
         if (!on) {
             c.st.state = ModState::Disabled;
             c.st.message = "disabled in mods.ini";
@@ -1597,389 +2041,27 @@ size_t ModManager::load(const std::string& modsDir, const std::vector<std::pair<
             continue;
         }
         c.st.state = ModState::Skipped;
-        if (!c.st.hasManifest) {
+        if (!c.st.hasManifest)
             c.st.message = "invalid pack: " + err;
-        } else {
-            const Manifest& m = c.st.manifest;
-            if (m.format > kManifestFormat)
-                c.st.message = "needs mod format " + std::to_string(m.format) + " (this runtime reads up to " +
-                               std::to_string(kManifestFormat) + ")";
-            else if (m.profiles.empty() && m.profileHashes.empty())
-                c.st.message = "manifest has no target profile (set target.profile = \"" + profile_.id + "\" or \"*\")";
-            else {
-                bool pOk = m.profiles.empty(), hOk = m.profileHashes.empty();
-                for (auto& p : m.profiles)
-                    if (p == "*" || asciiLower(p) == asciiLower(profile_.id))
-                        pOk = true;
-                for (auto& h : m.profileHashes) {
-                    u64 v;
-                    if (parseHex64(h, v) && v == profile_.hash)
-                        hOk = true;
-                }
-                if (!pOk || !hOk) {
-                    std::string want;
-                    for (auto& p : m.profiles)
-                        want += (want.empty() ? "" : ",") + p;
-                    for (auto& h : m.profileHashes)
-                        want += (want.empty() ? "" : ",") + h;
-                    c.st.message = "targets disc profile " + want + " but this build is " + profile_.id + " (" +
-                                   hex64(profile_.hash) + ")";
-                } else
-                    c.st.state = ModState::Loaded; // provisional
-            }
-        }
+        else if (c.st.message = packRefusal(c.st.manifest, profile_); c.st.message.empty())
+            c.st.state = ModState::Loaded; // provisional: ids and dependencies are checked below
         if (c.st.state == ModState::Skipped)
             logf("mods: skipping '%s': %s", key.c_str(), c.st.message.c_str());
         cands.push_back(std::move(c));
     }
-    // ---- duplicate ids: the earlier pack keeps the id
-    {
-        std::map<std::string, std::string> seen;
-        for (auto& c : cands)
-            if (c.st.state == ModState::Loaded) {
-                auto r = seen.emplace(c.st.manifest.id, c.st.key);
-                if (!r.second) {
-                    c.st.state = ModState::Skipped;
-                    c.st.message = "id '" + c.st.manifest.id + "' is already used by '" + r.first->second + "'";
-                    logf("mods: skipping '%s': %s", c.st.key.c_str(), c.st.message.c_str());
-                }
-            }
-    }
-    // ---- dependencies, to a fixpoint
-    for (bool changed = true; changed;) {
-        changed = false;
-        for (auto& c : cands) {
-            if (c.st.state != ModState::Loaded)
-                continue;
-            for (auto& d : c.st.manifest.dependencies) {
-                std::string id = d, req;
-                size_t op = d.find(">=");
-                if (op != std::string::npos) {
-                    id = d.substr(0, op);
-                    req = trim(d.substr(op + 2));
-                }
-                id = trim(id);
-                const Cand* dep = nullptr;
-                for (auto& o : cands)
-                    if (o.st.state == ModState::Loaded && o.st.manifest.id == id)
-                        dep = &o;
-                std::string why;
-                if (!dep)
-                    why = "needs '" + id + "', which is not installed, not enabled or was skipped";
-                else if (!req.empty() && compareVersions(dep->st.manifest.version, req) < 0)
-                    why = "needs '" + id + "' >= " + req + " but " + dep->st.manifest.version + " is installed";
-                if (!why.empty()) {
-                    c.st.state = ModState::Skipped;
-                    c.st.message = why;
-                    logf("mods: skipping '%s': %s", c.st.key.c_str(), why.c_str());
-                    changed = true;
-                    break;
-                }
-            }
-        }
-    }
-    // ---- load order hints (warnings only; the mods.ini order is authoritative)
-    {
-        std::map<std::string, size_t> pos;
-        for (size_t i = 0; i < cands.size(); ++i)
-            if (cands[i].st.state == ModState::Loaded)
-                pos[cands[i].st.manifest.id] = i;
-        for (size_t i = 0; i < cands.size(); ++i) {
-            if (cands[i].st.state != ModState::Loaded)
-                continue;
-            const Manifest& m = cands[i].st.manifest;
-            auto after = m.loadAfter;
-            for (auto& d : m.dependencies)
-                after.push_back(trim(d.substr(0, d.find(">="))));
-            for (auto& a : after) {
-                auto it = pos.find(a);
-                if (it != pos.end() && it->second > i)
-                    logf("mods: '%s' asks to load after '%s' but mods.ini lists it later", m.id.c_str(), a.c_str());
-            }
-            for (auto& b : m.loadBefore) {
-                auto it = pos.find(b);
-                if (it != pos.end() && it->second < i)
-                    logf("mods: '%s' asks to load before '%s' but mods.ini lists it earlier", m.id.c_str(), b.c_str());
-            }
-        }
-    }
-    // ---- scan entries and merge, in load order
+    rejectDuplicateIds(cands);
+    resolveDependencies(cands);
+    warnLoadOrder(cands);
+    // ---- merge, in load order
+    resetMerged();
     size_t loaded = 0, modIndex = 0;
     std::map<std::string, std::string> textOwner; // "FILE|id.lang" -> mod id
-    merged_->map.clear();
-    files_.clear();
-    newEntries_.clear();
-    levelDefs_.clear();
-    extraLevels_.clear();
-    mapFiles_.clear();
-    previewFiles_.clear();
-    uiFiles_.clear();
-    creditsFiles_.clear();
-    soundSwapFiles_.clear();
-    bowAimFiles_.clear();
-    crystalFiles_.clear();
-    texts_ = std::make_shared<XdbTextOverride>();
-    textCount_ = 0;
     for (auto& c : cands) {
-        if (c.st.state != ModState::Loaded) {
-            status_.push_back(std::move(c.st));
-            continue;
+        if (c.st.state == ModState::Loaded) {
+            mergePack(c, ++modIndex, textOwner);
+            textCount_ += c.st.texts;
+            ++loaded;
         }
-        const std::string mid = c.st.manifest.id;
-        const std::string root = asciiLower(c.prefix) + "overrides/";
-        const std::string filesRoot = asciiLower(c.prefix) + "files/", newRoot = asciiLower(c.prefix) + "new/";
-        size_t nEntries = 0, nTexts = 0, nRejected = 0, nFiles = 0, nNew = 0, nLevels = 0;
-        ++modIndex;
-        // The pack's glyph map (overrides/INTERFCE.TXD/glyphs.ini) is read before any of its text.ini files, whatever
-        // the archive order; it only affects text.ini files that declare `encoding = utf-8`.
-        std::shared_ptr<GlyphMap> glyphs;
-        {
-            const std::string glyphPath = root + asciiLower(kGlyphMapDir) + "/" + kGlyphMapName;
-            for (auto& it : c.archive->list()) {
-                if (asciiLower(it.path) != glyphPath)
-                    continue;
-                std::vector<u8> b;
-                if (it.size <= (64u << 10) && c.archive->read(it.path, b))
-                    glyphs = parseGlyphMap(std::string(b.begin(), b.end()), "mod " + mid + ": " + it.path);
-                else
-                    logf("mods: %s: cannot read %s", mid.c_str(), it.path.c_str());
-                break;
-            }
-        }
-        for (const std::string& ln : c.st.manifest.levels) {
-            std::string why;
-            if (!validLevelName(ln, why)) {
-                ++nRejected;
-                logf("mods: %s: ignoring level '%s': %s", mid.c_str(), ln.c_str(), why.c_str());
-                continue;
-            }
-            bool dup = false;
-            for (auto& d : levelDefs_)
-                if (asciiLower(d.name) == asciiLower(ln)) {
-                    dup = true;
-                    logf("mods: conflict: level '%s' is registered by '%s' and '%s'; '%s' keeps it", ln.c_str(),
-                         d.modId.c_str(), mid.c_str(), d.modId.c_str());
-                    conflicts_.push_back({"level " + ln, d.modId, mid});
-                }
-            if (!dup) {
-                std::string copyOf;
-                for (const std::string& lc : c.st.manifest.levelCopies) {
-                    const size_t eq = lc.find('=');
-                    if (eq != std::string::npos && asciiLower(trim(lc.substr(0, eq))) == asciiLower(ln))
-                        copyOf = trim(lc.substr(eq + 1));
-                }
-                levelDefs_.push_back({ln, mid, "\\Levels\\" + ln + "\\" + ln + ".lvl", -1, copyOf});
-                ++nLevels;
-            }
-        }
-        for (auto& it : c.archive->list()) {
-            const std::string lowPath = asciiLower(it.path);
-            if (lowPath == asciiLower(c.prefix) + "gameplay/bows.ini") {
-                std::vector<u8> text;
-                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
-                    bowAimFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
-                continue;
-            }
-            if (lowPath == asciiLower(c.prefix) + "gameplay/crystals.ini") {
-                std::vector<u8> text;
-                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
-                    crystalFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
-                continue;
-            }
-            const std::string mapsRoot = asciiLower(c.prefix) + "maps/";
-            if (lowPath.rfind(mapsRoot, 0) == 0 && lowPath.size() > mapsRoot.size() + 4 &&
-                lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&
-                lowPath.find('/', mapsRoot.size()) == std::string::npos) {
-                std::vector<u8> text;
-                if (it.size <= (1u << 20) && c.archive->read(it.path, text))
-                    mapFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
-                continue;
-            }
-            const std::string uiRoot = asciiLower(c.prefix) + "ui/";
-            if (lowPath.rfind(uiRoot, 0) == 0 && lowPath.size() > uiRoot.size() + 4 &&
-                lowPath.compare(lowPath.size() - 4, 4, ".ini") == 0 &&
-                lowPath.find('/', uiRoot.size()) == std::string::npos) {
-                std::vector<u8> text;
-                if (it.size <= (1u << 20) && c.archive->read(it.path, text))
-                    uiFiles_.emplace_back("mod " + mid + ": " + it.path, std::string(text.begin(), text.end()));
-                continue;
-            }
-            const bool firstCredits = lowPath == asciiLower(c.prefix) + "credits/credits.txt";
-            if (firstCredits || lowPath == asciiLower(c.prefix) + "credits/credits-2.txt") {
-                std::vector<u8> text;
-                if (it.size <= (64u << 10) && c.archive->read(it.path, text)) {
-                    auto& credits = creditsFiles_[mid];
-                    (firstCredits ? credits.first : credits.second).assign(text.begin(), text.end());
-                }
-                continue;
-            }
-            if (lowPath == asciiLower(c.prefix) + "sounds/swaps.ini") {
-                std::vector<u8> text;
-                if (it.size <= (64u << 10) && c.archive->read(it.path, text))
-                    soundSwapFiles_.emplace_back(mid, std::string(text.begin(), text.end()));
-                continue;
-            }
-            const std::string prevRoot = asciiLower(c.prefix) + "previews/";
-            if (lowPath.rfind(prevRoot, 0) == 0 && lowPath.size() > prevRoot.size() + 4 &&
-                lowPath.compare(lowPath.size() - 4, 4, ".png") == 0 &&
-                lowPath.find('/', prevRoot.size()) == std::string::npos) {
-                std::vector<u8> png;
-                if (it.size <= (8u << 20) && c.archive->read(it.path, png))
-                    previewFiles_.emplace_back(it.path.substr(prevRoot.size(), it.path.size() - prevRoot.size() - 4),
-                                               std::move(png));
-                continue;
-            }
-            if (lowPath.rfind(filesRoot, 0) == 0 || lowPath.rfind(newRoot, 0) == 0) {
-                const bool isFile = lowPath.rfind(filesRoot, 0) == 0;
-                const std::string rest = it.path.substr((isFile ? filesRoot : newRoot).size());
-                if (rest.empty() || rest.back() == '/')
-                    continue;
-                const u64 cap = isFile ? limits_.maxWholeFile : limits_.maxFileBytes;
-                if (it.size == 0 || it.size > cap) {
-                    ++nRejected;
-                    logf("mods: %s: rejecting %s: %llu bytes (allowed 1..%llu)", mid.c_str(), it.path.c_str(),
-                         (unsigned long long)it.size, (unsigned long long)cap);
-                    continue;
-                }
-                if (isFile) {
-                    const std::string key = manglePath(rest);
-                    auto old = files_.find(key);
-                    if (old != files_.end() && old->second.modId != mid) {
-                        conflicts_.push_back({"file " + key, mid, old->second.modId});
-                        logf("mods: conflict: file %s from '%s' and '%s'; '%s' wins", key.c_str(),
-                             old->second.modId.c_str(), mid.c_str(), mid.c_str());
-                    }
-                    files_[key] = PackSource{c.archive, it.path, modIndex, mid, it.size};
-                    ++nFiles;
-                } else {
-                    const size_t sl = rest.find('/');
-                    const std::string nm = sl == std::string::npos ? std::string() : rest.substr(sl + 1);
-                    NewEntryKey k;
-                    if (sl == std::string::npos || nm.find('/') != std::string::npos || nm.size() < 5 ||
-                        asciiLower(nm.substr(nm.size() - 4)) != ".bin" ||
-                        !parseEntryName(nm.substr(0, nm.size() - 4), k.type, k.id, k.sub) || k.sub == 0xFFFF) {
-                        ++nRejected;
-                        logf("mods: %s: ignoring %s (want new/<FILE>/<type hex>_<id>_<sub>.bin with an exact sub)",
-                             mid.c_str(), it.path.c_str());
-                        continue;
-                    }
-                    k.file = asciiUpper(rest.substr(0, sl));
-                    auto old = newEntries_.find(k);
-                    if (old != newEntries_.end() && old->second.modId != mid) {
-                        conflicts_.push_back({"new " + k.file, mid, old->second.modId});
-                        logf("mods: conflict: new entry %s %04x/%u/%u from '%s' and '%s'; '%s' wins", k.file.c_str(),
-                             k.type, k.id, k.sub, old->second.modId.c_str(), mid.c_str(), mid.c_str());
-                    }
-                    newEntries_[k] = PackSource{c.archive, it.path, modIndex, mid, it.size};
-                    ++nNew;
-                }
-                continue;
-            }
-            if (asciiLower(it.path).rfind(root, 0) != 0)
-                continue;
-            std::string rest = it.path.substr(root.size()); // <FILE>/<name>
-            size_t sl = rest.find('/');
-            if (sl == std::string::npos || sl == 0 || rest.find('/', sl + 1) != std::string::npos)
-                continue;
-            std::string file = asciiUpper(rest.substr(0, sl)), name = rest.substr(sl + 1);
-            if (asciiLower(name) == "text.ini") {
-                std::vector<u8> b;
-                if (!c.archive->read(it.path, b)) {
-                    ++nRejected;
-                    logf("mods: %s: cannot read %s", mid.c_str(), it.path.c_str());
-                    continue;
-                }
-                std::string content(b.begin(), b.end());
-                nTexts += texts_->loadIni(file, content, glyphs.get());
-                size_t p = content.compare(0, 3, "\xEF\xBB\xBF") == 0 ? 3 : 0; // UTF-8 BOM, as loadIni
-                while (p < content.size()) {
-                    size_t e = content.find('\n', p);
-                    std::string ln = trim(content.substr(p, e == std::string::npos ? std::string::npos : e - p));
-                    p = e == std::string::npos ? content.size() : e + 1;
-                    size_t eq = ln.find('=');
-                    if (ln.empty() || ln[0] == ';' || ln[0] == '#' || eq == std::string::npos ||
-                        isTextIniDirective(ln.substr(0, eq)))
-                        continue;
-                    std::string k = asciiLower(trim(ln.substr(0, eq)));
-                    if (k.find('.') == std::string::npos)
-                        k += ".*";
-                    auto r = textOwner.emplace(file + "|" + k, mid);
-                    if (!r.second && r.first->second != mid) {
-                        conflicts_.push_back({file + " text " + k, mid, r.first->second});
-                        logf("mods: conflict: %s text %s set by '%s' and '%s'; '%s' wins", file.c_str(), k.c_str(),
-                             r.first->second.c_str(), mid.c_str(), mid.c_str());
-                        r.first->second = mid;
-                    }
-                }
-                continue;
-            }
-            if (name.size() < 5 || asciiLower(name.substr(name.size() - 4)) != ".bin")
-                continue;
-            ModOverride::Key k;
-            k.file = file;
-            if (!parseEntryName(name.substr(0, name.size() - 4), k.type, k.id, k.sub)) {
-                ++nRejected;
-                logf("mods: %s: ignoring file name %s (want <type hex>_<id>_<sub|x>.bin)", mid.c_str(),
-                     it.path.c_str());
-                continue;
-            }
-            if (it.size == 0 || it.size > limits_.maxFileBytes) {
-                ++nRejected;
-                logf("mods: %s: rejecting %s: %llu bytes (allowed 1..%llu)", mid.c_str(), it.path.c_str(),
-                     (unsigned long long)it.size, (unsigned long long)limits_.maxFileBytes);
-                continue;
-            }
-            // conflicts: same key, or a wildcard sub overlapping a specific one, from an earlier pack
-            for (auto m = merged_->map.lower_bound(ModOverride::Key{k.file, k.type, k.id, 0});
-                 m != merged_->map.end() && m->first.file == k.file && m->first.type == k.type && m->first.id == k.id;
-                 ++m) {
-                bool overlap = m->first.sub == k.sub || m->first.sub == 0xFFFF || k.sub == 0xFFFF;
-                if (overlap && m->second.modId != mid) {
-                    conflicts_.push_back({keyStr(k), mid, m->second.modId});
-                    logf("mods: conflict: %s overlaps %s from '%s'; '%s' wins", keyStr(k).c_str(),
-                         keyStr(m->first).c_str(), m->second.modId.c_str(), mid.c_str());
-                }
-            }
-            merged_->map[k] = ModOverride::Src{c.archive, it.path, modIndex, mid, it.size};
-            ++nEntries;
-        }
-        c.st.entries = nEntries;
-        c.st.texts = nTexts;
-        c.st.rejected = nRejected;
-        c.st.files = nFiles;
-        c.st.added = nNew;
-        c.st.levels = nLevels;
-        { // the save compatibility id (SaveRecord.h, modding.md "Saves and pack builds")
-            std::vector<ContentItem> items;
-            const std::string pre = asciiLower(c.prefix);
-            c.st.buildDeclared = !c.st.manifest.build.empty();
-            for (auto& it : c.archive->list()) {
-                if (asciiLower(it.path).compare(0, pre.size(), pre) != 0 || !isContentPath(it.path.substr(pre.size())))
-                    continue;
-                c.st.content = true;
-                if (c.st.buildDeclared)
-                    break;
-                u32 crc = it.crc;
-                if (!it.hasCrc) { // folder packs: read it once (a pack that names its build is never read here)
-                    std::vector<u8> data;
-                    crc = c.archive->read(it.path, data) ? crc32Of(data.data(), data.size()) : 0;
-                }
-                items.push_back({it.path.substr(pre.size()), it.size, crc});
-            }
-            c.st.build = c.st.buildDeclared ? c.st.manifest.build : hex64(packContentHash(std::move(items)));
-        }
-        c.st.message = std::to_string(nEntries) + " entries, " + std::to_string(nTexts) + " text lines" +
-                       (nFiles ? ", " + std::to_string(nFiles) + " files" : std::string()) +
-                       (nNew ? ", " + std::to_string(nNew) + " new entries" : std::string()) +
-                       (nLevels ? ", " + std::to_string(nLevels) + " levels" : std::string()) +
-                       (nRejected ? ", " + std::to_string(nRejected) + " rejected" : std::string());
-        logf("mods: loaded '%s' %s (%s): %s", mid.c_str(), c.st.manifest.version.c_str(), c.st.key.c_str(),
-             c.st.message.c_str());
-        if (c.st.content)
-            logf("mods: '%s' build %s (%s)", mid.c_str(), c.st.build.c_str(),
-                 c.st.buildDeclared ? "from the manifest" : "content hash");
-        textCount_ += nTexts;
-        ++loaded;
         status_.push_back(std::move(c.st));
     }
     return loaded;
