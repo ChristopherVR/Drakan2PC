@@ -37,3 +37,11 @@ wartok-poison-shrine.md). The boss starts hidden (flags 0x100) at (301589, 15463
   soft-locks. Rynn placed by the harness stayed at the lever after using it (in combat with a troll), so the full
   lever -> detector -> boss walk from Slot33 was not completed (`qs-L`).
 * No converter or save-upgrade change was made: the boss itself is not at fault.
+
+## Owner's save repaired
+
+Slot33 was rewritten from a play of the save itself: quick load with a private copy of the installed pack whose Timer
+2473 starts at load (`modsA`), the boss woke, left its spawn and circled the shrine, then F5 (`build/harness/wartok-wake`).
+The new save carries the installed pack's stamp (build `493b53de681b8791`, revision 3). Loaded with the installed pack
+(`wartok-verify`): the boss (class `0x1001e`, 200 HP) keeps flying around the shrine. The original is kept in
+`dist/DrakanPC/save-backups/manual/2026-11-28-before-boss-wake/`. The kill, crystal and pickup were not played.
