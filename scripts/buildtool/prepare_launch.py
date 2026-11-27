@@ -28,7 +28,7 @@ def prepare(repo, output, iso, elf, renderer=None, relocate_elf_from=None, moder
     # The runtime INI parser treats this sequence as a trailing comment.
     if any(" ;" in str(p) or "\n" in str(p) or "\r" in str(p) for p in (iso, elf)):
         raise ValueError("ISO/ELF path cannot be represented by the runtime INI parser")
-    source = (Path(repo) / "runtime/input/src/Config.cpp").read_text(encoding="utf-8")
+    source = (Path(repo) / "runtime/input/src/IniSchema.cpp").read_text(encoding="utf-8")
     template = re.search(r'return R"INI\((.*?)\)INI";', source, re.S)
     if not template:
         raise ValueError("Cannot find the authored built-in input template")
