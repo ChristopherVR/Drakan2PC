@@ -439,6 +439,11 @@ void SetupThread(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     sp &= ~0xFu;
     if (stack == 0xFFFFFFFFu) {
         initialStack = sp;
+        // The main stack grows down from sp through [sp - size, sp). Drakan's crt0 asks for 0x40000, which puts it
+        // at 0x1F80000..0x1FC0000, inside the callback stack pool (0x1F00000..0x2000000, filled from the top): the
+        // 17th callback slot would otherwise sit on live main-thread frames.
+        if (stackSize > 0u && stackSize <= sp)
+            runtime->excludeFromAsyncCallbackStacks(sp - stackSize);
     } else if (stack != 0u) {
         initialStack = stack;
     }

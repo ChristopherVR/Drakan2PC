@@ -24,8 +24,13 @@ void sceSifSendCmd(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     const uint32_t dstAddr = readStackU32(rdram, ctx, 16);
     const uint32_t size = readStackU32(rdram, ctx, 20);
     if (size != 0u && srcAddr != 0u && dstAddr != 0u) {
+        // Validate before allocating: the guest-chosen size must fit in IOP RAM.
+        if (!runtime || !runtime->isIopMemoryRange(dstAddr, size)) {
+            setReturnS32(ctx, 0);
+            return;
+        }
         std::vector<uint8_t> payload(size);
-        bool valid = runtime != nullptr;
+        bool valid = true;
         for (uint32_t i = 0; i < size; ++i) {
             const uint8_t* src = getConstMemPtr(rdram, srcAddr + i);
             if (!src) {
@@ -140,7 +145,12 @@ bool isCopyableGuestAddress(uint32_t addr) {
     return false;
 }
 
-bool canAccessEeRange(const uint8_t* rdram, uint32_t address, uint32_t sizeBytes) {
+// Walks [address, address + sizeBytes) as runs of contiguous host memory, with the same per-byte mapping as
+// getMemPtr() (a run ends where the RAM mirror wraps or the scratchpad ends; every address-space boundary
+// isCopyableGuestAddress() tests is a multiple of the RAM size, so it cannot change inside a run). fn(host, done, run)
+// gets each run; the copies are one memcpy per run instead of one lookup per byte.
+template <typename Fn>
+bool forEachEeRun(const uint8_t* rdram, uint32_t address, uint32_t sizeBytes, Fn&& fn) {
     if (!rdram) {
         return false;
     }
@@ -150,26 +160,29 @@ bool canAccessEeRange(const uint8_t* rdram, uint32_t address, uint32_t sizeBytes
     if (sizeBytes - 1u > std::numeric_limits<uint32_t>::max() - address) {
         return false;
     }
-    for (uint32_t i = 0u; i < sizeBytes; ++i) {
-        const uint32_t byteAddress = address + i;
-        if (!isCopyableGuestAddress(byteAddress) || getConstMemPtr(rdram, byteAddress) == nullptr) {
+    for (uint32_t done = 0u; done < sizeBytes;) {
+        const uint32_t at = address + done;
+        const uint32_t run = std::min(sizeBytes - done, guestSpanBytes(at));
+        const uint8_t* host = getConstMemPtr(rdram, at);
+        if (run == 0u || host == nullptr || !isCopyableGuestAddress(at) || !isCopyableGuestAddress(at + run - 1u)) {
             return false;
         }
+        fn(const_cast<uint8_t*>(host), done, run);
+        done += run;
     }
     return true;
+}
+
+bool canAccessEeRange(const uint8_t* rdram, uint32_t address, uint32_t sizeBytes) {
+    return forEachEeRun(rdram, address, sizeBytes, [](uint8_t*, uint32_t, uint32_t) {});
 }
 
 bool readEeRange(const uint8_t* rdram, uint32_t address, void* destination, uint32_t sizeBytes) {
     if ((!destination && sizeBytes != 0u) || !canAccessEeRange(rdram, address, sizeBytes))
         return false;
     auto* bytes = static_cast<uint8_t*>(destination);
-    for (uint32_t i = 0u; i < sizeBytes; ++i) {
-        const uint8_t* source = getConstMemPtr(rdram, address + i);
-        if (!source)
-            return false;
-        bytes[i] = *source;
-    }
-    return true;
+    return forEachEeRun(rdram, address, sizeBytes,
+                        [bytes](uint8_t* host, uint32_t done, uint32_t run) { std::memcpy(bytes + done, host, run); });
 }
 
 bool writeEeRange(uint8_t* rdram, uint32_t address, const void* source, uint32_t sizeBytes) {
@@ -177,13 +190,8 @@ bool writeEeRange(uint8_t* rdram, uint32_t address, const void* source, uint32_t
         return false;
     ps2TraceGuestRangeWrite(rdram, address, sizeBytes, "SIF IOP-to-EE DMA", nullptr);
     const auto* bytes = static_cast<const uint8_t*>(source);
-    for (uint32_t i = 0u; i < sizeBytes; ++i) {
-        uint8_t* destination = getMemPtr(rdram, address + i);
-        if (!destination)
-            return false;
-        *destination = bytes[i];
-    }
-    return true;
+    return forEachEeRun(rdram, address, sizeBytes,
+                        [bytes](uint8_t* host, uint32_t done, uint32_t run) { std::memcpy(host, bytes + done, run); });
 }
 } // namespace
 
@@ -357,10 +365,14 @@ void sceSifGetOtherData(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) 
                                         });
     }
 
-    std::vector<uint8_t> payload(size);
-    if (!runtime || !runtime->isIopMemoryRange(srcAddr, size) || !canAccessEeRange(rdram, dstAddr, size) ||
-        !runtime->readIopMemory(srcAddr, payload.data(), payload.size()) ||
-        !writeEeRange(rdram, dstAddr, payload.data(), size)) {
+    // Validate before allocating: the IOP range check caps the guest-chosen size at IOP RAM.
+    bool copied = runtime && runtime->isIopMemoryRange(srcAddr, size) && canAccessEeRange(rdram, dstAddr, size);
+    if (copied) {
+        std::vector<uint8_t> payload(size);
+        copied = runtime->readIopMemory(srcAddr, payload.data(), payload.size()) &&
+                 writeEeRange(rdram, dstAddr, payload.data(), size);
+    }
+    if (!copied) {
         static uint32_t warnCount = 0;
         if (warnCount < 32u) {
             PS2_IF_AGRESSIVE_LOGS({

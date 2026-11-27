@@ -168,9 +168,15 @@ void EeScheduler::reset(uint8_t* rdram, const R5900Context& mainContext) {
     {
         std::lock_guard lock(m_eventMutex);
         m_events.clear();
+        // Cleared with the events that would run them: a HostTask event pops the front task and a DelayedCall
+        // deadline names its call, so a leftover entry would pair every later event with the wrong task.
+        m_hostTasks.clear();
         m_deadlines.clear();
         m_pendingInvocations.clear();
     }
+    m_delayedCalls.clear();
+    m_invocationStacks.clear();
+    m_liveContext.store(nullptr, std::memory_order_relaxed);
     m_eventSequence = 0;
     m_invocationSequence = 0;
     m_vsyncTick = 0;
@@ -197,7 +203,7 @@ void EeScheduler::reset(uint8_t* rdram, const R5900Context& mainContext) {
     m_readyQueues[0].push_back(kMainThreadId);
     scheduleEvent(m_eeCycle + kVBlankPeriodCycles, std::chrono::steady_clock::now() + kVBlankPeriod,
                   EeEvent{EeEventType::VBlankStart, 0, 0});
-    publishSnapshot();
+    publishSnapshotNow();
 }
 
 void EeScheduler::run() {
@@ -244,7 +250,11 @@ void EeScheduler::run() {
             if (!next && m_pendingInvocations.empty()) {
                 copyMainContextToRuntime();
                 publishIdleDebugContext();
-                publishSnapshot();
+                // Every guest thread is blocked, so their contexts only change through kernel operations, which
+                // mark the snapshot dirty.
+                if (m_snapshotDirty) {
+                    publishSnapshotNow();
+                }
                 {
                     drakan_runtime_profile::Scope profile(drakan_runtime_profile::SchedulerIdle);
                     waitForEvent();
@@ -283,7 +293,7 @@ void EeScheduler::run() {
         R5900Context& context = running->activeContext();
         if (m_debugPublishCountdown == 0u) {
             copyMainContextToRuntime();
-            publishSnapshot();
+            publishSnapshotNow(); // unconditional: also refreshes the pcs of threads that ran without a kernel call
             m_debugPublishCountdown = kDebugPublishDispatchInterval - 1u;
         } else {
             --m_debugPublishCountdown;
@@ -320,7 +330,7 @@ void EeScheduler::run() {
             m_currentThreadId = 0;
             copyMainContextToRuntime();
             publishIdleDebugContext();
-            publishSnapshot();
+            publishSnapshotNow();
             continue;
         }
 
@@ -368,15 +378,20 @@ void EeScheduler::run() {
                 drakan_runtime_profile::Scope profile(drakan_runtime_profile::GuestDispatch);
                 function(m_rdram, &context, &m_runtime);
             }
+            // The context may be an invocation's, freed by the pop_back above or a later push_back, and other host
+            // threads (stall detector, crash handler) read this pointer: publish it only while guest code runs on it.
+            m_liveContext.store(nullptr, std::memory_order_relaxed);
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
         } catch (const EeDispatcherTransfer&) {
+            m_liveContext.store(nullptr, std::memory_order_relaxed);
             m_guestExecuting.store(false, std::memory_order_release);
             m_insideInterrupt = false;
         } catch (...) {
+            m_liveContext.store(nullptr, std::memory_order_relaxed);
             m_guestExecuting.store(false, std::memory_order_release);
             m_running.store(false, std::memory_order_release);
-            publishSnapshot();
+            publishSnapshotNow();
             throw;
         }
 
@@ -400,7 +415,7 @@ void EeScheduler::run() {
     m_guestExecuting.store(false, std::memory_order_release);
     m_running.store(false, std::memory_order_release);
     copyMainContextToRuntime();
-    publishSnapshot();
+    publishSnapshotNow();
 }
 
 void EeScheduler::requestStop() {
@@ -528,8 +543,16 @@ void EeScheduler::accountCycles(uint32_t cycles) noexcept {
 
 bool EeScheduler::sampleLive(uint32_t& pc, uint32_t& ra, uint32_t& sp, int& tid) const noexcept {
     const R5900Context* c = m_liveContext.load(std::memory_order_relaxed);
-    if (!c)
-        return false;
+    if (!c) {
+        // Between dispatches or idle: the copy run() publishes at every dispatch and when it goes idle.
+        if (!m_running.load(std::memory_order_acquire))
+            return false;
+        pc = m_runtime.m_debugPc.load(std::memory_order_relaxed);
+        ra = m_runtime.m_debugRa.load(std::memory_order_relaxed);
+        sp = m_runtime.m_debugSp.load(std::memory_order_relaxed);
+        tid = m_liveThreadId.load(std::memory_order_relaxed);
+        return true;
+    }
     pc = c->pc;
     ra = static_cast<uint32_t>(_mm_extract_epi32(c->r[31], 0));
     sp = static_cast<uint32_t>(_mm_extract_epi32(c->r[29], 0));
@@ -608,6 +631,7 @@ int EeScheduler::deleteThread(int id, uint32_t& ownedStack) {
         ownedStack = it->second.stack;
     }
     m_threads.erase(it);
+    m_invocationStacks.releaseThread(id); // dormant, so none of its invocation stacks is live
     publishSnapshot();
     return KE_OK;
 }
@@ -648,10 +672,14 @@ int EeScheduler::startThread(int id, uint32_t arg, const R5900Context& caller, b
     const uint32_t ownedStack = deleteThreadRecord && exiting->ownsStack ? exiting->stack : 0u;
     if (id == kMainThreadId && std::getenv("PS2X_TRACE_RING"))
         ps2TraceRingFlush("main thread exited via ExitThread/exit");
+    // The live context is this thread's or one of its invocations', freed by makeDormant / erase below.
+    m_liveContext.store(nullptr, std::memory_order_relaxed);
     makeDormant(*exiting);
     m_currentThreadId = 0;
     if (deleteThreadRecord && id != kMainThreadId) {
         m_threads.erase(id);
+        // makeDormant dropped its invocations and the transfer below unwinds the guest code that ran on them.
+        m_invocationStacks.releaseThread(id);
     }
     if (ownedStack != 0u) {
         m_runtime.guestFree(ownedStack);
@@ -1138,20 +1166,7 @@ void EeScheduler::queueInvocation(GuestInvocation invocation) {
         dispatcher.initialPriority = hlePriority;
         dispatcher.currentPriority = hlePriority;
         if (getRegU32(&invocation.context, 29) == 0u) {
-            const uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(dispatcher.id)) << 32u) |
-                                 static_cast<uint32_t>(dispatcher.invocations.size());
-            auto existing = m_invocationStackTops.find(key);
-            uint32_t top = 0;
-            if (existing != m_invocationStackTops.end()) {
-                top = existing->second;
-            } else {
-                top = m_runtime.reserveAsyncCallbackStack(0x4000u, 16u);
-                if (top == 0u) {
-                    throw std::runtime_error("EE invocation stack space exhausted");
-                }
-                m_invocationStackTops.emplace(key, top);
-            }
-            SET_GPR_U32(&invocation.context, 29, top);
+            SET_GPR_U32(&invocation.context, 29, invocationStackTopFor(dispatcher));
         }
         if (g_traceSched)
             std::fprintf(stderr,
@@ -1229,6 +1244,7 @@ void EeScheduler::postGuestCall(uint32_t pc, const std::array<uint32_t, 8>& inte
         SET_GPR_U32(&invocation.context, 29, invocationStackTop());
     }
     invocation.sequence = ++m_invocationSequence;
+    m_liveContext.store(nullptr, std::memory_order_relaxed); // the push may reallocate the live invocation context
     owner->invocations.push_back(std::move(invocation));
     publishSnapshot();
     throw EeDispatcherTransfer{};
@@ -1239,6 +1255,7 @@ void EeScheduler::postGuestCall(uint32_t pc, const std::array<uint32_t, 8>& inte
     GuestThread* owner = currentThread();
     assert(owner != nullptr);
     assert(!invocations.empty());
+    m_liveContext.store(nullptr, std::memory_order_relaxed); // the pushes may reallocate the live invocation context
     for (auto it = invocations.rbegin(); it != invocations.rend(); ++it) {
         if (getRegU32(&it->context, 29) == 0u) {
             SET_GPR_U32(&it->context, 29, invocationStackTop());
@@ -1266,19 +1283,16 @@ uint32_t EeScheduler::invocationStackTop() {
     if (!owner) {
         throw std::logic_error("EE invocation stack requested without a current guest context");
     }
-    const size_t depth = owner ? owner->invocations.size() : 0u;
-    const uint64_t key =
-        (static_cast<uint64_t>(static_cast<uint32_t>(owner->id)) << 32u) | static_cast<uint32_t>(depth);
-    const auto existing = m_invocationStackTops.find(key);
-    if (existing != m_invocationStackTops.end()) {
-        return existing->second;
-    }
-    constexpr uint32_t kInvocationStackSize = 0x4000u;
-    const uint32_t top = m_runtime.reserveAsyncCallbackStack(kInvocationStackSize, 16u);
+    return invocationStackTopFor(*owner);
+}
+
+uint32_t EeScheduler::invocationStackTopFor(const GuestThread& owner) {
+    const uint32_t top = m_invocationStacks.acquire(owner.id, owner.invocations.size(), [this](uint32_t size) {
+        return m_runtime.reserveAsyncCallbackStack(size, 16u);
+    });
     if (top == 0u) {
         throw std::runtime_error("EE invocation stack space exhausted");
     }
-    m_invocationStackTops.emplace(key, top);
     return top;
 }
 
@@ -1517,7 +1531,8 @@ EeKernelSnapshot EeScheduler::snapshot() const {
     return m_snapshot;
 }
 
-void EeScheduler::publishSnapshot() {
+void EeScheduler::publishSnapshotNow() {
+    m_snapshotDirty = false;
     EeKernelSnapshot next{};
     next.sequence = ++m_snapshotSequence;
     next.eeCycle = m_eeCycle;

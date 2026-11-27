@@ -182,6 +182,29 @@ inline const uint8_t* getConstMemPtr(const uint8_t* rdram, uint32_t addr) {
     return rdram + offset;
 }
 
+// Bytes of contiguous host memory from guest address `addr` to the end of its block (guest RAM or the 16 KB
+// scratchpad). getMemPtr() only guarantees one valid byte, so a guest-chosen length must be checked against this.
+inline uint32_t guestSpanBytes(uint32_t addr) {
+    uint32_t offset = 0;
+    bool scratch = false;
+    if (!ps2ResolveGuestPointer(addr, offset, scratch)) {
+        return 0u;
+    }
+    if (scratch) {
+        return offset < PS2_SCRATCHPAD_SIZE ? PS2_SCRATCHPAD_SIZE - offset : 0u;
+    }
+    return offset < PS2_RAM_SIZE ? PS2_RAM_SIZE - offset : 0u;
+}
+
+// Host pointer to `size` guest bytes at `addr`, or null unless the whole range is contiguous host memory.
+inline uint8_t* resolveGuestSpan(uint8_t* rdram, uint32_t addr, size_t size) {
+    return size <= guestSpanBytes(addr) ? getMemPtr(rdram, addr) : nullptr;
+}
+
+inline const uint8_t* resolveGuestSpan(const uint8_t* rdram, uint32_t addr, size_t size) {
+    return size <= guestSpanBytes(addr) ? getConstMemPtr(rdram, addr) : nullptr;
+}
+
 // PS2 GS (Graphics Synthesizer) registers
 struct GSRegisters {
     uint64_t pmode;    // Pixel mode

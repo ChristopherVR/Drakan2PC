@@ -861,7 +861,7 @@ void sceGsSetDefDrawEnv(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) 
     seedGsDrawEnv1(env, w, h, 0u, fbw, psm, static_cast<uint32_t>(zbuf), param_6 & 0xFu, param_5 & 0x3u,
                    (param_2 & 2u) != 0u);
 
-    uint8_t* const ptr = getMemPtr(rdram, envAddr);
+    uint8_t* const ptr = resolveGuestSpan(rdram, envAddr, sizeof(env));
     if (!ptr) {
         setReturnS32(ctx, 8);
         return;
@@ -894,7 +894,7 @@ void sceGsSetDefDrawEnv2(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime)
     seedGsDrawEnv2(env, w, h, 0u, fbw, psm, static_cast<uint32_t>(zbuf), param_6 & 0xFu, param_5 & 0x3u,
                    (param_2 & 2u) != 0u);
 
-    uint8_t* const ptr = getMemPtr(rdram, envAddr);
+    uint8_t* const ptr = resolveGuestSpan(rdram, envAddr, sizeof(env));
     if (!ptr) {
         setReturnS32(ctx, 8);
         return;

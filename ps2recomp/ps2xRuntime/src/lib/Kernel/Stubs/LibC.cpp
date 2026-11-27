@@ -550,8 +550,12 @@ void sprintf(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         }
 
         std::string rendered = formatPs2StringWithArgs(rdram, ctx, runtime, formatOwned.c_str(), 2);
-        if (rendered.size() >= kSafeSprintfBytes) {
-            rendered.resize(kSafeSprintfBytes - 1);
+        // Deliberately cut at 255 characters (unlike the real sprintf): the cap predates this port's history and
+        // guards guest stack buffers; lifting it needs a gameplay check. Also bounded by contiguous guest memory.
+        const size_t span = guestSpanBytes(str_addr);
+        const size_t limit = span != 0u ? std::min(span, kSafeSprintfBytes) : kSafeSprintfBytes;
+        if (rendered.size() >= limit) {
+            rendered.resize(limit - 1u);
         }
         const size_t writeLen = rendered.size() + 1u;
         if (writeGuestBytes(rdram, runtime, str_addr, reinterpret_cast<const uint8_t*>(rendered.c_str()), writeLen)) {
@@ -689,6 +693,8 @@ void fread(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     FILE* fp = get_file_ptr(file_handle);
 
     if (hostPtr && fp && size > 0 && count > 0) {
+        // Read at most the elements that fit in contiguous guest memory (getMemPtr() only checks the first byte).
+        count = std::min(count, guestSpanBytes(ptrAddr) / size);
         items_read = ::fread(hostPtr, size, count, fp);
     } else {
         std::cerr << "fread error: Invalid arguments."
@@ -1006,8 +1012,11 @@ void vsprintf(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
 
     if (format_addr != 0) {
         std::string rendered = formatPs2StringWithVaList(rdram, runtime, formatOwned.c_str(), va_list_addr);
-        if (rendered.size() >= kSafeVsprintfBytes) {
-            rendered.resize(kSafeVsprintfBytes - 1);
+        // Cut at 255 characters as in sprintf, and bounded by contiguous guest memory.
+        const size_t span = guestSpanBytes(str_addr);
+        const size_t limit = span != 0u ? std::min(span, kSafeVsprintfBytes) : kSafeVsprintfBytes;
+        if (rendered.size() >= limit) {
+            rendered.resize(limit - 1u);
         }
         if (writeGuestBytes(rdram, runtime, str_addr, reinterpret_cast<const uint8_t*>(rendered.c_str()),
                             rendered.size() + 1u)) {

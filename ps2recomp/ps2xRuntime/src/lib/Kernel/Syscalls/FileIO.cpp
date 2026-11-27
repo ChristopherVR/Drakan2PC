@@ -95,6 +95,9 @@ void fioRead(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         setReturnS32(ctx, 0); // Read 0 bytes
         return;
     }
+    // getMemPtr() only vouches for the first byte: a read running past the end of guest RAM or the scratchpad becomes
+    // a short read instead of a host heap overrun.
+    size = std::min<size_t>(size, guestSpanBytes(bufAddr));
 
     const int64_t readResult = runtime->vfs().read(ps2Fd, hostBuf, size);
     if (readResult < 0) {

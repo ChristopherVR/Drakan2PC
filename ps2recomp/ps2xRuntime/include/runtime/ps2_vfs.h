@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <memory>
@@ -14,6 +15,19 @@
 #include <vector>
 
 class PS2RomDevice;
+
+// fopen for a host path. On Windows path::string() throws for a name outside the ANSI code page (a play folder under a
+// CJK user name), so the wide path is opened directly there.
+inline std::FILE* ps2OpenHostFile(const std::filesystem::path& path, const char* mode) {
+#if defined(_WIN32)
+    std::wstring wideMode;
+    for (const char* c = mode; *c != '\0'; ++c)
+        wideMode.push_back(static_cast<wchar_t>(*c));
+    return ::_wfopen(path.c_str(), wideMode.c_str());
+#else
+    return std::fopen(path.c_str(), mode);
+#endif
+}
 
 struct PS2VfsMounts {
     std::filesystem::path hostRoot;

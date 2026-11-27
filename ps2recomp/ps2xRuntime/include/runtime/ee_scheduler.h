@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ps2_runtime.h"
+#include "runtime/ee_invocation_stacks.h"
 
 #include <array>
 #include <atomic>
@@ -357,7 +358,9 @@ public:
     // freed when the invocation ends)?
     [[nodiscard]] bool currentContextIsInvocation() const noexcept;
     const R5900Context* liveContextForCrash() const noexcept { return m_liveContext.load(std::memory_order_relaxed); }
-    void publishSnapshot();
+    // Marks the kernel snapshot stale. run() rebuilds it every kDebugPublishDispatchInterval dispatches and whenever
+    // the executor goes idle (rebuilding it on every semaphore / event operation cost a sort and a lock each time).
+    void publishSnapshot() noexcept { m_snapshotDirty = true; }
 
 private:
     struct ScheduledEvent {
@@ -395,6 +398,8 @@ private:
     void copyMainContextToRuntime();
     void publishDebugContext(const R5900Context& context);
     void publishIdleDebugContext();
+    void publishSnapshotNow();
+    [[nodiscard]] uint32_t invocationStackTopFor(const GuestThread& owner);
 
     PS2Runtime& m_runtime;
     uint8_t* m_rdram = nullptr;
@@ -451,10 +456,11 @@ private:
     uint32_t m_gsVSyncCallback = 0;
     uint32_t m_gsVSyncCallbackGp = 0;
     uint32_t m_gsVSyncCallbackSp = 0;
-    std::unordered_map<uint64_t, uint32_t> m_invocationStackTops;
+    EeInvocationStacks m_invocationStacks;
     std::atomic<uint64_t> m_nextDeadlineCycle{0};
 
     mutable std::mutex m_snapshotMutex;
     EeKernelSnapshot m_snapshot;
     uint64_t m_snapshotSequence = 0;
+    bool m_snapshotDirty = false; // executor thread only
 };

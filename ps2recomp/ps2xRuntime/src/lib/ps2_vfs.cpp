@@ -162,11 +162,11 @@ int32_t PS2Vfs::open(std::string_view path, uint32_t flags, const PS2VfsMounts& 
             return -1;
         }
 
-        FILE* stream = std::fopen(hostPath.string().c_str(), hostMode(flags));
+        FILE* stream = ps2OpenHostFile(hostPath, hostMode(flags));
         const uint32_t access = flags & PS2_FIO_O_RDWR;
         if (!stream && !exists && (flags & PS2_FIO_O_CREAT) != 0u && access == PS2_FIO_O_RDWR &&
             (flags & (PS2_FIO_O_TRUNC | PS2_FIO_O_APPEND)) == 0u) {
-            stream = std::fopen(hostPath.string().c_str(), "w+b");
+            stream = ps2OpenHostFile(hostPath, "w+b");
         }
         if (!stream)
             return -1;

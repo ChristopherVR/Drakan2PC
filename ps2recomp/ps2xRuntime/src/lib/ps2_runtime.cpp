@@ -17,6 +17,8 @@
 #if defined(_WIN32)
 #include "drakan_fpsmeter.h"
 #include "drakan_log.h"
+// kernel32 (no <windows.h> here: its macros collide with raylib's names)
+extern "C" __declspec(dllimport) int __stdcall SetThreadStackGuarantee(unsigned long* stackSizeInBytes);
 #endif
 void drakanShutdownAudio(); // drakan_overrides.cpp
 void ps2PollHostPad();      // Window thread snapshot for the portable libpad backend.
@@ -2220,6 +2222,12 @@ uint32_t PS2Runtime::reserveAsyncCallbackStack(uint32_t size, uint32_t alignment
     return top - 0x10u;
 }
 
+void PS2Runtime::excludeFromAsyncCallbackStacks(uint32_t low) {
+    std::lock_guard<std::mutex> lock(m_asyncCallbackStackMutex);
+    if (low < m_asyncCallbackStackTop)
+        m_asyncCallbackStackTop = low & ~(kGuestHeapDefaultAlignment - 1u);
+}
+
 Ps2AliasWatchFn g_ps2AliasWatch = nullptr;
 
 namespace {
@@ -2635,6 +2643,16 @@ void PS2Runtime::run() {
     drakan_input::boostThread(drakan_input::ThreadRole::Frame); // this (host + present) thread
     std::thread gameThread([&]() {
         ThreadNaming::SetCurrentThreadName("GameThread");
+#if defined(_WIN32)
+        // Guest calls nest as host calls on this thread, so a runaway guest recursion ends in EXCEPTION_STACK_OVERFLOW.
+        // Without a guarantee the unhandled-exception filter (drakan_crash.cpp: guest pc / ra, minidump) has only a
+        // few KB left and the crash is silent; reserve room for it.
+        {
+            unsigned long guarantee = 256u * 1024u;
+            if (!SetThreadStackGuarantee(&guarantee))
+                std::fprintf(stderr, "[run] SetThreadStackGuarantee failed\n");
+        }
+#endif
         drakan_input::boostThread(drakan_input::ThreadRole::Frame);
         try {
             m_eeScheduler->reset(m_memory.getRDRAM(), m_cpuContext);

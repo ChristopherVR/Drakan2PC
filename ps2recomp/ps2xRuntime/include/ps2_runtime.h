@@ -377,6 +377,9 @@ public:
     uint32_t guestHeapEnd() const;
     uint32_t guestHeapLimit() const;
     uint32_t reserveAsyncCallbackStack(uint32_t size, uint32_t alignment = 16u);
+    // Keep the callback stack pool below `low`, the lowest address of a stack that is already in use (the main
+    // thread's, from SetupThread), so a callback never runs on top of live main-thread frames.
+    void excludeFromAsyncCallbackStacks(uint32_t low);
 
     void drainCompletedDmacHandlers(uint8_t* rdram);
 

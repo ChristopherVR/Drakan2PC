@@ -29,6 +29,10 @@ target_include_directories(guest_strcpy_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR
 target_compile_features(guest_strcpy_test PRIVATE cxx_std_20)
 drakan_enable_asserts(guest_strcpy_test)
 add_test(NAME guest_strcpy COMMAND guest_strcpy_test)
+# EE invocation stack slots: a deleted thread's slots are reused, a live slot never is (header only).
+add_executable(ee_invocation_stacks_test ee_invocation_stacks_test.cpp)
+target_compile_features(ee_invocation_stacks_test PRIVATE cxx_std_20)
+add_test(NAME ee_invocation_stacks COMMAND ee_invocation_stacks_test)
 include("${DRAKAN_ROOT}/cmake/DiscProfile.cmake")
 foreach(region pal usa)
   add_executable(disc_profile_${region}_test disc_profile_test.cpp

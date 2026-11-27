@@ -388,7 +388,7 @@ FILE* openMcHostFile(const std::filesystem::path& hostPath, uint32_t flags) {
         }
     }
 
-    return std::fopen(hostPath.string().c_str(), mode);
+    return ps2OpenHostFile(hostPath, mode);
 }
 } // namespace
 
@@ -693,24 +693,27 @@ void sceMcGetDir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
                     appendSpecial(".");
                     appendSpecial("..");
 
-                    std::vector<std::filesystem::directory_entry> dirEntries;
-                    for (const auto& entry : std::filesystem::directory_iterator(
-                             hostDir, std::filesystem::directory_options::skip_permission_denied, ec)) {
-                        if (ec) {
-                            break;
+                    // Non-throwing walk: the range-for uses the throwing operator++, and path::string() throws on
+                    // Windows for a name outside the ANSI code page (a CJK file in the save folder). Such a name
+                    // cannot be spelled to the guest, so it is skipped instead of ending the game thread.
+                    std::vector<std::pair<std::string, std::filesystem::directory_entry>> dirEntries;
+                    for (std::filesystem::directory_iterator it(
+                             hostDir, std::filesystem::directory_options::skip_permission_denied, ec);
+                         !ec && it != std::filesystem::directory_iterator(); it.increment(ec)) {
+                        std::string name;
+                        try {
+                            name = it->path().filename().string();
+                        } catch (const std::system_error&) {
+                            continue;
                         }
-                        dirEntries.push_back(entry);
+                        dirEntries.emplace_back(std::move(name), *it);
                     }
 
-                    std::sort(
-                        dirEntries.begin(), dirEntries.end(),
-                        [](const std::filesystem::directory_entry& lhs, const std::filesystem::directory_entry& rhs) {
-                            return toLowerAscii(lhs.path().filename().string()) <
-                                   toLowerAscii(rhs.path().filename().string());
-                        });
+                    std::sort(dirEntries.begin(), dirEntries.end(), [](const auto& lhs, const auto& rhs) {
+                        return toLowerAscii(lhs.first) < toLowerAscii(rhs.first);
+                    });
 
-                    for (const auto& entry : dirEntries) {
-                        const std::string name = entry.path().filename().string();
+                    for (const auto& [name, entry] : dirEntries) {
                         if (!wildcardMatch(pattern, name)) {
                             continue;
                         }
@@ -931,7 +934,8 @@ void sceMcRead(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     const int32_t fd = static_cast<int32_t>(getRegU32(ctx, 4));
     const uint32_t dstAddr = getRegU32(ctx, 5);
     const int32_t size = static_cast<int32_t>(getRegU32(ctx, 6));
-    uint8_t* dst = (size > 0) ? getMemPtr(rdram, dstAddr) : nullptr;
+    // The whole destination must be guest memory (getMemPtr() only checks the first byte).
+    uint8_t* dst = (size > 0) ? resolveGuestSpan(rdram, dstAddr, static_cast<size_t>(size)) : nullptr;
 
     int32_t result = kMcResultNoEntry;
     {

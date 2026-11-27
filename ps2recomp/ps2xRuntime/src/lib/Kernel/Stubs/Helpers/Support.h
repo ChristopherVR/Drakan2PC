@@ -1445,7 +1445,7 @@ static GsSetDefImageArgs decodeGsSetDefImageArgs(uint8_t* rdram, R5900Context* c
 }
 
 static bool readGsImage(uint8_t* rdram, uint32_t addr, GsImageMem& out) {
-    const uint8_t* ptr = getConstMemPtr(rdram, addr);
+    const uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsImageMem));
     if (!ptr)
         return false;
     std::memcpy(&out, ptr, sizeof(out));
@@ -1453,7 +1453,7 @@ static bool readGsImage(uint8_t* rdram, uint32_t addr, GsImageMem& out) {
 }
 
 static bool writeGsImage(uint8_t* rdram, uint32_t addr, const GsImageMem& img) {
-    uint8_t* ptr = getMemPtr(rdram, addr);
+    uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsImageMem));
     if (!ptr)
         return false;
     std::memcpy(ptr, &img, sizeof(img));
@@ -1461,7 +1461,7 @@ static bool writeGsImage(uint8_t* rdram, uint32_t addr, const GsImageMem& img) {
 }
 
 static bool writeGsDispEnv(uint8_t* rdram, uint32_t addr, uint64_t display, uint64_t dispfb) {
-    uint8_t* ptr = getMemPtr(rdram, addr);
+    uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsDispEnvMem));
     if (!ptr)
         return false;
     GsDispEnvMem env{};
@@ -1473,7 +1473,7 @@ static bool writeGsDispEnv(uint8_t* rdram, uint32_t addr, uint64_t display, uint
 }
 
 static bool readGsDispEnv(uint8_t* rdram, uint32_t addr, GsDispEnvMem& out) {
-    const uint8_t* ptr = getConstMemPtr(rdram, addr);
+    const uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsDispEnvMem));
     if (!ptr)
         return false;
     std::memcpy(&out, ptr, sizeof(out));
@@ -1481,7 +1481,7 @@ static bool readGsDispEnv(uint8_t* rdram, uint32_t addr, GsDispEnvMem& out) {
 }
 
 static bool readGsDBuffDc(uint8_t* rdram, uint32_t addr, GsDBuffDcMem& out) {
-    const uint8_t* ptr = getConstMemPtr(rdram, addr);
+    const uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsDBuffDcMem));
     if (!ptr)
         return false;
     std::memcpy(&out, ptr, sizeof(out));
@@ -1489,7 +1489,7 @@ static bool readGsDBuffDc(uint8_t* rdram, uint32_t addr, GsDBuffDcMem& out) {
 }
 
 static bool readGsDBuff(uint8_t* rdram, uint32_t addr, GsDBuffMem& out) {
-    const uint8_t* ptr = getConstMemPtr(rdram, addr);
+    const uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsDBuffMem));
     if (!ptr)
         return false;
     std::memcpy(&out, ptr, sizeof(out));
@@ -1497,7 +1497,7 @@ static bool readGsDBuff(uint8_t* rdram, uint32_t addr, GsDBuffMem& out) {
 }
 
 static bool writeGsDBuffDc(uint8_t* rdram, uint32_t addr, const GsDBuffDcMem& db) {
-    uint8_t* ptr = getMemPtr(rdram, addr);
+    uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsDBuffDcMem));
     if (!ptr)
         return false;
     std::memcpy(ptr, &db, sizeof(db));
@@ -1505,7 +1505,7 @@ static bool writeGsDBuffDc(uint8_t* rdram, uint32_t addr, const GsDBuffDcMem& db
 }
 
 static bool writeGsDBuff(uint8_t* rdram, uint32_t addr, const GsDBuffMem& db) {
-    uint8_t* ptr = getMemPtr(rdram, addr);
+    uint8_t* ptr = resolveGuestSpan(rdram, addr, sizeof(GsDBuffMem));
     if (!ptr)
         return false;
     std::memcpy(ptr, &db, sizeof(db));
@@ -1515,7 +1515,7 @@ static bool writeGsDBuff(uint8_t* rdram, uint32_t addr, const GsDBuffMem& db) {
 static bool readGsRegPairs(uint8_t* rdram, uint32_t addr, GsRegPairMem* pairs, size_t pairCount) {
     if (!pairs || pairCount == 0u)
         return false;
-    const uint8_t* ptr = getConstMemPtr(rdram, addr);
+    const uint8_t* ptr = resolveGuestSpan(rdram, addr, pairCount * sizeof(GsRegPairMem));
     if (!ptr)
         return false;
     std::memcpy(pairs, ptr, pairCount * sizeof(GsRegPairMem));
