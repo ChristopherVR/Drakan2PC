@@ -1525,21 +1525,10 @@ bool startWeaponChange(drakan_input::IGuest& guest, uint32_t ctx) { // g_m held 
     return false;
 }
 
-void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input) {
-    if (!g_enabled.load())
-        return;
-    const drakan_input::FrameInput& f = input.guestMuted() ? input.hostFrame() : input.frame();
-    if (g_debugKeys && f.keyPressed[kDikF9])
-        spawnBody(nullptr, g_defaultCharacter, g_defaultDragon);
-    if (g_debugKeys && f.keyPressed[kDikF10])
-        if (const int id = newestId())
-            destroy(id);
-    const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
-    if (!guest::isHeapPtr(ctx))
-        return;
-    std::lock_guard<std::mutex> l(g_m);
+// ---- the per-frame ghost update (beforePadMgr, EE thread), step by step. Every step runs with g_m held.
 
-    // Liveness: a level change rebuilds the pools; a stale ghost is forgotten, never destroyed through a dead pointer.
+// Liveness: a level change rebuilds the pools; a stale ghost is forgotten, never destroyed through a dead pointer.
+void forgetDeadGhosts(drakan_input::IGuest& guest, uint32_t ctx) {
     const uint32_t table = guest.read32(ctx + 0x7c);
     for (size_t i = 0; i < g_ghosts.size();) {
         Ghost& g = g_ghosts[i];
@@ -1575,8 +1564,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         }
         ++i;
     }
+}
 
-    // Destroy: 0x1413c0(engine, actor) queues the kill, the engine frees it at its next flush.
+// Destroy: 0x1413c0(engine, actor) queues the kill, the engine frees it at its next flush.
+void destroyRequestedGhosts(drakan_input::IGuest& guest, uint32_t ctx) {
     for (size_t i = 0; i < g_ghosts.size();) {
         const Ghost& g = g_ghosts[i];
         if (g.destroyRequested && !g.info.handle && (!g_busy.load() || g_flight.ghostId != g.info.id)) {
@@ -1598,79 +1589,71 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
         }
         ++i;
     }
+}
 
-    ++g_tick;
-    if (g_sinceLoad.load() < kReadyTicks)
-        g_sinceLoad.fetch_add(1);
-    // The world steps by the engine's own dt (ctx+0x24); the wall clock between PadMgr boundaries jitters (host load,
-    // present pacing) and must not time the recording, or the replay stutters.
-    float engineDt = guest.readF(ctx + 0x24);
-    if (!(engineDt > 0.0f && engineDt < 0.25f))
-        engineDt = 1.0f / 60.0f;
-    g_gameTime += static_cast<double>(engineDt);
-    localCharacterTick(guest, ctx);
-    refreshVoiceOwners(guest.read32(ctx + drakan_layout::engine::kControlledActor));
-    if (g_mirror) {
-        // Record the local player and replay the pose from 1.0 s ago beside it (EE thread).
-        world::PlayerPose cur, past;
-        GuestMem mem(guest);
-        world::Globals gl;
-        gl.contextPtr = guestAddress(kContextPtr);
-        gl.hpKey = guestAddress(gl.hpKey);
-        gl.playerStats = guestAddress(gl.playerStats);
-        gl.handleVtable = guestAddress(kHandleVtable);
-        const double now = g_gameTime;
-        const bool ok = world::readPlayerPose(mem, gl, g_readState, now, g_tick, cur) == world::PoseStatus::Ok;
-        if (ok && !cur.mounted)
-            g_hist.push_back(cur);
-        while (g_hist.size() > g_delayTicks + 1)
-            g_hist.pop_front();
-        if (g_log && ok && g_tick % 15 == 0)
-            std::fprintf(stderr, "[ghost] player lower %x@%g upper %x@%g lowerMask %x\n", cur.lower.clip,
-                         static_cast<double>(cur.lower.time), cur.upper.clip, static_cast<double>(cur.upper.time),
-                         cur.lowerMask);
-        if (g_hist.size() > g_delayTicks && (past = g_hist.front()).lower.clip) {
-            past.position.x += g_offX;
-            past.position.z += g_offZ;
-            if (!g_actCycle.empty()) { // test aid: show each activity's clip on the stand-in for 3 s
-                const size_t i = static_cast<size_t>(g_gameTime / 3.0) % g_actCycle.size();
-                float dur = 1.0f;
-                const uint32_t clip = drakan_coop_character::sampleClip(g_actCycle[i], &dur);
-                if (clip) {
-                    const float t = static_cast<float>(std::fmod(g_gameTime, 3.0));
-                    past.lower = past.upper = {clip, std::fmod(t, std::max(dur, 0.1f))};
-                    if (g_actCycle[i] == drakan_coop_character::Act::Death)
-                        past.lower.time = past.upper.time = std::min(t, dur * 0.999f);
-                    past.lowerMask = ~0u;
-                }
+// Test aid DRAKAN_GHOST_MIRROR: record the local player and replay the pose from 1.0 s ago beside it.
+void mirrorLocalPlayer(drakan_input::IGuest& guest) {
+    world::PlayerPose cur, past;
+    GuestMem mem(guest);
+    world::Globals gl;
+    gl.contextPtr = guestAddress(kContextPtr);
+    gl.hpKey = guestAddress(gl.hpKey);
+    gl.playerStats = guestAddress(gl.playerStats);
+    gl.handleVtable = guestAddress(kHandleVtable);
+    const double now = g_gameTime;
+    const bool ok = world::readPlayerPose(mem, gl, g_readState, now, g_tick, cur) == world::PoseStatus::Ok;
+    if (ok && !cur.mounted)
+        g_hist.push_back(cur);
+    while (g_hist.size() > g_delayTicks + 1)
+        g_hist.pop_front();
+    if (g_log && ok && g_tick % 15 == 0)
+        std::fprintf(stderr, "[ghost] player lower %x@%g upper %x@%g lowerMask %x\n", cur.lower.clip,
+                     static_cast<double>(cur.lower.time), cur.upper.clip, static_cast<double>(cur.upper.time),
+                     cur.lowerMask);
+    if (g_hist.size() > g_delayTicks && (past = g_hist.front()).lower.clip) {
+        past.position.x += g_offX;
+        past.position.z += g_offZ;
+        if (!g_actCycle.empty()) { // test aid: show each activity's clip on the stand-in for 3 s
+            const size_t i = static_cast<size_t>(g_gameTime / 3.0) % g_actCycle.size();
+            float dur = 1.0f;
+            const uint32_t clip = drakan_coop_character::sampleClip(g_actCycle[i], &dur);
+            if (clip) {
+                const float t = static_cast<float>(std::fmod(g_gameTime, 3.0));
+                past.lower = past.upper = {clip, std::fmod(t, std::max(dur, 0.1f))};
+                if (g_actCycle[i] == drakan_coop_character::Act::Death)
+                    past.lower.time = past.upper.time = std::min(t, dur * 0.999f);
+                past.lowerMask = ~0u;
             }
-            for (Ghost& g : g_ghosts)
-                if (g.info.handle && !g.destroyRequested) {
-                    if (g.dragon) { // the mirrored pose is Rynn's: only the position follows (test aid)
-                        std::memcpy(g.target.pos, &past.position, sizeof g.target.pos);
-                        std::memcpy(g.target.rot, past.rotation, sizeof g.target.rot);
-                        g.hasTransform = true;
-                        continue;
-                    }
-                    applyPose(g, past);
-                    g.wantRec[0] = g_forceRec[0] ? g_forceRec[0] : past.weaponRight;
-                    g.wantRec[1] = g_forceRec[1] ? g_forceRec[1] : past.weaponLeft;
-                }
         }
-        if (g_autoPending && g_ghosts.empty() && !notReadyReason() && ok && !cur.mounted) {
-            if (g_autoDelay)
-                --g_autoDelay;
-            else {
-                g_autoPending = false;
-                g_ghosts.push_back(Ghost{});
-                g_ghosts.back().info.id = g_nextId++;
-                g_ghosts.back().character = g_defaultCharacter;
-                g_ghosts.back().dragon = g_defaultDragon;
-                std::fprintf(stderr, "[ghost] mirror: auto spawn id %d\n", g_ghosts.back().info.id);
+        for (Ghost& g : g_ghosts)
+            if (g.info.handle && !g.destroyRequested) {
+                if (g.dragon) { // the mirrored pose is Rynn's: only the position follows (test aid)
+                    std::memcpy(g.target.pos, &past.position, sizeof g.target.pos);
+                    std::memcpy(g.target.rot, past.rotation, sizeof g.target.rot);
+                    g.hasTransform = true;
+                    continue;
+                }
+                applyPose(g, past);
+                g.wantRec[0] = g_forceRec[0] ? g_forceRec[0] : past.weaponRight;
+                g.wantRec[1] = g_forceRec[1] ? g_forceRec[1] : past.weaponLeft;
             }
+    }
+    if (g_autoPending && g_ghosts.empty() && !notReadyReason() && ok && !cur.mounted) {
+        if (g_autoDelay)
+            --g_autoDelay;
+        else {
+            g_autoPending = false;
+            g_ghosts.push_back(Ghost{});
+            g_ghosts.back().info.id = g_nextId++;
+            g_ghosts.back().character = g_defaultCharacter;
+            g_ghosts.back().dragon = g_defaultDragon;
+            std::fprintf(stderr, "[ghost] mirror: auto spawn id %d\n", g_ghosts.back().info.id);
         }
     }
+}
 
+// Diagnostics (DRAKAN_GHOST_LOG / trace): native LOD changes, the animation channels the engine left, a trace line.
+void logGhostReadback(drakan_input::IGuest& guest, uint32_t ctx, float engineDt) {
     // Native LOD readback, independent of pose writes. Never force the controller's slot: native selection also
     // updates its vertex/skin buffers. These transitions distinguish a coarse source model from a stuck far LOD.
     if (g_log)
@@ -1725,9 +1708,11 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                     static_cast<double>(g.animTime[0]), g.animClip[0], static_cast<double>(guest.readF(pl + 0x14)),
                     static_cast<double>(guest.readF(pl + 0x1c)));
             }
-    for (Ghost& g : g_ghosts)
-        if (g.info.handle && g.animSet)
-            writeAnim(guest, g);
+}
+
+// Writes each live ghost's transform, keeps a near remote body at full detail and a cosmetic local body out of the
+// collision cells.
+void writeGhostTransforms(drakan_input::IGuest& guest, uint32_t ctx) {
     // Transforms (the spawn's own transform is applied by the factory, so only live ghosts here).
     for (Ghost& g : g_ghosts)
         if ((g.hasTransform || g.hold || g.pinned) && g.info.handle) {
@@ -1773,20 +1758,10 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                 }
             }
         }
+}
 
-    if (g_log) {
-        static unsigned tick = 0;
-        if (++tick % 120 == 0)
-            for (const Ghost& g : g_ghosts)
-                if (g.info.handle)
-                    std::fprintf(stderr, "[ghost] id %d pos %g %g %g  player %x camera %x\n", g.info.id,
-                                 static_cast<double>(guest.readF(g.info.handle + 0x14)),
-                                 static_cast<double>(guest.readF(g.info.handle + 0x18)),
-                                 static_cast<double>(guest.readF(g.info.handle + 0x1c)),
-                                 guest.read32(ctx + drakan_layout::engine::kControlledActor),
-                                 guest.read32(ctx + drakan_layout::engine::kCameraActor));
-    }
-
+// One spawn at a time: the first ghost without a body gets one, through the factory call g_t1 (the spawn flight).
+void spawnNextGhost(drakan_input::IGuest& guest, uint32_t ctx) {
     // One spawn at a time.
     if (g_busy.load())
         return;
@@ -1877,6 +1852,57 @@ void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input)
                  static_cast<double>(t.pos[0]), static_cast<double>(t.pos[1]), static_cast<double>(t.pos[2]),
                  g_flight.camModeAddr);
     guest.post(drakan_input::GuestCall(g_t1));
+}
+
+void beforePadMgr(drakan_input::IGuest& guest, drakan_input::InputModule& input) {
+    if (!g_enabled.load())
+        return;
+    const drakan_input::FrameInput& f = input.guestMuted() ? input.hostFrame() : input.frame();
+    if (g_debugKeys && f.keyPressed[kDikF9])
+        spawnBody(nullptr, g_defaultCharacter, g_defaultDragon);
+    if (g_debugKeys && f.keyPressed[kDikF10])
+        if (const int id = newestId())
+            destroy(id);
+    const uint32_t ctx = guest.read32(guestAddress(kContextPtr));
+    if (!guest::isHeapPtr(ctx))
+        return;
+    std::lock_guard<std::mutex> l(g_m);
+
+    forgetDeadGhosts(guest, ctx);
+    destroyRequestedGhosts(guest, ctx);
+
+    ++g_tick;
+    if (g_sinceLoad.load() < kReadyTicks)
+        g_sinceLoad.fetch_add(1);
+    // The world steps by the engine's own dt (ctx+0x24); the wall clock between PadMgr boundaries jitters (host load,
+    // present pacing) and must not time the recording, or the replay stutters.
+    float engineDt = guest.readF(ctx + 0x24);
+    if (!(engineDt > 0.0f && engineDt < 0.25f))
+        engineDt = 1.0f / 60.0f;
+    g_gameTime += static_cast<double>(engineDt);
+    localCharacterTick(guest, ctx);
+    refreshVoiceOwners(guest.read32(ctx + drakan_layout::engine::kControlledActor));
+    if (g_mirror)
+        mirrorLocalPlayer(guest);
+    logGhostReadback(guest, ctx, engineDt);
+    for (Ghost& g : g_ghosts)
+        if (g.info.handle && g.animSet)
+            writeAnim(guest, g);
+    writeGhostTransforms(guest, ctx);
+    if (g_log) {
+        static unsigned tick = 0;
+        if (++tick % 120 == 0)
+            for (const Ghost& g : g_ghosts)
+                if (g.info.handle)
+                    std::fprintf(stderr, "[ghost] id %d pos %g %g %g  player %x camera %x\n", g.info.id,
+                                 static_cast<double>(guest.readF(g.info.handle + 0x14)),
+                                 static_cast<double>(guest.readF(g.info.handle + 0x18)),
+                                 static_cast<double>(guest.readF(g.info.handle + 0x1c)),
+                                 guest.read32(ctx + drakan_layout::engine::kControlledActor),
+                                 guest.read32(ctx + drakan_layout::engine::kCameraActor));
+    }
+
+    spawnNextGhost(guest, ctx);
 }
 
 void drawControls() {
