@@ -68,6 +68,110 @@ void hostCloseScreen(TabUi& ui) {
     ui.strip.close();
     ui.map.close();
 }
+// Where the native grid goes (under the host grid: Inventory / Character page, the strip's bar), where the native
+// map goes (Map page, the M view left of the objectives panel) and where Rynn stands (Tab screen). The EE glue
+// draws them there, and the host screen crops its item icons and map picture from those spots of the frame.
+void publishNativeTargets(TabUi& ui, const dsettings::SettingsOverlay::ScreenFrame& f, const gameui::Viewport& vp,
+                          const PageMap& pm, const drakan_tab::MapCapture& mc) {
+    using drakan_tab::HostKind;
+    auto& sh = drakan_tab::shared();
+    const gameui::LayoutFrame lf = gameui::computeFrame(vp);
+    drakan_tab::GridTarget t;
+    drakan_tab::MapTarget mt;
+    drakan_tab::PreviewTarget p;
+    const bool placed = hostOpen(ui) || hostClosePending(ui); // kept through the close animation
+    // Targets stay inside the native window, which the GS front end clips: a letterboxed game picture (21:9 /
+    // 32:9 on a 16:9 output) put the host's design rectangles partly above / beside it (the Map page lost the
+    // map's left part, the 32:9 grid its icons). The grid is moved / shrunk whole (the crops come from the cells
+    // where it was drawn, NativeGrid), the map area clipped (the map is fitted into it).
+    constexpr float kWindowMargin = 8.0f;
+    const auto gridBox = [&](const gameui::Rect& a, const gameui::Rect& b) {
+        const drakan_views::Box k = drakan_views::keepInWindow(
+            {pm.gx(a.x), pm.gy(a.y), pm.gx(b.right()), pm.gy(b.bottom())}, pm.W, pm.H, kWindowMargin);
+        return drakan_tab::GridTarget{true, k.x0, k.y0, k.x1, k.y1};
+    };
+    if (ui.kind == HostKind::Tab) {
+        // The native grid stays under the host grid on the Inventory page, and under the opaque centre column on
+        // the Character page (its equipped gear shows the same crops).
+        const gameui::Page page = ui.screen.page();
+        if (placed && (page == gameui::Page::Inventory || page == gameui::Page::Character))
+            t = gridBox(lf.map(gameui::design::gridCell(0)), lf.map(gameui::design::gridCell(23)));
+        if (placed && page == gameui::Page::Map) {
+            const gameui::Rect a = lf.map(gameui::design::mapImageArea());
+            const drakan_views::Box k = drakan_views::clipToWindow(
+                {pm.gx(a.x), pm.gy(a.y), pm.gx(a.right()), pm.gy(a.bottom())}, pm.W, pm.H, kWindowMargin);
+            if (k.w() > 32 && k.h() > 32)
+                mt = {true, k.x0, k.y0, k.x1, k.y1};
+        }
+        // Rynn's centre: the column's, kept inside the game picture (a 4:3 pillarbox cut her in half); her
+        // on-screen half width follows the picture height.
+        const gameui::Rect pr = ui.screen.previewRect();
+        if (!pr.empty())
+            p = {true, drakan_tab::detail::previewCentreInPicture(pr.cx(), pm.vx, pm.vw, 0.2f * pm.vh), 1.0f};
+    } else if (ui.kind == HostKind::Strip) {
+        // At about the Tab screen's scale, not at the (smaller) host cells': the native mesh draw skips an item
+        // whose texture is not resident at a small size (the elixir never appeared at the cells' scale); the
+        // crops are fitted into the host cells. With the renderer's grid capture (d3d11) the grid is kept whole
+        // inside the native window, which the GS front end clips (a 21:9 / 32:9 picture on a 16:9 output put the
+        // plate below the picture: the dagger row, at 32:9 every icon, was cut), and the renderer removes it from
+        // the presented frame (it showed over the open world where the plate does not cover it). Without the
+        // capture it stays under the strip's opaque plate.
+        const gameui::Rect a = gameui::StripScreen::layoutFor(vp).nativeGrid;
+        if (g_overlayView.gridCapture)
+            t = gridBox(a, a);
+        else
+            t = {true, pm.gx(a.x), pm.gy(a.y), pm.gx(a.right()), pm.gy(a.bottom())};
+    } else {
+        // The M view: the native map fitted into the part of the screen left of the objectives panel (inside the
+        // native window, which the GS front end clips at its edges).
+        const PageMap mm = tabPageMap(g_overlayView, f.w, f.h, mc.frameW, mc.frameH);
+        const gameui::Rect panel = gameui::MapScreen::panelRectFor(vp);
+        const float margin = 12.0f * f.h / 1080.0f, top = 40.0f * f.h / 1080.0f;
+        const float x0 = std::max(mm.gx(vp.x + margin), 8.0f);
+        const float x1 = std::min(mm.gx(panel.x - 2 * margin), mm.W - 8);
+        const float y0 = std::max(mm.gy(vp.y + top), 8.0f), y1 = std::min(mm.gy(vp.h - top), mm.H - 8);
+        if (x1 > x0 + 32 && y1 > y0 + 32)
+            mt = {true, x0, y0, x1, y1};
+    }
+    std::lock_guard<std::mutex> l(sh.gridM);
+    sh.gridTarget = t;
+    sh.mapTarget = mt;
+    sh.preview = p;
+}
+
+// A native help / confirmation box over the host screen: its text and buttons drawn with the host renderer when
+// the EE published them (dialog.content), else the box's own pixels cropped from the frame. Native widgets keep
+// the input either way.
+void drawNativeDialog(ImDrawList* dl, TabUi& ui, const dsettings::SettingsOverlay::ScreenFrame& f,
+                      const drakan_tab::NativeDialog& dialog, const gameui::Viewport& vp,
+                      const dsettings::GameUiCanvas& canvas, const dsettings::IconSource& icons, double now) {
+    const PageMap dm = tabPageMap(g_overlayView, f.w, f.h, dialog.frameW, dialog.frameH);
+    // Use the rendered page's anchor: a box can be on top while the inventory remains the drawing screen.
+    const float anchor = g_overlayView.hudAnchorX;
+    const auto x = [&](float gx) { return dm.vx + dm.vw * (anchor + (gx / dm.W - anchor) * dm.hs); };
+    const float x0 = std::clamp(x(dialog.x0), 0.0f, f.frameW);
+    const float y0 = std::clamp(dm.y(dialog.y0), 0.0f, f.frameH);
+    const float x1 = std::clamp(x(dialog.x1), 0.0f, f.frameW);
+    const float y1 = std::clamp(dm.y(dialog.y1), 0.0f, f.frameH);
+    if (x1 > x0 && y1 > y0) {
+        if (dialog.content.valid) {
+            auto content = dialog.content;
+            for (auto& b : content.buttons) {
+                const gameui::Rect r = b.rect;
+                b.rect = {x(r.x), dm.y(r.y), x(r.right()) - x(r.x), dm.y(r.bottom()) - dm.y(r.y)};
+            }
+            const auto draw = gameui::drawDialog(content, {x0, y0, x1 - x0, y1 - y0}, vp, ui.renderer.measure());
+            ui.renderer.draw(dl, draw, canvas, icons, now, 1.0f);
+        } else {
+            if (f.opaque)
+                dl->AddCallback(f.opaque, nullptr);
+            dl->AddImage(f.frame, ImVec2(x0, y0), ImVec2(x1, y1), ImVec2(x0 / f.frameW, y0 / f.frameH),
+                         ImVec2(x1 / f.frameW, y1 / f.frameH));
+            if (f.opaque)
+                dl->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
+        }
+    }
+}
 } // namespace
 
 void tabDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
@@ -186,74 +290,9 @@ void tabDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             ui.last = std::move(out.draw);
     }
 
-    // Where the native grid goes (under the host grid: Inventory / Character page, the strip's bar), where the native
-    // map goes (Map page, the M view left of the objectives panel) and where Rynn stands (Tab screen).
     const drakan_tab::NativeGrid ng = sh.nativeGrid();
     const PageMap pm = tabPageMap(g_overlayView, f.w, f.h, ng.frameW, ng.frameH);
-    {
-        const gameui::LayoutFrame lf = gameui::computeFrame(vp);
-        drakan_tab::GridTarget t;
-        drakan_tab::MapTarget mt;
-        drakan_tab::PreviewTarget p;
-        const bool placed = hostOpen(ui) || hostClosePending(ui); // kept through the close animation
-        // Targets stay inside the native window, which the GS front end clips: a letterboxed game picture (21:9 /
-        // 32:9 on a 16:9 output) put the host's design rectangles partly above / beside it (the Map page lost the
-        // map's left part, the 32:9 grid its icons). The grid is moved / shrunk whole (the crops come from the cells
-        // where it was drawn, NativeGrid), the map area clipped (the map is fitted into it).
-        constexpr float kWindowMargin = 8.0f;
-        const auto gridBox = [&](const gameui::Rect& a, const gameui::Rect& b) {
-            const drakan_views::Box k = drakan_views::keepInWindow(
-                {pm.gx(a.x), pm.gy(a.y), pm.gx(b.right()), pm.gy(b.bottom())}, pm.W, pm.H, kWindowMargin);
-            return drakan_tab::GridTarget{true, k.x0, k.y0, k.x1, k.y1};
-        };
-        if (ui.kind == HostKind::Tab) {
-            // The native grid stays under the host grid on the Inventory page, and under the opaque centre column on
-            // the Character page (its equipped gear shows the same crops).
-            const gameui::Page page = ui.screen.page();
-            if (placed && (page == gameui::Page::Inventory || page == gameui::Page::Character))
-                t = gridBox(lf.map(gameui::design::gridCell(0)), lf.map(gameui::design::gridCell(23)));
-            if (placed && page == gameui::Page::Map) {
-                const gameui::Rect a = lf.map(gameui::design::mapImageArea());
-                const drakan_views::Box k = drakan_views::clipToWindow(
-                    {pm.gx(a.x), pm.gy(a.y), pm.gx(a.right()), pm.gy(a.bottom())}, pm.W, pm.H, kWindowMargin);
-                if (k.w() > 32 && k.h() > 32)
-                    mt = {true, k.x0, k.y0, k.x1, k.y1};
-            }
-            // Rynn's centre: the column's, kept inside the game picture (a 4:3 pillarbox cut her in half); her
-            // on-screen half width follows the picture height.
-            const gameui::Rect pr = ui.screen.previewRect();
-            if (!pr.empty())
-                p = {true, drakan_tab::detail::previewCentreInPicture(pr.cx(), pm.vx, pm.vw, 0.2f * pm.vh), 1.0f};
-        } else if (ui.kind == HostKind::Strip) {
-            // At about the Tab screen's scale, not at the (smaller) host cells': the native mesh draw skips an item
-            // whose texture is not resident at a small size (the elixir never appeared at the cells' scale); the
-            // crops are fitted into the host cells. With the renderer's grid capture (d3d11) the grid is kept whole
-            // inside the native window, which the GS front end clips (a 21:9 / 32:9 picture on a 16:9 output put the
-            // plate below the picture: the dagger row, at 32:9 every icon, was cut), and the renderer removes it from
-            // the presented frame (it showed over the open world where the plate does not cover it). Without the
-            // capture it stays under the strip's opaque plate.
-            const gameui::Rect a = gameui::StripScreen::layoutFor(vp).nativeGrid;
-            if (g_overlayView.gridCapture)
-                t = gridBox(a, a);
-            else
-                t = {true, pm.gx(a.x), pm.gy(a.y), pm.gx(a.right()), pm.gy(a.bottom())};
-        } else {
-            // The M view: the native map fitted into the part of the screen left of the objectives panel (inside the
-            // native window, which the GS front end clips at its edges).
-            const PageMap mm = tabPageMap(g_overlayView, f.w, f.h, mc.frameW, mc.frameH);
-            const gameui::Rect panel = gameui::MapScreen::panelRectFor(vp);
-            const float margin = 12.0f * f.h / 1080.0f, top = 40.0f * f.h / 1080.0f;
-            const float x0 = std::max(mm.gx(vp.x + margin), 8.0f);
-            const float x1 = std::min(mm.gx(panel.x - 2 * margin), mm.W - 8);
-            const float y0 = std::max(mm.gy(vp.y + top), 8.0f), y1 = std::min(mm.gy(vp.h - top), mm.H - 8);
-            if (x1 > x0 + 32 && y1 > y0 + 32)
-                mt = {true, x0, y0, x1, y1};
-        }
-        std::lock_guard<std::mutex> l(sh.gridM);
-        sh.gridTarget = t;
-        sh.mapTarget = mt;
-        sh.preview = p;
-    }
+    publishNativeTargets(ui, f, vp, pm, mc);
     if (mc.serial != ui.mapSerial) {
         ui.mapSerial = mc.serial;
         ui.mapTime = now;
@@ -339,34 +378,8 @@ void tabDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     if (!debugPeek)
         ui.renderer.draw(dl, ui.last, canvas, icons, now, ui.fade);
-    if (!debugPeek && compositeDialog) {
-        const PageMap dm = tabPageMap(g_overlayView, f.w, f.h, dialog.frameW, dialog.frameH);
-        // Use the rendered page's anchor: a box can be on top while the inventory remains the drawing screen.
-        const float anchor = g_overlayView.hudAnchorX;
-        const auto x = [&](float gx) { return dm.vx + dm.vw * (anchor + (gx / dm.W - anchor) * dm.hs); };
-        const float x0 = std::clamp(x(dialog.x0), 0.0f, f.frameW);
-        const float y0 = std::clamp(dm.y(dialog.y0), 0.0f, f.frameH);
-        const float x1 = std::clamp(x(dialog.x1), 0.0f, f.frameW);
-        const float y1 = std::clamp(dm.y(dialog.y1), 0.0f, f.frameH);
-        if (x1 > x0 && y1 > y0) {
-            if (dialog.content.valid) {
-                auto content = dialog.content;
-                for (auto& b : content.buttons) {
-                    const gameui::Rect r = b.rect;
-                    b.rect = {x(r.x), dm.y(r.y), x(r.right()) - x(r.x), dm.y(r.bottom()) - dm.y(r.y)};
-                }
-                const auto draw = gameui::drawDialog(content, {x0, y0, x1 - x0, y1 - y0}, vp, ui.renderer.measure());
-                ui.renderer.draw(dl, draw, canvas, icons, now, 1.0f);
-            } else {
-                if (f.opaque)
-                    dl->AddCallback(f.opaque, nullptr);
-                dl->AddImage(f.frame, ImVec2(x0, y0), ImVec2(x1, y1), ImVec2(x0 / f.frameW, y0 / f.frameH),
-                             ImVec2(x1 / f.frameW, y1 / f.frameH));
-                if (f.opaque)
-                    dl->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
-            }
-        }
-    }
+    if (!debugPeek && compositeDialog)
+        drawNativeDialog(dl, ui, f, dialog, vp, canvas, icons, now);
     if (visible && ui.last.size() > 0)
         sh.hostDrawn.fetch_add(1); // the EE watchdog (drakan_tab_screen.inl tabWatchdog)
 

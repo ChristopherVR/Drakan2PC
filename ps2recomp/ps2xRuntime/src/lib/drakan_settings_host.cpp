@@ -84,16 +84,15 @@ void readArtFromDisc() {
     std::fprintf(stderr, "[settings] game art: %zu UI textures read from INTERFCE.TXD\n", g_art.size());
 }
 
-// Test aid: DRAKAN_OVERLAY_SHOT_DIR=<dir>. When <dir>\\shot.txt exists (its first line = a file name without extension)
-// the presented frame, with the overlay, is written to <dir>\\<name>.bmp and shot.txt is deleted. Works without the
-// window being visible / focused.
-void maybeShot(const gsr::OverlayContext& oc) {
-    static const char* dir = std::getenv("DRAKAN_OVERLAY_SHOT_DIR");
-    static int tick = 0;
-    if (!dir || !*dir || (++tick % 6) != 0 || !oc.rtv || !g_overlay)
-        return;
-    // Harness inbox: processed by the render thread, including while the EE is held.
-    // Commands use the real hotkey and Apply paths, never desktop input injection.
+// Test aid: DRAKAN_OVERLAY_SHOT_DIR=<dir>, a file inbox for test drivers (scripts/harness), polled every 6th present by
+// the render thread, so it also works while the EE is held and without the window being visible / focused:
+//   * <dir>/command.txt "<id> <op> [<key> <value>]": runHarnessCommand, answered in ack.txt;
+//   * <dir>/state.txt: writeHarnessState;
+//   * <dir>/shot.txt (its first line = a file name without extension): the presented frame, with the overlay, is
+//     written to <dir>/<name>.bmp and shot.txt is deleted.
+
+// Commands use the real hotkey and Apply paths, never desktop input injection.
+void runHarnessCommand(const char* dir) {
     const auto commandPath = std::filesystem::path(dir) / "command.txt";
     if (std::ifstream command{commandPath}; command) {
         std::string id, op, key, value;
@@ -127,40 +126,28 @@ void maybeShot(const gsr::OverlayContext& oc) {
         std::ofstream(commandPath.parent_path() / "ack.txt") << id << " " << (ok ? "ok" : "error");
         std::fprintf(stderr, "[settings-harness] %s %s %s\n", id.c_str(), op.c_str(), ok ? "ok" : "error");
     }
-    { // state.txt: "open=<0|1> <flow description>" (rewritten when it changes) so a test driver need not parse the
-      // (lagging) log
-        static std::string last;
-        const std::string st =
-            std::string("open=") + (g_overlay && g_overlay->isOpen() ? "1" : "0") + " " +
-            drakan_pause::flowDescription().substr(0, drakan_pause::flowDescription().find(", last sample")) +
-            " samples=" + std::to_string(drakan_pause::inputSamples()) +
-            " hold=" + (drakan_pause::holdRequested() ? "1" : "0");
-        if (st != last) {
-            last = st;
-            if (FILE* sf = std::fopen((std::string(dir) + "\\state.txt").c_str(), "wb")) {
-                std::fwrite(st.data(), 1, st.size(), sf);
-                std::fclose(sf);
-            }
+}
+
+// state.txt: "open=<0|1> <flow description>" (rewritten when it changes) so a test driver need not parse the (lagging)
+// log.
+void writeHarnessState(const char* dir) {
+    static std::string last;
+    const std::string st =
+        std::string("open=") + (g_overlay && g_overlay->isOpen() ? "1" : "0") + " " +
+        drakan_pause::flowDescription().substr(0, drakan_pause::flowDescription().find(", last sample")) +
+        " samples=" + std::to_string(drakan_pause::inputSamples()) +
+        " hold=" + (drakan_pause::holdRequested() ? "1" : "0");
+    if (st != last) {
+        last = st;
+        if (FILE* sf = std::fopen((std::string(dir) + "\\state.txt").c_str(), "wb")) {
+            std::fwrite(st.data(), 1, st.size(), sf);
+            std::fclose(sf);
         }
     }
-    const std::string req = std::string(dir) + "\\shot.txt";
-    FILE* rf = std::fopen(req.c_str(), "rb");
-    if (!rf)
-        return;
-    char name[200] = {};
-    const size_t n = std::fread(name, 1, sizeof name - 1, rf);
-    std::fclose(rf);
-    std::remove(req.c_str());
-    std::string nm(name, n);
-    while (!nm.empty() && (nm.back() == '\n' || nm.back() == '\r' || nm.back() == ' '))
-        nm.pop_back();
-    if (nm.empty())
-        nm = "shot";
-    uint32_t w = 0, h = 0;
-    std::vector<uint8_t> rgba;
-    if (!g_overlay->renderer().readTarget(oc.rtv, w, h, rgba))
-        return;
-    const std::string path = std::string(dir) + "\\" + nm + ".bmp";
+}
+
+// A top-down 32-bit BMP of an RGBA picture.
+void writeBmp(const std::string& path, uint32_t w, uint32_t h, const std::vector<uint8_t>& rgba) {
     if (FILE* f = std::fopen(path.c_str(), "wb")) {
         const uint32_t bytes = w * h * 4;
         uint8_t hdr[54] = {'B', 'M'};
@@ -188,6 +175,33 @@ void maybeShot(const gsr::OverlayContext& oc) {
         std::fclose(f);
         std::fprintf(stderr, "[settings] shot %s (%ux%u)\n", path.c_str(), w, h);
     }
+}
+
+void maybeShot(const gsr::OverlayContext& oc) {
+    static const char* dir = std::getenv("DRAKAN_OVERLAY_SHOT_DIR");
+    static int tick = 0;
+    if (!dir || !*dir || (++tick % 6) != 0 || !oc.rtv || !g_overlay)
+        return;
+    runHarnessCommand(dir);
+    writeHarnessState(dir);
+    const std::string req = std::string(dir) + "\\shot.txt";
+    FILE* rf = std::fopen(req.c_str(), "rb");
+    if (!rf)
+        return;
+    char name[200] = {};
+    const size_t n = std::fread(name, 1, sizeof name - 1, rf);
+    std::fclose(rf);
+    std::remove(req.c_str());
+    std::string nm(name, n);
+    while (!nm.empty() && (nm.back() == '\n' || nm.back() == '\r' || nm.back() == ' '))
+        nm.pop_back();
+    if (nm.empty())
+        nm = "shot";
+    uint32_t w = 0, h = 0;
+    std::vector<uint8_t> rgba;
+    if (!g_overlay->renderer().readTarget(oc.rtv, w, h, rgba))
+        return;
+    writeBmp(std::string(dir) + "\\" + nm + ".bmp", w, h, rgba);
 }
 } // namespace
 
@@ -438,221 +452,260 @@ void drainHarnessSettings() {
     }
 }
 
+// The overlay's screen layer: the host-drawn screens (the modern Tab screen, the I strip, the M map panel, the pause
+// and title menus, Save / Load, the multiplayer HUD). hostScreenDraw picks the one that draws this frame.
+void installScreenLayer() {
+    dsettings::SettingsOverlay::ScreenLayer tl;
+    tl.active = []() {
+        return drakan_tab::shared().active.load() || g_tabUi.fade > 0.0f || pauseShown() || titleShown() ||
+               switchButtonShown() || slotsShown() || drakan_menu_screens::shared().quickOperation.load() != 0 ||
+               mpHudActive();
+    };
+    tl.wantsInput = []() {
+        const auto& ms = drakan_menu_screens::shared();
+        if (ms.quickOperation.load())
+            return false;
+        if (g_mpChatOpen.load() || mpResultsUp())
+            return true;
+        if (ms.slotsActive.load())
+            return !ms.slotsChild.load() && !ms.slotsLeaving.load();
+        if (ms.titleActive.load())
+            return !ms.titleChild.load() && !ms.titleCovered.load();
+        const auto& ps = drakan_pause_screen::shared();
+        if (ps.active.load())
+            return !ps.childUp.load() && !ps.resuming.load();
+        const auto& sh = drakan_tab::shared();
+        return sh.active.load() && !sh.boxUp.load() && !sh.closing.load();
+    };
+    // Closing / closed: the screen fades out over a still copy of the frame it showed (the native close
+    // animation and the screen's end change the live picture under it).
+    tl.freezeFrame = []() {
+        if (drakan_menu_screens::shared().quickOperation.load())
+            return true;
+        if (slotsShown()) {
+            const auto& ms = drakan_menu_screens::shared();
+            return ms.slotsLeaving.load() || !ms.slotsActive.load();
+        }
+        if (titleShown())
+            return false; // the native title art stays live under the menu
+        if (pauseShown()) {
+            const auto& ps = drakan_pause_screen::shared();
+            return ps.resuming.load() || !ps.active.load();
+        }
+        const auto& sh = drakan_tab::shared();
+        return sh.closing.load() || !sh.active.load();
+    };
+    tl.fontSizes = &tabFontSizes;
+    tl.draw = &hostScreenDraw;
+    g_overlay->setScreenLayer(std::move(tl));
+    drakan_tab::shared().layerReady.store(true);
+}
+
+// The game menu cursor (mouse over the game's own menus), drawn in the overlay layer.
+void installMenuCursorLayer() {
+    dsettings::HudLayer cl;
+    cl.active = []() { return drakan_input::module().menuCursorVisible() || drakan_menus::pager().visible; };
+    cl.draw = [](const dsettings::HudView& view) {
+        const float w = view.w, h = view.h, scale = view.uiScale;
+        const auto p = drakan_menus::pager();
+        const int screen = drakan_pause::guiScreen();
+        if (p.visible && (screen == 4 || screen == 5)) {
+            const auto& v = g_overlayView;
+            const float vw = v.viewW > 0 ? v.viewW : w, vh = v.viewH > 0 ? v.viewH : h;
+            const float sy = vh / p.height;
+            const auto px = [&](int x) {
+                return v.viewX + vw * (0.5f + (static_cast<float>(x) / p.width - 0.5f) * v.hudScaleX);
+            };
+            const float py = v.viewY + p.y * sy;
+            const int hover =
+                drakan_input::module().menuCursorVisible() ? drakan_input::module().menuMouse().hoveredHotspot() : -1;
+            g_overlay->drawNativeMenuText(p.back, px(p.xBack), py, p.lineHeight * sy, hover == 100);
+            g_overlay->drawNativeMenuText(p.next, px(p.xNext), py, p.lineHeight * sy, hover == 101);
+            g_overlay->drawNativeMenuText(p.page, px(p.xPage), py, p.lineHeight * sy, false);
+        }
+        float x = 0, y = 0;
+        if (drakan_input::module().menuCursorVisible() && g_overlay &&
+            g_overlay->pointerInBackbuffer(static_cast<uint32_t>(w), static_cast<uint32_t>(h), &x, &y))
+            dsettings::drawMenuCursor(x, y, scale);
+    };
+    dsettings::hudLayers().set(dsettings::HudSlot::Cursor, std::move(cl));
+}
+
+// The pre-rendered Order of the Flame opening (drakan_intro_movie.h): a black cover with the picture on it.
+void installMovieLayer() {
+    dsettings::HudLayer ml;
+    ml.active = []() {
+        if (drakan_intro_movie::coverActive())
+            return true;
+        dropTexture(g_movieTex.id); // the cover is gone: free the picture texture
+        g_movieTex = MovieTexture{};
+        return false;
+    };
+    ml.draw = [](const dsettings::HudView& view) {
+        MovieTexture& mt = g_movieTex;
+        ImDrawList* dl = ImGui::GetForegroundDrawList();
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(view.w, view.h), IM_COL32(0, 0, 0, 255));
+        float alpha = 0.0f;
+        const auto frame = drakan_intro_movie::currentFrame(alpha);
+        if (frame && frame->serial != mt.serial && frame->width && frame->height && g_overlay) {
+            // One dynamic texture rewritten per picture; backends without one create a texture each time.
+            if (mt.id && (frame->width != mt.w || frame->height != mt.h))
+                dropTexture(mt.id);
+            if (!mt.id)
+                mt.id = g_overlay->renderer().createDynamicTexture(frame->width, frame->height);
+            if (!(mt.id &&
+                  g_overlay->renderer().updateTexture(mt.id, frame->rgba.data(), frame->width, frame->height))) {
+                dropTexture(mt.id);
+                mt.id = makeTexture(frame->rgba.data(), frame->width, frame->height);
+            }
+            mt.serial = frame->serial;
+            mt.w = frame->width;
+            mt.h = frame->height;
+        }
+        if (!mt.id || alpha <= 0.0f || !mt.w || !mt.h)
+            return;
+        const float scale = std::min(view.w / static_cast<float>(mt.w), view.h / static_cast<float>(mt.h));
+        const float dw = static_cast<float>(mt.w) * scale, dh = static_cast<float>(mt.h) * scale;
+        const float x0 = (view.w - dw) * 0.5f, y0 = (view.h - dh) * 0.5f;
+        dl->AddImage(mt.id, ImVec2(x0, y0), ImVec2(x0 + dw, y0 + dh), ImVec2(0, 0), ImVec2(1, 1),
+                     IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f)));
+    };
+    dsettings::hudLayers().set(dsettings::HudSlot::Movie, std::move(ml));
+    drakan_input::module().setOverlayCursorAvailable(true);
+}
+
+// Creates the overlay on the first present: it needs the renderer's device, which only the present hands over. False
+// (and not tried again) when it cannot be created.
+bool createOverlay(const gsr::OverlayContext& oc) {
+    dsettings::OverlayInit oi;
+    oi.hwnd = g_parent;
+#if defined(__EMSCRIPTEN__)
+    // The browser has no window events of its own: the overlay reads the page's DOM events.
+    webEventsEnable(WebEventConsumer::Overlay);
+    oi.events.next = [](dsettings::OverlayEvent& out) {
+        WebEvent e;
+        while (webEvents(WebEventConsumer::Overlay).pop(e)) {
+            if (e.type == WebEvent::Motion)
+                continue; // pointer-lock deltas are for the game
+            out.type = e.type == WebEvent::Key      ? dsettings::OverlayEvent::Key
+                       : e.type == WebEvent::Button ? dsettings::OverlayEvent::Button
+                       : e.type == WebEvent::Cursor ? dsettings::OverlayEvent::Cursor
+                       : e.type == WebEvent::Wheel  ? dsettings::OverlayEvent::Wheel
+                       : e.type == WebEvent::Char   ? dsettings::OverlayEvent::Char
+                                                    : dsettings::OverlayEvent::Focus;
+            out.a = e.a;
+            out.b = e.b;
+            return true;
+        }
+        return false;
+    };
+    oi.events.pointer = [](int& x, int& y, int& w, int& h) {
+        drakanWebCursor(x, y);
+        return drakan_win::clientSize(w, h);
+    };
+    oi.events.gamepadButtons = [] {
+        const WebGamepad pad = drakanWebGamepad();
+        return pad.connected ? pad.buttons : 0u;
+    };
+    oi.events.setCursorHidden = [](bool hidden) { drakanWebSetCursorHidden(hidden); };
+#endif
+    if (oc.api == gsr::OverlayApi::WebGpu) {
+#if DRAKAN_SETTINGS_WEBGPU
+        oi.renderer = dsettings::createWebGpuOverlayRenderer(*static_cast<gsr::rhi::Device*>(oc.device));
+#endif
+    } else {
+        oi.device = static_cast<ID3D11Device*>(oc.device);
+        oi.context = static_cast<ID3D11DeviceContext*>(oc.context);
+    }
+    oi.host = &g_host;
+    oi.paths.drakanIni = drakan_cfg::iniPath();
+    const char* ii = std::getenv("DRAKAN_INPUT_INI");
+    oi.paths.inputIni = (ii && *ii) ? std::string(ii) : drakan_cfg::exeDir() + "drakan_input.ini";
+    g_overlay = dsettings::SettingsOverlay::create(oi);
+    if (!g_overlay) {
+        g_overlayFailed = true;
+        std::fprintf(stderr, "[settings] overlay unavailable\n");
+        return false;
+    }
+    g_overlay->setOpenChangedCallback([](bool open) {
+        // The game keeps running over one of its own menus (music continues); only its input is swallowed. Without
+        // a game menu (cut scene, loading ...) the EE is held as before (drakan_pause::overlayHolds()).
+        if (open)
+            drakan_pause::overlayOpened();
+        else
+            drakan_pause::overlayClosed();
+        drakan_input::module().setSuspended(open);
+        g_open.store(open);
+    });
+    drakan_subtitles::installHudLayer();
+    installSharedHudLayers();
+    if (drakan_world::enabled())
+        g_overlay->setMenuExtra(&drakan_world::drawPanel);
+    // The modern PC Settings pages share the overlay's host and store (the F1 overlay stays as it is).
+    gameui::setSettingShotResolver(
+        [](const std::string& key, const std::string& value) { return settingShotPicture(key, value); });
+    // Settled = uploaded, or its decode finished without a texture (a bad file shows the empty box, not the
+    // previous value's picture). Until then the help panel keeps the last picture up (no blank flash).
+    gameui::setSettingShotReady(&settingShotSettled);
+    g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
+    g_pcs->open();
+    installScreenLayer();
+    // F1 / the gamepad combo are ignored during movies, the start-up logos / intro, in-engine cut scenes and
+    // loading screens
+    g_overlay->setAllowGate([]() {
+        const bool ok = drakan_pause::f1Allowed();
+        std::fprintf(stderr, "[settings] t=%.1f F1 %s (%s)\n", drakan_menu_screens::clockSeconds(),
+                     ok ? "allowed" : "ignored", drakan_pause::flowDescription().c_str());
+        return ok;
+    });
+    // F1 / the gamepad combo during gameplay: the game pauses itself (START -> its own pause menu) first, then the
+    // overlay opens over it
+    g_overlay->setOpenInterceptor([]() {
+        if (drakan_pause::guiScreen() >= 0 || !drakan_pause::gameplay())
+            return true; // a game menu is up (open over it), or the game cannot pause now (cut scene, loading):
+                         // open, EE held
+        drakan_pause::requestPauseThenOpen();
+        return false;
+    });
+    installMenuCursorLayer();
+    installMovieLayer();
+    std::fprintf(stderr, "[settings] overlay ready (F1 / Back+LB+RB / Options > PC Settings)\n");
+    return true;
+}
+
+// Where the game image sits in the window (letterbox / pillarbox / widescreen), in client pixels: the menu mouse maps
+// the cursor through it.
+void publishMenuView(const gsr::OverlayContext& oc) {
+    if (!(oc.viewW > 0.0f && oc.viewH > 0.0f && g_parent))
+        return;
+    int cw = 0, ch = 0;
+    if (drakan_win::clientSize(cw, ch) && cw > 0 && ch > 0 && oc.width && oc.height) {
+        const float sx = static_cast<float>(cw) / static_cast<float>(oc.width),
+                    sy = static_cast<float>(ch) / static_cast<float>(oc.height);
+        drakan_input::MenuView v;
+        v.x = oc.viewX * sx;
+        v.y = oc.viewY * sy;
+        v.w = oc.viewW * sx;
+        v.h = oc.viewH * sy;
+        v.hudScaleX = oc.hudScaleX;
+        v.hudAnchorX = oc.hudAnchorX;
+        // The renderer maps the entire post-world inventory page with this
+        // same left-anchored X factor, including its native 3D grid. Publish it
+        // separately so Equipment hit testing can undo that page transform.
+        v.inventoryPageScaleX = oc.hudScaleX;
+        v.valid = true;
+        drakan_input::module().setMenuView(v);
+    }
+}
+
+// The renderer's overlay callback: runs at the end of every present, on the present thread.
 void overlayCallback(const gsr::OverlayContext& oc) {
     drakan_fpsmeter::onPresent();
     syncTitleBackdrop();
     if (g_pcs)
         drainHarnessSettings();
-    if (!g_overlay) {
-        if (g_overlayFailed)
-            return;
-        dsettings::OverlayInit oi;
-        oi.hwnd = g_parent;
-#if defined(__EMSCRIPTEN__)
-        // The browser has no window events of its own: the overlay reads the page's DOM events.
-        webEventsEnable(WebEventConsumer::Overlay);
-        oi.events.next = [](dsettings::OverlayEvent& out) {
-            WebEvent e;
-            while (webEvents(WebEventConsumer::Overlay).pop(e)) {
-                if (e.type == WebEvent::Motion)
-                    continue; // pointer-lock deltas are for the game
-                out.type = e.type == WebEvent::Key      ? dsettings::OverlayEvent::Key
-                           : e.type == WebEvent::Button ? dsettings::OverlayEvent::Button
-                           : e.type == WebEvent::Cursor ? dsettings::OverlayEvent::Cursor
-                           : e.type == WebEvent::Wheel  ? dsettings::OverlayEvent::Wheel
-                           : e.type == WebEvent::Char   ? dsettings::OverlayEvent::Char
-                                                        : dsettings::OverlayEvent::Focus;
-                out.a = e.a;
-                out.b = e.b;
-                return true;
-            }
-            return false;
-        };
-        oi.events.pointer = [](int& x, int& y, int& w, int& h) {
-            drakanWebCursor(x, y);
-            return drakan_win::clientSize(w, h);
-        };
-        oi.events.gamepadButtons = [] {
-            const WebGamepad pad = drakanWebGamepad();
-            return pad.connected ? pad.buttons : 0u;
-        };
-        oi.events.setCursorHidden = [](bool hidden) { drakanWebSetCursorHidden(hidden); };
-#endif
-        if (oc.api == gsr::OverlayApi::WebGpu) {
-#if DRAKAN_SETTINGS_WEBGPU
-            oi.renderer = dsettings::createWebGpuOverlayRenderer(*static_cast<gsr::rhi::Device*>(oc.device));
-#endif
-        } else {
-            oi.device = static_cast<ID3D11Device*>(oc.device);
-            oi.context = static_cast<ID3D11DeviceContext*>(oc.context);
-        }
-        oi.host = &g_host;
-        oi.paths.drakanIni = drakan_cfg::iniPath();
-        const char* ii = std::getenv("DRAKAN_INPUT_INI");
-        oi.paths.inputIni = (ii && *ii) ? std::string(ii) : drakan_cfg::exeDir() + "drakan_input.ini";
-        g_overlay = dsettings::SettingsOverlay::create(oi);
-        if (!g_overlay) {
-            g_overlayFailed = true;
-            std::fprintf(stderr, "[settings] overlay unavailable\n");
-            return;
-        }
-        g_overlay->setOpenChangedCallback([](bool open) {
-            // The game keeps running over one of its own menus (music continues); only its input is swallowed. Without
-            // a game menu (cut scene, loading ...) the EE is held as before (drakan_pause::overlayHolds()).
-            if (open)
-                drakan_pause::overlayOpened();
-            else
-                drakan_pause::overlayClosed();
-            drakan_input::module().setSuspended(open);
-            g_open.store(open);
-        });
-        drakan_subtitles::installHudLayer();
-        installSharedHudLayers();
-        if (drakan_world::enabled())
-            g_overlay->setMenuExtra(&drakan_world::drawPanel);
-        // The modern PC Settings pages share the overlay's host and store (the F1 overlay stays as it is).
-        gameui::setSettingShotResolver(
-            [](const std::string& key, const std::string& value) { return settingShotPicture(key, value); });
-        // Settled = uploaded, or its decode finished without a texture (a bad file shows the empty box, not the
-        // previous value's picture). Until then the help panel keeps the last picture up (no blank flash).
-        gameui::setSettingShotReady(&settingShotSettled);
-        g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
-        g_pcs->open();
-        { // the host screens: the modern Tab screen, the I strip, the M map panel, the modern pause menu
-            dsettings::SettingsOverlay::ScreenLayer tl;
-            tl.active = []() {
-                return drakan_tab::shared().active.load() || g_tabUi.fade > 0.0f || pauseShown() || titleShown() ||
-                       switchButtonShown() || slotsShown() ||
-                       drakan_menu_screens::shared().quickOperation.load() != 0 || mpHudActive();
-            };
-            tl.wantsInput = []() {
-                const auto& ms = drakan_menu_screens::shared();
-                if (ms.quickOperation.load())
-                    return false;
-                if (g_mpChatOpen.load() || mpResultsUp())
-                    return true;
-                if (ms.slotsActive.load())
-                    return !ms.slotsChild.load() && !ms.slotsLeaving.load();
-                if (ms.titleActive.load())
-                    return !ms.titleChild.load() && !ms.titleCovered.load();
-                const auto& ps = drakan_pause_screen::shared();
-                if (ps.active.load())
-                    return !ps.childUp.load() && !ps.resuming.load();
-                const auto& sh = drakan_tab::shared();
-                return sh.active.load() && !sh.boxUp.load() && !sh.closing.load();
-            };
-            // Closing / closed: the screen fades out over a still copy of the frame it showed (the native close
-            // animation and the screen's end change the live picture under it).
-            tl.freezeFrame = []() {
-                if (drakan_menu_screens::shared().quickOperation.load())
-                    return true;
-                if (slotsShown()) {
-                    const auto& ms = drakan_menu_screens::shared();
-                    return ms.slotsLeaving.load() || !ms.slotsActive.load();
-                }
-                if (titleShown())
-                    return false; // the native title art stays live under the menu
-                if (pauseShown()) {
-                    const auto& ps = drakan_pause_screen::shared();
-                    return ps.resuming.load() || !ps.active.load();
-                }
-                const auto& sh = drakan_tab::shared();
-                return sh.closing.load() || !sh.active.load();
-            };
-            tl.fontSizes = &tabFontSizes;
-            tl.draw = &hostScreenDraw;
-            g_overlay->setScreenLayer(std::move(tl));
-            drakan_tab::shared().layerReady.store(true);
-        }
-        // F1 / the gamepad combo are ignored during movies, the start-up logos / intro, in-engine cut scenes and
-        // loading screens
-        g_overlay->setAllowGate([]() {
-            const bool ok = drakan_pause::f1Allowed();
-            std::fprintf(stderr, "[settings] t=%.1f F1 %s (%s)\n", drakan_menu_screens::clockSeconds(),
-                         ok ? "allowed" : "ignored", drakan_pause::flowDescription().c_str());
-            return ok;
-        });
-        // F1 / the gamepad combo during gameplay: the game pauses itself (START -> its own pause menu) first, then the
-        // overlay opens over it
-        g_overlay->setOpenInterceptor([]() {
-            if (drakan_pause::guiScreen() >= 0 || !drakan_pause::gameplay())
-                return true; // a game menu is up (open over it), or the game cannot pause now (cut scene, loading):
-                             // open, EE held
-            drakan_pause::requestPauseThenOpen();
-            return false;
-        });
-        { // game menu cursor (mouse over the game's own menus), drawn in the overlay layer
-            dsettings::HudLayer cl;
-            cl.active = []() { return drakan_input::module().menuCursorVisible() || drakan_menus::pager().visible; };
-            cl.draw = [](const dsettings::HudView& view) {
-                const float w = view.w, h = view.h, scale = view.uiScale;
-                const auto p = drakan_menus::pager();
-                const int screen = drakan_pause::guiScreen();
-                if (p.visible && (screen == 4 || screen == 5)) {
-                    const auto& v = g_overlayView;
-                    const float vw = v.viewW > 0 ? v.viewW : w, vh = v.viewH > 0 ? v.viewH : h;
-                    const float sy = vh / p.height;
-                    const auto px = [&](int x) {
-                        return v.viewX + vw * (0.5f + (static_cast<float>(x) / p.width - 0.5f) * v.hudScaleX);
-                    };
-                    const float py = v.viewY + p.y * sy;
-                    const int hover = drakan_input::module().menuCursorVisible()
-                                          ? drakan_input::module().menuMouse().hoveredHotspot()
-                                          : -1;
-                    g_overlay->drawNativeMenuText(p.back, px(p.xBack), py, p.lineHeight * sy, hover == 100);
-                    g_overlay->drawNativeMenuText(p.next, px(p.xNext), py, p.lineHeight * sy, hover == 101);
-                    g_overlay->drawNativeMenuText(p.page, px(p.xPage), py, p.lineHeight * sy, false);
-                }
-                float x = 0, y = 0;
-                if (drakan_input::module().menuCursorVisible() && g_overlay &&
-                    g_overlay->pointerInBackbuffer(static_cast<uint32_t>(w), static_cast<uint32_t>(h), &x, &y))
-                    dsettings::drawMenuCursor(x, y, scale);
-            };
-            dsettings::hudLayers().set(dsettings::HudSlot::Cursor, std::move(cl));
-        }
-        { // the pre-rendered Order of the Flame opening (drakan_intro_movie.h): a black cover with the picture on it
-            dsettings::HudLayer ml;
-            ml.active = []() {
-                if (drakan_intro_movie::coverActive())
-                    return true;
-                dropTexture(g_movieTex.id); // the cover is gone: free the picture texture
-                g_movieTex = MovieTexture{};
-                return false;
-            };
-            ml.draw = [](const dsettings::HudView& view) {
-                MovieTexture& mt = g_movieTex;
-                ImDrawList* dl = ImGui::GetForegroundDrawList();
-                dl->AddRectFilled(ImVec2(0, 0), ImVec2(view.w, view.h), IM_COL32(0, 0, 0, 255));
-                float alpha = 0.0f;
-                const auto frame = drakan_intro_movie::currentFrame(alpha);
-                if (frame && frame->serial != mt.serial && frame->width && frame->height && g_overlay) {
-                    // One dynamic texture rewritten per picture; backends without one create a texture each time.
-                    if (mt.id && (frame->width != mt.w || frame->height != mt.h))
-                        dropTexture(mt.id);
-                    if (!mt.id)
-                        mt.id = g_overlay->renderer().createDynamicTexture(frame->width, frame->height);
-                    if (!(mt.id && g_overlay->renderer().updateTexture(mt.id, frame->rgba.data(), frame->width,
-                                                                       frame->height))) {
-                        dropTexture(mt.id);
-                        mt.id = makeTexture(frame->rgba.data(), frame->width, frame->height);
-                    }
-                    mt.serial = frame->serial;
-                    mt.w = frame->width;
-                    mt.h = frame->height;
-                }
-                if (!mt.id || alpha <= 0.0f || !mt.w || !mt.h)
-                    return;
-                const float scale = std::min(view.w / static_cast<float>(mt.w), view.h / static_cast<float>(mt.h));
-                const float dw = static_cast<float>(mt.w) * scale, dh = static_cast<float>(mt.h) * scale;
-                const float x0 = (view.w - dw) * 0.5f, y0 = (view.h - dh) * 0.5f;
-                dl->AddImage(mt.id, ImVec2(x0, y0), ImVec2(x0 + dw, y0 + dh), ImVec2(0, 0), ImVec2(1, 1),
-                             IM_COL32(255, 255, 255, static_cast<int>(alpha * 255.0f)));
-            };
-            dsettings::hudLayers().set(dsettings::HudSlot::Movie, std::move(ml));
-            drakan_input::module().setOverlayCursorAvailable(true);
-        }
-        std::fprintf(stderr, "[settings] overlay ready (F1 / Back+LB+RB / Options > PC Settings)\n");
-    }
+    if (!g_overlay && (g_overlayFailed || !createOverlay(oc)))
+        return;
     if (g_openRequest.exchange(false) && drakan_pause::f1Allowed()) {
         if (g_openControls.exchange(false))
             g_overlay->menu().setPage(dsettings::Page::Controls);
@@ -666,28 +719,7 @@ void overlayCallback(const gsr::OverlayContext& oc) {
         std::fprintf(stderr, "[settings] overlay closed: %s\n", drakan_pause::flowDescription().c_str());
         g_overlay->close();
     }
-    if (oc.viewW > 0.0f && oc.viewH > 0.0f &&
-        g_parent) { // where the game image sits in the window (letterbox / pillarbox / widescreen): the menu mouse maps
-                    // the cursor through it
-        int cw = 0, ch = 0;
-        if (drakan_win::clientSize(cw, ch) && cw > 0 && ch > 0 && oc.width && oc.height) {
-            const float sx = static_cast<float>(cw) / static_cast<float>(oc.width),
-                        sy = static_cast<float>(ch) / static_cast<float>(oc.height);
-            drakan_input::MenuView v;
-            v.x = oc.viewX * sx;
-            v.y = oc.viewY * sy;
-            v.w = oc.viewW * sx;
-            v.h = oc.viewH * sy;
-            v.hudScaleX = oc.hudScaleX;
-            v.hudAnchorX = oc.hudAnchorX;
-            // The renderer maps the entire post-world inventory page with this
-            // same left-anchored X factor, including its native 3D grid. Publish it
-            // separately so Equipment hit testing can undo that page transform.
-            v.inventoryPageScaleX = oc.hudScaleX;
-            v.valid = true;
-            drakan_input::module().setMenuView(v);
-        }
-    }
+    publishMenuView(oc);
     g_overlayView = oc;
     dsettings::HudView image;
     image.viewX = oc.viewX;

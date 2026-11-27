@@ -31,6 +31,159 @@ struct TitleUi {
 TitleUi g_titleUi;
 
 bool g_modsNoticeDone = false; // it was shown and answered / closed (overlay thread)
+
+// The update notice of the title's main page: the installer (Windows) or drakan_update_linux. True when an update
+// is being installed and the game has been asked to close.
+bool pollTitleUpdate(gameui::TitleState& st) {
+#if defined(_WIN32)
+    using drakan_update_installer::State;
+    const State installer = drakan_update_installer::poll();
+    if (installer == State::Launched) {
+        drakan_win::requestClose();
+        return true;
+    }
+    st.updateVersion = drakan_update::availableVersion();
+    if (!st.updateVersion.empty() && drakan_update_installer::eligible()) {
+        st.updateInstall = gameui::TitleUpdateInstall::Available;
+        if (installer == State::Downloading)
+            st.updateInstall = gameui::TitleUpdateInstall::Downloading;
+        else if (installer == State::Failed)
+            st.updateInstall = gameui::TitleUpdateInstall::Failed;
+    }
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+    using drakan_update_linux::Install;
+    const auto notice = drakan_update_linux::poll();
+    if (notice.install == Install::Ready) {
+        drakan_win::requestClose();
+        return true;
+    }
+    st.updateVersion = notice.version;
+    if (notice.install == Install::Available)
+        st.updateInstall = gameui::TitleUpdateInstall::Available;
+    else if (notice.install == Install::Downloading)
+        st.updateInstall = gameui::TitleUpdateInstall::Downloading;
+    else if (notice.install == Install::Failed)
+        st.updateInstall = gameui::TitleUpdateInstall::Failed;
+#else
+    (void)st;
+#endif
+    return false;
+}
+
+// A game's cover: previews/campaign-<id>.png (a mod pack's campaign, or a pack / the player replacing the
+// cover of "d2" = The Ancients' Gates, "ootf" = Order of the Flame), else previews/game-<id>.png (the logo
+// picture the player drops in for a built-in game). Nothing from the disc is stored in the repository.
+void setGamePictures(gameui::TitleState& st, float viewW, float viewH) {
+    for (gameui::TitleState::Game& g : st.games) {
+        uint32_t pic = mapPreviewId("campaign-" + g.id);
+        if (pic == 0)
+            pic = mapPreviewId("game-" + g.id);
+        if (pic != 0)
+            g.cover = {gameui::ImageKind::LevelPreview, pic};
+        // The classic game choice's full-screen background: previews/background-<id>.png (a pack's, or the player's
+        // picture of "d2" / "ootf" next to the exe); none = plain black. The disc game shows the picture its title
+        // menu shows, the texture pack's wide title art, and keeps background-d2.png (the 1280 x 720 cover, soft
+        // on a large screen) for a pack without one or a file that does not decode.
+        uint32_t bg = mapPreviewId("background-" + g.id);
+        if (g.id == "d2") {
+            const uint32_t art = titleArtPictureId(viewH > 0 ? viewW / viewH : 16.0f / 9);
+            if (drakan_title_picture::choose(pictureLoad(art), pictureLoad(bg)) ==
+                drakan_title_picture::Source::TitleArt)
+                bg = art;
+        }
+        if (bg != 0)
+            g.background = {gameui::ImageKind::LevelPreview, bg};
+    }
+}
+
+// Why a joined session ended (host left / connection lost): shown on the main page for 12 s, dropped once
+// the player opens the Multiplayer page (its Join screen carries the same text).
+void setConnectionNote(gameui::TitleState& st, bool multiplayerPage, double now) {
+    static double s_noticeSince = -1;
+    const std::string& en = st.multiplayer.endNotice;
+    if (!en.empty() && multiplayerPage) {
+        drakan_netplay::dismissNotice();
+        s_noticeSince = -1;
+    } else if (!en.empty()) {
+        if (s_noticeSince < 0)
+            s_noticeSince = now;
+        if (now - s_noticeSince > 12.0) {
+            drakan_netplay::dismissNotice();
+            s_noticeSince = -1;
+        } else {
+            st.connectionNote = en;
+        }
+    } else {
+        s_noticeSince = -1;
+    }
+}
+
+// The update card's buttons (none pressed: nothing).
+void runTitleUpdateAction(const std::optional<gameui::TitleUpdateAction>& action, const std::string& version) {
+#if defined(_WIN32)
+    if (action == gameui::TitleUpdateAction::ViewChanges)
+        drakan_update::viewChanges();
+    else if (action == gameui::TitleUpdateAction::Dismiss)
+        drakan_update::dismiss();
+    else if (action == gameui::TitleUpdateAction::DownloadAndRebuild)
+        drakan_update_installer::start(version);
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+    (void)version;
+    if (action == gameui::TitleUpdateAction::ViewChanges)
+        drakan_update_linux::viewChanges();
+    else if (action == gameui::TitleUpdateAction::Dismiss)
+        drakan_update_linux::dismiss();
+    else if (action == gameui::TitleUpdateAction::DownloadAndRebuild)
+        drakan_update_linux::start();
+#else
+    (void)action;
+    (void)version;
+#endif
+}
+
+// Hands this frame's actions on: the EE glue carries out the title / option actions (drakan_menu_screens.inl), the
+// netplay API the multiplayer ones; the host handles the mod packs card itself. Then the frame's menu sound.
+void dispatchTitleActions(const gameui::TitleFrameOutput& out, gameui::TitleScreen& screen) {
+    auto& sh = drakan_menu_screens::shared();
+    for (const gameui::TitleAction& a : out.actions) {
+        std::fprintf(stderr, "[menu-screens] overlay t=%.3f: title action %s(%d)\n",
+                     drakan_menu_screens::clockSeconds(), gameui::titleActionName(a.kind), a.value);
+        if (a.kind == gameui::TitleActionKind::ReportIssue)
+            drakan_issue::report("Title menu", drakan_game::currentName());
+        else if (a.kind == gameui::TitleActionKind::ModsEnable || a.kind == gameui::TitleActionKind::ModsKeepOff ||
+                 a.kind == gameui::TitleActionKind::OpenMods)
+            titleModsAction(a); // host only: no native press
+        else {
+            if (a.kind == gameui::TitleActionKind::SelectGame)
+                previewTitleBackdrop(a.value); // this thread closes the chooser now; the EE applies the choice later
+            sh.titleActions.push(a);
+        }
+    }
+    for (const gameui::PauseAction& a : out.optionActions)
+        sh.titleOptionActions.push(a);
+    for (const gameui::mp::MpAction& a : out.mpActions)
+        mpApply(a, screen.multiplayer());
+    { // A match started: begin a New Game with the match level standing in for the first one (the intro is skipped
+        // by START taps, drakan_input_glue.cpp).
+        std::string matchLevel;
+        if (drakan_netplay::takeLaunchRequest(matchLevel)) {
+            std::fprintf(stderr, "[menu-screens] multiplayer launch: New Game with '%s'\n", matchLevel.c_str());
+            sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
+        } else if (drakan_playtest::takeTitleNewGame()) { // the editor's Play (DRAKAN_FAST_START)
+            std::fprintf(stderr, "[menu-screens] play test: New Game at once\n");
+            sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
+        }
+    }
+    // Actions that press a native row use its own click sound.
+    bool titleNative = nativeSound(out.optionActions);
+    for (const gameui::TitleAction& a : out.actions)
+        titleNative =
+            titleNative ||
+            (a.kind != gameui::TitleActionKind::QuitToDesktop && a.kind != gameui::TitleActionKind::SelectGame &&
+             a.kind != gameui::TitleActionKind::ModsEnable && a.kind != gameui::TitleActionKind::ModsKeepOff &&
+             a.kind != gameui::TitleActionKind::OpenMods && a.kind != gameui::TitleActionKind::ReportIssue);
+    hostUiSound(out.sound, titleNative);
+}
 } // namespace
 
 bool titleShown() {
@@ -133,63 +286,9 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
     tu.renderer.setGamepadPrompts(tu.device == gameui::InputDevice::Gamepad);
     if (visible && ui.screen.isOpen()) {
         gameui::TitleState st = sh.titleState();
-#if defined(_WIN32)
-        if (!background && !st.classicGameChoice && ui.screen.page() == gameui::TitlePage::Main) {
-            using drakan_update_installer::State;
-            const State installer = drakan_update_installer::poll();
-            if (installer == State::Launched) {
-                drakan_win::requestClose();
-                return;
-            }
-            st.updateVersion = drakan_update::availableVersion();
-            if (!st.updateVersion.empty() && drakan_update_installer::eligible()) {
-                st.updateInstall = gameui::TitleUpdateInstall::Available;
-                if (installer == State::Downloading)
-                    st.updateInstall = gameui::TitleUpdateInstall::Downloading;
-                else if (installer == State::Failed)
-                    st.updateInstall = gameui::TitleUpdateInstall::Failed;
-            }
-        }
-#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
-        if (!background && !st.classicGameChoice && ui.screen.page() == gameui::TitlePage::Main) {
-            using drakan_update_linux::Install;
-            const auto notice = drakan_update_linux::poll();
-            if (notice.install == Install::Ready) {
-                drakan_win::requestClose();
-                return;
-            }
-            st.updateVersion = notice.version;
-            if (notice.install == Install::Available)
-                st.updateInstall = gameui::TitleUpdateInstall::Available;
-            else if (notice.install == Install::Downloading)
-                st.updateInstall = gameui::TitleUpdateInstall::Downloading;
-            else if (notice.install == Install::Failed)
-                st.updateInstall = gameui::TitleUpdateInstall::Failed;
-        }
-#endif
-        // A game's cover: previews/campaign-<id>.png (a mod pack's campaign, or a pack / the player replacing the
-        // cover of "d2" = The Ancients' Gates, "ootf" = Order of the Flame), else previews/game-<id>.png (the logo
-        // picture the player drops in for a built-in game). Nothing from the disc is stored in the repository.
-        for (gameui::TitleState::Game& g : st.games) {
-            uint32_t pic = mapPreviewId("campaign-" + g.id);
-            if (pic == 0)
-                pic = mapPreviewId("game-" + g.id);
-            if (pic != 0)
-                g.cover = {gameui::ImageKind::LevelPreview, pic};
-            // The classic game choice's full-screen background: previews/background-<id>.png (a pack's, or the player's
-            // picture of "d2" / "ootf" next to the exe); none = plain black. The disc game shows the picture its title
-            // menu shows, the texture pack's wide title art, and keeps background-d2.png (the 1280 x 720 cover, soft
-            // on a large screen) for a pack without one or a file that does not decode.
-            uint32_t bg = mapPreviewId("background-" + g.id);
-            if (g.id == "d2") {
-                const uint32_t art = titleArtPictureId(f.h > 0 ? f.w / f.h : 16.0f / 9);
-                if (drakan_title_picture::choose(pictureLoad(art), pictureLoad(bg)) ==
-                    drakan_title_picture::Source::TitleArt)
-                    bg = art;
-            }
-            if (bg != 0)
-                g.background = {gameui::ImageKind::LevelPreview, bg};
-        }
+        if (!background && !st.classicGameChoice && ui.screen.page() == gameui::TitlePage::Main && pollTitleUpdate(st))
+            return; // the game closes for the update: nothing more to draw
+        setGamePictures(st, f.w, f.h);
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
                                  ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
@@ -202,27 +301,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             dsettings::gameChoiceNoteText(dsettings::gameChoiceNote(harnessMods(), harnessMods().gameChoice()), true);
         st.modsNote = dsettings::unreadablePacksText(harnessMods(), true);
         st.missingModsNote = dsettings::missingPacksText(harnessMods(), true);
-        {
-            // Why a joined session ended (host left / connection lost): shown on the main page for 12 s, dropped once
-            // the player opens the Multiplayer page (its Join screen carries the same text).
-            static double s_noticeSince = -1;
-            const std::string& en = st.multiplayer.endNotice;
-            if (!en.empty() && ui.screen.page() == gameui::TitlePage::Multiplayer) {
-                drakan_netplay::dismissNotice();
-                s_noticeSince = -1;
-            } else if (!en.empty()) {
-                if (s_noticeSince < 0)
-                    s_noticeSince = now;
-                if (now - s_noticeSince > 12.0) {
-                    drakan_netplay::dismissNotice();
-                    s_noticeSince = -1;
-                } else {
-                    st.connectionNote = en;
-                }
-            } else {
-                s_noticeSince = -1;
-            }
-        }
+        setConnectionNote(st, ui.screen.page() == gameui::TitlePage::Multiplayer, now);
         if ((!st.gameChoiceNote.empty() || !st.modsNote.empty() || !st.missingModsNote.empty() ||
              !st.connectionNote.empty()) &&
             ui.screen.page() == gameui::TitlePage::Main)
@@ -232,64 +311,12 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         const bool noticeBefore = ui.screen.page() == gameui::TitlePage::ModsNotice;
         ui.screen.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
         gameui::TitleFrameOutput out = ui.screen.frame(st, in, vp);
-#if defined(_WIN32)
-        if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
-            drakan_update::viewChanges();
-        else if (out.updateAction == gameui::TitleUpdateAction::Dismiss)
-            drakan_update::dismiss();
-        else if (out.updateAction == gameui::TitleUpdateAction::DownloadAndRebuild)
-            drakan_update_installer::start(st.updateVersion);
-#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
-        if (out.updateAction == gameui::TitleUpdateAction::ViewChanges)
-            drakan_update_linux::viewChanges();
-        else if (out.updateAction == gameui::TitleUpdateAction::Dismiss)
-            drakan_update_linux::dismiss();
-        else if (out.updateAction == gameui::TitleUpdateAction::DownloadAndRebuild)
-            drakan_update_linux::start();
-#endif
+        runTitleUpdateAction(out.updateAction, st.updateVersion);
         if (noticeBefore && ui.screen.page() != gameui::TitlePage::ModsNotice)
             g_modsNoticeDone = true; // answered or closed (Esc: asked again on the next start, mods.ini keeps `new`)
         if (ui.screen.page() == gameui::TitlePage::Multiplayer)
             drakan_fpsmeter::setAvoidTop(true); // the multiplayer pages use the top of the window for their titles
-        for (const gameui::TitleAction& a : out.actions) {
-            std::fprintf(stderr, "[menu-screens] overlay t=%.3f: title action %s(%d)\n",
-                         drakan_menu_screens::clockSeconds(), gameui::titleActionName(a.kind), a.value);
-            if (a.kind == gameui::TitleActionKind::ReportIssue)
-                drakan_issue::report("Title menu", drakan_game::currentName());
-            else if (a.kind == gameui::TitleActionKind::ModsEnable || a.kind == gameui::TitleActionKind::ModsKeepOff ||
-                     a.kind == gameui::TitleActionKind::OpenMods)
-                titleModsAction(a); // host only: no native press
-            else {
-                if (a.kind == gameui::TitleActionKind::SelectGame)
-                    previewTitleBackdrop(
-                        a.value); // this thread closes the chooser now; the EE applies the choice later
-                sh.titleActions.push(a);
-            }
-        }
-        for (const gameui::PauseAction& a : out.optionActions)
-            sh.titleOptionActions.push(a);
-        for (const gameui::mp::MpAction& a : out.mpActions)
-            mpApply(a, ui.screen.multiplayer());
-        { // A match started: begin a New Game with the match level standing in for the first one (the intro is skipped
-            // by START taps, drakan_input_glue.cpp).
-            std::string matchLevel;
-            if (drakan_netplay::takeLaunchRequest(matchLevel)) {
-                std::fprintf(stderr, "[menu-screens] multiplayer launch: New Game with '%s'\n", matchLevel.c_str());
-                sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
-            } else if (drakan_playtest::takeTitleNewGame()) { // the editor's Play (DRAKAN_FAST_START)
-                std::fprintf(stderr, "[menu-screens] play test: New Game at once\n");
-                sh.titleActions.push({0, gameui::TitleActionKind::NewGame, 0});
-            }
-        }
-        // Actions that press a native row use its own click sound.
-        bool titleNative = nativeSound(out.optionActions);
-        for (const gameui::TitleAction& a : out.actions)
-            titleNative =
-                titleNative ||
-                (a.kind != gameui::TitleActionKind::QuitToDesktop && a.kind != gameui::TitleActionKind::SelectGame &&
-                 a.kind != gameui::TitleActionKind::ModsEnable && a.kind != gameui::TitleActionKind::ModsKeepOff &&
-                 a.kind != gameui::TitleActionKind::OpenMods && a.kind != gameui::TitleActionKind::ReportIssue);
-        hostUiSound(out.sound, titleNative);
+        dispatchTitleActions(out, ui.screen);
         if (g_pcs && !out.settings.empty())
             g_pcs->applyAll(out.settings, ui.screen.pcSettings());
         ui.last = std::move(out.draw);

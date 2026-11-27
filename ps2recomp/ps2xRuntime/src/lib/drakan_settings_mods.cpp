@@ -57,6 +57,24 @@ std::string joinProfiles(const hle::mods::Manifest& m) {
     return t;
 }
 
+// The pack's picture for the Mods page: written next to the exe like the map pictures (previews/mods/pack-<key>.png,
+// rewritten only when it changed) and found by name like them. Returns its picture id.
+uint32_t writePackCover(const std::string& key, const std::vector<uint8_t>& cover) {
+    const std::string safe = mapSafeName(key);
+    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
+    const std::filesystem::path f = dir / ("pack-" + safe + ".png");
+    std::vector<char> have;
+    if (std::ifstream in(f, std::ios::binary); in)
+        have.assign(std::istreambuf_iterator<char>(in), {});
+    if (have.size() != cover.size() || !std::equal(have.begin(), have.end(), cover.begin())) {
+        std::filesystem::create_directories(dir, ec);
+        std::ofstream(f, std::ios::binary)
+            .write(reinterpret_cast<const char*>(cover.data()), static_cast<std::streamsize>(cover.size()));
+    }
+    return mapPreviewId("pack-" + safe);
+}
+
 void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
     std::vector<dsettings::ModInfo> mods;
     std::vector<dsettings::ModConflict> conflicts;
@@ -76,25 +94,8 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
             m.name = st.key;
             m.readError = st.readError;
             m.file = st.source.empty() ? st.key : std::filesystem::path(st.source).filename().string();
-            if (!st.cover.empty()) {
-                // The pack's picture for the Mods page: written next to the exe like the map pictures, found by name.
-                std::string safe;
-                for (char ch : st.key)
-                    safe += (std::isalnum(static_cast<unsigned char>(ch)) || ch == '-' || ch == '_') ? ch : '_';
-                std::error_code ec;
-                const std::filesystem::path dir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
-                const std::filesystem::path f = dir / ("pack-" + safe + ".png");
-                std::vector<char> have;
-                if (std::ifstream in(f, std::ios::binary); in)
-                    have.assign(std::istreambuf_iterator<char>(in), {});
-                if (have.size() != st.cover.size() || !std::equal(have.begin(), have.end(), st.cover.begin())) {
-                    std::filesystem::create_directories(dir, ec);
-                    std::ofstream(f, std::ios::binary)
-                        .write(reinterpret_cast<const char*>(st.cover.data()),
-                               static_cast<std::streamsize>(st.cover.size()));
-                }
-                m.picture = mapPreviewId("pack-" + safe);
-            }
+            if (!st.cover.empty())
+                m.picture = writePackCover(st.key, st.cover);
             if (st.hasManifest) {
                 const hle::mods::Manifest& mf = st.manifest;
                 if (!mf.name.empty())

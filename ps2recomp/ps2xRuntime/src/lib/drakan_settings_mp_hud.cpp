@@ -90,13 +90,10 @@ bool mpPreviewCapture(const drakan_netplay::State& ns, const gameui::mp::HudStat
 }
 
 constexpr const char* kTeamNames[4] = {"Fire", "Water", "Earth", "Air"};
-} // namespace
 
-void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
-    MpHud& h = g_mpHud;
-    TabUi& tu = g_tabUi;
-    tu.renderer.setFonts(*f.fonts);
-    tu.renderer.setSkin(f.skin);
+// F6 opens the chat line; typed characters go to it until Enter sends it or Esc drops it. Rynn's input is
+// suspended meanwhile.
+void readChatLine(MpHud& h, bool input) {
     ImGuiIO& io = ImGui::GetIO();
     // The global key state only counts while this window has the focus (two instances on one PC share the keyboard).
     const bool f6 = ImGui::IsKeyDown(ImGuiKey_F6) || (drakan_win::focused() && drakan_win::keyDown(0x75 /* VK_F6 */));
@@ -110,7 +107,7 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     if (h.chatOpen) {
         static int dbgFrames = 0;
         if (std::getenv("DRAKAN_NET_CHAT_DEBUG") && (io.InputQueueCharacters.Size > 0 || (++dbgFrames % 90) == 0))
-            std::fprintf(stderr, "[chat] input=%d chars=%d enter=%d focused=%d\n", f.input ? 1 : 0,
+            std::fprintf(stderr, "[chat] input=%d chars=%d enter=%d focused=%d\n", input ? 1 : 0,
                          io.InputQueueCharacters.Size, ImGui::IsKeyPressed(ImGuiKey_Enter, false) ? 1 : 0,
                          drakan_win::focused() ? 1 : 0);
         for (int i = 0; i < io.InputQueueCharacters.Size; ++i) {
@@ -132,20 +129,12 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
             drakan_input::module().setSuspended(false);
         }
     }
-    const drakan_netplay::State ns = drakan_netplay::state();
-    const drakan_netplay::Scoreboard sb = drakan_netplay::scoreboard(); // rows, kill feed, limits, results
-    gameui::mp::HudState hs;
-    // DRAKAN_NET_SCOREBOARD=<seconds> (test aid, scripted input cannot press F4): show it from that many seconds after
-    // the match started playing.
-    static const double forceAfter = [] {
-        const char* e = std::getenv("DRAKAN_NET_SCOREBOARD");
-        return e && *e ? std::atof(e) : -1.0;
-    }();
-    static double playingSince = -1;
-    if (playingSince < 0)
-        playingSince = ImGui::GetTime();
-    hs.scoreboard = ImGui::IsKeyDown(ImGuiKey_F4) || (drakan_win::focused() && drakan_win::keyDown(0x73 /* VK_F4 */)) ||
-                    (forceAfter >= 0 && ImGui::GetTime() - playingSince >= forceAfter);
+}
+
+// The HUD's picture of the match: drakan_netplay's session state and scoreboard in gameui::mp terms (standings,
+// banner / status line, co-op party, kill feed, chat).
+void fillHudState(gameui::mp::HudState& hs, const MpHud& h, const drakan_netplay::State& ns,
+                  const drakan_netplay::Scoreboard& sb) {
     hs.chatOpen = h.chatOpen;
     hs.chatInput = h.chatInput;
     hs.serverName = ns.serverName;
@@ -283,6 +272,59 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     }
     for (const auto& c : drakan_netplay::chatLog())
         hs.chat.push_back({c.who, c.text, c.at});
+}
+
+// A results button: the host's choices go to the server (it moves every client on); Leave ends the session here.
+void runResultsButton(gameui::mp::ResultsButtonId id, bool& resultsSent) {
+    using gameui::mp::ResultsButtonId;
+    switch (id) {
+        case ResultsButtonId::BackToLobby:
+            resultsSent = true;
+            std::fprintf(stderr, "[results] Back to lobby\n");
+            drakan_netplay::resultsAction(1);
+            break;
+        case ResultsButtonId::NextMap:
+            resultsSent = true;
+            std::fprintf(stderr, "[results] Next map\n");
+            drakan_netplay::resultsAction(2);
+            break;
+        case ResultsButtonId::Rematch:
+            resultsSent = true;
+            std::fprintf(stderr, "[results] Rematch\n");
+            drakan_netplay::resultsAction(3);
+            break;
+        case ResultsButtonId::Leave:
+            resultsSent = true;
+            std::fprintf(stderr, "[results] Leave\n");
+            drakan_netplay::leave();
+            drakan_netplay::requestReturnToTitle();
+            (void)mpResultsUp(); // the session is gone: the input hold ends now
+            break;
+    }
+}
+} // namespace
+
+void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
+    MpHud& h = g_mpHud;
+    TabUi& tu = g_tabUi;
+    tu.renderer.setFonts(*f.fonts);
+    tu.renderer.setSkin(f.skin);
+    readChatLine(h, f.input);
+    const drakan_netplay::State ns = drakan_netplay::state();
+    const drakan_netplay::Scoreboard sb = drakan_netplay::scoreboard(); // rows, kill feed, limits, results
+    gameui::mp::HudState hs;
+    // DRAKAN_NET_SCOREBOARD=<seconds> (test aid, scripted input cannot press F4): show it from that many seconds after
+    // the match started playing.
+    static const double forceAfter = [] {
+        const char* e = std::getenv("DRAKAN_NET_SCOREBOARD");
+        return e && *e ? std::atof(e) : -1.0;
+    }();
+    static double playingSince = -1;
+    if (playingSince < 0)
+        playingSince = ImGui::GetTime();
+    hs.scoreboard = ImGui::IsKeyDown(ImGuiKey_F4) || (drakan_win::focused() && drakan_win::keyDown(0x73 /* VK_F4 */)) ||
+                    (forceAfter >= 0 && ImGui::GetTime() - playingSince >= forceAfter);
+    fillHudState(hs, h, ns, sb);
     gameui::ScreenConfig sc;
     sc.measure = tu.renderer.measure();
     // The results buttons: the host chooses (back to the lobby, next map, rematch), everybody can leave. The overlay
@@ -351,31 +393,7 @@ void mpHudDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
         const int pressed = resultsMenu.frame(hs.resultsButtons, resultsIn, {0, 0, f.w, f.h}, sc);
         hs.resultsFocus = resultsMenu.focus();
         if (pressed >= 0) {
-            using gameui::mp::ResultsButtonId;
-            switch (hs.resultsButtons[static_cast<size_t>(pressed)].id) {
-                case ResultsButtonId::BackToLobby:
-                    resultsSent = true;
-                    std::fprintf(stderr, "[results] Back to lobby\n");
-                    drakan_netplay::resultsAction(1);
-                    break;
-                case ResultsButtonId::NextMap:
-                    resultsSent = true;
-                    std::fprintf(stderr, "[results] Next map\n");
-                    drakan_netplay::resultsAction(2);
-                    break;
-                case ResultsButtonId::Rematch:
-                    resultsSent = true;
-                    std::fprintf(stderr, "[results] Rematch\n");
-                    drakan_netplay::resultsAction(3);
-                    break;
-                case ResultsButtonId::Leave:
-                    resultsSent = true;
-                    std::fprintf(stderr, "[results] Leave\n");
-                    drakan_netplay::leave();
-                    drakan_netplay::requestReturnToTitle();
-                    (void)mpResultsUp(); // the session is gone: the input hold ends now
-                    break;
-            }
+            runResultsButton(hs.resultsButtons[static_cast<size_t>(pressed)].id, resultsSent);
         }
     }
     h.last = gameui::mp::drawHud(hs, {0, 0, f.w, f.h}, sc);
