@@ -5,6 +5,8 @@
 #include <cstring>
 
 namespace drakan_object_motion {
+// Not resolveGuestSpan (runtime/ps2_memory.h): this checks a game object pointer read from RAM for plausibility, so it
+// also rejects the low 1 MB (kernel area, never a game object) and works on any RAM image of `size` bytes.
 inline bool ramSpan(uint32_t a, uint32_t n, uint32_t size) {
     return a >= 0x100000u && n <= size && a <= size - n;
 }
