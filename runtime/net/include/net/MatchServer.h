@@ -76,6 +76,9 @@ struct ServerOptions {
     float lobbyMsgPerSec = 2.0f;
 };
 
+// Arena potion effects: index into ServerPlayer::powerUntilMs and bit of PlayerState::arenaPower.
+constexpr size_t kPowerSpeed = 0, kPowerInvisibility = 1, kPowerInvulnerability = 2, kArenaPowerCount = 3;
+
 struct ServerPlayer {
     PlayerId id = kNoPlayer;
     PeerId peer = kInvalidPeer;
@@ -99,7 +102,7 @@ struct ServerPlayer {
     float lastRejectPos[3] = {0, 0, 0};
     uint64_t respawnAtMs = 0;
     uint64_t protectedUntilMs = 0;
-    std::array<uint64_t, 3> powerUntilMs{};
+    std::array<uint64_t, kArenaPowerCount> powerUntilMs{}; // arena potions, by kPower* (PlayerState::arenaPower bits)
     uint64_t lastHitAtMs = 0;
     bool hasHit = false;
     int lastSpawn = -1; // arena: index of the spawn point of the previous life
@@ -194,6 +197,9 @@ private:
     void onHello(PeerId peer, Peer& state, const std::vector<uint8_t>& data);
     void onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& data);
     void onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data);
+    // Why a claimed hit is refused (nullptr = accepted). *distance / *range are set for the range check.
+    const char* hitRejection(const ServerPlayer& attacker, const Hit& h, float* distance, float* range) const;
+    bool invulnerable(const ServerPlayer& p) const; // respawn protection or the invulnerability potion
     void applyArenaDamage(ServerPlayer& victim, ServerPlayer* attacker, uint8_t weapon, uint16_t damage,
                           bool dragon = false);
     void onChat(ServerPlayer& p, const std::vector<uint8_t>& data);

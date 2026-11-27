@@ -863,83 +863,93 @@ void MatchServer::onPlayerState(ServerPlayer& p, const std::vector<uint8_t>& dat
         dragonPosition_ = {s.pos[0], s.pos[1], s.pos[2]};
 }
 
-void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data) {
-    Hit h;
-    if (!decode(data, h)) {
-        return;
-    }
+namespace {
+constexpr uint64_t kLoggedHitRejections = 50; // the first rejections are logged with their reason
+} // namespace
+
+bool MatchServer::invulnerable(const ServerPlayer& p) const {
+    return now_ < p.protectedUntilMs || now_ < p.powerUntilMs[kPowerInvulnerability];
+}
+
+// The server does not trust a client's hit claim: every rule below has to hold (checked in order, the first failure is
+// the reason).
+const char* MatchServer::hitRejection(const ServerPlayer& attacker, const Hit& h, float* distance, float* range) const {
+    *distance = 0.0f;
+    *range = 0.0f;
     auto vit = players_.find(h.victim);
     const bool separateDragon = dragonOwner_ && h.victim == dragonOwner_;
-    const char* why = nullptr; // first failed check, for the log
     if (options_.config.mode == MatchMode::Coop)
-        why = "co-op: players cannot hurt each other";
-    else if (phase_ != MatchPhase::Playing)
-        why = "match not playing";
-    else if (!attacker.alive)
-        why = "attacker dead";
-    else if (vit == players_.end() || vit->second.id == attacker.id)
-        why = "no such victim";
-    else if (!vit->second.alive)
-        why = "victim dead";
-    else if (h.dragon && !separateDragon && (!vit->second.hasState || !vit->second.state.mounted))
-        why = "victim has no dragon";
-    else if (h.damage < 1 || h.weapon > kHitProjectile)
-        why = "bad damage or weapon";
-    else if (h.damage > hitLimit(attacker, h.weapon))
-        why = "damage above the weapon's limit";
-    else if (const ModeDef* mode = activeMode(); mode && !mode->weapons.empty() && attacker.hasState) {
+        return "co-op: players cannot hurt each other";
+    if (phase_ != MatchPhase::Playing)
+        return "match not playing";
+    if (!attacker.alive)
+        return "attacker dead";
+    if (vit == players_.end() || vit->second.id == attacker.id)
+        return "no such victim";
+    const ServerPlayer& v = vit->second;
+    if (!v.alive)
+        return "victim dead";
+    if (h.dragon && !separateDragon && (!v.hasState || !v.state.mounted))
+        return "victim has no dragon";
+    if (h.damage < 1 || h.weapon > kHitProjectile)
+        return "bad damage or weapon";
+    if (h.damage > hitLimit(attacker, h.weapon))
+        return "damage above the weapon's limit";
+    if (const ModeDef* mode = activeMode(); mode && !mode->weapons.empty() && attacker.hasState) {
         // The mode allows only some weapons: a hit with another one does nothing (bare hands always count).
         const uint32_t held = h.weapon == kHitMeleeRight ? attacker.state.weaponRight : attacker.state.weaponLeft;
         if (held != 0 && std::find(mode->weapons.begin(), mode->weapons.end(), held) == mode->weapons.end())
-            why = "weapon not allowed in this mode";
+            return "weapon not allowed in this mode";
     }
-    if (!why) {
-        ServerPlayer& v = vit->second;
-        const float range = h.weapon == kHitProjectile ? options_.maxHitRangeRanged : options_.maxHitRange;
-        float dist = 0.0f;
-        if (now_ < v.protectedUntilMs || now_ < v.powerUntilMs[2])
-            why = "victim protected after its respawn";
-        else if (options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team &&
-                 !(activeMode() && activeMode()->friendlyFire))
-            why = "friendly fire";
-        else if (attacker.hasHit && now_ - attacker.lastHitAtMs < options_.minHitIntervalMs)
-            why = "attacker too fast";
-        else if (range > 0.0f) {
-            if (!attacker.hasState || !v.hasState) {
-                why = "no position yet";
-            } else {
-                const float* target =
-                    separateDragon && h.dragon && dragonPosition_ ? dragonPosition_->data() : v.state.pos;
-                const float dx = attacker.state.pos[0] - target[0];
-                const float dy = attacker.state.pos[1] - target[1];
-                const float dz = attacker.state.pos[2] - target[2];
-                dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-                if (dist > range)
-                    why = "out of range";
-            }
-        }
-        if (why && std::string(why) == "out of range")
-            log("hit rejected: " + std::string(why) + " (" + std::to_string(static_cast<int>(dist)) + " > " +
-                std::to_string(static_cast<int>(range)) + ")");
+    if (invulnerable(v))
+        return "victim protected after its respawn";
+    if (options_.config.mode == MatchMode::TeamDeathmatch && v.team == attacker.team &&
+        !(activeMode() && activeMode()->friendlyFire))
+        return "friendly fire";
+    if (attacker.hasHit && now_ - attacker.lastHitAtMs < options_.minHitIntervalMs)
+        return "attacker too fast";
+    *range = h.weapon == kHitProjectile ? options_.maxHitRangeRanged : options_.maxHitRange;
+    if (*range > 0.0f) { // 0 = no range check
+        if (!attacker.hasState || !v.hasState)
+            return "no position yet";
+        // A rider's separate dragon (the OotF arena dragon) is hit where the dragon is, not where its owner is.
+        const float* target = separateDragon && h.dragon && dragonPosition_ ? dragonPosition_->data() : v.state.pos;
+        const float dx = attacker.state.pos[0] - target[0];
+        const float dy = attacker.state.pos[1] - target[1];
+        const float dz = attacker.state.pos[2] - target[2];
+        *distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (*distance > *range)
+            return "out of range";
     }
-    if (why) {
+    return nullptr;
+}
+
+void MatchServer::onHit(ServerPlayer& attacker, const std::vector<uint8_t>& data) {
+    Hit h;
+    if (!decode(data, h))
+        return;
+    float dist = 0.0f, range = 0.0f;
+    if (const char* why = hitRejection(attacker, h, &dist, &range)) {
         ++stats_.hitsRejected;
-        if (std::string(why) != "out of range" && stats_.hitsRejected <= 50)
-            log(std::string("hit rejected: ") + why);
+        const std::string reason = why;
+        if (reason == "out of range") // always logged, with the numbers: the range limits are tuned from these
+            log("hit rejected: " + reason + " (" + std::to_string(static_cast<int>(dist)) + " > " +
+                std::to_string(static_cast<int>(range)) + ")");
+        else if (stats_.hitsRejected <= kLoggedHitRejections)
+            log("hit rejected: " + reason);
         return;
     }
-
     ++stats_.hitsAccepted;
     attacker.lastHitAtMs = now_;
     attacker.hasHit = true;
     const uint16_t applied = static_cast<uint16_t>(
         std::clamp<long>(std::lround(static_cast<double>(h.damage) * options_.damageScale), 1L, 65535L));
-    applyArenaDamage(vit->second, &attacker, h.weapon, applied, h.dragon);
+    applyArenaDamage(players_.find(h.victim)->second, &attacker, h.weapon, applied, h.dragon);
 }
 
 void MatchServer::applyArenaDamage(ServerPlayer& v, ServerPlayer* attacker, uint8_t weapon, uint16_t applied,
                                    bool dragon) {
-    if (!v.alive || now_ < v.protectedUntilMs || now_ < v.powerUntilMs[2])
+    if (!v.alive || invulnerable(v))
         return;
     const bool separateDragon = dragonOwner_ && v.id == dragonOwner_;
     int32_t& health = separateDragon && dragon ? dragonHealth_ : v.health;
@@ -1658,7 +1668,8 @@ void MatchServer::tickArenaHazards() {
     ServerPlayer* target = nullptr;
     float distance = 48000.0f;
     for (auto& [id, p] : players_) {
-        if (!p.alive || !p.hasState || !p.state.levelHash || p.state.placing || now_ < p.powerUntilMs[1])
+        if (!p.alive || !p.hasState || !p.state.levelHash || p.state.placing ||
+            now_ < p.powerUntilMs[kPowerInvisibility])
             continue;
         const float d = std::hypot(p.state.pos[0] - dragon.pos[0], p.state.pos[2] - dragon.pos[2]);
         if (d < distance) {
@@ -1771,7 +1782,9 @@ void MatchServer::onPickupClaim(ServerPlayer& p, const std::vector<uint8_t>& dat
         } else if (reward->kind == Kind::DragonProtection) {
             p.protectedUntilMs = std::max(p.protectedUntilMs, now_ + uint64_t(reward->value) * 1000u);
         } else if (reward->potion()) {
-            const size_t power = reward->kind == Kind::Speed ? 0 : reward->kind == Kind::Invisibility ? 1 : 2;
+            const size_t power = reward->kind == Kind::Speed          ? kPowerSpeed
+                                 : reward->kind == Kind::Invisibility ? kPowerInvisibility
+                                                                      : kPowerInvulnerability;
             p.powerUntilMs[power] = now_ + reward->durationMs;
             log("arena potion " + std::to_string(power) + " active for player " + std::to_string(p.id) + " for " +
                 std::to_string(reward->durationMs) + " ms");
