@@ -100,6 +100,8 @@ public:
 private:
     Context() = default;
     bool init(const ContextOptions& options, std::string* error);
+    // Native: picks adapter_ among the instance's adapters (Context.cpp).
+    void chooseAdapter(const ContextOptions& options, const std::vector<WGPUAdapter>& adapters);
     // Device request shared by both paths; `done(ok, message)` once the device exists (or failed).
     void requestDevice(std::function<void(bool, const std::string&)> done);
 

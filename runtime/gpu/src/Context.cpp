@@ -205,6 +205,61 @@ void Context::createAsync(const ContextOptions& options, CreateCallback done) {
 }
 #endif
 
+#if defined(DRAKAN_WGPU_NATIVE)
+// The best usable adapter (adapterRank, then backendRank: lower is better) becomes adapter_; the others are
+// released. adapter_ stays null when none is usable.
+void Context::chooseAdapter(const ContextOptions& options, const std::vector<WGPUAdapter>& adapters) {
+    // A surface for the target window lets adapter selection skip adapters that cannot present to it.
+    WGPUSurface probe = nullptr;
+    if (options.compatibleWith && options.compatibleWith->kind != NativeWindow::Kind::None) {
+        if (auto surface = createSurface(*options.compatibleWith)) {
+            probe = surface->surface_;
+            surface->surface_ = nullptr; // keep the handle for the probe below
+        }
+    }
+    // DRAKAN_GPU_SOFTWARE_ONLY=1 (tests only): a context that accepts a CPU adapter takes nothing else, as on a
+    // machine without a graphics card (a CI runner), so a test's software case can be timed on a developer machine.
+    const char* softwareOnlyEnv = std::getenv("DRAKAN_GPU_SOFTWARE_ONLY");
+    const bool softwareOnly = options.allowSoftwareAdapter && softwareOnlyEnv && *softwareOnlyEnv == '1';
+    unsigned best = ~0u;
+    for (WGPUAdapter candidate : adapters) {
+        auto info = WGPU_ADAPTER_INFO_INIT;
+        const bool haveInfo = wgpuAdapterGetInfo(candidate, &info) == WGPUStatus_Success;
+        bool usable = haveInfo;
+        if (usable && info.adapterType == WGPUAdapterType_CPU && !options.allowSoftwareAdapter)
+            usable = false;
+        if (usable && softwareOnly && info.adapterType != WGPUAdapterType_CPU)
+            usable = false;
+        if (usable && probe) {
+            auto caps = WGPU_SURFACE_CAPABILITIES_INIT;
+            usable = wgpuSurfaceGetCapabilities(probe, candidate, &caps) == WGPUStatus_Success && caps.formatCount > 0;
+            wgpuSurfaceCapabilitiesFreeMembers(caps);
+        }
+        const Backend backend = fromBackendType(info.backendType);
+        const unsigned rank = adapterRank(info) * 16 + backendRank(backend); // adapter first, then backend
+        std::fprintf(stderr, "[gpu] adapter candidate: %s (%s, type %u)%s\n", str(info.device).c_str(),
+                     backendName(backend), unsigned(info.adapterType), usable ? "" : " - skipped");
+        if (usable && rank < best) {
+            if (adapter_)
+                wgpuAdapterRelease(adapter_);
+            adapter_ = candidate;
+            candidate = nullptr;
+            best = rank;
+            adapterName_ = str(info.device);
+            adapterDriver_ = str(info.description);
+            backend_ = backend;
+            software_ = info.adapterType == WGPUAdapterType_CPU;
+        }
+        if (haveInfo)
+            wgpuAdapterInfoFreeMembers(info);
+        if (candidate)
+            wgpuAdapterRelease(candidate);
+    }
+    if (probe)
+        wgpuSurfaceRelease(probe);
+}
+#endif
+
 bool Context::init(const ContextOptions& options, std::string* error) {
     const auto fail = [&](const std::string& why) {
         if (error)
@@ -269,54 +324,7 @@ bool Context::init(const ContextOptions& options, std::string* error) {
     if (adapters.empty())
         return fail(std::string("no usable GPU adapter (backend ") + backendName(wanted) + ")");
 
-    // A surface for the target window lets adapter selection skip adapters that cannot present to it.
-    WGPUSurface probe = nullptr;
-    if (options.compatibleWith && options.compatibleWith->kind != NativeWindow::Kind::None) {
-        if (auto surface = createSurface(*options.compatibleWith)) {
-            probe = surface->surface_;
-            surface->surface_ = nullptr; // keep the handle for the probe below
-        }
-    }
-    // DRAKAN_GPU_SOFTWARE_ONLY=1 (tests only): a context that accepts a CPU adapter takes nothing else, as on a
-    // machine without a graphics card (a CI runner), so a test's software case can be timed on a developer machine.
-    const char* softwareOnlyEnv = std::getenv("DRAKAN_GPU_SOFTWARE_ONLY");
-    const bool softwareOnly = options.allowSoftwareAdapter && softwareOnlyEnv && *softwareOnlyEnv == '1';
-    unsigned best = ~0u;
-    for (WGPUAdapter candidate : adapters) {
-        auto info = WGPU_ADAPTER_INFO_INIT;
-        const bool haveInfo = wgpuAdapterGetInfo(candidate, &info) == WGPUStatus_Success;
-        bool usable = haveInfo;
-        if (usable && info.adapterType == WGPUAdapterType_CPU && !options.allowSoftwareAdapter)
-            usable = false;
-        if (usable && softwareOnly && info.adapterType != WGPUAdapterType_CPU)
-            usable = false;
-        if (usable && probe) {
-            auto caps = WGPU_SURFACE_CAPABILITIES_INIT;
-            usable = wgpuSurfaceGetCapabilities(probe, candidate, &caps) == WGPUStatus_Success && caps.formatCount > 0;
-            wgpuSurfaceCapabilitiesFreeMembers(caps);
-        }
-        const Backend backend = fromBackendType(info.backendType);
-        const unsigned rank = adapterRank(info) * 16 + backendRank(backend);
-        std::fprintf(stderr, "[gpu] adapter candidate: %s (%s, type %u)%s\n", str(info.device).c_str(),
-                     backendName(backend), unsigned(info.adapterType), usable ? "" : " - skipped");
-        if (usable && rank < best) {
-            if (adapter_)
-                wgpuAdapterRelease(adapter_);
-            adapter_ = candidate;
-            candidate = nullptr;
-            best = rank;
-            adapterName_ = str(info.device);
-            adapterDriver_ = str(info.description);
-            backend_ = backend;
-            software_ = info.adapterType == WGPUAdapterType_CPU;
-        }
-        if (haveInfo)
-            wgpuAdapterInfoFreeMembers(info);
-        if (candidate)
-            wgpuAdapterRelease(candidate);
-    }
-    if (probe)
-        wgpuSurfaceRelease(probe);
+    chooseAdapter(options, adapters);
     if (!adapter_)
         return fail(std::string("no usable GPU adapter (backend ") + backendName(wanted) + ")");
     fxc_ = backend_ == Backend::D3D12 && dxc.empty();
