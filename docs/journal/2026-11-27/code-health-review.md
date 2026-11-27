@@ -54,18 +54,29 @@ Libraries
   phase each period (buzz); XInput polls disconnected pads every frame; input sink thread can hang exit;
   `world::Reader` off by one; settings accept nan. Fixed.
 
-Recompiler (`ps2xRecomp`), not changed yet: these alter generated code and need a full rebuild plus play testing.
-- With `indirect_fallback = false` the jump-table detector never runs; a switch missing from `jumptables.csv` only
-  fails when that case is reached in play (thread made dormant).
-- `J` to a known function is a direct C++ call, bypassing the function table, so runtime overrides (e.g. the
-  `0x4bc080` replacement) are skipped on tail jumps.
-- `ctx->pc` is stored only when the emitted text contains `runtime->`; READ/WRITE macros hide it, so MMIO hooks
-  keyed on pc can see a stale pc.
-- `ADD32_OV`/`SUB32_OV`, DADD/DSUB/DADDI(U) use signed overflow (UB under clang/wasm; MSVC happens to be safe).
-- Stale `ps2_recomp_NNNN.cpp` files are never deleted while CMake globs them; output writes are unchecked.
-- `findContainingExternalFunction` is a linear scan per branch target per pass (about 7e8 iterations a pass).
+Recompiler (`ps2xRecomp`), fixed in a second pass the same day (generated code diffed against the previous output;
+every difference traced to one of these):
+- With `indirect_fallback = false` the jump-table detector never ran; a switch missing from `jumptables.csv` only
+  failed when that case was reached in play. It now always runs; this ELF has no new tables, and the 28 remaining
+  unresolved non-`$ra` JR sites are printed as build warnings.
+- `J` to a known function was a direct C++ call, bypassing the function table, so runtime overrides (e.g. the
+  `0x4bc080` replacement) were skipped on tail jumps. Now calls through the table like `PS2_JAL` (56 sites).
+- `ctx->pc` was stored only when the emitted text contained `runtime->`. Translators now flag statements that enter
+  the runtime; run-time-address loads and stores use `READn_AT`/`WRITEn_AT`, which store pc only on the slow
+  (MMIO/scratchpad) path. Plain RAM accesses cost the same.
+- DADD/DSUB/DADDI(U) and ADD/SUB used signed overflow (UB under clang/wasm); now unsigned with sign-bit checks.
+- Stale `ps2_recomp_NNNN.cpp` files are deleted and output writes are checked. Headers were written with CRLF, so the
+  "unchanged" check never matched and every run recompiled all generated code; now LF.
+- `findContainingExternalFunction` used a linear scan; now a sorted index (recompile 9.3 s to 2.2 s).
 
-## Readability hotspots (refactor plan, not started)
+## Readability hotspots (refactored the same day)
+
+All rows below and the cross-cutting items were done as behaviour-preserving `refactor(game)` commits, with any bug
+found on the way in its own `fix(game)` commit: mod pack covers rewritten on every start (signed char compare), RPC
+`run()` timeout freeing a buffer the guest still read, `exeDir` read with the ANSI API, `drakan_input.ini` opened by
+a UTF-8 path as ANSI (controls reset in non-ANSI folders), `path::string()` throwing in CD/card/fio stubs, DMA QWC
+read as 32 bits, and two wrapping bounds checks (VAG, DMA chain tags). Runtime library details:
+`runtime-libs-cleanup.md`. Not split on purpose: `processVIF1Data` (hottest VIF path).
 
 The worst places to understand, all with a clear split:
 
@@ -82,11 +93,13 @@ The worst places to understand, all with a clear split:
 
 Cross-cutting duplication that causes real bugs:
 - 17 copies of guest RAM readers (`rd32`, `ramPtr`, ...) in 11 files with different bounds rules, and five guest range
-  validators: one `GuestRam` / `resolveGuestSpan` header.
-- Raw guest struct offsets (`+0x4b0`, `+0xfc`, ...) and guest PCs (`0x437170`, ...) repeated as literals: a
-  `guest_layout.h` with named constants.
-- Three `exeDir` variants with different encodings (UTF-8 vs ANSI) and a dozen `lower`/`trim` helpers: one utility.
-- `drakan_input.ini` parsed twice with different validation (`input/Config.cpp`, `settings/Store.cpp`): one schema.
+  validators: now `runtime/guest_access.h` (namespace `guest`) and `resolveGuestSpan` in `ps2_memory.h`.
+- Raw guest struct offsets (`+0x4b0`, `+0xfc`, ...) and guest PCs (`0x437170`, ...) repeated as literals: now
+  `drakan_guest_layout.h`; DMA/GIF/VIF register literals: `ps2_hw_registers.h`.
+- Three `exeDir` variants and a dozen `lower`/`trim` helpers: `drakan_cfg::exeDirPath()`, `drakan_text.h` in the
+  glue and the header-only `runtime/common` (`common/Text.h`, `common/Path.h`) in the libraries.
+- `drakan_input.ini` parsed twice with different validation: one schema, `drakan::input_ini`
+  (`input/IniSchema.h`). Now rejected: `directional_attack = none|0`, out-of-range `[advanced]` addresses, nan/inf.
 
 ## Verification
 
@@ -97,3 +110,16 @@ Cross-cutting duplication that causes real bugs:
 - Kept on purpose: guest `sprintf`/`vsprintf` still cut at 255 characters (the cap guards guest stack buffers; lifting
   it needs a gameplay check). `world::Reader` keeps its inclusive record bound (the native allocator checks inclusively).
 - Not yet checked in real play: multiplayer under load, co-op object replays, long sessions with many guest threads.
+
+After the recompiler fixes and the refactors (drakan.exe SHA-256 `67B434EA...`, all generated code rebuilt):
+- `runtime-tests-asan`: 187 of 188 pass, no AddressSanitizer reports. `vertex_records` exceeds its 900 s limit under
+  ASan; the Release build passes (10050 checks) and takes the same time before and after this work (103 s vs 106 s,
+  145 s vs 152 s, alternating runs).
+- `lifecycle_run.py`, all phases (boot, save_surdana, save_4a, menu_save, restore): 15/15 checks pass.
+- `play_run.py` screenshots in Surdana (world, HUD, inventory, map, pause menu, walking) look as before. In 2 of 7 runs
+  the presentation froze for 7 to 13 s right after a 4K screenshot taken in the inventory ("host handoff timed out");
+  older runs show the same warning, and the guest kept running (no stall report), so it is not tied to this work, but
+  it is not explained either.
+- Python tests: the 6 `test_build_drakan` errors fail the same way at the previous commit.
+- Not built: `ps2xTest` (the J tests were updated to the function-table form). Not yet checked in real play:
+  multiplayer and co-op, J tail jumps into overridden functions, a play folder under a non-ASCII path.
