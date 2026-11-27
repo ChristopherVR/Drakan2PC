@@ -646,6 +646,12 @@ public:
             if (charged >= kBudgetSeconds || m_rt.isStopRequested()) {
                 // The sequence object dies with the caller: the EE side must not touch it any more.
                 chain->abandoned = true;
+                // The call in flight may still be running in the guest and reading its server's buffer once the
+                // serialize locks drop: keep that server busy until its handler returns, as post() does.
+                if (chain->inFlight && chain->inFlightSlot != 0) { // slots 1..3 are held by `serialize`
+                    chain->inFlightDone = std::make_shared<Wait>();
+                    m_abandoned[chain->inFlightSlot] = chain->inFlightDone;
+                }
                 logfmt("run: a guest handler of a resource batch did not return within 20 s (call %llu)",
                        static_cast<unsigned long long>(chain->progress));
                 return;
@@ -716,6 +722,9 @@ private:
         hle::IEeCallSequence* sequence = nullptr;
         uint64_t progress = 0; // calls issued
         bool done = false, abandoned = false;
+        bool inFlight = false;              // a posted call's guest handler has not returned yet
+        uint32_t inFlightSlot = 0;          // its m_serial slot
+        std::shared_ptr<Wait> inFlightDone; // set by run() when it gives up: completed when that handler returns
     };
     // Issues the sequence's next call; the completion of its guest handler (EE thread) hands the reply over and calls
     // this again.
@@ -754,14 +763,23 @@ private:
                     chain->sequence->reply(-1, nullptr, 0); // as post() fails
                     continue;
                 }
+                chain->inFlight = true;
+                chain->inFlightSlot = call.sid & 3u;
             }
             m_rt.eeScheduler().postGuestCall(
                 func, call.fno, buf, static_cast<uint32_t>(call.payload.size()), 0,
                 [this, chain, replyCap = call.replyCap, blocking = call.blocking](uint32_t v0) {
                     {
                         std::lock_guard<std::mutex> lock(chain->m);
-                        if (chain->abandoned)
+                        chain->inFlight = false;
+                        if (chain->abandoned) {
+                            if (chain->inFlightDone) { // the server run() kept busy is free again
+                                std::lock_guard<std::mutex> doneLock(chain->inFlightDone->m);
+                                chain->inFlightDone->done = true;
+                                chain->inFlightDone->cv.notify_all();
+                            }
                             return;
+                        }
                         // the reply rules of post()
                         const uint32_t off = v0 & 0x1FFFFFFFu;
                         if (!blocking || replyCap == 0 || v0 == 0 ||
