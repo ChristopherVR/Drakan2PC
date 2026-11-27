@@ -14,6 +14,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -305,14 +306,19 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, onSignal);
     std::signal(SIGTERM, onSignal);
 
-    // Console: lines from stdin, handled on the server thread (the MatchServer is not thread safe).
-    std::mutex consoleM;
-    std::vector<std::string> consoleLines;
-    std::thread consoleThread([&] {
+    // Console: lines from stdin, handled on the server thread (the MatchServer is not thread safe). The reader is
+    // detached and may still sit in getline() when main returns, so the queue it fills is shared ownership, not a local
+    // of main.
+    struct ConsoleQueue {
+        std::mutex m;
+        std::vector<std::string> lines;
+    };
+    const auto console = std::make_shared<ConsoleQueue>();
+    std::thread consoleThread([console] {
         std::string line;
         while (!g_stop && std::getline(std::cin, line)) {
-            std::lock_guard<std::mutex> l(consoleM);
-            consoleLines.push_back(line);
+            std::lock_guard<std::mutex> l(console->m);
+            console->lines.push_back(line);
         }
     });
     consoleThread.detach();
@@ -371,8 +377,8 @@ int main(int argc, char** argv) {
         {
             std::vector<std::string> lines;
             {
-                std::lock_guard<std::mutex> l(consoleM);
-                lines.swap(consoleLines);
+                std::lock_guard<std::mutex> l(console->m);
+                lines.swap(console->lines);
             }
             for (const std::string& l : lines)
                 handleConsole(l);

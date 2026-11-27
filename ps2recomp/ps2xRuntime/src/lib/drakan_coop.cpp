@@ -113,6 +113,8 @@ constexpr uint8_t kMsgCreatures = 1, kMsgDied = 2, kMsgClaim = 3, kMsgHurt = 4, 
                   kMsgPlayerDied = 7, kMsgRespawn = 8, kMsgObjState = 9, kMsgSyncReq = 10, kMsgLast = 10;
 constexpr uint64_t kRespawnDelayMs = 5000;     // the death clip runs about 4.7 s
 constexpr size_t kHeaderBytes = 1 + 4 + 4 + 2; // creature datagram header (type, level, seq, count)
+constexpr size_t kEventInMax = 4096;           // reliable events waiting for the EE thread
+constexpr size_t kObjEventQueueMax = 256;      // pending object message replays (one is replayed per frame)
 constexpr size_t kEventHeader = 1 + 4 + 1;     // type, level, player (the sender; for Hurt / Respawn the target)
 constexpr size_t kEntryBytes = 4 + 12 + 4 + 4;
 constexpr size_t kEntriesPerPacket = std::min<size_t>((drakan::net::kMaxPacketPayload - kHeaderBytes) / kEntryBytes,
@@ -151,7 +153,9 @@ std::atomic<bool> g_enabled{false}; // a Coop match is playing and this module f
 std::atomic<bool> g_installed{false};
 std::atomic<bool> g_stop{false};
 std::thread g_thread;
-bool g_host = false, g_follow = true;
+// Written by the EE thread, read by the coop network thread (it decides which stream packets to accept).
+std::atomic<bool> g_host{false};
+bool g_follow = true;
 world::Globals g_globals;
 uint32_t g_swallow = 0x4;
 uint32_t g_handlerSlot = 0, g_aiSlot = 0;
@@ -325,6 +329,9 @@ void netThread() {
             if (!g_enabled.load())
                 continue;
             std::lock_guard<std::mutex> l(g_s.m);
+            // Drained only once the level is keyed: a long load or a flooding peer must not grow it without bound.
+            if (g_s.evIn.size() >= kEventInMax)
+                g_s.evIn.erase(g_s.evIn.begin());
             g_s.evIn.push_back(eventToLegacy(ce));
             ++g_s.eventsIn;
         }
@@ -1479,7 +1486,15 @@ void drainEvents(drakan_input::IGuest& guest, uint8_t* rdram, uint32_t level) {
             }
         } else if (type == kMsgObjMsg && n >= 4 + 4 + 16) {
             ++g_st.msgRecv;
+            // The peer is not trusted: replay only the message types this side would send itself, otherwise a
+            // modified client could post any engine message to any keyed object here.
+            uint16_t msgType;
+            std::memcpy(&msgType, p + 4, 2);
+            if (!g_replayTypes.count(msgType))
+                continue;
             std::lock_guard<std::mutex> l(g_hookM);
+            if (g_objEvents.size() >= kObjEventQueueMax)
+                g_objEvents.pop_front(); // one replay per frame: a flooding peer must not grow this without bound
             g_objEvents.push_back(std::vector<uint8_t>(d));
         }
     }
@@ -2777,8 +2792,8 @@ void handoverToAuthority(uint8_t* rdram) {
         std::lock_guard<std::mutex> l(g_s.m);
         g_s.inbox.clear(); // the old owner's last snapshots are not a stream to follow any more
         g_s.inLevel = 0;
+        g_host = true; // inside the lock: no stream packet may slip in between the clear and the switch
     }
-    g_host = true;
     coopLog("handover: this player owns the creature world now (%u creatures made real, %u already dying, level %s)",
             restored, dying, g_keyedThisLevel ? "keyed" : "not keyed yet");
 }

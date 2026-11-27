@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <random>
 #include <unordered_map>
 
 #ifdef _WIN32
@@ -91,6 +92,23 @@ constexpr int64_t kTimeoutMs = 10000;
 constexpr size_t kWindow = 128;
 constexpr size_t kMaxBacklog = 2048;
 constexpr size_t kHeaderSize = 3;
+// Listen side limits against address floods. A server peer is half open from its Connect until the first other packet
+// from it (an Ack keep-alive or the Hello): a spoofed source never gets that far, so half-open peers are capped (in
+// total and per source IP) and dropped after kHalfOpenTimeoutMs. kMaxPeers bounds everything else.
+constexpr size_t kMaxPeers = 256;
+constexpr size_t kMaxHalfOpen = 64;
+constexpr size_t kMaxHalfOpenPerIp = 4;
+constexpr int64_t kHalfOpenTimeoutMs = kConnectTimeoutMs + kKeepAliveMs;
+// A QueryReply is ~24x the Query, so a spoofed source could use a server as an amplifier: replies are rate limited per
+// source IP (a token bucket; a LAN browse costs one or two queries per server).
+constexpr double kQueryBurst = 8.0;
+constexpr double kQueryPerSec = 2.0;
+constexpr size_t kMaxQuerySources = 4096;
+// ServerBrowser: answers are accepted only for a token still outstanding; unicast tokens are spent on the first answer,
+// broadcast ones stay open for this long (every LAN server answers the same token).
+constexpr int64_t kQueryTokenLifetimeMs = 5000;
+constexpr size_t kMaxOutstandingQueries = 1024;
+constexpr size_t kMaxServers = 256;
 
 int64_t nowMs() {
     using namespace std::chrono;
@@ -117,6 +135,7 @@ struct UdpTransport::Impl {
         PeerId id = kInvalidPeer;
         sockaddr_in addr{};
         bool connected = false;
+        bool confirmed = true; // listen side: false until a packet other than Connect arrives (see kMaxHalfOpen)
         int64_t connectStart = 0;
         int64_t lastRecv = 0;
         int64_t lastSend = 0;
@@ -136,6 +155,11 @@ struct UdpTransport::Impl {
     std::unordered_map<uint64_t, PeerId> byAddr;
     std::deque<TransportEvent> events;
     QueryResponder queryResponder;
+    struct QueryBucket {
+        double tokens = kQueryBurst;
+        int64_t at = 0;
+    };
+    std::unordered_map<uint32_t, QueryBucket> queryBuckets; // source IPv4 -> reply budget
 
     Impl() { started = socketsStartup(); }
     ~Impl() {
@@ -249,6 +273,46 @@ struct UdpTransport::Impl {
         events.push_back(std::move(ev));
     }
 
+    // True when a query from `ip` may be answered now (spends one token).
+    bool allowQuery(uint32_t ip) {
+        const int64_t now = nowMs();
+        auto it = queryBuckets.find(ip);
+        if (it == queryBuckets.end()) {
+            if (queryBuckets.size() >= kMaxQuerySources) {
+                // Forget sources whose bucket has refilled (they are as good as new); if every one is still in use,
+                // refuse rather than grow without bound.
+                const auto refillMs = static_cast<int64_t>(kQueryBurst / kQueryPerSec * 1000.0);
+                for (auto b = queryBuckets.begin(); b != queryBuckets.end();)
+                    b = now - b->second.at >= refillMs ? queryBuckets.erase(b) : std::next(b);
+                if (queryBuckets.size() >= kMaxQuerySources)
+                    return false;
+            }
+            it = queryBuckets.emplace(ip, QueryBucket{kQueryBurst, now}).first;
+        }
+        QueryBucket& b = it->second;
+        b.tokens = std::min(kQueryBurst, b.tokens + static_cast<double>(now - b.at) * kQueryPerSec / 1000.0);
+        b.at = now;
+        if (b.tokens < 1.0)
+            return false;
+        b.tokens -= 1.0;
+        return true;
+    }
+
+    // Room for one more listen-side peer from `from` (see kMaxPeers / kMaxHalfOpen).
+    bool roomForPeer(const sockaddr_in& from) const {
+        if (peers.size() >= kMaxPeers)
+            return false;
+        size_t halfOpen = 0, fromIp = 0;
+        for (const auto& kv : peers) {
+            if (kv.second.confirmed)
+                continue;
+            ++halfOpen;
+            if (kv.second.addr.sin_addr.s_addr == from.sin_addr.s_addr)
+                ++fromIp;
+        }
+        return halfOpen < kMaxHalfOpen && fromIp < kMaxHalfOpenPerIp;
+    }
+
     void handleDatagram(const sockaddr_in& from, const uint8_t* d, size_t n) {
         if (n < kHeaderSize || d[0] != kMagic0 || d[1] != kMagic1)
             return;
@@ -256,7 +320,7 @@ struct UdpTransport::Impl {
         const uint8_t* body = d + kHeaderSize;
         const size_t bodyLen = n - kHeaderSize;
         if (type == kQuery) {
-            if (listening && queryResponder) {
+            if (listening && queryResponder && allowQuery(from.sin_addr.s_addr)) {
                 const std::vector<uint8_t> answer = queryResponder(std::vector<uint8_t>(body, body + bodyLen));
                 if (!answer.empty()) {
                     auto pkt = header(kQueryReply);
@@ -273,7 +337,10 @@ struct UdpTransport::Impl {
             if (!listening)
                 return;
             if (!p) {
+                if (!roomForPeer(from))
+                    return;
                 p = newPeer(from, true);
+                p->confirmed = false;
                 emitConnected(p->id);
             }
             p->lastRecv = nowMs();
@@ -283,6 +350,7 @@ struct UdpTransport::Impl {
         if (!p)
             return;
         p->lastRecv = nowMs();
+        p->confirmed = true;
         switch (type) {
             case kConnectAck:
                 if (!p->connected) {
@@ -365,7 +433,7 @@ struct UdpTransport::Impl {
                 }
                 continue;
             }
-            if (now - p.lastRecv > kTimeoutMs) {
+            if (now - p.lastRecv > kTimeoutMs || (!p.confirmed && now - p.connectStart > kHalfOpenTimeoutMs)) {
                 dead.push_back(p.id);
                 continue;
             }
@@ -446,6 +514,11 @@ bool UdpTransport::send(PeerId peer, Channel channel, const uint8_t* data, size_
     } else if (p.backlog.size() < kMaxBacklog) {
         p.backlog.push_back(std::move(payload));
     } else {
+        // The peer has stopped acking or is being flooded. Dropping this one message would silently break the in-order
+        // exactly-once promise (a lost Death or Score), so the connection is treated as broken: the remote side is
+        // told and the local owner gets a Disconnected event.
+        impl_->sendControl(p, kDisconnect);
+        impl_->removePeer(peer, true);
         return false;
     }
     return true;
@@ -477,10 +550,16 @@ struct ServerBrowser::Impl {
     bool started = false;
     SocketHandle sock = kBadSocket;
     std::vector<ServerEntry> servers;
-    std::unordered_map<uint32_t, int64_t> sentAt; // token -> send time
+    struct Outstanding {
+        int64_t sentAt = 0;
+        bool broadcast = false; // every LAN server answers it: not spent on the first answer
+    };
+    std::unordered_map<uint32_t, Outstanding> sentAt; // token -> query still waiting for answers
     uint32_t nextToken = 1;
 
     Impl() {
+        // A random start makes the tokens of our queries hard to guess for an off-path source faking answers.
+        nextToken = std::random_device{}() | 1u;
         started = socketsStartup();
         if (!started)
             return;
@@ -505,12 +584,23 @@ struct ServerBrowser::Impl {
             socketsShutdown();
     }
 
-    void sendQuery(uint32_t ip, uint16_t port) {
+    void pruneTokens(int64_t now) {
+        for (auto it = sentAt.begin(); it != sentAt.end();)
+            it = now - it->second.sentAt > kQueryTokenLifetimeMs ? sentAt.erase(it) : std::next(it);
+    }
+
+    void sendQuery(uint32_t ip, uint16_t port, bool broadcast) {
         if (sock == kBadSocket)
+            return;
+        const int64_t now = nowMs();
+        pruneTokens(now);
+        if (sentAt.size() >= kMaxOutstandingQueries)
             return;
         Query q;
         q.token = nextToken++;
-        sentAt[q.token] = nowMs();
+        if (q.token == 0)
+            q.token = nextToken++;
+        sentAt[q.token] = Outstanding{now, broadcast};
         auto pkt = std::vector<uint8_t>{kMagic0, kMagic1, kQuery};
         const auto body = encode(q);
         pkt.insert(pkt.end(), body.begin(), body.end());
@@ -533,8 +623,8 @@ bool ServerBrowser::available() const {
 void ServerBrowser::queryLan() {
     for (uint16_t i = 0; i < kDiscoveryPortCount; ++i) {
         const uint16_t port = static_cast<uint16_t>(basePort() + i);
-        impl_->sendQuery(htonl(INADDR_BROADCAST), port);
-        impl_->sendQuery(htonl(INADDR_LOOPBACK), port); // a server on this PC does not see its own broadcast
+        impl_->sendQuery(htonl(INADDR_BROADCAST), port, true);
+        impl_->sendQuery(htonl(INADDR_LOOPBACK), port, false); // a server on this PC does not see its own broadcast
     }
 }
 
@@ -548,7 +638,7 @@ bool ServerBrowser::queryHost(const std::string& host, uint16_t port) {
     sockaddr_in addr{};
     std::memcpy(&addr, res->ai_addr, sizeof(addr));
     freeaddrinfo(res);
-    impl_->sendQuery(addr.sin_addr.s_addr, port);
+    impl_->sendQuery(addr.sin_addr.s_addr, port, false);
     return true;
 }
 
@@ -576,6 +666,13 @@ const std::vector<ServerEntry>& ServerBrowser::poll() {
         ServerInfo info;
         if (!decode(buf + kHeaderSize, static_cast<size_t>(n) - kHeaderSize, info))
             continue;
+        // Only answers to a query we sent that is still open (stale, repeated or unsolicited ones are dropped).
+        auto st = impl_->sentAt.find(info.token);
+        if (st == impl_->sentAt.end() || nowMs() - st->second.sentAt > kQueryTokenLifetimeMs)
+            continue;
+        const int64_t queriedAt = st->second.sentAt;
+        if (!st->second.broadcast)
+            impl_->sentAt.erase(st);
         char ip[INET_ADDRSTRLEN] = {};
         inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
         ServerEntry e;
@@ -583,9 +680,7 @@ const std::vector<ServerEntry>& ServerBrowser::poll() {
         e.port = ntohs(from.sin_port);
         e.info = info;
         e.lastSeenMs = nowMs();
-        auto st = impl_->sentAt.find(info.token);
-        e.pingMs =
-            st == impl_->sentAt.end() ? 0 : static_cast<uint32_t>(std::max<int64_t>(0, e.lastSeenMs - st->second));
+        e.pingMs = static_cast<uint32_t>(std::max<int64_t>(0, static_cast<int64_t>(e.lastSeenMs) - queriedAt));
         // One entry per server: the same host:port, or the same serverId (answers over several local addresses; the
         // fastest address wins).
         bool found = false;
@@ -600,9 +695,10 @@ const std::vector<ServerEntry>& ServerBrowser::poll() {
                 found = true;
             }
         }
-        if (!found)
+        if (!found && impl_->servers.size() < kMaxServers)
             impl_->servers.push_back(e);
     }
+    impl_->pruneTokens(nowMs());
     for (ServerEntry& e : impl_->servers)
         e.ageMs = static_cast<uint32_t>(std::max<int64_t>(0, nowMs() - static_cast<int64_t>(e.lastSeenMs)));
     return impl_->servers;

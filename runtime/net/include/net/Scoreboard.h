@@ -44,6 +44,31 @@ inline void sortScoreboard(std::vector<ScoreRow>& rows) {
     });
 }
 
+// The sorted scoreboard of a roster (MatchServer's ServerPlayer map or MatchClient's RemotePlayer map): one builder so
+// the server and client rows cannot drift apart (lives / eliminated were once filled on one side only).
+template <class Roster>
+std::vector<ScoreRow> buildScoreboard(const Roster& roster) {
+    std::vector<ScoreRow> rows;
+    rows.reserve(roster.size());
+    for (const auto& kv : roster) {
+        ScoreRow r;
+        r.player = kv.first;
+        r.name = kv.second.name;
+        r.team = kv.second.team;
+        r.kills = kv.second.kills;
+        r.deaths = kv.second.deaths;
+        r.health = kv.second.health;
+        r.alive = kv.second.alive;
+        r.hasScore = true;
+        r.score = kv.second.score;
+        r.lives = kv.second.lives;
+        r.eliminated = kv.second.eliminated;
+        rows.push_back(std::move(r));
+    }
+    sortScoreboard(rows);
+    return rows;
+}
+
 // LastStanding: a mode with lives, one player (team) is left with lives.
 enum class EndReason : uint8_t { None, FragLimit, TimeLimit, Ended, LastStanding };
 

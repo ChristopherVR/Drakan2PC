@@ -203,6 +203,78 @@ int main() {
         CHECK(browser.poll().empty());
     }
 
+    // Half-open peers are capped per source IP: of five Connects from 127.0.0.1 that have not been followed by any
+    // other packet only four get a peer; once those confirm (their first keep-alive) the fifth gets in on a retry.
+    {
+        UdpTransport st;
+        CHECK(st.listen(0));
+        std::vector<std::unique_ptr<UdpTransport>> cs;
+        for (int i = 0; i < 5; ++i) {
+            cs.push_back(std::make_unique<UdpTransport>());
+            CHECK(cs.back()->connect("127.0.0.1", st.localPort()) != kInvalidPeer);
+        }
+        int connected = 0;
+        const auto pumpServer = [&] {
+            TransportEvent ev;
+            while (st.poll(ev))
+                if (ev.type == TransportEventType::Connected)
+                    ++connected;
+        };
+        waitFor(
+            [&] {
+                pumpServer();
+                return false;
+            },
+            300);
+        CHECK(connected == 4);
+        CHECK(waitFor([&] {
+            pumpServer();
+            TransportEvent ev;
+            for (auto& c : cs)
+                while (c->poll(ev)) {
+                }
+            return connected == 5;
+        }));
+    }
+
+    // Query replies are rate limited per source IP (no amplification for a spoofed source), and the browser takes only
+    // answers to queries it still has open.
+    {
+        UdpTransport st;
+        CHECK(st.listen(0));
+        MatchServer ms(st, ServerOptions{});
+        int answered = 0;
+        st.setQueryResponder([&](const std::vector<uint8_t>& req) {
+            ++answered;
+            return ms.answerQuery(req);
+        });
+        ServerBrowser browser;
+        for (int i = 0; i < 20; ++i)
+            CHECK(browser.queryHost("127.0.0.1", st.localPort()));
+        waitFor(
+            [&] {
+                ms.tick(0);
+                browser.poll();
+                return false;
+            },
+            300);
+        CHECK(answered == 8); // the burst; the rest got no reply
+        CHECK(browser.poll().size() == 1);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(700)); // the bucket earns a token back
+        ServerBrowser late;
+        CHECK(late.queryHost("127.0.0.1", st.localPort()));
+        late.clear(); // the query is no longer open: its answer must not appear
+        waitFor(
+            [&] {
+                ms.tick(0);
+                late.poll();
+                return false;
+            },
+            1000);
+        CHECK(answered >= 9 && late.poll().empty());
+    }
+
     std::puts("net_udp_smoke_test ok");
     return 0;
 }

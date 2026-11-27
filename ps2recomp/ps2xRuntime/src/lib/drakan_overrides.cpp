@@ -525,6 +525,15 @@ public:
             return -1;
         }
         std::lock_guard<std::mutex> serialize(mutexFor(sid)); // the server's receive buffer is shared
+        // A call given up on (timeout below) may still be running in the guest and reading the server's buffer: the
+        // server stays busy until it returns, and this call fails rather than overwrite the buffer under it.
+        if (std::shared_ptr<Wait>& prev = m_abandoned[sid & 3u]) {
+            if (!waitForGuest(*prev, sid, fno, 0)) {
+                logfmt("post(sid=0x%x fno=%u) failed: an abandoned call to this server is still running", sid, fno);
+                return -2;
+            }
+            prev.reset();
+        }
         uint32_t func = 0, buf = 0;
         std::memcpy(&func, m_rdram + (sd & 0x1FFFFFFFu) + 4, 4);
         std::memcpy(&buf, m_rdram + (sd & 0x1FFFFFFFu) + 8, 4);
@@ -539,12 +548,6 @@ public:
             std::memcpy(m_rdram + off, payload, size);
         }
 
-        struct Wait {
-            std::mutex m;
-            std::condition_variable cv;
-            bool done = false;
-            uint32_t v0 = 0;
-        };
         auto wait = std::make_shared<Wait>();
         m_rt.eeScheduler().postGuestCall(
             func, fno, buf, size, 0,
@@ -555,53 +558,9 @@ public:
                 wait->cv.notify_all();
             },
             serverPriority(sid));
-        {
-            // Bounded in guest time, not host time: the EE thread can sit in a host call for a long while (a cold
-            // shader compile under CPU contention blocks the GS worker and the EE waits in commitDisplay) or be
-            // starved of CPU, and the handler cannot run then. While the EE accounts cycles the budget is charged
-            // in guest seconds; while the EE thread is inside a host call from the guest nothing is charged; an idle
-            // EE is charged wall time. Giving up early used to fail the allocation and desynchronise the resource
-            // protocol, which later left the game spinning in a list walk (docs/journal/2026-11-06/boot-hang.md).
-            constexpr auto kSlice = std::chrono::milliseconds(250);
-            constexpr double kBudgetSeconds = 20.0;
-            constexpr double kEeHz = 294912000.0;
-            constexpr auto kBackstop = std::chrono::seconds(600);
-            const auto start = std::chrono::steady_clock::now();
-            double charged = 0.0;
-            uint64_t lastCycles = m_rt.eeScheduler().publishedCycles();
-            auto blockedSince = std::chrono::steady_clock::time_point{};
-            bool blockedLogged = false;
-            std::unique_lock<std::mutex> lock(wait->m);
-            while (!wait->done) {
-                if (wait->cv.wait_for(lock, kSlice, [&] { return wait->done; }))
-                    break;
-                const uint64_t cycles = m_rt.eeScheduler().publishedCycles();
-                if (cycles != lastCycles)
-                    charged += static_cast<double>(cycles - lastCycles) / kEeHz;
-                else if (!m_rt.eeScheduler().isExecutingGuest())
-                    charged += std::chrono::duration<double>(kSlice).count();
-                // No cycles published while the EE runs guest code: it is blocked in a host call (GS worker deadlock,
-                // driver hang). Nothing is charged, so say so once after 30 wall seconds instead of freezing silently.
-                if (cycles == lastCycles && m_rt.eeScheduler().isExecutingGuest()) {
-                    const auto now = std::chrono::steady_clock::now();
-                    if (blockedSince == std::chrono::steady_clock::time_point{})
-                        blockedSince = now;
-                    else if (!blockedLogged && now - blockedSince >= std::chrono::seconds(30)) {
-                        blockedLogged = true;
-                        logfmt("post(sid=0x%x fno=%u): EE blocked in a host call for 30 s, waiting for the guest "
-                               "handler 0x%x (backstop 600 s; PS2X_PERF shows the sampled chain)",
-                               sid, fno, func);
-                    }
-                } else {
-                    blockedSince = std::chrono::steady_clock::time_point{};
-                }
-                lastCycles = cycles;
-                if (charged >= kBudgetSeconds || std::chrono::steady_clock::now() - start >= kBackstop ||
-                    m_rt.isStopRequested()) {
-                    logfmt("post(sid=0x%x fno=%u): guest handler 0x%x did not return within 20 s", sid, fno, func);
-                    return -2;
-                }
-            }
+        if (!waitForGuest(*wait, sid, fno, func)) {
+            m_abandoned[sid & 3u] = wait; // the guest may still use `buf`: keep the server busy (see above)
+            return -2;
         }
         {
             static std::atomic<int> postLog{0};
@@ -656,6 +615,13 @@ public:
         chain->sequence = &sequence;
         // The servers' receive buffers are this sequence's until it is over.
         std::scoped_lock serialize(m_serial[1], m_serial[2], m_serial[3]); // the three resource servers
+        for (size_t slot = 1; slot < 4; ++slot) { // a call post() gave up on still owns its server (see post())
+            if (m_abandoned[slot] && !waitForGuest(*m_abandoned[slot], static_cast<uint32_t>(slot), 0, 0)) {
+                logfmt("run: an abandoned call to a resource server is still running, batch not issued");
+                return;
+            }
+            m_abandoned[slot].reset();
+        }
         advance(chain);
         // Bounded like post(), in guest time, and counted anew whenever the sequence moves on.
         constexpr auto kSlice = std::chrono::milliseconds(250);
@@ -688,6 +654,62 @@ public:
     }
 
 private:
+    struct Wait {
+        std::mutex m;
+        std::condition_variable cv;
+        bool done = false;
+        uint32_t v0 = 0;
+    };
+    // Waits for a posted guest handler to return; false when it gave up (budget, backstop or stop request). Bounded in
+    // guest time, not host time: the EE thread can sit in a host call for a long while (a cold shader compile under
+    // CPU contention blocks the GS worker and the EE waits in commitDisplay) or be starved of CPU, and the handler
+    // cannot run then. While the EE accounts cycles the budget is charged in guest seconds; while the EE thread is
+    // inside a host call from the guest nothing is charged; an idle EE is charged wall time. Giving up early used to
+    // fail the allocation and desynchronise the resource protocol, which later left the game spinning in a list walk
+    // (docs/journal/2026-11-06/boot-hang.md).
+    bool waitForGuest(Wait& wait, uint32_t sid, uint32_t fno, uint32_t func) {
+        constexpr auto kSlice = std::chrono::milliseconds(250);
+        constexpr double kBudgetSeconds = 20.0;
+        constexpr double kEeHz = 294912000.0;
+        constexpr auto kBackstop = std::chrono::seconds(600);
+        const auto start = std::chrono::steady_clock::now();
+        double charged = 0.0;
+        uint64_t lastCycles = m_rt.eeScheduler().publishedCycles();
+        auto blockedSince = std::chrono::steady_clock::time_point{};
+        bool blockedLogged = false;
+        std::unique_lock<std::mutex> lock(wait.m);
+        while (!wait.done) {
+            if (wait.cv.wait_for(lock, kSlice, [&] { return wait.done; }))
+                break;
+            const uint64_t cycles = m_rt.eeScheduler().publishedCycles();
+            if (cycles != lastCycles)
+                charged += static_cast<double>(cycles - lastCycles) / kEeHz;
+            else if (!m_rt.eeScheduler().isExecutingGuest())
+                charged += std::chrono::duration<double>(kSlice).count();
+            // No cycles published while the EE runs guest code: it is blocked in a host call (GS worker deadlock,
+            // driver hang). Nothing is charged, so say so once after 30 wall seconds instead of freezing silently.
+            if (cycles == lastCycles && m_rt.eeScheduler().isExecutingGuest()) {
+                const auto now = std::chrono::steady_clock::now();
+                if (blockedSince == std::chrono::steady_clock::time_point{})
+                    blockedSince = now;
+                else if (!blockedLogged && now - blockedSince >= std::chrono::seconds(30)) {
+                    blockedLogged = true;
+                    logfmt("post(sid=0x%x fno=%u): EE blocked in a host call for 30 s, waiting for the guest "
+                           "handler 0x%x (backstop 600 s; PS2X_PERF shows the sampled chain)",
+                           sid, fno, func);
+                }
+            } else {
+                blockedSince = std::chrono::steady_clock::time_point{};
+            }
+            lastCycles = cycles;
+            if (charged >= kBudgetSeconds || std::chrono::steady_clock::now() - start >= kBackstop ||
+                m_rt.isStopRequested()) {
+                logfmt("post(sid=0x%x fno=%u): guest handler 0x%x did not return within 20 s", sid, fno, func);
+                return false;
+            }
+        }
+        return true;
+    }
     struct Chain {
         std::mutex m;
         std::condition_variable cv;
@@ -758,6 +780,7 @@ private:
     PS2Runtime& m_rt;
     uint8_t* m_rdram;
     std::mutex m_serial[4];
+    std::shared_ptr<Wait> m_abandoned[4]; // per m_serial slot (guarded by it): a timed-out call still in the guest
 };
 
 // Forwards the 0x1203 / resource-upload traffic to the real SPU2; DRAKAN_SND_LOG=2 additionally logs key on/off,
@@ -1350,11 +1373,16 @@ void traceHook(uint8_t* rdram, R5900Context* ctx, PS2Runtime* rt) {
                     (q > 0.0f ? pos : neg)++;
                 }
                 if (pos && neg) {
-                    std::fprintf(
-                        stderr, "[fan-straddle] ra=%x wra=%x cra=%x n=%u pos=%d neg=%d:", getRegU32(ctx, 31),
-                        *reinterpret_cast<const uint32_t*>(rdram + (getRegU32(ctx, 29) & 0x1FFFFFFFu)),
-                        *reinterpret_cast<const uint32_t*>(rdram + ((getRegU32(ctx, 29) + 16 + 512) & 0x1FFFFFFFu)), n,
-                        pos, neg);
+                    // The stack words are read through a bound check: a masked address can lie past PS2_RAM_SIZE.
+                    const auto stackWord = [&](uint32_t a) {
+                        uint32_t w = 0;
+                        a &= 0x1FFFFFFFu;
+                        if (static_cast<uint64_t>(a) + 4 <= PS2_RAM_SIZE)
+                            std::memcpy(&w, rdram + a, 4);
+                        return w;
+                    };
+                    std::fprintf(stderr, "[fan-straddle] ra=%x wra=%x cra=%x n=%u pos=%d neg=%d:", getRegU32(ctx, 31),
+                                 stackWord(getRegU32(ctx, 29)), stackWord(getRegU32(ctx, 29) + 16 + 512), n, pos, neg);
                     for (uint32_t i = 0; i < n && i < 6; ++i) {
                         float f[8];
                         std::memcpy(f, rdram + v0 + i * 32, 32);

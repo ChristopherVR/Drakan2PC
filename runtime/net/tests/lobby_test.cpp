@@ -177,8 +177,40 @@ void mods() {
 
 } // namespace
 
+// A client flooding Chat / Ready (rebroadcast reliably to everybody) is held to its token bucket; the excess is
+// dropped and the bucket refills over time.
+void chatFlood() {
+    ServerOptions o = lobbyOptions();
+    o.lobbyMsgBurst = 4;
+    o.lobbyMsgPerSec = 2.0f;
+    Rig rig(o);
+    MatchClient& a = rig.addClient("Spammer", 0x10BB);
+    MatchClient& b = rig.addClient("Reader", 0x10BB);
+    rig.run(300);
+    CHECK(a.connected() && b.connected());
+    collect(b);
+    for (int i = 0; i < 50; ++i)
+        a.sendChat("spam " + std::to_string(i));
+    for (int i = 0; i < 20; ++i)
+        a.sendReady(i % 2 == 0);
+    rig.run(20);
+    auto evs = collect(b);
+    CHECK(count<Chat>(evs) == 4 && count<Ready>(evs) == 0); // the burst went to chat, the rest was dropped
+    rig.run(1000);                                          // ~2 tokens back
+    collect(b);
+    a.sendReady(true);
+    a.sendChat("after the pause");
+    a.sendChat("one too many");
+    a.sendChat("still too many");
+    rig.run(20);
+    evs = collect(b);
+    CHECK(count<Ready>(evs) == 1 && count<Chat>(evs) == 1);
+    CHECK(first<Chat>(evs)->text == "after the pause");
+}
+
 int main() {
     wire();
+    chatFlood();
     startCountdown();
     nextMatchCountdown();
     pings();

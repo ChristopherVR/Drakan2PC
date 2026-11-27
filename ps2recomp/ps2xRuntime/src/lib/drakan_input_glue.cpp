@@ -110,6 +110,17 @@ constexpr uint32_t kPadInit = 0x4b0948u, kPadPortOpen = 0x4b0ba8u, kPadRead = 0x
                    kPadSetMainMode = 0x4b1490u, kPadSetActDirect = 0x4b1548u, kPadMgrUpdate = 0x1e3970u,
                    kCameraUpdateLook = 0x44e4a8u, kCameraFollowTick = 0x41f848u, kBowLaunch = 0x20e6c8u;
 
+// Bow diagnostics switches, read once: the bow hooks below run on every call of the player's update and getenv walks
+// the environment each time.
+bool bowLog() {
+    static const bool on = std::getenv("DRAKAN_BOW_LOG") != nullptr;
+    return on;
+}
+bool bowLog2() {
+    static const bool on = std::getenv("DRAKAN_BOW_LOG2") != nullptr;
+    return on;
+}
+
 PS2Runtime::RecompiledFunction g_origPadMgrUpdate = nullptr, g_origCameraLook = nullptr;
 PS2Runtime::RecompiledFunction g_origCameraFollow = nullptr, g_origBowLaunch = nullptr;
 // The follow tick's own world tests (SCES-500.06) and the target they returned in the tick that is running (EE
@@ -1150,7 +1161,7 @@ void hookBowSightFinalize(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 void hookBowSightGuard(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x458090u && getRegU32(c, 4) == getRegU32(c, 20)) {
         RecompGuest g(rdram, c, rt);
-        if (module().restoreBowSightJump(g, getRegU32(c, 4), getRegU32(c, 31)) && std::getenv("DRAKAN_BOW_LOG"))
+        if (module().restoreBowSightJump(g, getRegU32(c, 4), getRegU32(c, 31)) && bowLog())
             ilog("[bow] sight jump command preserved: player=%x\n", getRegU32(c, 4));
         module().updateBowSightLocomotion(g, getRegU32(c, 4), getRegU32(c, 31));
     }
@@ -1161,7 +1172,7 @@ void hookBowSightClose(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     if (c->pc == 0x421418u) {
         RecompGuest g(rdram, c, rt);
         if (module().keepBowSightOnJump(g, getRegU32(c, 18), getRegU32(c, 4), getRegU32(c, 31))) {
-            if (std::getenv("DRAKAN_BOW_LOG"))
+            if (bowLog())
                 ilog("[bow] sight retained on jump: player=%x\n", getRegU32(c, 18));
             c->pc = getRegU32(c, 31);
             return;
@@ -1207,7 +1218,7 @@ void hookBowAttackReset(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         RecompGuest g(rdram, c, rt);
         const auto mask = getRegU32(c, 18);
         const auto adjusted = module().bowAttackMask(g, getRegU32(c, 4), getRegU32(c, 31), mask);
-        if (adjusted != mask && std::getenv("DRAKAN_BOW_LOG"))
+        if (adjusted != mask && bowLog())
             ilog("[bow] jumping attack gate: player=%x mask=%x->%x\n", getRegU32(c, 4), mask, adjusted);
         SET_GPR_U32(c, 18, adjusted);
     }
@@ -1217,12 +1228,12 @@ void hookBowAttackReset(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
 // FUN_0032cf30 (f12..f14 blend/start/rate, a0 = player, a1 = motion, a2 = channel): the player's motion setter.
 // Only attack start's first archer-clip call (return 0x301b7c) is considered; see InputModule::bowShotChannel.
 void hookBowShotMotion(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
-    if (c->pc == 0x32cf30u && std::getenv("DRAKAN_BOW_LOG2"))
+    if (c->pc == 0x32cf30u && bowLog2())
         ilog("[bow] motion call: ret=%x player=%x source=%x channel=%u\n", getRegU32(c, 31), getRegU32(c, 4),
              getRegU32(c, 5), getRegU32(c, 6));
     if (c->pc == 0x32cf30u && getRegU32(c, 31) == 0x301b7cu && getRegU32(c, 6) == 0) {
         RecompGuest g(rdram, c, rt);
-        if (std::getenv("DRAKAN_BOW_LOG"))
+        if (bowLog())
             ilog("[bow] archer clip call: player=%x source=%x blend=%g\n", getRegU32(c, 4), getRegU32(c, 5), 0.0);
         const uint32_t channel = module().bowShotChannel(g, getRegU32(c, 4), getRegU32(c, 31), 0);
         SET_GPR_U32(c, 6, channel);
@@ -1244,7 +1255,7 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     // Reserve ray arguments above the nested selector's stack. RecompGuest::call copies this SP and native callees
     // grow down from it, so their frames cannot overwrite our arguments. Restore before entering the real launch.
     const uint32_t sp = getRegU32(c, 29);
-    if (std::getenv("DRAKAN_BOW_LOG"))
+    if (bowLog())
         ilog("[bow] launch entry: bow=%x sp=%x\n", bow, sp);
     uint16_t target = 0;
     if (sp >= 0x100080u && sp < PS2_RAM_SIZE) {

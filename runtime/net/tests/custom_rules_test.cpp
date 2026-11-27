@@ -153,6 +153,13 @@ void lastOneStanding() {
     CHECK(m.c[1]->outcome().reason == EndReason::LastStanding && m.c[1]->outcome().winner == m.c[2]->playerId());
     const std::vector<ScoreRow> rows = m.c[0]->scoreboard();
     CHECK(rows.front().player == m.c[2]->playerId() && !rows.front().eliminated); // the survivor heads the table
+    // The server's own scoreboard carries lives / eliminated too, in the same order as the client's.
+    const std::vector<ScoreRow> serverRows = m.rig.server->scoreboard();
+    CHECK(serverRows.size() == rows.size());
+    for (size_t i = 0; i < rows.size(); ++i)
+        CHECK(serverRows[i].player == rows[i].player && serverRows[i].lives == rows[i].lives &&
+              serverRows[i].eliminated == rows[i].eliminated);
+    CHECK(serverRows.back().eliminated && serverRows.back().lives == 0);
     // A rematch gives everybody their lives back.
     m.c[0]->sendResultsAction(ResultsChoice::Rematch);
     m.rig.run(100);

@@ -69,6 +69,11 @@ struct ServerOptions {
     // wrapping around); empty = the same map again. The game fills it from its multiplayer map list.
     std::vector<ArenaDef> rotation;
     bool autoRotateArena = false;
+    // Chat, Ready and Character messages are rebroadcast reliably to everybody, so one flooding client could fill every
+    // peer's reliable backlog. Each player gets a token bucket of this many messages, refilled at lobbyMsgPerSec; the
+    // excess is dropped.
+    uint32_t lobbyMsgBurst = 8;
+    float lobbyMsgPerSec = 2.0f;
 };
 
 struct ServerPlayer {
@@ -112,6 +117,8 @@ struct ServerPlayer {
     PlayerVitals vitals;             // the last Vitals the player sent (co-op party HUD)
     uint8_t lives = kLivesUnlimited; // a mode with lives: lives left this match
     bool eliminated = false;         // out of lives: not respawned, cannot hurt or be hurt until the next match
+    float lobbyMsgTokens = -1.0f;    // Chat / Ready / Character budget (< 0: untouched, a full bucket)
+    uint64_t lobbyMsgAtMs = 0;
 };
 
 struct ServerStats {
@@ -242,6 +249,8 @@ private:
 
     void sendTo(PeerId peer, const std::vector<uint8_t>& bytes, Channel ch);
     void broadcast(const std::vector<uint8_t>& bytes, Channel ch);
+    // Spends one token of p's chat / lobby message bucket (ServerOptions::lobbyMsgBurst); false = drop the message.
+    bool allowLobbyMessage(ServerPlayer& p);
 
     Transport& transport_;
     ServerOptions options_;

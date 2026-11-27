@@ -33,24 +33,7 @@ const RemotePlayer* MatchClient::self() const {
 }
 
 std::vector<ScoreRow> MatchClient::scoreboard() const {
-    std::vector<ScoreRow> rows;
-    for (const auto& kv : roster_) {
-        ScoreRow r;
-        r.player = kv.first;
-        r.name = kv.second.name;
-        r.team = kv.second.team;
-        r.kills = kv.second.kills;
-        r.deaths = kv.second.deaths;
-        r.health = kv.second.health;
-        r.alive = kv.second.alive;
-        r.hasScore = true;
-        r.score = kv.second.score;
-        r.lives = kv.second.lives;
-        r.eliminated = kv.second.eliminated;
-        rows.push_back(std::move(r));
-    }
-    sortScoreboard(rows);
-    return rows;
+    return buildScoreboard(roster_);
 }
 
 MatchOutcome MatchClient::outcome() const {

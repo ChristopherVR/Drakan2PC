@@ -33,6 +33,7 @@
 #include <random>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <thread>
 
 namespace drakan_netplay {
@@ -88,6 +89,12 @@ private:
 
 constexpr uint32_t kSendIntervalMs = 50; // 20 Hz
 constexpr uint64_t kStaleLocalMs = 1000; // the EE thread stopped publishing (loading): tell the others "level 0"
+// The session loop runs every ~4 ms. The UI state / scoreboard (copies of the roster and rows) are rebuilt when what
+// they show changes (connection, phase, roster size), else at most every kUiPublishMs; the arena session (a deep copy
+// of the ArenaDef) when its inputs change, else every kArenaRefreshMs so a catalog change or another writer is still
+// corrected soon.
+constexpr uint64_t kUiPublishMs = 50;
+constexpr uint64_t kArenaRefreshMs = 250;
 
 struct RemoteIn {
     drakan::net::PlayerState state;
@@ -571,6 +578,11 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
     std::string endNotice; // title screen notice: the server left or the connection dropped after we were connected
     bool leaving = false;
     std::map<int, uint64_t> seenAt; // player id -> when this client first saw it (scoreboard Time column)
+    uint64_t lastUiPublishMs = 0, lastArenaSetMs = 0;
+    std::tuple<bool, bool, bool, int, size_t> lastUiKey{};
+    bool arenaSet = false, lastArenaWant = false;
+    const drakan::net::ArenaDef* lastArenaDef = nullptr;
+    std::string lastArenaModeId;
 
     while (!g_stop.load() && !leaving) {
         const uint64_t now = nowMs();
@@ -829,19 +841,31 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                                                      client.phase() == MatchPhase::Loading ||
                                                          client.phase() == MatchPhase::Playing ||
                                                          client.phase() == MatchPhase::Results);
-            const drakan::net::ArenaDef* def = dm ? drakan_arena::findMap(client.config().level) : nullptr;
-            // A custom game mode's `loadout` is given on top of the map's.
-            drakan::net::ArenaDef withMode;
-            if (def && !client.config().modeId.empty())
-                if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(client.config().modeId);
-                    m && !m->loadout.empty()) {
-                    withMode = *def;
-                    for (uint32_t id : m->loadout)
-                        if (std::find(withMode.loadout.begin(), withMode.loadout.end(), id) == withMode.loadout.end())
-                            withMode.loadout.push_back(id);
-                    def = &withMode;
-                }
-            drakan_arena::setSession(dm && (!legacy || def), def);
+            const drakan::net::ArenaDef* found = dm ? drakan_arena::findMap(client.config().level) : nullptr;
+            const bool want = dm && (!legacy || found);
+            // setSession copies the whole ArenaDef: only when the session's inputs change (or the periodic refresh).
+            if (!arenaSet || want != lastArenaWant || found != lastArenaDef ||
+                client.config().modeId != lastArenaModeId || now - lastArenaSetMs >= kArenaRefreshMs) {
+                const drakan::net::ArenaDef* def = found;
+                // A custom game mode's `loadout` is given on top of the map's.
+                drakan::net::ArenaDef withMode;
+                if (def && !client.config().modeId.empty())
+                    if (const drakan::net::ModeDef* m = drakan_modes::customModes().find(client.config().modeId);
+                        m && !m->loadout.empty()) {
+                        withMode = *def;
+                        for (uint32_t id : m->loadout)
+                            if (std::find(withMode.loadout.begin(), withMode.loadout.end(), id) ==
+                                withMode.loadout.end())
+                                withMode.loadout.push_back(id);
+                        def = &withMode;
+                    }
+                drakan_arena::setSession(want, def);
+                arenaSet = true;
+                lastArenaWant = want;
+                lastArenaDef = found;
+                lastArenaModeId = client.config().modeId;
+                lastArenaSetMs = now;
+            }
             drakan_arena::setLocalPlayer(connected ? client.playerId() : 0);
             drakan_arena::setNeutralDragon(connected && client.phase() == MatchPhase::Playing ? client.neutralDragon()
                                                                                               : std::nullopt);
@@ -1024,9 +1048,17 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
                 }
         }
 
-        // State for the UI.
+        // State for the UI (see kUiPublishMs). The kill feed does not wait: the event loop appends to g_board itself.
+        const std::tuple<bool, bool, bool, int, size_t> uiKey{client.rejected(), connected, failed,
+                                                              connected ? static_cast<int>(client.phase()) : -1,
+                                                              connected ? client.roster().size() : 0};
+        const bool publishUi = uiKey != lastUiKey || now - lastUiPublishMs >= kUiPublishMs;
+        if (publishUi) {
+            lastUiKey = uiKey;
+            lastUiPublishMs = now;
+        }
         std::vector<Player> boardRoster; // the roster of this pass, for the scoreboard's ping / time columns
-        {
+        if (publishUi) {
             State s = base;
             s.conn = client.rejected() ? Conn::Rejected
                      : connected       ? Conn::Connected
@@ -1106,7 +1138,7 @@ void runSession(const Cmd& c, drakan::net::ServerBrowser& browser, uint64_t& las
         }
 
         // Scoreboard for the overlay / results screen (the kill feed is appended by the event loop above).
-        {
+        if (publishUi) {
             std::lock_guard<std::mutex> lk(g_combatM);
             Scoreboard b;
             b.killFeed = std::move(g_board.killFeed);

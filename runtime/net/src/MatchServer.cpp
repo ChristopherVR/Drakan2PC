@@ -57,10 +57,26 @@ void MatchServer::sendTo(PeerId peer, const std::vector<uint8_t>& bytes, Channel
     transport_.send(peer, ch, bytes);
 }
 
+// A failed send is not retried: a transport that cannot queue a reliable message drops that peer (Disconnected event)
+// rather than lose it, so the player is removed on the next poll.
 void MatchServer::broadcast(const std::vector<uint8_t>& bytes, Channel ch) {
     for (const auto& kv : peers_)
         if (kv.second.player != kNoPlayer)
             transport_.send(kv.first, ch, bytes);
+}
+
+bool MatchServer::allowLobbyMessage(ServerPlayer& p) {
+    const auto burst = static_cast<float>(options_.lobbyMsgBurst);
+    if (p.lobbyMsgTokens < 0.0f)
+        p.lobbyMsgTokens = burst;
+    else if (now_ > p.lobbyMsgAtMs)
+        p.lobbyMsgTokens = std::min(burst, p.lobbyMsgTokens + static_cast<float>(now_ - p.lobbyMsgAtMs) *
+                                                                  options_.lobbyMsgPerSec / 1000.0f);
+    p.lobbyMsgAtMs = now_;
+    if (p.lobbyMsgTokens < 1.0f)
+        return false;
+    p.lobbyMsgTokens -= 1.0f;
+    return true;
 }
 
 void MatchServer::tick(uint64_t nowMs) {
@@ -652,7 +668,7 @@ bool MatchServer::kick(PlayerId target) {
 
 void MatchServer::onSetCharacter(ServerPlayer& p, const std::vector<uint8_t>& data) {
     SetCharacter c;
-    if (!decode(data, c) || phase_ != MatchPhase::Lobby)
+    if (!decode(data, c) || phase_ != MatchPhase::Lobby || !allowLobbyMessage(p))
         return;
     p.character = c.character;
     lastStatusMs_ = 0; // everybody sees it at the next tick
@@ -727,22 +743,7 @@ void MatchServer::endMatchWith(EndReason reason) {
 }
 
 std::vector<ScoreRow> MatchServer::scoreboard() const {
-    std::vector<ScoreRow> rows;
-    for (const auto& kv : players_) {
-        ScoreRow r;
-        r.player = kv.first;
-        r.name = kv.second.name;
-        r.team = kv.second.team;
-        r.kills = kv.second.kills;
-        r.deaths = kv.second.deaths;
-        r.health = kv.second.health;
-        r.alive = kv.second.alive;
-        r.hasScore = true;
-        r.score = kv.second.score;
-        rows.push_back(std::move(r));
-    }
-    sortScoreboard(rows);
-    return rows;
+    return buildScoreboard(players_);
 }
 
 uint16_t MatchServer::hitLimit(const ServerPlayer& attacker, uint8_t weapon) const {
@@ -1348,7 +1349,7 @@ void MatchServer::onChat(ServerPlayer& p, const std::vector<uint8_t>& data) {
     for (unsigned char ch : c.text)
         if (ch >= 0x20 && ch != 0x7f)
             clean.push_back(static_cast<char>(ch));
-    if (clean.empty())
+    if (clean.empty() || !allowLobbyMessage(p))
         return;
     c.player = p.id;
     c.text = clean;
@@ -1357,7 +1358,7 @@ void MatchServer::onChat(ServerPlayer& p, const std::vector<uint8_t>& data) {
 
 void MatchServer::onReady(ServerPlayer& p, const std::vector<uint8_t>& data) {
     Ready r;
-    if (!decode(data, r) || phase_ != MatchPhase::Lobby)
+    if (!decode(data, r) || phase_ != MatchPhase::Lobby || !allowLobbyMessage(p))
         return;
     p.ready = r.ready;
     r.player = p.id;

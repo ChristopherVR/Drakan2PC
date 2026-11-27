@@ -64,6 +64,15 @@ struct Event {
 };
 std::mutex g_m;
 std::deque<Event> g_events;
+// Server events wait here for the EE thread, which drains them only while a level is up. Nobody drains them while PvP
+// is off or a load hangs, so the queue is capped (the oldest go first: the latest Respawn / Phase matter most).
+constexpr size_t kMaxQueuedEvents = 1024;
+uint8_t g_sessionPlayer = 0; // the id the net thread last gave setLocalPlayer (guarded by g_m)
+void queueEvent(const Event& e) {
+    if (g_events.size() >= kMaxQueuedEvents)
+        g_events.pop_front();
+    g_events.push_back(e);
+}
 
 // EE thread state.
 struct Crumb {
@@ -1098,27 +1107,35 @@ void onServerHit(uint8_t attacker, uint8_t victim, uint8_t weapon, uint16_t dama
     if (drakan_netplay::coopMatch())
         return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
-    g_events.push_back({Event::Hit, attacker, victim, weapon, damage, healthAfter, dragon});
+    queueEvent(Event{Event::Hit, attacker, victim, weapon, damage, healthAfter, dragon});
 }
 void onServerDeath(uint8_t victim, uint8_t killer, uint8_t weapon) {
     if (drakan_netplay::coopMatch())
         return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
-    g_events.push_back({Event::Death, victim, killer, weapon, 0, 0});
+    queueEvent(Event{Event::Death, victim, killer, weapon, 0, 0});
 }
 void onServerRespawn(uint8_t player, uint8_t spawnIndex, uint16_t health) {
     if (drakan_netplay::coopMatch())
         return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
-    g_events.push_back({Event::Respawn, player, spawnIndex, 0, 0, health});
+    queueEvent(Event{Event::Respawn, player, spawnIndex, 0, 0, health});
 }
 void onServerPhase(uint8_t phase) {
     if (drakan_netplay::coopMatch())
         return; // co-op has no PvP rounds: no deaths, spawns or phases for this module
     std::lock_guard<std::mutex> l(g_m);
-    g_events.push_back({Event::Phase, phase, 0, 0, 0, 0});
+    queueEvent(Event{Event::Phase, phase, 0, 0, 0, 0});
 }
 void setLocalPlayer(uint8_t id) {
+    {
+        std::lock_guard<std::mutex> l(g_m);
+        // The session ended (id back to 0) or the id changed: what the old session queued must not replay into the
+        // next one. 0 -> id keeps the queue, the new session's first events arrive before its id is set.
+        if (g_sessionPlayer != 0 && g_sessionPlayer != id)
+            g_events.clear();
+        g_sessionPlayer = id;
+    }
     g_local.store(id);
 }
 
