@@ -84,20 +84,8 @@ bool PS2IopHostAdapter::guestRange(uint32_t address, size_t size, uint8_t*& begi
     if (!rdram) {
         return false;
     }
-    if (size == 0) {
-        begin = getMemPtr(rdram, address);
-        return begin != nullptr;
-    }
-    if (size - 1 > std::numeric_limits<uint32_t>::max() - address) {
-        return false;
-    }
-    uint8_t* const first = getMemPtr(rdram, address);
-    uint8_t* const last = getMemPtr(rdram, address + static_cast<uint32_t>(size - 1));
-    if (!first || !last || last < first || static_cast<size_t>(last - first) != size - 1) {
-        return false;
-    }
-    begin = first;
-    return true;
+    begin = resolveGuestSpan(rdram, address, size);
+    return begin != nullptr;
 }
 
 bool PS2IopHostAdapter::readGuest(uint32_t address, void* destination, size_t size) const {

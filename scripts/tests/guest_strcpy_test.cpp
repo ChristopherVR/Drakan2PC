@@ -16,11 +16,11 @@ static uint32_t traceAddress, traceSize;
 static uint32_t getRegU32(R5900Context* ctx, int reg) {
     return ctx->r[reg];
 }
-static uint32_t guestContiguousBytes(uint32_t address) {
+static uint32_t guestSpanBytes(uint32_t address) {
     return address > 0 && address < kRamSize ? kRamSize - address : 0;
 }
 static uint8_t* getMemPtr(uint8_t* ram, uint32_t address) {
-    return guestContiguousBytes(address) ? ram + address : nullptr;
+    return guestSpanBytes(address) ? ram + address : nullptr;
 }
 static const uint8_t* getConstMemPtr(uint8_t* ram, uint32_t address) {
     return getMemPtr(ram, address);

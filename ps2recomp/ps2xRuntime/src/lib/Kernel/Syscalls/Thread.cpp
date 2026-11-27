@@ -173,13 +173,10 @@ void CreateThread(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         setReturnS32(ctx, KE_ERROR);
         return;
     }
-    if (param->stack != 0u) {
-        uint32_t stackOffset = 0u;
-        bool scratch = false;
-        if (!resolveEeGuestRange(param->stack, static_cast<size_t>(param->stack_size), stackOffset, scratch)) {
-            setReturnS32(ctx, KE_ERROR);
-            return;
-        }
+    if (param->stack != 0u && (!isDirectGuestAddress(param->stack) ||
+                               static_cast<size_t>(param->stack_size) > guestSpanBytes(param->stack))) {
+        setReturnS32(ctx, KE_ERROR);
+        return;
     }
 
     // PS2SDK EE t_ee_thread: status, func, stack, stack_size, gp_reg,

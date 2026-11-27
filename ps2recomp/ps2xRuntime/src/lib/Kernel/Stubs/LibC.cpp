@@ -37,18 +37,6 @@ uint32_t sanitizeMemTransferSize(uint32_t size, const char* op, const R5900Conte
     return writes ? 0u : kMaxTransfer;
 }
 
-uint32_t guestContiguousBytes(uint32_t guestAddr) {
-    uint32_t offset = 0u;
-    bool scratch = false;
-    if (!ps2ResolveGuestPointer(guestAddr, offset, scratch)) {
-        return 0u;
-    }
-    if (scratch) {
-        return (offset < PS2_SCRATCHPAD_SIZE) ? (PS2_SCRATCHPAD_SIZE - offset) : 0u;
-    }
-    return (offset < PS2_RAM_SIZE) ? (PS2_RAM_SIZE - offset) : 0u;
-}
-
 } // namespace
 
 void malloc(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
@@ -102,8 +90,8 @@ void memcpy(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         }
 
         uint32_t chunk = size - copied;
-        chunk = std::min(chunk, guestContiguousBytes(curDst));
-        chunk = std::min(chunk, guestContiguousBytes(curSrc));
+        chunk = std::min(chunk, guestSpanBytes(curDst));
+        chunk = std::min(chunk, guestSpanBytes(curSrc));
         if (chunk == 0u) {
             break;
         }
@@ -149,7 +137,7 @@ void memset(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         }
 
         uint32_t chunk = size - written;
-        chunk = std::min(chunk, guestContiguousBytes(curDst));
+        chunk = std::min(chunk, guestSpanBytes(curDst));
         if (chunk == 0u) {
             break;
         }
@@ -181,7 +169,7 @@ void memclr(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         }
 
         uint32_t chunk = size - written;
-        chunk = std::min(chunk, guestContiguousBytes(curDst));
+        chunk = std::min(chunk, guestSpanBytes(curDst));
         if (chunk == 0u) {
             break;
         }
@@ -262,7 +250,7 @@ void strcpy(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     const char* hostSrc = reinterpret_cast<const char*>(getConstMemPtr(rdram, srcAddr));
 
     if (hostDest && hostSrc) {
-        const size_t limit = std::min(guestContiguousBytes(srcAddr), guestContiguousBytes(destAddr));
+        const size_t limit = std::min(guestSpanBytes(srcAddr), guestSpanBytes(destAddr));
         const auto* end = static_cast<const char*>(std::memchr(hostSrc, '\0', limit));
         if (end) {
             const auto size = static_cast<uint32_t>(end - hostSrc + 1);
@@ -289,7 +277,7 @@ void strncpy(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     uint32_t size = getRegU32(ctx, 6);     // $a2
     // strncpy pads the destination with zeros up to `size`: a garbage count (negative int) must not run off the end of
     // guest RAM into host memory
-    size = std::min(size, std::min(guestContiguousBytes(destAddr), guestContiguousBytes(srcAddr)));
+    size = std::min(size, std::min(guestSpanBytes(destAddr), guestSpanBytes(srcAddr)));
 
     char* hostDest = reinterpret_cast<char*>(getMemPtr(rdram, destAddr));
     const char* hostSrc = reinterpret_cast<const char*>(getConstMemPtr(rdram, srcAddr));
@@ -347,7 +335,7 @@ void strncmp(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     uint32_t str1Addr = getRegU32(ctx, 4); // $a0
     uint32_t str2Addr = getRegU32(ctx, 5); // $a1
     uint32_t size = getRegU32(ctx, 6);     // $a2
-    size = std::min(size, std::min(guestContiguousBytes(str1Addr), guestContiguousBytes(str2Addr)));
+    size = std::min(size, std::min(guestSpanBytes(str1Addr), guestSpanBytes(str2Addr)));
 
     const char* hostStr1 = reinterpret_cast<const char*>(getConstMemPtr(rdram, str1Addr));
     const char* hostStr2 = reinterpret_cast<const char*>(getConstMemPtr(rdram, str2Addr));
@@ -391,13 +379,13 @@ void strncat(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     uint32_t destAddr = getRegU32(ctx, 4); // $a0
     uint32_t srcAddr = getRegU32(ctx, 5);  // $a1
     uint32_t size = getRegU32(ctx, 6);     // $a2
-    size = std::min(size, guestContiguousBytes(srcAddr));
+    size = std::min(size, guestSpanBytes(srcAddr));
 
     char* hostDest = reinterpret_cast<char*>(getMemPtr(rdram, destAddr));
     const char* hostSrc = reinterpret_cast<const char*>(getConstMemPtr(rdram, srcAddr));
 
     if (hostDest && hostSrc) {
-        const uint32_t capacity = guestContiguousBytes(destAddr);
+        const uint32_t capacity = guestSpanBytes(destAddr);
         uint32_t end = 0;
         while (end < capacity && hostDest[end] != '\0')
             ++end;

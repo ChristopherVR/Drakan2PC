@@ -205,6 +205,32 @@ inline const uint8_t* resolveGuestSpan(const uint8_t* rdram, uint32_t addr, size
     return size <= guestSpanBytes(addr) ? getConstMemPtr(rdram, addr) : nullptr;
 }
 
+// True when `addr` names guest RAM or the scratchpad directly: the scratchpad, RAM below PS2_RAM_SIZE, or that RAM
+// through the uncached (0x20000000) / KSEG0-1 (0x80000000) mirrors. getMemPtr() also accepts every other address by
+// wrapping it onto RAM (as the recompiled fast path does); kernel calls that take a guest pointer (thread stacks,
+// semaphore parameters) reject those instead, since on hardware they are I/O space or unmapped.
+inline bool isDirectGuestAddress(uint32_t addr) {
+    if (ps2IsScratchpadAddress(addr)) {
+        return true;
+    }
+    if (addr < 0x20000000u) {
+        return addr < PS2_RAM_SIZE;
+    }
+    if ((addr >= 0x20000000u && addr < 0x40000000u) || (addr >= 0x80000000u && addr < 0xC0000000u)) {
+        return (addr & 0x1FFFFFFFu) < PS2_RAM_SIZE;
+    }
+    return false;
+}
+
+// resolveGuestSpan() for a pointer the guest passed to a kernel call: also null unless isDirectGuestAddress(addr).
+inline uint8_t* resolveDirectGuestSpan(uint8_t* rdram, uint32_t addr, size_t size) {
+    return isDirectGuestAddress(addr) ? resolveGuestSpan(rdram, addr, size) : nullptr;
+}
+
+inline const uint8_t* resolveDirectGuestSpan(const uint8_t* rdram, uint32_t addr, size_t size) {
+    return isDirectGuestAddress(addr) ? resolveGuestSpan(rdram, addr, size) : nullptr;
+}
+
 // PS2 GS (Graphics Synthesizer) registers
 struct GSRegisters {
     uint64_t pmode;    // Pixel mode

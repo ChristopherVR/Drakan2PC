@@ -2075,12 +2075,8 @@ uint32_t PS2Runtime::guestCalloc(uint32_t count, uint32_t size, uint32_t alignme
     const uint32_t totalSize = count * size;
     const uint32_t guestAddr = guestMalloc(totalSize, alignment);
     if (guestAddr != 0u) {
-        uint8_t* rdram = m_memory.getRDRAM();
-        if (rdram) {
-            uint32_t physAddr = guestAddr & PS2_RAM_MASK;
-            if (physAddr + totalSize <= PS2_RAM_SIZE)
-                std::memset(rdram + physAddr, 0, totalSize);
-        }
+        if (uint8_t* block = resolveGuestSpan(m_memory.getRDRAM(), guestAddr, totalSize))
+            std::memset(block, 0, totalSize);
     }
 
     return guestAddr;
@@ -2153,14 +2149,12 @@ uint32_t PS2Runtime::guestRealloc(uint32_t guestAddr, uint32_t newSize, uint32_t
         return 0u;
     }
 
-    uint8_t* rdram = m_memory.getRDRAM();
-    if (rdram) {
-        const uint32_t copyBytes = std::min(oldSize, newSize);
-        uint32_t dstPhys = newAddr & PS2_RAM_MASK;
-        uint32_t srcPhys = oldAddr & PS2_RAM_MASK;
-        if (dstPhys + copyBytes <= PS2_RAM_SIZE && srcPhys + copyBytes <= PS2_RAM_SIZE)
-            std::memmove(rdram + dstPhys, rdram + srcPhys, copyBytes);
-    }
+    uint8_t* const rdram = m_memory.getRDRAM();
+    const uint32_t copyBytes = std::min(oldSize, newSize);
+    uint8_t* const dst = resolveGuestSpan(rdram, newAddr, copyBytes);
+    const uint8_t* const src = resolveGuestSpan(static_cast<const uint8_t*>(rdram), oldAddr, copyBytes);
+    if (dst && src)
+        std::memmove(dst, src, copyBytes);
 
     freeGuestBlockLocked(oldAddr);
     return newAddr;
