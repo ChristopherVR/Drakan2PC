@@ -64,7 +64,7 @@ uint32_t writePackCover(const std::string& key, const std::vector<uint8_t>& cove
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
     const std::filesystem::path f = dir / ("pack-" + safe + ".png");
-    std::vector<char> have;
+    std::vector<uint8_t> have; // unsigned like the cover: as char, bytes >= 0x80 never compare equal
     if (std::ifstream in(f, std::ios::binary); in)
         have.assign(std::istreambuf_iterator<char>(in), {});
     if (have.size() != cover.size() || !std::equal(have.begin(), have.end(), cover.begin())) {
