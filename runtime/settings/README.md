@@ -114,6 +114,9 @@ Environment variables (`DRAKAN_VSYNC`, `PS2X_GS_SCALE`, `DRAKAN_VOLUME` ...) sti
 * Bindings: a rebound action removes the action from the old source line (the line is deleted when it becomes empty), adds it to the line of the new source (`C = CROSS | TRIANGLE`) or appends a new
   `SOURCE = ACTION` line after the last binding. A layer that equals the built-in default and has no section in the file is not written. `ACT:0x0e` ids keep their lower case hex.
 * If `drakan_input.ini` does not exist, the file is created from `ISettingsHost::defaultInputIni()` (return `drakan_input::Config::defaultIniText()`), so the file is complete.
+* `drakan_input.ini` values pass the same schema as the game's own reader (`runtime/input/include/input/IniSchema.h`,
+  target `drakan::input_ini`): a value the game would reject leaves the setting unchanged, an accepted one is stored in
+  its written spelling (`TWIN_STICK` -> `twin_stick`, `r3+l3` -> `L3+R3`). New input keys go into that schema first.
 * Writes go to `<file>.tmp` then rename.
 
 ## Integration guide for the runtime owner
