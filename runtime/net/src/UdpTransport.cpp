@@ -91,7 +91,12 @@ constexpr int64_t kKeepAliveMs = 1000;
 constexpr int64_t kTimeoutMs = 10000;
 constexpr size_t kWindow = 128;
 constexpr size_t kMaxBacklog = 2048;
-constexpr size_t kHeaderSize = 3;
+constexpr size_t kHeaderSize = 3; // kMagic0, kMagic1, PacketType
+// recvfrom buffer: a larger datagram is dropped (Windows: WSAEMSGSIZE) or truncated (POSIX), so every protocol
+// message must stay below it (a full 16-player Snapshot is about 1.2 KB).
+constexpr size_t kMaxDatagramBytes = 2048;
+// Datagrams read per poll at most, so a flood cannot keep the frame thread in receiveAll; the rest waits a frame.
+constexpr size_t kMaxDatagramsPerPoll = 512;
 // Listen side limits against address floods. A server peer is half open from its Connect until the first other packet
 // from it (an Ack keep-alive or the Hello): a spoofed source never gets that far, so half-open peers are capped (in
 // total and per source IP) and dropped after kHalfOpenTimeoutMs. kMaxPeers bounds everything else.
@@ -405,8 +410,8 @@ struct UdpTransport::Impl {
     void receiveAll() {
         if (sock == kBadSocket)
             return;
-        uint8_t buf[2048];
-        for (int i = 0; i < 512; ++i) {
+        uint8_t buf[kMaxDatagramBytes];
+        for (size_t i = 0; i < kMaxDatagramsPerPoll; ++i) {
             sockaddr_in from{};
             socklen_t len = sizeof(from);
             const int n = static_cast<int>(::recvfrom(sock, reinterpret_cast<char*>(buf), sizeof(buf), 0,
