@@ -175,12 +175,16 @@ bool ControlFlowEmitter::emitDirectFunctionJumpIfAvailable(uint32_t target, Stat
         return false;
     }
 
-    const std::string functionName = m_gen.getFunctionName(target);
-    if (functionName.empty()) {
+    if (m_gen.getFunctionName(target).empty()) {
         return false;
     }
 
-    m_ss << indent << functionName << "(rdram, ctx, runtime); return;\n";
+    // Tail jump to a known function: through the dense function table like PS2_JAL, so a runtime override
+    // (PS2Runtime::replaceFunction) of the target also applies here. Overrides are registered at run time (game
+    // hooks, mods), so the recompiler cannot tell which targets are safe to call directly.
+    m_ss << fmt::format(
+        "{}g_ps2RecompiledFunctionTable[(0x{:X}u - PS2_FNTAB_BASE) >> 2](rdram, ctx, runtime); return;\n", indent,
+        target);
     return true;
 }
 
