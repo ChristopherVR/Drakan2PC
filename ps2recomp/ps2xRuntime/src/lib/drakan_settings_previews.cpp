@@ -4,12 +4,16 @@
 #include "drakan_settings_host_internal.h"
 
 namespace drakan_settings_host::detail {
-
 namespace {
 // A slot's picture as a texture: the HD companion when the save has one, else the native 128 x 128 thumbnail (a 4:3
 // picture: the native grid draws it at 128 x 96). The companions (about 3 MB of PNG each) are decoded on a worker
 // thread (std::async) so neither the present thread nor the screen waits for them; the native thumbnail (or the
 // crest) stands in until the decode is done. A decode whose slot changed meanwhile is dropped when it finishes.
+struct PreviewDecode {
+    gsr::Image img;
+    unsigned x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the picture inside the companion's black bars
+    double ms = 0;
+};
 
 PreviewDecode decodePreview(std::string path) {
     PreviewDecode r;
@@ -39,13 +43,68 @@ PreviewDecode decodePreview(std::string path) {
     r.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     return r;
 }
-} // namespace
 
+// One picture as an overlay texture, decoded on a worker thread.
+struct PreviewTexture {
+    uint64_t key = 0;
+    std::string hd;
+    ImTextureID tex = 0; // the overlay renderer's texture
+    bool hdShown = false;
+    float w = 0, h = 0;
+    ImVec2 uv0{0, 0}, uv1{1, 1};
+    std::future<PreviewDecode> decode; // the HD companion being read
+};
+
+bool futureReady(const std::future<PreviewDecode>& f) {
+    return f.valid() && f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+}
+
+// The save slots' pictures (slot number -> picture).
 std::vector<std::pair<int, PreviewTexture>> g_previews;
 std::vector<std::future<PreviewDecode>> g_previewDrops; // decodes of replaced entries, dropped once finished
-
-namespace {
 uint64_t g_previewSerial = ~0ull;
+
+// ---- multiplayer map pictures ----
+// A map's picture is optional: `previews/<map name>.png` next to the exe (the player's own capture or a mod pack's
+// image; nothing from the disc is stored in the repository). The menu draws a generated sketch when there is none.
+// Which folders count and when a match captures one: drakan_map_preview_policy.h.
+// The same id space also holds the game covers / backgrounds, the title art and the setting shots.
+std::mutex g_mapPreviewM;                          // guards g_mapPreviewPaths and g_settingShotIds
+std::map<uint32_t, std::string> g_mapPreviewPaths; // previewId -> file
+std::map<uint32_t, PreviewTexture> g_mapPreviews;  // previewId -> texture (present thread only)
+
+// ---- real pictures of the settings (gameui/SettingPreview.h) ----
+// previews/settings/<row key>/<value>.png next to the exe: screenshots of this game with that value applied, written by
+// scripts/harness/setting_shots.py on the player's machine (never committed). A value without its own file takes the
+// nearest numeric one (a slider between two captures); nothing at all means the help panel draws no real picture.
+std::set<uint32_t> g_settingShotIds; // picture ids that are stretched to the 16:9 box, not centre cropped
+
+// Original meshes and materials, drawn live at the panel's output resolution. No turntable PNG fallback.
+struct MenuCharacterModel {
+    std::shared_ptr<dsettings::CharacterPreview> model;
+    std::future<std::shared_ptr<dsettings::CharacterPreview>> decode;
+    bool started = false, failed = false;
+    std::chrono::steady_clock::time_point checked;
+};
+std::map<int, MenuCharacterModel> g_characterModels; // class id -> model
+
+// An explicit picture folder (DRAKAN_PREVIEW_DIR), or "" when there is none.
+std::string explicitPreviewDir() {
+    if (const char* e = std::getenv("DRAKAN_PREVIEW_DIR"); e && *e)
+        return std::string(e) + "/";
+    return {};
+}
+
+// A picture file's id: its path's FNV-1a hash with the low bit set (0 stays "no picture"). The path is remembered for
+// updateMapPreviews, which decodes it once a screen asks. g_mapPreviewM held.
+uint32_t registerPicture(const std::string& path) {
+    uint32_t id = 2166136261u;
+    for (unsigned char c : path)
+        id = (id ^ c) * 16777619u;
+    id |= 1u;
+    g_mapPreviewPaths[id] = path;
+    return id;
+}
 } // namespace
 
 ImTextureID makeTexture(const void* rgba, unsigned w, unsigned h) {
@@ -57,14 +116,7 @@ void dropTexture(ImTextureID& tex) {
     tex = 0;
 }
 
-namespace {
-bool futureReady(const std::future<PreviewDecode>& f) {
-    return f.valid() && f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
-}
-} // namespace
-
 // Present thread, before this frame's draw lists (an SRV replaced here is not referenced by a pending draw).
-
 void updatePreviewTextures() {
     updateMapPreviews();
     std::erase_if(g_previewDrops, [](const std::future<PreviewDecode>& f) { return !f.valid() || futureReady(f); });
@@ -129,28 +181,11 @@ void updatePreviewTextures() {
     }
 }
 
-// ---- multiplayer map pictures ----
-// A map's picture is optional: `previews/<map name>.png` next to the exe (the player's own capture or a mod pack's
-// image; nothing from the disc is stored in the repository). The menu draws a generated sketch when there is none.
-// Which folders count and when a match captures one: drakan_map_preview_policy.h.
-std::mutex g_mapPreviewM;
-std::map<uint32_t, std::string> g_mapPreviewPaths; // previewId -> file
-std::map<uint32_t, PreviewTexture> g_mapPreviews;
-
 // DRAKAN_MP_CAPTURE=1: a match on a map without a picture captures the current view (off by default, issue #1).
 bool mapAutoCapture() {
     static const bool on = drakan_map_preview::autoCaptureEnabled(std::getenv("DRAKAN_MP_CAPTURE"));
     return on;
 }
-
-namespace {
-// An explicit picture folder (DRAKAN_PREVIEW_DIR), or "" when there is none.
-std::string explicitPreviewDir() {
-    if (const char* e = std::getenv("DRAKAN_PREVIEW_DIR"); e && *e)
-        return std::string(e) + "/";
-    return {};
-}
-} // namespace
 
 // Where the game's own map pictures are cached: the user's data folder (DRAKAN_PREVIEW_DIR overrides), never the
 // repository or the play folder. Falls back to previews/captured/ next to the exe when there is none.
@@ -196,11 +231,7 @@ uint32_t mapPreviewId(const std::string& mapName) {
         const std::string path = base + safe + ".png";
         if (!std::filesystem::exists(path, ec))
             continue;
-        id = 2166136261u;
-        for (unsigned char c : path)
-            id = (id ^ c) * 16777619u;
-        id |= 1u;
-        g_mapPreviewPaths[id] = path;
+        id = registerPicture(path);
         break;
     }
     cache[mapName] = {id, now};
@@ -246,13 +277,7 @@ uint32_t titleArtPictureId(float viewAspect) {
     const int pick = drakan_title_picture::pickWide(aspects, viewAspect);
     if (pick < 0)
         return 0;
-    const std::string& path = set[static_cast<size_t>(pick)].path;
-    uint32_t id = 2166136261u;
-    for (unsigned char c : path)
-        id = (id ^ c) * 16777619u;
-    id |= 1u;
-    g_mapPreviewPaths[id] = path;
-    return id;
+    return registerPicture(set[static_cast<size_t>(pick)].path);
 }
 
 // How far a picture of mapPreviewId / titleArtPictureId has got (the render thread's view of g_mapPreviews).
@@ -267,14 +292,6 @@ drakan_title_picture::Load pictureLoad(uint32_t id) {
         return Load::Ready;
     return it->second.decode.valid() ? Load::Pending : Load::Failed;
 }
-
-namespace {
-// ---- real pictures of the settings (gameui/SettingPreview.h) ----
-// previews/settings/<row key>/<value>.png next to the exe: screenshots of this game with that value applied, written by
-// scripts/harness/setting_shots.py on the player's machine (never committed). A value without its own file takes the
-// nearest numeric one (a slider between two captures); nothing at all means the help panel draws no real picture.
-std::set<uint32_t> g_settingShotIds; // picture ids that are stretched to the 16:9 box, not centre cropped
-} // namespace
 
 uint32_t settingShotPicture(const std::string& key, const std::string& value) {
     struct Capture {
@@ -323,11 +340,7 @@ uint32_t settingShotPicture(const std::string& key, const std::string& value) {
     }
     if (!best)
         return 0;
-    uint32_t id = 2166136261u;
-    for (unsigned char c : best->path)
-        id = (id ^ c) * 16777619u;
-    id |= 1u;
-    g_mapPreviewPaths[id] = best->path;
+    const uint32_t id = registerPicture(best->path);
     g_settingShotIds.insert(id);
     return id;
 }
@@ -366,7 +379,6 @@ void updateMapPreviews() {
     }
 }
 
-std::map<int, MenuCharacterModel> g_characterModels;
 bool characterPreviewReady(int classId) {
     MenuCharacterModel& t = g_characterModels[classId];
     if (t.model && t.model->ready())
@@ -426,6 +438,39 @@ bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c) {
             return true;
         }
     return false;
+}
+
+std::string previewPath(uint32_t id) {
+    std::lock_guard<std::mutex> l(g_mapPreviewM);
+    return g_mapPreviewPaths[id];
+}
+
+bool settingShotSettled(uint32_t id) {
+    const auto it = g_mapPreviews.find(id);
+    return it != g_mapPreviews.end() && (it->second.tex || !it->second.decode.valid());
+}
+
+void releasePreviewTextures() {
+    for (auto& p : g_previews) {
+        dropTexture(p.second.tex);
+        if (p.second.decode.valid())
+            p.second.decode.wait(); // a worker decode ends before the renderer goes
+    }
+    g_previews.clear();
+    for (auto& p : g_mapPreviews) {
+        if (p.second.decode.valid())
+            p.second.decode.wait();
+        dropTexture(p.second.tex);
+    }
+    g_mapPreviews.clear();
+    for (auto& [id, preview] : g_characterModels) {
+        if (preview.decode.valid())
+            preview.decode.wait();
+        if (preview.model)
+            preview.model->release([](ImTextureID texture) { dropTexture(texture); });
+    }
+    g_characterModels.clear();
+    g_previewDrops.clear(); // waits for the dropped decodes
 }
 } // namespace drakan_settings_host::detail
 #endif // PS2X_HAVE_DRAKAN_SETTINGS

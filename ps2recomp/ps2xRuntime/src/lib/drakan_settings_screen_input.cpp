@@ -10,12 +10,11 @@ namespace {
 // buttons) are not navigation then but the key to bind, reported in g_capturedKey as its drakan_input.ini name; Esc
 // and the pad stay navigation (Esc / B cancel). Set by the screen's draw before it reads the input.
 bool g_capture = false;
-} // namespace
-
 bool g_textEdit = false; // a multiplayer text field is being edited: typed characters in, letter keys out of navigation
 std::string g_capturedKey;
 
-gameui::UiInput tabInput(bool take) {
+// The real devices: ImGui's keyboard / mouse / pad state, plus the OS key state (see `vk` below).
+gameui::UiInput deviceInput(bool take) {
     using gameui::UiKey;
     gameui::UiInput in;
     g_capturedKey.clear();
@@ -132,7 +131,7 @@ gameui::UiInput tabInput(bool take) {
 }
 
 // Scripted runs (DRAKAN_INPUT_SCRIPT): the script's edges, queued by the input module while the host screen is up.
-gameui::UiInput tabScriptInput(bool take, float bbW, float bbH) {
+gameui::UiInput scriptInput(bool take, float bbW, float bbH) {
     using drakan_input::InputModule;
     using gameui::UiKey;
     static float px = -1, py = -1, clickX = 0, clickY = 0;
@@ -282,14 +281,19 @@ gameui::UiInput tabScriptInput(bool take, float bbW, float bbH) {
     return in;
 }
 
-// The input of a host screen's frame: the real devices or the script's events. `capture`: the PC Settings pages wait
-// for a key (g_capturedKey).
-gameui::UiInput hostScreenInput(bool take, bool capture, float w, float h) {
+} // namespace
+
+gameui::UiInput hostScreenInput(bool take, bool capture, float w, float h, bool textEdit) {
     g_capture = capture;
-    gameui::UiInput in = drakan_input::module().scripted() ? tabScriptInput(take, w, h) : tabInput(take);
+    g_textEdit = textEdit;
+    gameui::UiInput in = drakan_input::module().scripted() ? scriptInput(take, w, h) : deviceInput(take);
     g_capture = false;
     g_textEdit = false;
     return in;
+}
+
+const std::string& capturedKey() {
+    return g_capturedKey;
 }
 } // namespace drakan_settings_host::detail
 #endif // PS2X_HAVE_DRAKAN_SETTINGS

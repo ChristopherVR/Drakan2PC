@@ -24,19 +24,15 @@
 
 namespace drakan_settings_host::detail {
 
-std::atomic<bool> g_openRequest{false};
-
-std::atomic<bool> g_openMods{false};   // the next open shows the Mods page (the title's new packs card)
-std::atomic<bool> g_modsNotice{false}; // the title shows the new packs card in this run (sticky)
-
 std::unique_ptr<dsettings::SettingsOverlay> g_overlay;
-
 gsr::OverlayContext g_overlayView; // presentation thread only
 
 namespace {
+// Open requests come from any thread (the EE's Options hook, the title); the present thread carries them out.
 std::atomic<bool> g_open{false};
-
+std::atomic<bool> g_openRequest{false};
 std::atomic<bool> g_openControls{false}; // the next open shows the Controls page
+std::atomic<bool> g_openMods{false};     // the next open shows the Mods page (the title's new packs card)
 
 std::atomic<int> g_frameLimit{0};
 static_assert(dsettings::kFrameLimitAuto == drakan_pacing::kFrameLimitAuto, "frame_limit = auto has one value");
@@ -44,7 +40,6 @@ std::atomic<spu2::AudioOutput*> g_audio{nullptr};
 gsr::Renderer* g_gs = nullptr;
 void* g_parent = nullptr; // the game window (drakan_window)
 WindowOps g_ops;
-
 bool g_overlayFailed = false;
 
 // ---- the game's UI art (INTERFCE.TXD), captured as the game loads it ----
@@ -196,6 +191,11 @@ void maybeShot(const gsr::OverlayContext& oc) {
 }
 } // namespace
 
+void requestOpenMods() {
+    g_openMods.store(true);
+    g_openRequest.store(true);
+}
+
 // Starts a new instance of this exe (same command line); the new process waits for this one to exit (DRAKAN_WAIT_PID).
 void relaunchSelf() {
 #if defined(_WIN32)
@@ -249,7 +249,7 @@ struct MovieTexture {
 MovieTexture g_movieTex;
 
 struct DrakanSettingsHost final : CommonSettingsHost {
-    dsettings::ModsModel* mods() override { return &g_modsModel; }
+    dsettings::ModsModel* mods() override { return &harnessMods(); }
     DrakanSettingsHost() : CommonSettingsHost(g_audio) {}
     dsettings::HostCaps capabilities() const override {
         dsettings::HostCaps c = commonCapabilities();
@@ -515,10 +515,7 @@ void overlayCallback(const gsr::OverlayContext& oc) {
             [](const std::string& key, const std::string& value) { return settingShotPicture(key, value); });
         // Settled = uploaded, or its decode finished without a texture (a bad file shows the empty box, not the
         // previous value's picture). Until then the help panel keeps the last picture up (no blank flash).
-        gameui::setSettingShotReady([](uint32_t id) {
-            const auto it = g_mapPreviews.find(id);
-            return it != g_mapPreviews.end() && (it->second.tex || !it->second.decode.valid());
-        });
+        gameui::setSettingShotReady(&settingShotSettled);
         g_pcs = std::make_unique<dsettings::ModernSettings>(g_host, g_overlay->store());
         g_pcs->open();
         { // the host screens: the modern Tab screen, the I strip, the M map panel, the modern pause menu
@@ -734,27 +731,8 @@ void detachRenderer() {
     drakan_intro_movie::attach(nullptr);
     if (g_gs)
         g_gs->setOverlayCallback(nullptr);
-    for (auto& p : g_previews) {
-        dropTexture(p.second.tex);
-        if (p.second.decode.valid())
-            p.second.decode.wait(); // a worker decode ends before the renderer goes
-    }
-    g_previews.clear();
-    for (auto& p : g_mapPreviews) {
-        if (p.second.decode.valid())
-            p.second.decode.wait();
-        dropTexture(p.second.tex);
-    }
-    g_mapPreviews.clear();
-    for (auto& [id, preview] : g_characterModels) {
-        if (preview.decode.valid())
-            preview.decode.wait();
-        if (preview.model)
-            preview.model->release([](ImTextureID texture) { dropTexture(texture); });
-    }
-    g_characterModels.clear();
-    g_previewDrops.clear(); // waits for the dropped decodes
-    g_pcs.reset();          // it refers to the overlay's store
+    releasePreviewTextures(); // before the overlay renderer that owns the textures
+    g_pcs.reset();            // it refers to the overlay's store
     g_overlay.reset();
     g_open.store(false);
     g_gs = nullptr;

@@ -151,7 +151,7 @@ void tabDraw(const dsettings::SettingsOverlay::ScreenFrame& f) {
     if (take && !ui.took)
         ui.gate.reset(); // input back (F1 menu, native box, fade-in): keys held meanwhile wait for their release
     ui.took = take;
-    const gameui::UiInput in = drakan_input::module().scripted() ? tabScriptInput(take, f.w, f.h) : tabInput(take);
+    const gameui::UiInput in = hostScreenInput(take, false, f.w, f.h);
     ui.renderer.setGamepadPrompts(ui.device == gameui::InputDevice::Gamepad);
     const drakan_tab::MapCapture mc = sh.mapCapture();
     if (visible && hostOpen(ui)) {

@@ -83,9 +83,7 @@
 namespace drakan_settings_host::detail {
 
 // ---- drakan_settings_host.cpp: the overlay, its open requests and the process ----
-extern std::atomic<bool> g_openRequest;
-extern std::atomic<bool> g_openMods;   // the next open shows the Mods page (the title's new packs card)
-extern std::atomic<bool> g_modsNotice; // the title shows the new packs card in this run (sticky)
+void requestOpenMods(); // thread safe; opens the overlay at the next present on its Mods page
 extern std::unique_ptr<dsettings::SettingsOverlay> g_overlay;
 extern gsr::OverlayContext g_overlayView; // presentation thread only
 // Starts a new instance of this exe (same command line); the new process waits for this one to exit (DRAKAN_WAIT_PID).
@@ -119,11 +117,12 @@ extern TabUi g_tabUi;
 void tabDraw(const dsettings::SettingsOverlay::ScreenFrame& f);
 
 // ---- drakan_settings_screen_input.cpp: the host screens' keyboard / mouse / pad (or scripted) input ----
-extern bool g_textEdit; // a multiplayer text field is being edited: typed characters in, letter keys out of navigation
-extern std::string g_capturedKey;
-gameui::UiInput tabInput(bool take);
-gameui::UiInput tabScriptInput(bool take, float bbW, float bbH);
-gameui::UiInput hostScreenInput(bool take, bool capture, float w, float h);
+// The input of a host screen's frame (`take` false: none, the events are only drained): the real devices, or the
+// script's events in a scripted run. `capture`: the PC Settings pages wait for a key to bind (capturedKey()).
+// `textEdit`: a multiplayer text field is being edited (typed characters in, letter keys out of navigation).
+gameui::UiInput hostScreenInput(bool take, bool capture, float w, float h, bool textEdit = false);
+// The key the last hostScreenInput with `capture` caught, as its drakan_input.ini name ("" = none).
+const std::string& capturedKey();
 
 // ---- drakan_settings_screens.cpp: the screen layer (which host screen draws) and what the screens share ----
 extern std::unique_ptr<dsettings::ModernSettings> g_pcs;
@@ -140,33 +139,6 @@ bool pauseShown();
 void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background = false);
 
 // ---- drakan_settings_previews.cpp: save slot pictures, map / cover pictures, setting shots, character models ----
-struct PreviewDecode {
-    gsr::Image img;
-    unsigned x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the picture inside the companion's black bars
-    double ms = 0;
-};
-struct PreviewTexture {
-    uint64_t key = 0;
-    std::string hd;
-    ImTextureID tex = 0; // the overlay renderer's texture
-    bool hdShown = false;
-    float w = 0, h = 0;
-    ImVec2 uv0{0, 0}, uv1{1, 1};
-    std::future<PreviewDecode> decode; // the HD companion being read
-};
-// Original meshes and materials, drawn live at the panel's output resolution. No turntable PNG fallback.
-struct MenuCharacterModel {
-    std::shared_ptr<dsettings::CharacterPreview> model;
-    std::future<std::shared_ptr<dsettings::CharacterPreview>> decode;
-    bool started = false, failed = false;
-    std::chrono::steady_clock::time_point checked;
-};
-extern std::vector<std::pair<int, PreviewTexture>> g_previews;
-extern std::vector<std::future<PreviewDecode>> g_previewDrops;
-extern std::mutex g_mapPreviewM;
-extern std::map<uint32_t, std::string> g_mapPreviewPaths; // previewId -> file
-extern std::map<uint32_t, PreviewTexture> g_mapPreviews;
-extern std::map<int, MenuCharacterModel> g_characterModels;
 ImTextureID makeTexture(const void* rgba, unsigned w, unsigned h);
 void dropTexture(ImTextureID& tex);
 void updatePreviewTextures();
@@ -180,6 +152,11 @@ uint32_t settingShotPicture(const std::string& key, const std::string& value);
 void updateMapPreviews(); // queues and uploads the pictures the screens asked for (settings pictures too)
 bool characterPreviewReady(int classId);
 bool previewCrop(const gameui::ImageRef& ref, dsettings::IconCrop& c); // a picture's texture
+std::string previewPath(uint32_t id);                                  // the file behind a picture id of mapPreviewId
+// A setting shot is settled once uploaded, or once its decode finished without a texture (a bad file shows the empty
+// box, not the previous value's picture). Until then the help panel keeps the last picture up (no blank flash).
+bool settingShotSettled(uint32_t id);
+void releasePreviewTextures(); // every picture texture, after their decodes ended (detachRenderer)
 
 // ---- drakan_settings_multiplayer.cpp: the Multiplayer menu glue (title pages <-> drakan_netplay) ----
 gameui::mp::MpState mpState(bool wantLan);
@@ -205,7 +182,6 @@ bool slotsShown();
 void slotsDraw(const dsettings::SettingsOverlay::ScreenFrame& f);
 
 // ---- drakan_settings_mods.cpp: the Mods page model and the title's new packs card ----
-extern dsettings::ModsModel g_modsModel;
 dsettings::ModsModel& harnessMods();                // the Mods page model
 void titleModsAction(const gameui::TitleAction& a); // the title's new mod packs card
 

@@ -18,14 +18,10 @@
 
 namespace drakan_settings_host::detail {
 
-// ---- the Mods page: a snapshot of the mod manager taken at start-up, edited through dsettings::ModsModel ----
-dsettings::ModsModel g_modsModel;
-
-dsettings::ModsModel& harnessMods() {
-    return g_modsModel;
-}
-
 namespace {
+dsettings::ModsModel g_modsModel;
+std::atomic<bool> g_modsNotice{false}; // the title shows the new packs card in this run (sticky)
+
 // Shows `dir` in the platform's file browser (created first). False when this platform cannot.
 bool openFolderInBrowser(const std::string& dir) {
     std::error_code ec;
@@ -142,6 +138,10 @@ void snapshotMods(const hle::mods::ModManager* mm, const std::string& dir) {
 }
 } // namespace
 
+dsettings::ModsModel& harnessMods() {
+    return g_modsModel;
+}
+
 // The title's new packs card answered: write mods.ini (and restart for Enable).
 void titleModsAction(const gameui::TitleAction& a) {
     std::string err;
@@ -167,8 +167,7 @@ void titleModsAction(const gameui::TitleAction& a) {
         case gameui::TitleActionKind::OpenMods:
             std::fprintf(stderr, "[mods] title notice: Mods page (%s)\n", a.value ? "title pages" : "overlay");
             if (!a.value) {
-                g_openMods.store(true);
-                g_openRequest.store(true);
+                requestOpenMods();
             }
             break;
         default:

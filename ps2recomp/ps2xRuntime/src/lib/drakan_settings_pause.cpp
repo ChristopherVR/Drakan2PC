@@ -98,7 +98,7 @@ void pauseDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         gameui::PauseState st = sh.pauseState();
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
         st.now = now;
-        st.capturedKey = take && capture ? g_capturedKey : std::string();
+        st.capturedKey = take && capture ? capturedKey() : std::string();
         ui.screen.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
         gameui::PauseFrameOutput out = ui.screen.frame(*snap, st, in, vp);
         for (const gameui::PauseAction& a : out.actions) {

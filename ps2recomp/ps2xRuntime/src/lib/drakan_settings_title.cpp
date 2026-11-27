@@ -128,8 +128,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         if (take && !tu.took)
             tu.gate.reset();
         tu.took = take;
-        g_textEdit = ui.screen.wantsText();
-        in = hostScreenInput(take, capture, f.w, f.h);
+        in = hostScreenInput(take, capture, f.w, f.h, ui.screen.wantsText());
     }
     tu.renderer.setGamepadPrompts(tu.device == gameui::InputDevice::Gamepad);
     if (visible && ui.screen.isOpen()) {
@@ -194,7 +193,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
         st.multiplayer = mpState(ui.screen.page() == gameui::TitlePage::Multiplayer &&
                                  ui.screen.multiplayer().page() == gameui::mp::MpPage::Join);
         st.pcSettings = pcSettingsSchema(ui.screen.pcSettingsOpen(), now);
-        if (g_modsNotice.load() && !g_modsNoticeDone) { // the new packs card: once per run
+        if (modsNoticeWanted() && !g_modsNoticeDone) { // the new packs card: once per run
             const dsettings::ModNoticeContent mc = dsettings::modNoticeContent(harnessMods());
             st.newMods = mc.names;
             st.newModCampaigns = mc.campaigns;
@@ -229,7 +228,7 @@ void titleDraw(const dsettings::SettingsOverlay::ScreenFrame& f, bool background
             ui.screen.page() == gameui::TitlePage::Main)
             drakan_fpsmeter::setAvoidTop(true); // the note plate sits in the top left corner
         st.now = now;
-        st.capturedKey = take && capture ? g_capturedKey : std::string();
+        st.capturedKey = take && capture ? capturedKey() : std::string();
         const bool noticeBefore = ui.screen.page() == gameui::TitlePage::ModsNotice;
         ui.screen.setIssueReportingVisible(CommonSettingsHost::issueReportingVisible());
         gameui::TitleFrameOutput out = ui.screen.frame(st, in, vp);
@@ -375,10 +374,8 @@ std::string titlePictureOf(const drakan_game::GameInfo& g) {
     if (g.kind == drakan_game::Game::Drakan)
         return {};
     for (const char* kind : {"background-", "campaign-", "game-"})
-        if (const uint32_t id = mapPreviewId(kind + g.id); id != 0) {
-            std::lock_guard<std::mutex> l(g_mapPreviewM);
-            return g_mapPreviewPaths[id];
-        }
+        if (const uint32_t id = mapPreviewId(kind + g.id); id != 0)
+            return previewPath(id);
     return {};
 }
 
