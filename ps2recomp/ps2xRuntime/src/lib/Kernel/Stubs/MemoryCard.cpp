@@ -129,7 +129,7 @@ std::filesystem::path getMcRootPath(int32_t port) {
     }
 
     const std::filesystem::path parent = root.parent_path();
-    const std::string leaf = root.filename().string();
+    const std::string leaf = ps2PathUtf8(root.filename());
     const std::string lowerLeaf = toLowerAscii(leaf);
     if (lowerLeaf == "mc0") {
         return (parent / "mc1").lexically_normal();

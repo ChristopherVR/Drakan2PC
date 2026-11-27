@@ -227,11 +227,11 @@ void fioMkdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     bool success = std::filesystem::create_directory(hostPath, ec);
 
     if (!success && ec) {
-        std::cerr << "fioMkdir error: create_directory failed for '" << hostPath.string() << "': " << ec.message()
+        std::cerr << "fioMkdir error: create_directory failed for '" << ps2PathUtf8(hostPath) << "': " << ec.message()
                   << std::endl;
         setReturnS32(ctx, -1);
     } else {
-        RUNTIME_LOG("fioMkdir: Created directory '" << hostPath.string() << "'");
+        RUNTIME_LOG("fioMkdir: Created directory '" << ps2PathUtf8(hostPath) << "'");
         setReturnS32(ctx, 0); // Success
     }
 }
@@ -273,10 +273,11 @@ void fioRmdir(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     bool success = std::filesystem::remove(hostPath, ec);
 
     if (!success || ec) {
-        std::cerr << "fioRmdir error: remove failed for '" << hostPath.string() << "': " << ec.message() << std::endl;
+        std::cerr << "fioRmdir error: remove failed for '" << ps2PathUtf8(hostPath) << "': " << ec.message()
+                  << std::endl;
         setReturnS32(ctx, -1);
     } else {
-        RUNTIME_LOG("fioRmdir: Removed directory '" << hostPath.string() << "'");
+        RUNTIME_LOG("fioRmdir: Removed directory '" << ps2PathUtf8(hostPath) << "'");
         setReturnS32(ctx, 0); // Success
     }
 }
@@ -343,10 +344,11 @@ void fioRemove(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
     bool success = std::filesystem::remove(hostPath, ec);
 
     if (!success || ec) {
-        std::cerr << "fioRemove error: remove failed for '" << hostPath.string() << "': " << ec.message() << std::endl;
+        std::cerr << "fioRemove error: remove failed for '" << ps2PathUtf8(hostPath) << "': " << ec.message()
+                  << std::endl;
         setReturnS32(ctx, -1);
     } else {
-        RUNTIME_LOG("fioRemove: Removed file '" << hostPath.string() << "'");
+        RUNTIME_LOG("fioRemove: Removed file '" << ps2PathUtf8(hostPath) << "'");
         setReturnS32(ctx, 0); // Success
     }
 }

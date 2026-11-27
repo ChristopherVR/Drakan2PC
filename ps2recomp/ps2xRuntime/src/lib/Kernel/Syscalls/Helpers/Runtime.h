@@ -104,7 +104,7 @@ inline std::string translatePs2Path(const char* ps2Path) {
         if (!normalizedSuffix.empty()) {
             resolved /= std::filesystem::path(normalizedSuffix);
         }
-        return resolved.lexically_normal().string();
+        return ps2PathUtf8(resolved.lexically_normal());
     };
 
     switch (parsed.device) {
@@ -115,7 +115,7 @@ inline std::string translatePs2Path(const char* ps2Path) {
         case ps2x::iop::Ps2PathDevice::MemoryCard0:
             return resolveWithBase(getConfiguredMcRoot(), parsed.path);
         case ps2x::iop::Ps2PathDevice::NativeHost:
-            return std::filesystem::path(parsed.path).lexically_normal().string();
+            return ps2PathUtf8(ps2PathFromUtf8(parsed.path).lexically_normal());
         default:
             return {};
     }

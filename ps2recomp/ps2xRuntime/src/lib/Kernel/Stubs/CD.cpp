@@ -501,7 +501,7 @@ void sceCdSearchFile(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         static uint32_t emptyNormalizedCount = 0;
         if (emptyNormalizedCount < 64u || (emptyNormalizedCount % 512u) == 0u) {
             std::cerr << "sceCdSearchFile failed: " << sanitizeForLog(path)
-                      << " (normalized path is empty, root: " << getCdRootPath().string() << ")" << std::endl;
+                      << " (normalized path is empty, root: " << ps2PathUtf8(getCdRootPath()) << ")" << std::endl;
         }
         ++emptyNormalizedCount;
         g_lastCdError = -1;
@@ -525,8 +525,9 @@ void sceCdSearchFile(uint8_t* rdram, R5900Context* ctx, PS2Runtime* runtime) {
         }
 
         if (samePathFailCount <= 16u || (samePathFailCount % 512u) == 0u) {
-            std::cerr << "sceCdSearchFile failed: " << sanitizeForLog(path) << " (root: " << getCdRootPath().string()
-                      << ", repeat=" << samePathFailCount << ")" << std::endl;
+            std::cerr << "sceCdSearchFile failed: " << sanitizeForLog(path)
+                      << " (root: " << ps2PathUtf8(getCdRootPath()) << ", repeat=" << samePathFailCount << ")"
+                      << std::endl;
         }
         setReturnS32(ctx, 0);
         return;

@@ -29,6 +29,18 @@ inline std::FILE* ps2OpenHostFile(const std::filesystem::path& path, const char*
 #endif
 }
 
+// A host path as UTF-8 text (for logs, keys and names handed to the guest). Unlike path::string() it never throws and
+// keeps every character on Windows.
+inline std::string ps2PathUtf8(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return std::string(text.begin(), text.end());
+}
+
+// The inverse: UTF-8 text back to a path (std::filesystem::path(std::string) reads the ANSI code page on Windows).
+inline std::filesystem::path ps2PathFromUtf8(std::string_view utf8) {
+    return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+}
+
 struct PS2VfsMounts {
     std::filesystem::path hostRoot;
     std::filesystem::path cdRoot;

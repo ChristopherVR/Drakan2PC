@@ -114,14 +114,16 @@ std::string normalizeCdLooseNumericKey(std::string value) {
 }
 
 std::string cdLoosePathKeyFromRelative(const std::filesystem::path& relative) {
-    const std::string normalized = normalizeCdPathNoPrefix(relative.generic_string());
+    // UTF-8 throughout: generic_string() / string() throw on Windows for a host name outside the ANSI code page.
+    const std::u8string generic = relative.generic_u8string();
+    const std::string normalized = normalizeCdPathNoPrefix(std::string(generic.begin(), generic.end()));
     if (normalized.empty()) {
         throw std::runtime_error("cdLoosePathKeyFromRelative: normalized path is empty");
     }
 
-    const std::filesystem::path relPath(normalized);
-    std::string parent = toLowerAscii(normalizePathSeparators(relPath.parent_path().generic_string()));
-    const std::string leaf = normalizeCdLooseNumericKey(relPath.filename().string());
+    const std::filesystem::path relPath = ps2PathFromUtf8(normalized);
+    std::string parent = toLowerAscii(normalizePathSeparators(ps2PathUtf8(relPath.parent_path())));
+    const std::string leaf = normalizeCdLooseNumericKey(ps2PathUtf8(relPath.filename()));
 
     if (parent.empty()) {
         return leaf;
@@ -208,7 +210,7 @@ bool resolveCaseInsensitivePath(const std::filesystem::path& root, const std::fi
                 break;
             }
 
-            const std::string candidate = toLowerAscii(entry.path().filename().string());
+            const std::string candidate = toLowerAscii(ps2PathUtf8(entry.path().filename()));
             if (candidate == needle) {
                 current = entry.path();
                 matched = true;
@@ -253,7 +255,7 @@ void ensureCdLeafIndex(const std::filesystem::path& root) {
             continue;
         }
 
-        const std::string leaf = toLowerAscii(entry.path().filename().string());
+        const std::string leaf = toLowerAscii(ps2PathUtf8(entry.path().filename()));
         g_cdLeafIndex.emplace(leaf, entry.path());
 
         std::error_code relEc;

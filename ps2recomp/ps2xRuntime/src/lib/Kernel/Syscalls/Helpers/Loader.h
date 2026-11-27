@@ -221,7 +221,7 @@ bool loadElfIntoGuestMemory(const std::string& hostPath, uint8_t* rdram, PS2Runt
         return false;
     }
 
-    std::ifstream file(hostPath, std::ios::binary);
+    std::ifstream file(ps2PathFromUtf8(hostPath), std::ios::binary); // translatePs2Path gives UTF-8
     if (!file) {
         errorOut = "failed to open ELF";
         return false;
