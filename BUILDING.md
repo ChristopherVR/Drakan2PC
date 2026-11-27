@@ -77,6 +77,7 @@ tests that already had `/WX`. `-DDRAKAN_COMPILER_WARNINGS=OFF` (player builds) c
 | `windows-msvc` | VS 2022 x64: recompiler + runtime libraries and tests |
 | `windows-clang-cl` | the same with the `ClangCL` toolset (needs the VS "C++ Clang tools" component) |
 | `runtime-tests` | libraries, tests and policies only; no network fetches, no game data (what CI runs) |
+| `runtime-tests-asan` / `linux-runtime-tests-asan` | the same tests built with AddressSanitizer (Linux adds LeakSanitizer and UBSan); see "Sanitizer builds" below |
 | `recompiler` / `linux-recompiler` | `ps2_recomp` only (what `build_tool.py` configures) |
 | `ps2x-tests` | `windows-msvc` plus `ps2xTest` |
 | `runtime-check` | compiles every `drakan.exe` runtime source (`ps2_runtime` plus the runner, `drakan_overrides.cpp` included) with the `game` settings but no recompiler output, no disc files and no link; only the VU files that include the local `ps2_vu1_image.inc` are skipped. Downloads raylib and FFmpeg. CI job `runtime-source-check` and the Release gate run it; `scripts/tests/test_runtime_compile_set.py` keeps its file set equal to the game's |
@@ -97,6 +98,29 @@ cmake --preset linux-runtime-tests
 cmake --build --preset linux-runtime-tests --parallel 2
 ctest --preset linux-runtime-tests
 ```
+
+### Sanitizer builds
+
+The `*-asan` presets turn silent C++ memory bugs (buffer overruns, use-after-free, double free, and on Linux leaks and
+undefined behaviour such as signed overflow) into a test failure with a stack trace. They are slower (about 2x) and
+are for developers and CI only; player builds never use them. The option behind them is `DRAKAN_SANITIZE`
+(`cmake/Sanitizers.cmake`).
+
+```powershell
+cmake --preset runtime-tests-asan
+cmake --build --preset runtime-tests-asan --parallel 8
+ctest --preset runtime-tests-asan -E "^synthetic$"
+```
+
+```sh
+cmake --preset linux-runtime-tests-asan
+cmake --build --preset linux-runtime-tests-asan --parallel 2
+ctest --preset linux-runtime-tests-asan
+```
+
+On Windows the build needs the Visual Studio "C++ AddressSanitizer" component; the configure step copies
+`clang_rt.asan_dynamic-x86_64.dll` beside the test binaries. MSVC has no leak or UB sanitizer, so the Linux job is the
+one that reports leaks.
 
 The SPU2 output tests use synthetic samples, silent wall-clock rendering and ALSA's `null` PCM;
 they need neither a disc nor speakers. Windows continues to use WASAPI. The existing

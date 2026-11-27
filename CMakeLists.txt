@@ -52,6 +52,7 @@ set(BUILD_TESTING OFF CACHE BOOL "Third-party test suites (Drakan tests use DRAK
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 include(CompilerOptions)
+include(Sanitizers)
 include(ReleaseMode)
 include(WebPlatform)
 include(Ps2xPlatform)

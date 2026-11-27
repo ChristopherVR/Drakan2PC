@@ -118,7 +118,7 @@ jobs:
   linux-runtime-checks:
     name: Linux portable runtime checks / no game data
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,6 +133,11 @@ jobs:
           cmake --preset linux-runtime-tests
           cmake --build --preset linux-runtime-tests --parallel 2
           ctest --preset linux-runtime-tests
+      - name: Build and test with AddressSanitizer, LeakSanitizer and UBSan
+        run: |
+          cmake --preset linux-runtime-tests-asan
+          cmake --build --preset linux-runtime-tests-asan --parallel 2
+          ctest --preset linux-runtime-tests-asan
 
   web-runtime-checks:
     name: Wasm SIMD runtime checks / no game data
