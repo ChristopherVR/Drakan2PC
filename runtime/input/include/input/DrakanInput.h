@@ -419,7 +419,8 @@ void beforeBowLaunch(IGuest& g, uint32_t bow);
 void setMenuActive(bool active);
 bool reloadConfig(const char* path); // see InputModule::reloadConfig
 InputModule& module();
-// Directory of the running executable with trailing separator ("" if unknown).
+// Directory of the running executable with trailing separator, UTF-8 ("" if unknown). Open files under it through
+// drakan::common::pathFromUtf8 (common/Path.h), not as a narrow std::string (the ANSI code page on Windows).
 std::string exeDirectory();
 
 } // namespace drakan_input

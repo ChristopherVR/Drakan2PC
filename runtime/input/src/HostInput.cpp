@@ -65,11 +65,21 @@ BOOL CALLBACK subChild(HWND h, LPARAM) {
 } // namespace
 
 std::string exeDirectory() {
-    wchar_t buf[MAX_PATH * 2] = {};
-    DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH * 2);
-    if (n == 0)
-        return "";
-    std::wstring w(buf, n);
+    // Wide API + UTF-8 result, whatever the ANSI code page. The buffer grows until the whole path fits (long paths
+    // exceed MAX_PATH): GetModuleFileNameW truncates silently and returns the buffer size when it is too small.
+    std::wstring w(MAX_PATH, L'\0');
+    DWORD n = 0;
+    while (true) {
+        n = GetModuleFileNameW(nullptr, w.data(), static_cast<DWORD>(w.size()));
+        if (n == 0)
+            return "";
+        if (n < w.size())
+            break;
+        if (w.size() >= 32768) // the longest path Windows has
+            return "";
+        w.resize(w.size() * 2);
+    }
+    w.resize(n);
     size_t pos = w.find_last_of(L"/\\");
     if (pos == std::wstring::npos)
         return "";

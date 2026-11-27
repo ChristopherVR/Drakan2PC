@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "common/Path.h"
 #include "common/Text.h"
 
 namespace drakan_input {
@@ -334,11 +335,14 @@ Config Config::defaults() {
 
 Config Config::loadOrCreate(const std::string& path, std::string* warnings) {
     Config c = defaults();
-    std::ifstream f(path, std::ios::binary);
+    // `path` is UTF-8 (exeDirectory() + name): opened as a std::string it would be read in the ANSI code page on
+    // Windows, so an install folder outside it found no file and wrote a fresh default one somewhere else.
+    const std::filesystem::path file = drakan::common::pathFromUtf8(path);
+    std::ifstream f(file, std::ios::binary);
     if (f)
         c.controlsVersion = 0; // the defaults carry version 2; an existing file has to say so itself
     if (!f) {
-        std::ofstream o(path, std::ios::binary);
+        std::ofstream o(file, std::ios::binary);
         if (o)
             o << defaultIniText();
         else if (warnings)
@@ -354,7 +358,7 @@ Config Config::loadOrCreate(const std::string& path, std::string* warnings) {
     if (c.controlsVersion < 3) {
         const std::string upgraded = upgradeText(text, c.controlsVersion);
         parse(upgraded, c, nullptr);
-        std::ofstream o(path, std::ios::binary | std::ios::trunc);
+        std::ofstream o(file, std::ios::binary | std::ios::trunc);
         if (o)
             o << upgraded;
     }

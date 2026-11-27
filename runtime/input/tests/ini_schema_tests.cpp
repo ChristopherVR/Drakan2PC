@@ -4,8 +4,12 @@
 #include "input/FrameInput.h"
 #include "input/IniSchema.h"
 
+#include "common/Path.h"
+
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <sstream>
 #include <string>
@@ -241,6 +245,30 @@ void testNameTables() {
     CHECK(!directionalAttackModeFromName("none", &m) && m == DirectionalAttackMode::Always);
 }
 
+// loadOrCreate takes a UTF-8 path (exeDirectory() + name), also outside the Windows ANSI code page.
+void testUtf8Path() {
+    namespace fs = std::filesystem;
+    using drakan::common::pathFromUtf8;
+    using drakan::common::utf8FromPath;
+    const std::string dirUtf8 = utf8FromPath(fs::temp_directory_path()) + "/drakan_ini_test_" +
+                                "\xD0\x94\xD1\x80\xD0\xB0\xD0\xBA\xD0\xB0\xD0\xBD_\xE9\xBE\x8D";
+    std::error_code ec;
+    fs::remove_all(pathFromUtf8(dirUtf8), ec);
+    CHECK(fs::create_directories(pathFromUtf8(dirUtf8), ec));
+    const std::string iniUtf8 = dirUtf8 + "/drakan_input.ini";
+    std::string warnings;
+    Config::loadOrCreate(iniUtf8, &warnings); // no file yet: writes the default one
+    CHECK(warnings.empty());
+    CHECK(fs::exists(pathFromUtf8(iniUtf8)));
+    {
+        std::ofstream o(pathFromUtf8(iniUtf8), std::ios::binary | std::ios::trunc);
+        o << "[general]\ncontrols_version = 3\n[keyboard]\nwalk_scale = 0.25\n";
+    }
+    const Config c = Config::loadOrCreate(iniUtf8, &warnings); // the existing file is read, not replaced
+    CHECK(warnings.empty() && c.walkScale == 0.25f);
+    fs::remove_all(pathFromUtf8(dirUtf8), ec);
+}
+
 } // namespace
 
 int main() {
@@ -249,6 +277,7 @@ int main() {
     testRejectedValuesKeepThePrevious();
     testValueRules();
     testNameTables();
+    testUtf8Path();
     std::printf("input_ini_schema_test: %d checks, %d failed\n", g_checks, g_fail);
     return g_fail ? 1 : 0;
 }
