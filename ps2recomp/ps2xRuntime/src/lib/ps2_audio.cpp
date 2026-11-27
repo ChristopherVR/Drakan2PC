@@ -85,7 +85,7 @@ void PS2AudioBackend::onVagTransfer(const uint8_t* rdram, uint32_t srcAddr, uint
         return;
 
     const uint32_t physAddr = srcAddr & PS2_RAM_MASK;
-    if (physAddr + sizeBytes > PS2_RAM_SIZE)
+    if (sizeBytes > PS2_RAM_SIZE - physAddr) // not physAddr + sizeBytes: a guest size near 4 GB wraps that sum
         return;
 
     std::vector<int16_t> pcm;
