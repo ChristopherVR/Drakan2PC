@@ -587,6 +587,7 @@ if(GSR_BUILD_TESTS)
 
   add_executable(gsr_test_scene_models tests/test_scene_models.cpp ../hle/src/IsoFs.cpp ../hle/src/IsoSourceFile.cpp)
   target_include_directories(gsr_test_scene_models PRIVATE include src ../hle/include "${DRAKAN_PS2RECOMP_DIR}/ps2xRuntime/src/lib" "${DRAKAN_PS2RECOMP_DIR}/ps2xRuntime/include")
+  target_link_libraries(gsr_test_scene_models PRIVATE drakan::common) # ../hle/src/IsoFs.cpp includes common/Text.h
   if(MSVC)
     target_compile_options(gsr_test_scene_models PRIVATE /UNDEBUG)
   else()
