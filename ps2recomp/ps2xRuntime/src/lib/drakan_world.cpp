@@ -1,5 +1,6 @@
 // Drakan: read-only world introspection adapter and F1 "World" panel (drakan_world.h).
 #include "drakan_world.h"
+#include "drakan_text.h"
 #include "drakan_config.h"
 #include "drakan_ghost.h"
 #include "drakan_levelchange.h"
@@ -112,8 +113,7 @@ bool matchesClass(uint32_t classId, const char* filter) {
     std::string f = filter;
     if (f.rfind("0x", 0) == 0 || f.rfind("0X", 0) == 0)
         f = f.substr(2);
-    for (char& c : f)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    drakan_text::lowerInPlace(f);
     return std::strstr(buf, f.c_str()) != nullptr;
 }
 

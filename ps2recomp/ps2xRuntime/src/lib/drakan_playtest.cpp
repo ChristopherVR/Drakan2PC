@@ -1,4 +1,5 @@
 #include "drakan_playtest.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 
 #include "drakan_autoaim.h"
@@ -23,8 +24,7 @@ namespace {
 constexpr const char* kIntroLevel = "Level 0 - Intro";
 
 bool equalNoCase(const std::string& a, const std::string& b) {
-    return a.size() == b.size() &&
-           std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower(x) == std::tolower(y); });
+    return drakan_text::equalsIgnoreCase(a, b);
 }
 } // namespace
 

@@ -111,10 +111,6 @@ drakan::net::ArenaCatalog g_catalog;
 std::vector<std::string> g_installed; // base levels that exist (empty = unknown, everything counts as installed)
 bool g_haveInstalled = false;
 
-std::string exeDir() {
-    return drakan_cfg::exeDir(); // the play folder (dist/DrakanPC): ini files, mods, dev dumps live there
-}
-
 bool readFile(const std::string& path, std::string& out) {
     std::ifstream in(path, std::ios::binary);
     if (!in)
@@ -144,7 +140,7 @@ void loadDefaults() {
     std::call_once(once, [] {
         addFromText(drakan::net::builtinArenaText(), "built-in");
         std::string text;
-        const std::string own = (std::filesystem::path(exeDir()) / "mp_maps.ini").string();
+        const std::string own = drakan_cfg::exeDir() + "mp_maps.ini";
         if (readFile(own, text))
             addFromText(text, own);
         if (const char* f = std::getenv("DRAKAN_MP_MAPS"); f && *f && readFile(f, text))
@@ -581,7 +577,7 @@ bool g_dumpWanted = false;
 void dumpWorld(const char* tag) {
     namespace fs = std::filesystem;
     std::error_code ec;
-    const fs::path dir = fs::path(exeDir()) / "dev" / "world";
+    const fs::path dir = drakan_cfg::exeDirPath() / "dev" / "world";
     fs::create_directories(dir, ec);
     const fs::path path = dir / (std::string("arena_") + tag + ".json");
     std::ofstream f(path, std::ios::binary);

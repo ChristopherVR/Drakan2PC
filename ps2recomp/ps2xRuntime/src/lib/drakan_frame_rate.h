@@ -1,5 +1,6 @@
 #pragma once
 #include "ps2_runtime.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 #include "ps2_runtime_macros.h"
 #include "drakan_config.h"
@@ -487,8 +488,7 @@ inline void install(PS2Runtime& rt) {
     drakan_presentation::g_frameMetrics.enable(metrics);
     drakan_presentation::g_frameClock.reset(false);
     auto rate = drakan_cfg::getString("video", "world_rate", "DRAKAN_WORLD_RATE", nullptr);
-    std::transform(rate.begin(), rate.end(), rate.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    drakan_text::lowerInPlace(rate);
     highRate = rate == "60";
     uncapped = rate == "uncapped";
     if (uncapped && (!rt.hasFunction(0x1d78f0u) || !rt.hasFunction(0x4bc080u) || !rt.hasFunction(0x1d8660u) ||

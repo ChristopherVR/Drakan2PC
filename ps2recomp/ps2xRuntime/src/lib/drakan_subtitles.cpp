@@ -1,5 +1,6 @@
 // Drakan: narration subtitles - see drakan_subtitles.h and docs/reference/subtitles.md.
 #include "drakan_subtitles.h"
+#include "drakan_text.h"
 #include "drakan_clip_subtitles_policy.h"
 #include "drakan_config.h"
 
@@ -127,8 +128,7 @@ void init(spu2::AudioOutput* audio, uint8_t* rdram, const std::string& language)
     g_audio = audio;
     g_rdram = rdram;
     g_language = language.empty() ? std::string("english") : language;
-    for (char& c : g_language)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    drakan_text::lowerInPlace(g_language);
     g_enabled = drakan_cfg::getBool("subtitles", "narration", "DRAKAN_SUBTITLES", true);
     const std::string sz = drakan_cfg::getString("subtitles", "size", nullptr, "auto");
     g_size = (sz.empty() || sz == "auto") ? 0.0f : static_cast<float>(std::atof(sz.c_str()));

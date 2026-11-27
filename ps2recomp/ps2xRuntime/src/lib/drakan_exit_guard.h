@@ -20,6 +20,7 @@
 // message 0x1002 sets), so the level that comes back from the next one never offers it again. A player who backs out of
 // the save screen writes no such save and keeps the exit (docs/journal/2026-11-13/ootf-book-skip-and-reload.md).
 #pragma once
+#include "drakan_text.h"
 
 #include <cctype>
 #include <cmath>
@@ -34,17 +35,7 @@ struct OneWayExit {
     float x = 0, y = 0, z = 0;
 };
 
-inline std::string trimLower(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(s[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])))
-        --b;
-    std::string out = s.substr(a, b - a);
-    for (char& c : out)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return out;
-}
+using drakan_text::trimLower;
 
 // "<level title> @ x, y, z" -> true and `out`; anything else -> false.
 inline bool parseOneWayExit(const std::string& entry, OneWayExit& out) {

@@ -8,6 +8,7 @@
 //   kind = fire            ; for the log
 //   name = Fire Crystal    ; for the log
 #pragma once
+#include "drakan_text.h"
 
 #include <cstdint>
 #include <cstdlib>
@@ -29,16 +30,10 @@ inline bool isUseMessage(uint16_t id, uint32_t user) {
     return id == kUseMessage && user != 0;
 }
 
-inline std::string trimmed(const std::string& s) {
-    const size_t a = s.find_first_not_of(" \t\r\n");
-    if (a == std::string::npos)
-        return {};
-    const size_t b = s.find_last_not_of(" \t\r\n");
-    return s.substr(a, b - a + 1);
-}
+using drakan_text::trim;
 
 inline bool parseNumber(const std::string& text, uint32_t& out) {
-    const std::string t = trimmed(text);
+    const std::string t = trim(text);
     if (t.empty())
         return false;
     char* end = nullptr;
@@ -75,14 +70,14 @@ inline size_t parseCrystalTable(const std::string& text, std::map<uint32_t, Crys
         const size_t comment = line.find_first_of(";#");
         if (comment != std::string::npos)
             line.resize(comment);
-        line = trimmed(line);
+        line = drakan_text::trim(line);
         if (line.empty())
             continue;
         if (line.front() == '[') {
             flush();
             const size_t close = line.find(']');
             const std::string head =
-                trimmed(line.substr(1, close == std::string::npos ? std::string::npos : close - 1));
+                drakan_text::trim(line.substr(1, close == std::string::npos ? std::string::npos : close - 1));
             if (head.rfind("crystal ", 0) == 0 && parseNumber(head.substr(8), current) && current)
                 inCrystal = true;
             continue;
@@ -90,7 +85,7 @@ inline size_t parseCrystalTable(const std::string& text, std::map<uint32_t, Crys
         const size_t eq = line.find('=');
         if (!inCrystal || eq == std::string::npos)
             continue;
-        const std::string key = trimmed(line.substr(0, eq)), value = trimmed(line.substr(eq + 1));
+        const std::string key = drakan_text::trim(line.substr(0, eq)), value = drakan_text::trim(line.substr(eq + 1));
         if (key == "effect") {
             uint32_t v = 0;
             if (parseNumber(value, v))

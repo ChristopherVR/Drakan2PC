@@ -1,4 +1,5 @@
 #include "drakan_config.h"
+#include "drakan_text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -13,7 +14,8 @@
 namespace drakan_cfg {
 int compareNoCase(const char* a, const char* b) {
     for (;; ++a, ++b) {
-        const int ca = std::tolower(static_cast<unsigned char>(*a)), cb = std::tolower(static_cast<unsigned char>(*b));
+        const int ca = static_cast<unsigned char>(drakan_text::lowerAscii(*a)),
+                  cb = static_cast<unsigned char>(drakan_text::lowerAscii(*b));
         if (ca != cb || !ca)
             return ca - cb;
     }
@@ -312,20 +314,8 @@ std::mutex g_mutex;
 bool g_loaded = false;
 std::map<std::string, std::string> g_values; // "section.key" (lower case) -> value
 
-std::string lower(std::string s) {
-    for (char& c : s)
-        c = (char)std::tolower((unsigned char)c);
-    return s;
-}
-
-std::string trim(const std::string& s) {
-    size_t a = 0, b = s.size();
-    while (a < b && std::isspace((unsigned char)s[a]))
-        ++a;
-    while (b > a && std::isspace((unsigned char)s[b - 1]))
-        --b;
-    return s.substr(a, b - a);
-}
+using drakan_text::lower;
+using drakan_text::trim;
 
 std::string readFile(const std::string& path, bool& ok) {
     ok = false;

@@ -1,5 +1,6 @@
 // Drakan: widescreen (anamorphic Hor+) - see drakan_widescreen.h and docs/reference/widescreen.md.
 #include "drakan_widescreen.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 #include "drakan_widescreen_policy.h"
 #include "drakan_inventory_viewport_policy.h"
@@ -478,8 +479,7 @@ bool registerLevelAspect(const std::string& entry) {
     bool fill = false;
     if (!detail::parseLevelAspect(entry, level, aspect, &fill))
         return false;
-    for (char& ch : level)
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    drakan_text::lowerInPlace(level);
     std::lock_guard<std::mutex> l(g_mu);
     g_levelAspects[level] = fill ? -aspect : aspect; // negative: fill a wider window instead of a pillar box
     return true;
@@ -487,8 +487,7 @@ bool registerLevelAspect(const std::string& entry) {
 
 void setCurrentLevel(const std::string& level) {
     std::string key = level;
-    for (char& ch : key)
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    drakan_text::lowerInPlace(key);
     float aspect = 0.0f;
     {
         std::lock_guard<std::mutex> l(g_mu);

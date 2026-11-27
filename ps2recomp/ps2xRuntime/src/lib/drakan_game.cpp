@@ -1,4 +1,5 @@
 #include "drakan_game.h"
+#include "drakan_text.h"
 
 #include <algorithm>
 #include <atomic>
@@ -66,9 +67,7 @@ std::string nameOf(const Campaign* c) {
 }
 
 bool equalNoCase(const std::string& a, const std::string& b) {
-    return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
-               return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
-           });
+    return drakan_text::equalsIgnoreCase(a, b);
 }
 
 // New Game opens the disc's opening cut scene level ("Level 0 - Intro"); in a campaign that load is pointed at the

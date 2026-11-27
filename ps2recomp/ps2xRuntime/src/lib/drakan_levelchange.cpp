@@ -1,5 +1,6 @@
 // Level change from the host (drakan_levelchange.h). See docs/journal/2026-10-31/level-change.md for the mechanism.
 #include "drakan_levelchange.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 #include "drakan_dragon_arrival.h"
 #include "drakan_exit_guard.h"
@@ -393,11 +394,7 @@ void arrivalEntry(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             std::fprintf(stderr, "[levelchange] arrival lookup for '%s'\n", old.c_str());
         // The argument is the old level's path as the engine keeps it, lower case
         // ("cdrom0:/english/levels/surdana copy/surdana copy.lvl"): its file stem names the level.
-        const auto lower = [](std::string t) {
-            for (char& ch : t)
-                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-            return t;
-        };
+        const auto lower = drakan_text::lower;
         const size_t slash = old.find_last_of("/\\");
         std::string stem = slash == std::string::npos ? old : old.substr(slash + 1);
         if (const size_t dot = stem.rfind('.'); dot != std::string::npos)
@@ -910,11 +907,7 @@ void hookTick(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
             }
             if (!h && !want.empty()) {
                 scan(rdram, c, rt);
-                auto low = [](std::string s) {
-                    for (char& ch : s)
-                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-                    return s;
-                };
+                const auto low = drakan_text::lower;
                 const std::string w = low(want);
                 for (const ExitInfo& e : exits())
                     if (low(e.destName).find(w) != std::string::npos) {

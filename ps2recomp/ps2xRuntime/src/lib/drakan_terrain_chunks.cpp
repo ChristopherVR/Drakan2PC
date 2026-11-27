@@ -1,4 +1,5 @@
 #include "drakan_terrain_chunks.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
@@ -249,15 +250,6 @@ bool installVariants(PS2Runtime& rt) {
     return true;
 }
 
-std::string trimmed(const std::string& v) {
-    size_t a = 0, b = v.size();
-    while (a < b && std::isspace(static_cast<unsigned char>(v[a])))
-        ++a;
-    while (b > a && std::isspace(static_cast<unsigned char>(v[b - 1])))
-        --b;
-    return v.substr(a, b - a);
-}
-
 // The largest `terrain_chunk_textures` (mod.toml) of the packs mods.ini enables; 0 when none declares it. Read here,
 // before the mod manager loads the packs, because the variants must be in place before any other module wraps one of
 // those functions.
@@ -271,10 +263,9 @@ uint32_t packChunkTextures(std::string& which) {
         const size_t eq = line.find('=');
         if (line.empty() || line[0] == ';' || line[0] == '#' || line[0] == '[' || eq == std::string::npos)
             continue;
-        const std::string name = trimmed(line.substr(0, eq));
-        std::string value = trimmed(line.substr(eq + 1));
-        for (char& c : value)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        const std::string name = drakan_text::trim(line.substr(0, eq));
+        std::string value = drakan_text::trim(line.substr(eq + 1));
+        drakan_text::lowerInPlace(value);
         if (name.empty() || !(value == "on" || value == "1" || value == "true" || value == "yes"))
             continue;
         std::error_code ec;
@@ -292,10 +283,10 @@ uint32_t packChunkTextures(std::string& which) {
             size_t end = text.find('\n', start);
             if (end == std::string::npos)
                 end = text.size();
-            const std::string row = trimmed(text.substr(start, end - start));
+            const std::string row = drakan_text::trim(text.substr(start, end - start));
             start = end + 1;
             const size_t e = row.find('=');
-            if (e == std::string::npos || trimmed(row.substr(0, e)) != "terrain_chunk_textures")
+            if (e == std::string::npos || drakan_text::trim(row.substr(0, e)) != "terrain_chunk_textures")
                 continue;
             const uint32_t n = static_cast<uint32_t>(std::strtoul(row.c_str() + e + 1, nullptr, 10));
             if (n > most) {

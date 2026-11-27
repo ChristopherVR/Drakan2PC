@@ -1,4 +1,5 @@
 #include "drakan_foliage.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 
 #include "drakan_config.h"
@@ -689,8 +690,7 @@ void hookRenderObject(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
 
 Mode modeFromText(const char* text) {
     std::string u = text ? text : "";
-    for (char& ch : u)
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    drakan_text::lowerInPlace(u);
     while (!u.empty() && std::isspace(static_cast<unsigned char>(u.back())))
         u.pop_back();
     while (!u.empty() && std::isspace(static_cast<unsigned char>(u.front())))

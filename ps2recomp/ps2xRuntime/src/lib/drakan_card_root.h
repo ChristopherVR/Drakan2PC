@@ -7,6 +7,7 @@
 //
 // Standard library only: no platform API, no game state.
 #pragma once
+#include "drakan_text.h"
 
 #include <algorithm>
 #include <cctype>
@@ -31,8 +32,7 @@ inline fs::path resolve(const char* overrideDir, const std::string& playDir, con
 
 // mc0, mc1 and the campaign cards mc0_<name> / mc1_<name> (any case).
 inline bool isCardFolderName(std::string name) {
-    std::transform(name.begin(), name.end(), name.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    drakan_text::lowerInPlace(name);
     if (name.size() < 3 || name.compare(0, 2, "mc") != 0 || (name[2] != '0' && name[2] != '1'))
         return false;
     return name.size() == 3 || (name.size() > 4 && name[3] == '_');

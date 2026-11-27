@@ -1,5 +1,6 @@
 // Drakan: FPS counter model, see drakan_fpsmeter.h.
 #include "drakan_fpsmeter.h"
+#include "drakan_text.h"
 #include "drakan_config.h"
 #include "ps2_perf.h"
 
@@ -179,8 +180,7 @@ int corner() {
 }
 void setCornerText(const char* t) {
     std::string s = t ? t : "";
-    for (char& c : s)
-        c = (char)std::tolower((unsigned char)c);
+    drakan_text::lowerInPlace(s);
     const bool top = s.find("bottom") == std::string::npos;
     const bool right = s.find("right") != std::string::npos;
     setCorner(top ? (right ? TopRight : TopLeft) : (right ? BottomRight : BottomLeft));

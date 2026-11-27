@@ -15,6 +15,7 @@
 //
 // See docs/reference/iop-and-io.md section 7 and docs/status/recomp-status.md.
 #include "game_overrides.h"
+#include "drakan_text.h"
 #include "drakan_guest_layout.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
@@ -339,7 +340,7 @@ std::string resolveIsoPath() {
     for (int up = 0; up < 5 && !dir.empty(); ++up, dir = dir.parent_path()) {
         for (const auto& de : fs::directory_iterator(dir, ec)) {
             std::string n = de.path().filename().string();
-            std::transform(n.begin(), n.end(), n.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+            drakan_text::lowerInPlace(n);
             if (de.is_regular_file(ec) && n.size() > 4 && n.compare(n.size() - 4, 4, ".iso") == 0 &&
                 n.find("drakan") != std::string::npos)
                 return de.path().string();
@@ -2836,7 +2837,7 @@ void configureMultiplayerContent() {
         // Map pictures of the packs: previews/mods/<safe map name>.png next to the exe (written when missing or
         // different; the menu looks at previews/<name>.png first)
         std::error_code ec;
-        const std::filesystem::path pdir = std::filesystem::path(drakan_cfg::exeDir()) / "previews" / "mods";
+        const std::filesystem::path pdir = drakan_cfg::exeDirPath() / "previews" / "mods";
         for (const auto& [name, png] : g_mods->previewFiles()) {
             std::string safe;
             for (char c : name)
@@ -2913,7 +2914,7 @@ void installUiPrompts(HleHost& host) {
     if (!std::getenv("DRAKAN_UI_PROMPTS")) // drakan.ini [general] ui_prompts = keyboard | ps2
     {
         std::string up = drakan_cfg::getString("general", "ui_prompts", nullptr, "keyboard");
-        std::transform(up.begin(), up.end(), up.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+        drakan_text::lowerInPlace(up);
         uiOpt.prompts = up != "ps2";
         uiOpt.pad = up == "xbox"  ? drakan_ui::PadStyle::Xbox
                     : up == "ps5" ? drakan_ui::PadStyle::Ps5
