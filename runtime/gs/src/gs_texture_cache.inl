@@ -386,21 +386,40 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
     if (generated && ((generatedFactor != 2 && generatedFactor != 4 && generatedFactor != 8) ||
                       generated->width != W * generatedFactor || generated->height != H * generatedFactor))
         generated.reset();
-    // Streaming can recycle a slot previously used for animated pixels.
-    // Exact authored content still identifies the selected immutable font;
-    // volatility must not send those glyphs back to the native atlas.
-    // A known exact disk-pack image is equally immutable. Streaming UI
-    // artwork through a recycled slot is not a palette animation.
     const auto policy = texup::contentPolicy(isTextureHashExcluded(hash), excluded.count(hash) != 0);
-    // Keep volatile full-color effect uploads on their existing path:
-    // an HD pack's orb-mask perimeter is not safe to expose as artwork.
-    const bool exactReplacement = (isIndexed((uint32_t)bitsOf(s.tex0, 20, 6)) || e.menuArtwork) && texReplace &&
-                                  policy.externalFiles && replIndex.count(hash);
-    if (volatileSlot && !generated && !exactReplacement && preview.path.empty())
+    // A volatile slot is one whose content keeps changing (noteSlotAnimation below): palette or pixel animation, whose
+    // frames are drawn native. Keep volatile full-color effect uploads on that path: an HD pack's orb-mask perimeter
+    // is not safe to expose as artwork.
+    const bool indexedOrArtwork = isIndexed((uint32_t)bitsOf(s.tex0, 20, 6)) || e.menuArtwork;
+    if (volatileSlot && !generated && preview.path.empty() && !indexedOrArtwork)
         return;
     if (factor <= 1 && !wantDumpReplace && !generated && preview.path.empty())
         return;
     if (!policy.automaticScale)
+        return;
+    // The pack image of this texture: by its exact hash, else by the hash of its colours alone (same picture, other
+    // alpha: the game edits palette alpha at load time; alias.txt maps such a hash to the pack file).
+    auto rit = texReplace && policy.externalFiles ? replIndex.find(hash) : replIndex.end();
+    bool viaAlias = false;
+    if (texReplace && policy.externalFiles && rit == replIndex.end() && !replIndex.empty()) {
+        const uint64_t rgbHash = texup::hashContentRgb(base.data(), W, H);
+        const auto ai = aliasIndex.find(rgbHash);
+        if (ai != aliasIndex.end()) {
+            rit = replIndex.find(ai->second);
+            viaAlias = rit != replIndex.end();
+        }
+        if (!viaAlias) {
+            rit = replIndex.find(rgbHash);
+            viaAlias = rit != replIndex.end();
+        } // pack texture whose own alpha was 0
+    }
+    // Streaming also makes a slot volatile: the game's texture cache loads one ground texture after another into the
+    // same slot while the camera turns (Order of the Flame terrain is paged this way), and three different textures
+    // in 90 frames look like an animation. A texture with a pack image, found by its exact or its colour-only hash, is
+    // a known still picture of the disc, not an animation frame: it keeps its HD copy. Before 2026-11-27 only an
+    // exact match did, so ground textures whose palette alpha the game had edited flipped to the blurry native
+    // texture while turning. The same goes for authored fonts and UI artwork streamed through a recycled slot.
+    if (volatileSlot && !generated && preview.path.empty() && rit == replIndex.end())
         return;
     e.fontAtlas = generated && generated->fontAtlas;
     if (texDump && policy.externalFiles && !dumped.count(hash)) {
@@ -425,21 +444,6 @@ void GSR_IMPL::setupUpscale(TexEntry& e, const std::vector<uint32_t>& base, uint
     const bool wrapS = bitsOf(s.clamp, 0, 2) == 0, wrapT = bitsOf(s.clamp, 2, 2) == 0;
     UpKey key{};
     key.hash = hash;
-    auto rit = texReplace && policy.externalFiles ? replIndex.find(hash) : replIndex.end();
-    bool viaAlias = false;
-    if (texReplace && policy.externalFiles && rit == replIndex.end() && !replIndex.empty()) {
-        // same picture, other alpha (the game edits palette alpha at load time): look it up by the RGB-only hash
-        const uint64_t rgbHash = texup::hashContentRgb(base.data(), W, H);
-        const auto ai = aliasIndex.find(rgbHash);
-        if (ai != aliasIndex.end()) {
-            rit = replIndex.find(ai->second);
-            viaAlias = rit != replIndex.end();
-        }
-        if (!viaAlias) {
-            rit = replIndex.find(rgbHash);
-            viaAlias = rit != replIndex.end();
-        } // pack texture whose own alpha was 0
-    }
     const bool replace = !preview.path.empty() || rit != replIndex.end();
     // An overlay's own hash is excluded; its base is the pack image of the disc texture it was generated from.
     std::string overlayPack;

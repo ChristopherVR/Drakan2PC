@@ -75,6 +75,9 @@ audit showed gsr's decode equals the TXD image bit-exactly (25170 exact + 9114 w
   and only until 6 identical re-decodes show a plain re-upload) is "volatile": not dumped, never looked up for replacement, no upscale job. Measured: the 128x128 T8 fire highlight, the CT24 256x256 tiles
   re-uploaded per frame in the menus (not the FMV: movies are stamped into the frame buffer, `fmv.md` section 9) and palette faded menu backgrounds are flagged; the title background tiles, which the game merely re-uploads unchanged every frame, are not. Flagged slots are listed in `<dump>/volatile.txt`
   and recover after 600 frames without a re-decode. Index-plane hashing (the earlier sketch) was not used: the EE regenerates the indices every frame, not only the palette.
+  Streaming also makes slots volatile (Order of the Flame ground textures paged through one slot while the camera turns). Since 2026-11-27 an indexed
+  texture of a volatile slot that has a pack image, by its exact or its colour-only (`alias.txt`) hash, is still replaced; before, only an exact match was,
+  and the ground flipped to the native texture while turning (`docs/journal/2026-11-27/ground-detail-on-turn.md`).
 * **PNG dumps** are real deflate now (dynamic Huffman + LZ77 + per-row filters, `gs_texup.cpp`, no zlib dependency): 3-6x smaller (a 256x256 tile 98 KB -> typically 20-60 KB). Output opens in PIL.
 * **Alpha**: PNG alpha = GS alpha 0..0x80 mapped to 0..255 (0x80 -> 255, above 0x80 clamps to 255); replacement files are read with the inverse mapping (255 -> 0x80). RGB under alpha 0 is written as decoded
   (CT24 / CT16 textures with TEXA alpha 0 keep their picture; unit test). Dumps whose alpha is constant 0 get an empty `<hash>.a0` marker so external tools never premultiply them.
