@@ -132,7 +132,7 @@ bool MatchClient::sendState(PlayerState s) {
     s.sequence = ++sendSequence_;
     if (s.tick == 0)
         s.tick = ++sendTick_; // a caller-supplied tick (the game's world tick) is kept
-    sent_[s.sequence & 63] = {s.sequence, now_};
+    sent_[s.sequence & (kSentMarks - 1)] = {s.sequence, now_};
     return transport_.send(peer_, Channel::Unreliable, encode(s));
 }
 
@@ -272,25 +272,7 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
         return;
 
     if (state_ == ClientState::Handshaking) {
-        if (type == MsgType::Welcome) {
-            Welcome w;
-            if (!decode(ev.data, w))
-                return;
-            self_ = w.player;
-            coopAuthority_ = kNoPlayer;
-            phase_ = w.phase;
-            config_ = w.config;
-            tickRateHz_ = w.tickRateHz;
-            state_ = ClientState::Connected;
-        } else if (type == MsgType::Reject) {
-            Reject r;
-            if (!decode(ev.data, r))
-                return;
-            reject_ = r;
-            state_ = ClientState::Rejected;
-            transport_.disconnect(peer_);
-            peer_ = kInvalidPeer;
-        }
+        handleHandshake(type, ev.data);
         return;
     }
     if (state_ != ClientState::Connected)
@@ -299,23 +281,8 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
     switch (type) {
         case MsgType::Status: {
             Status st;
-            if (!decode(ev.data, st))
-                break;
-            countdownKind_ = st.countdown;
-            countdownMs_ = st.countdownMs;
-            countdownAtMs_ = now_;
-            if (st.host != kNoPlayer)
-                host_ = st.host;
-            for (const PlayerPing& pp : st.pings) {
-                auto it = roster_.find(pp.player);
-                if (it != roster_.end()) {
-                    it->second.pingMs = pp.pingMs;
-                    it->second.character = pp.character;
-                }
-            }
-            StatusEcho echo;
-            echo.token = st.token;
-            transport_.send(peer_, Channel::Unreliable, encode(echo));
+            if (decode(ev.data, st))
+                applyStatus(st);
             break;
         }
         case MsgType::Vitals: {
@@ -484,44 +451,96 @@ void MatchClient::handleMessage(const TransportEvent& ev) {
             break;
         }
         case MsgType::Snapshot: {
-            Snapshot s;
-            if (!decode(ev.data, s))
-                break;
-            const int64_t offset = static_cast<int64_t>(s.serverTimeMs) - static_cast<int64_t>(now_);
-            if (!haveClock_) {
-                clockOffset_ = offset;
-                haveClock_ = true;
-            } else {
-                // Snapshots only arrive late, never early: follow the smallest offset, ease towards bigger ones.
-                clockOffset_ = offset < clockOffset_ ? offset : clockOffset_ + (offset - clockOffset_) / 32;
-            }
-            ++snapshotCount_;
-            if (s.serverTimeMs >= neutralDragonTime_) {
-                neutralDragonTime_ = s.serverTimeMs;
-                neutralDragon_ = s.neutralDragon;
-            }
-            for (const PlayerState& ps : s.players) {
-                if (ps.player == self_) {
-                    const SentMark& m = sent_[ps.sequence & 63];
-                    if (m.sequence == ps.sequence && now_ >= m.atMs) {
-                        const double rtt = static_cast<double>(now_ - m.atMs);
-                        rttMs_ = rttMs_ < 0 ? rtt : rttMs_ + (rtt - rttMs_) * 0.1;
-                    }
-                    continue;
-                }
-                if (!roster_.count(ps.player))
-                    continue;
-                auto& buf = buffers_[ps.player];
-                if (!buf.empty() && s.serverTimeMs <= buf.back().serverTimeMs)
-                    continue; // out of order (unreliable channel)
-                buf.push_back({s.serverTimeMs, ps});
-                while (buf.size() > options_.maxBufferedStates)
-                    buf.pop_front();
-            }
+            Snapshot snap;
+            if (decode(ev.data, snap))
+                applySnapshot(snap);
             break;
         }
         default:
             break;
+    }
+}
+
+void MatchClient::handleHandshake(MsgType type, const std::vector<uint8_t>& data) {
+    if (type == MsgType::Welcome) {
+        Welcome w;
+        if (!decode(data, w))
+            return;
+        self_ = w.player;
+        coopAuthority_ = kNoPlayer;
+        phase_ = w.phase;
+        config_ = w.config;
+        tickRateHz_ = w.tickRateHz;
+        state_ = ClientState::Connected;
+    } else if (type == MsgType::Reject) {
+        Reject r;
+        if (!decode(data, r))
+            return;
+        reject_ = r;
+        state_ = ClientState::Rejected;
+        transport_.disconnect(peer_);
+        peer_ = kInvalidPeer;
+    }
+}
+
+// The server's periodic Status: countdown, host, pings / characters, echoed back so the server measures our ping.
+void MatchClient::applyStatus(const Status& st) {
+    countdownKind_ = st.countdown;
+    countdownMs_ = st.countdownMs;
+    countdownAtMs_ = now_;
+    if (st.host != kNoPlayer)
+        host_ = st.host;
+    for (const PlayerPing& pp : st.pings) {
+        auto it = roster_.find(pp.player);
+        if (it != roster_.end()) {
+            it->second.pingMs = pp.pingMs;
+            it->second.character = pp.character;
+        }
+    }
+    StatusEcho echo;
+    echo.token = st.token;
+    transport_.send(peer_, Channel::Unreliable, encode(echo));
+}
+
+namespace {
+// Snapshots only arrive late, never early: a smaller offset is taken at once, a bigger one by 1/kClockEaseDivisor of
+// the difference per snapshot (network jitter must not pull the clock forwards).
+constexpr int64_t kClockEaseDivisor = 32;
+constexpr double kRttSmoothing = 0.1; // exponential average of the round trip time
+} // namespace
+
+// A server Snapshot: the server clock offset, our round trip time (our own state echoed with its sequence) and the
+// interpolation buffers of the other players.
+void MatchClient::applySnapshot(const Snapshot& s) {
+    const int64_t offset = static_cast<int64_t>(s.serverTimeMs) - static_cast<int64_t>(now_);
+    if (!haveClock_) {
+        clockOffset_ = offset;
+        haveClock_ = true;
+    } else {
+        clockOffset_ = offset < clockOffset_ ? offset : clockOffset_ + (offset - clockOffset_) / kClockEaseDivisor;
+    }
+    ++snapshotCount_;
+    if (s.serverTimeMs >= neutralDragonTime_) {
+        neutralDragonTime_ = s.serverTimeMs;
+        neutralDragon_ = s.neutralDragon;
+    }
+    for (const PlayerState& ps : s.players) {
+        if (ps.player == self_) {
+            const SentMark& m = sent_[ps.sequence & (kSentMarks - 1)];
+            if (m.sequence == ps.sequence && now_ >= m.atMs) {
+                const double rtt = static_cast<double>(now_ - m.atMs);
+                rttMs_ = rttMs_ < 0 ? rtt : rttMs_ + (rtt - rttMs_) * kRttSmoothing;
+            }
+            continue;
+        }
+        if (!roster_.count(ps.player))
+            continue;
+        auto& buf = buffers_[ps.player];
+        if (!buf.empty() && s.serverTimeMs <= buf.back().serverTimeMs)
+            continue; // out of order (unreliable channel)
+        buf.push_back({s.serverTimeMs, ps});
+        while (buf.size() > options_.maxBufferedStates)
+            buf.pop_front();
     }
 }
 

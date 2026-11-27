@@ -140,6 +140,9 @@ private:
     };
 
     void handleMessage(const TransportEvent& ev);
+    void handleHandshake(MsgType type, const std::vector<uint8_t>& data); // Welcome / Reject while Handshaking
+    void applyStatus(const Status& st);
+    void applySnapshot(const Snapshot& s);
     void applyScore(const Score& s);
     bool sendReliable(const std::vector<uint8_t>& bytes);
 
@@ -164,11 +167,14 @@ private:
     int32_t teamScore_[kMaxTeams] = {0, 0, 0, 0};
     uint32_t sendSequence_ = 0;
     uint32_t sendTick_ = 0;
+    // When each of the last kSentMarks own states was sent (by sequence), so the server's echo in a Snapshot gives
+    // the round trip time.
     struct SentMark {
         uint32_t sequence = 0;
         uint64_t atMs = 0;
     };
-    SentMark sent_[64];
+    static constexpr uint32_t kSentMarks = 64; // a power of two: indexed by sequence & (kSentMarks - 1)
+    SentMark sent_[kSentMarks];
     uint64_t snapshotCount_ = 0;
     double rttMs_ = -1.0;
     CountdownKind countdownKind_ = CountdownKind::None;
