@@ -368,7 +368,7 @@ void GSR_IMPL::endFrame() {
         sweepTimes.erase(sweepTimes.begin(), sweepTimes.begin() + (std::ptrdiff_t)drop);
         // the oldest sample still at or before the horizon; until the game has run that long, nothing is old enough
         upMaxAge = sweepTimes.front().second <= horizon ? std::max<uint64_t>(240, frame - sweepTimes.front().first)
-                                                         : UINT64_MAX;
+                                                        : UINT64_MAX;
     }
     for (auto it = upCache.begin(); it != upCache.end();) {
         if (frame - it->second->lastFrame > upMaxAge) {
@@ -409,6 +409,10 @@ void GSR_IMPL::endFrame() {
             } else
                 ++it;
     }
+    // upDropped only feeds the texUpRebuilt stat and loses a key only when it is rebuilt: the keys of HD copies that
+    // never come back would pile up for the whole session. Bound it; a reset only undercounts rebuilds.
+    if (upDropped.size() > 16384)
+        upDropped.clear();
     drainSurfaces(); // jobs hold target pointers
     for (size_t i = 0; i < rts.size();)
         if (!rts[i]->dirty && frame - rts[i]->lastUse > 600)

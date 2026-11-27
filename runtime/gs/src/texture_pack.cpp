@@ -177,20 +177,22 @@ std::shared_ptr<const PackImage> TexturePack::findHashed(const std::vector<uint3
                 }
         std::lock_guard guard(p.mutex);
         bool retry = false;
-        if (valid) {
-            while (p.bytes + size > p.budget) {
-                auto oldest = p.cache.end();
-                for (auto it = p.cache.begin(); it != p.cache.end(); ++it)
-                    if (it->second.image && it->second.image.use_count() == 1 &&
-                        (oldest == p.cache.end() || it->second.used < oldest->second.used))
-                        oldest = it;
-                if (oldest == p.cache.end()) {
-                    valid = false;
-                    retry = true;
-                    break;
-                }
-                p.bytes -= oldest->second.image->pixels.size() * sizeof(uint32_t);
-                p.cache.erase(oldest);
+        if (valid && p.bytes + size > p.budget) {
+            // Collect the evictable images once, oldest first: a rescan of the whole cache per evicted entry under
+            // the lock stalls the render thread's lookups when one large image displaces many small ones.
+            std::vector<std::pair<uint64_t, uint64_t>> victims; // (used, hash)
+            for (const auto& [key, e] : p.cache)
+                if (e.image && e.image.use_count() == 1)
+                    victims.emplace_back(e.used, key);
+            std::sort(victims.begin(), victims.end());
+            for (size_t i = 0; i < victims.size() && p.bytes + size > p.budget; ++i) {
+                const auto it = p.cache.find(victims[i].second);
+                p.bytes -= it->second.image->pixels.size() * sizeof(uint32_t);
+                p.cache.erase(it);
+            }
+            if (p.bytes + size > p.budget) {
+                valid = false;
+                retry = true;
             }
         }
         p.pendingBytes -= original.size() * sizeof(uint32_t);

@@ -7,7 +7,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
+#include <system_error>
 #include <unordered_set>
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/fetch.h>
@@ -760,7 +762,8 @@ int construct(Huff& h, const short* length, int n) {
             h.symbol[offs[length[s]]++] = (short)s;
     return left;
 }
-bool inflateCodes(BitIn& s, std::vector<uint8_t>& out, const Huff& lc, const Huff& dc) {
+// `limit` caps the decoded size: a corrupt or hostile stream must not grow `out` until allocation fails.
+bool inflateCodes(BitIn& s, std::vector<uint8_t>& out, size_t limit, const Huff& lc, const Huff& dc) {
     static const short lens[29] = {3,  4,  5,  6,  7,  8,  9,  10, 11,  13,  15,  17,  19,  23, 27,
                                    31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
     static const short lext[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2,
@@ -774,9 +777,11 @@ bool inflateCodes(BitIn& s, std::vector<uint8_t>& out, const Huff& lc, const Huf
         int sym = decodeSym(s, lc);
         if (sym < 0)
             return false;
-        if (sym < 256)
+        if (sym < 256) {
+            if (out.size() >= limit)
+                return false;
             out.push_back((uint8_t)sym);
-        else if (sym == 256)
+        } else if (sym == 256)
             return true;
         else {
             sym -= 257;
@@ -787,7 +792,7 @@ bool inflateCodes(BitIn& s, std::vector<uint8_t>& out, const Huff& lc, const Huf
             if (ds < 0 || ds >= 30)
                 return false;
             const size_t dist = (size_t)dists[ds] + (size_t)s.bits(dext[ds]);
-            if (s.err || dist > out.size())
+            if (s.err || dist > out.size() || out.size() + (size_t)len > limit)
                 return false;
             size_t from = out.size() - dist;
             for (int i = 0; i < len; ++i)
@@ -795,12 +800,13 @@ bool inflateCodes(BitIn& s, std::vector<uint8_t>& out, const Huff& lc, const Huf
         }
     }
 }
-bool inflateRaw(const uint8_t* d, size_t n, std::vector<uint8_t>& out) {
-    BitIn s{d, n};
-    int last;
-    static Huff fixedL, fixedD;
-    static bool fixedInit = false;
-    if (!fixedInit) {
+struct FixedHuffman {
+    Huff lit, dist;
+};
+// Built once, thread safe (a function-local static): several pools decode PNGs at the same time.
+const FixedHuffman& fixedHuffman() {
+    static const FixedHuffman tables = [] {
+        FixedHuffman t;
         short l[288];
         int i = 0;
         for (; i < 144; ++i)
@@ -811,12 +817,17 @@ bool inflateRaw(const uint8_t* d, size_t n, std::vector<uint8_t>& out) {
             l[i] = 7;
         for (; i < 288; ++i)
             l[i] = 8;
-        construct(fixedL, l, 288);
+        construct(t.lit, l, 288);
         for (i = 0; i < 30; ++i)
             l[i] = 5;
-        construct(fixedD, l, 30);
-        fixedInit = true;
-    }
+        construct(t.dist, l, 30);
+        return t;
+    }();
+    return tables;
+}
+bool inflateRaw(const uint8_t* d, size_t n, std::vector<uint8_t>& out, size_t limit) {
+    BitIn s{d, n};
+    int last;
     do {
         last = s.bits(1);
         const int type = s.bits(2);
@@ -829,12 +840,12 @@ bool inflateRaw(const uint8_t* d, size_t n, std::vector<uint8_t>& out) {
                 return false;
             const uint32_t len = d[s.pos] | (d[s.pos + 1] << 8);
             s.pos += 4;
-            if (s.pos + len > n)
+            if (s.pos + len > n || out.size() + len > limit)
                 return false;
             out.insert(out.end(), d + s.pos, d + s.pos + len);
             s.pos += len;
         } else if (type == 1) {
-            if (!inflateCodes(s, out, fixedL, fixedD))
+            if (!inflateCodes(s, out, limit, fixedHuffman().lit, fixedHuffman().dist))
                 return false;
         } else if (type == 2) {
             static const short order[19] = {16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
@@ -874,7 +885,7 @@ bool inflateRaw(const uint8_t* d, size_t n, std::vector<uint8_t>& out) {
             Huff lc, dc;
             construct(lc, lengths, nlen);
             construct(dc, lengths + nlen, ndist);
-            if (!inflateCodes(s, out, lc, dc))
+            if (!inflateCodes(s, out, limit, lc, dc))
                 return false;
         } else
             return false;
@@ -961,13 +972,14 @@ bool readPng(const std::vector<uint8_t>& f, std::vector<uint32_t>& px, uint32_t&
     }
     if (bd != 1 && bd != 2 && bd != 4 && bd != 8 && bd != 16)
         return false;
-    std::vector<uint8_t> raw;
-    raw.reserve((size_t)W * H * 4 + H);
-    if (!inflateRaw(idat.data() + 2, idat.size() - 2, raw))
-        return false;
     const size_t bpp = std::max<size_t>(1, (chans * bd) / 8);
     const size_t stride = ((size_t)W * chans * bd + 7) / 8;
-    if (raw.size() < (stride + 1) * H)
+    const size_t rawSize = (stride + 1) * H; // one filter byte per row
+    std::vector<uint8_t> raw;
+    raw.reserve(rawSize);
+    if (!inflateRaw(idat.data() + 2, idat.size() - 2, raw, rawSize))
+        return false;
+    if (raw.size() < rawSize)
         return false;
     std::vector<uint8_t> img(stride * H);
     for (uint32_t y = 0; y < H; ++y) {
@@ -1639,8 +1651,13 @@ std::vector<std::string> listDir(const std::string& dir) {
     std::vector<std::string> r;
     std::error_code ec;
     for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
-        if (it->is_regular_file(ec))
-            r.push_back(it->path().filename().string());
+        if (it->is_regular_file(ec)) {
+            // string() throws on MSVC when the name has characters outside the ANSI code page; skip such files.
+            try {
+                r.push_back(it->path().filename().string());
+            } catch (const std::system_error&) {
+            }
+        }
     return r;
 }
 
@@ -1659,7 +1676,15 @@ Pool::Pool(unsigned threads) {
                     job = std::move(lane.front());
                     lane.pop_front();
                 }
-                job();
+                // An exception escaping a pool thread would terminate the game; a failed job (for example
+                // bad_alloc on a huge texture) only loses that one result.
+                try {
+                    job();
+                } catch (const std::exception& e) {
+                    std::fprintf(stderr, "[gsr] texture job failed: %s\n", e.what());
+                } catch (...) {
+                    std::fprintf(stderr, "[gsr] texture job failed\n");
+                }
             }
         });
 }

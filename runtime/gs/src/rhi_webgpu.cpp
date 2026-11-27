@@ -759,21 +759,27 @@ public:
                      std::vector<uint8_t>& out) override {
         if (gone())
             return false;
+        // As in gpu::Context::readTexture: the wait can give up while the map callback is still queued, so the
+        // callback owns its result instead of pointing into this frame.
         struct Result {
             std::atomic<bool> done{false};
             bool ok = false;
-        } result;
-        readTextureAsync(texture, mip, x, y, w, h, [&](bool ok, std::vector<uint8_t>&& pixels) {
-            if (ok)
-                out = std::move(pixels);
-            result.ok = ok;
-            result.done = true;
+            std::vector<uint8_t> pixels;
+        };
+        auto result = std::make_shared<Result>();
+        readTextureAsync(texture, mip, x, y, w, h, [result](bool ok, std::vector<uint8_t>&& pixels) {
+            result->ok = ok;
+            result->pixels = std::move(pixels);
+            result->done.store(true, std::memory_order_release);
         });
 #if defined(DRAKAN_WGPU_NATIVE)
-        while (!result.done.load() && !context_.failed())
+        while (!result->done.load(std::memory_order_acquire) && !context_.failed())
             context_.poll(true);
 #endif
-        return result.done.load() && result.ok;
+        if (!result->done.load(std::memory_order_acquire) || !result->ok)
+            return false;
+        out = std::move(result->pixels);
+        return true;
     }
     void readTextureAsync(Texture& texture, uint32_t mip, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
                           ReadCallback done) override {

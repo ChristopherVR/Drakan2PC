@@ -241,7 +241,9 @@ void WgpuBackend::Impl::changeScale(uint32_t ns) {
     discardTemporalWorlds();
     finalizeAllWorlds();
     flushAll();
-    drainSurfaces(); // its jobs hold target pointers
+    drainSurfaces();          // its jobs hold target pointers
+    gridCapture.open = false; // so does the grid capture
+    gridCapture.rt = nullptr;
     rts.clear();
     depths.clear();
     motionHistory.reset();

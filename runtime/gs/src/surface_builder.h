@@ -643,6 +643,7 @@ struct PendingDraws {
     std::vector<Draw> draws;
     std::vector<Draw> carried; // GSR_VERTEX_SURFACE=late: streamed draws of the previous world, waiting for its copy
     std::vector<DrawVertex> vertices, checks, scratch;
+    std::vector<DrawVertex> converted; // flushSurfaces: streamed vertices read back, kept for the next flush
     uint64_t streamed = 0, compared = 0, differing = 0, flushes = 0;
     bool empty() const { return draws.empty(); }
     void clear() {

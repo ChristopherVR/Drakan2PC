@@ -880,7 +880,9 @@ void SettingsPages::emitBind(const std::string& source, bool replace, SettingsFr
     out.sound = UiSound::Confirm;
 }
 
-void SettingsPages::activateCard(const Item& it, SettingsFrameOutput& out) {
+void SettingsPages::activateCard(const Item& item, SettingsFrameOutput& out) {
+    // `item` points into cardItems_, which closeCard() clears: work on a copy (AddressSanitizer caught the stale read).
+    const Item it = item;
     if (!it.enabled)
         return;
     if (it.kind == Item::Choice) {

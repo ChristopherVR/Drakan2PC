@@ -87,10 +87,10 @@ public:
         if (!f)
             return false;
         std::string text;
-        char buffer[65536];
+        std::vector<char> buffer(65536); // on the heap: a 64 KB stack frame on a worker thread is a stack-overflow risk
         size_t n;
-        while ((n = std::fread(buffer, 1, sizeof(buffer), f)) > 0)
-            text.append(buffer, n);
+        while ((n = std::fread(buffer.data(), 1, buffer.size(), f)) > 0)
+            text.append(buffer.data(), n);
         std::fclose(f);
         parse(text.c_str());
         return !records_.empty();

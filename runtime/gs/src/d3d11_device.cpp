@@ -488,6 +488,7 @@ surface::RayWater* D3D11Backend::Impl::rayPass() {
 }
 
 void D3D11Backend::Impl::createSwapchain() {
+    closeSwapWait(); // a re-create must not leak the old waitable object or keep waiting on a dead swapchain
     HWND hwnd = (HWND)cfg.hwnd;
     RECT rc{};
     GetClientRect(hwnd, &rc);
@@ -657,6 +658,8 @@ void D3D11Backend::Impl::changeScale(uint32_t ns) {
     worldFrames = 0;
     lastWorldFrame = 0;
     drainSurfaces();
+    gridCapture.open = false; // it points into rts, which is about to be freed
+    gridCapture.rt = nullptr;
     rts.clear();
     depths.clear();
     neuralReset = true;

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -496,20 +497,26 @@ WGPUShaderModule Context::shaderModule(const std::string& wgsl, const char* labe
 bool Context::readTexture(WGPUTexture texture, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
                           uint32_t bytesPerPixel, std::vector<uint8_t>& out, uint32_t mipLevel) {
 #if defined(DRAKAN_WGPU_NATIVE)
+    // The wait gives up when the device fails, but the map callback may still run later (a later poll, or device
+    // destruction): it must only ever touch state it shares ownership of, never this stack frame or `out`.
     struct Result {
         std::atomic<bool> done{false};
         bool ok = false;
-    } result;
+        std::vector<uint8_t> pixels;
+    };
+    auto result = std::make_shared<Result>();
     readTextureAsync(texture, x, y, width, height, bytesPerPixel, mipLevel,
-                     [&](bool ok, std::vector<uint8_t>&& pixels) {
-                         if (ok)
-                             out = std::move(pixels);
-                         result.ok = ok;
-                         result.done = true;
+                     [result](bool ok, std::vector<uint8_t>&& pixels) {
+                         result->ok = ok;
+                         result->pixels = std::move(pixels);
+                         result->done.store(true, std::memory_order_release);
                      });
-    while (!result.done.load() && !failed())
+    while (!result->done.load(std::memory_order_acquire) && !failed())
         poll(true);
-    return result.done.load() && result.ok;
+    if (!result->done.load(std::memory_order_acquire) || !result->ok)
+        return false;
+    out = std::move(result->pixels);
+    return true;
 #else
     (void)texture, (void)x, (void)y, (void)width, (void)height, (void)bytesPerPixel, (void)out, (void)mipLevel;
     std::fprintf(stderr, "[gpu] readTexture: a browser thread cannot wait for a readback (readTextureAsync)\n");

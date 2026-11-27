@@ -61,10 +61,11 @@ void configureDirectory() {
         shader_cache::global().setDirectory(d);
         return;
     }
-    wchar_t exe[32768]{};
-    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
-    if (!n || n >= std::size(exe))
+    std::wstring exe(32768, L'\0'); // the longest path; heap, not a 64 KB stack buffer
+    const DWORD n = GetModuleFileNameW(nullptr, exe.data(), static_cast<DWORD>(exe.size()));
+    if (!n || n >= exe.size())
         return;
+    exe.resize(n);
     shader_cache::global().setDirectory(shader_cache::utf8(std::filesystem::path(exe).parent_path() / L"shadercache"));
 }
 
