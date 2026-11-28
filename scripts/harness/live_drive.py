@@ -925,6 +925,8 @@ def prepare_run(args) -> tuple[Path, Path]:  # pragma: no cover
         shutil.copytree(args.card, out / "card/mc0")
     else:
         (out / "card/mc0").mkdir(parents=True)
+    if getattr(args, "card_ootf", None):
+        shutil.copytree(args.card_ootf, out / "card/mc0_ootf")
     exe = Path(args.exe).resolve()
     for n in ["drakan.ini", "drakan_input.ini", "drakan_native_options.ini", "multiplayer.ini"]:
         if (exe.parent / n).exists():
@@ -1047,6 +1049,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--mods", help="DRAKAN_MODS folder (a converted pack)")
     ap.add_argument("--level", help="direct start level (DRAKAN_START_LEVEL)")
     ap.add_argument("--card", help="mc0 folder copied in as the run's memory card")
+    ap.add_argument("--card-ootf", help="Order of the Flame card (the game's mc0_ootf sibling) copied in beside it")
     ap.add_argument("--recipe", help="setup input script (no quit); default: wait for gameplay")
     ap.add_argument("--go", help="RAM dump label the setup recipe writes when the mission may start (ram_go)")
     ap.add_argument("--post", help="live lines after the mission, ';' separated (e.g. '0 key tap F5;150 dump ram_end')")
