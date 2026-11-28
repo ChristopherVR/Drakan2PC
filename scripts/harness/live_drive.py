@@ -884,7 +884,10 @@ def build_env(args, out: Path, cmd_file: Path) -> dict[str, str]:
             "DRAKAN_INPUT_SCRIPT": str(out / "recipe.txt"),
             "DRAKAN_INPUT_LIVE": str(cmd_file),
             "DRAKAN_AUTOPRESS": "0",
-            "DRAKAN_INPUT_AUTOSTART": "0",
+            # Without --level the game boots to the title and nothing in a setup recipe passes it (`sync play` waits
+            # for gameplay): autostart confirms the title's first row, Continue with a card (its newest save), so the
+            # recipe starts in play. With --level, DRAKAN_FAST_START starts New Game itself.
+            "DRAKAN_INPUT_AUTOSTART": "0" if args.level else "1",
             "DRAKAN_NO_ACTIVATE": "1",
             "DRAKAN_PAUSE_UNFOCUSED": "0",
             "DRAKAN_AUDIO": "0",

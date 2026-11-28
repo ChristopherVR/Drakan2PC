@@ -300,6 +300,9 @@ class CliTests(unittest.TestCase):
         env = LD.build_env(a, pathlib.Path("out"), pathlib.Path("out/live.txt"))
         self.assertEqual(env["DRAKAN_INPUT_LIVE"], str(pathlib.Path("out/live.txt")))
         self.assertEqual((env["DRAKAN_START_LEVEL"], env["DRAKAN_PLAYTEST_GOD"]), ("L", "1"))
+        self.assertEqual(env["DRAKAN_INPUT_AUTOSTART"], "0")  # fast start takes New Game
+        title = LD.build_env(LD.parse_args(["--name", "x", "idle"]), pathlib.Path("out"), pathlib.Path("out/live.txt"))
+        self.assertEqual(title["DRAKAN_INPUT_AUTOSTART"], "1")  # the title boot: Continue (a card's newest save)
         bad = types.SimpleNamespace(**{**vars(a), "env": ["NOEQUALS"]})
         with self.assertRaises(SystemExit):
             LD.build_env(bad, pathlib.Path("out"), pathlib.Path("out/live.txt"))
