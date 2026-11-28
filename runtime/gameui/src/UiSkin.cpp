@@ -5,6 +5,9 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 #include "gameui/Layout.h"
 #include "gameui/PauseScreen.h"
@@ -317,7 +320,14 @@ std::string writeUiSkin(const UiSkin& s) {
 }
 
 void setUiSkin(UiSkin skin) {
-    g_skin.store(new UiSkin(std::move(skin))); // the old one is leaked on purpose: references stay valid
+    // Replaced skins are kept alive for the life of the process so references handed out by activeUiSkin() and
+    // skinText() stay valid. They live in a never-destroyed list, so they stay reachable rather than leaked.
+    static std::mutex retiredMutex;
+    static auto* retired = new std::vector<std::unique_ptr<const UiSkin>>();
+    auto next = std::make_unique<const UiSkin>(std::move(skin));
+    std::lock_guard<std::mutex> lock(retiredMutex);
+    g_skin.store(next.get());
+    retired->push_back(std::move(next));
 }
 
 const UiSkin& activeUiSkin() {

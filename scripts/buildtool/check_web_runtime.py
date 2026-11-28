@@ -76,6 +76,7 @@ def main():
             extra = [
                 *sorted((root / "runtime/input/src").glob("*.cpp")),
                 f"-I{root / 'runtime/input/include'}",
+                f"-I{root / 'runtime/common/include'}",
                 "-sPROXY_TO_PTHREAD=1",
                 "-sEXIT_RUNTIME=1",
                 "-pthread",

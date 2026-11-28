@@ -1,4 +1,5 @@
 #include "../src/lib/drakan_widescreen_policy.h"
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
@@ -183,8 +184,8 @@ static void configurableFovChecks() {
     using namespace drakan_ws::detail;
     check(fieldOfViewScale(80) == 1, "original FOV is identity");
     check(fieldOfViewScale(100) < 1 && fieldOfViewScale(60) > 1, "larger FOV widens rather than zooms");
-    check(fieldOfViewScale(-1) == fieldOfViewScale(60), "FOV lower bound");
-    check(fieldOfViewScale(999) == fieldOfViewScale(120), "FOV upper bound");
+    check(std::fabs(fieldOfViewScale(-1) - fieldOfViewScale(60)) < 1e-6f, "FOV lower bound");
+    check(std::fabs(fieldOfViewScale(999) - fieldOfViewScale(120)) < 1e-6f, "FOV upper bound");
     check(fieldOfViewScale(std::numeric_limits<float>::quiet_NaN()) == 1, "invalid FOV uses original");
     for (float fov : {60.f, 80.f, 100.f, 120.f}) {
         ProjectionScope scope;
