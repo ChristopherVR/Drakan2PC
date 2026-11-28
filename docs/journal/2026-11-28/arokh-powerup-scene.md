@@ -43,3 +43,59 @@ the scene (frames 6238 to 7990), every mouse tick in it `own=0` with the yaw unc
 1200 counts turn him by 2.4 rad; the breath stays at 100 through the click. Images:
 `build/review/arokh-scene/issue1_scene_mouse_before_after.png` (top: before, bottom: after; the hover clip moves the
 wings in both), `issue1_after_scene_mouse_turns.png` (mouse turning after the scene).
+
+## 2. The long scene: the Quickening Effect showed nothing
+
+The length is the PC's: 41.53 s, the same keys and holds (above). What the PS2 scene lacked is the Quickening Effect
+2541 (PC engine 80: spark model and density, flare rings of 1500 / 3000 units at 3 and 9 rad/s, "Lightning Object"
+3052 "Quickening Lightning"). The PC draws it round the dragon, not where the object stands: the four effects stand 5000
+to 26000 units from their scene's Arokh (Wartok 20000 under him in the canyon, Grotto 25700 above him; census
+`build/review/arokh-scene/q80.mts`). The converter stood in a PS2 Particle Spawner (engine 71) at the object, and in
+game the scene showed Arokh hovering with only the shrine's gas lightning round him for 41 s (`arokh-scene-base3`).
+
+Tried and dropped:
+
+* Moving the spawner onto Arokh in the scene, waiting for the message, larger and denser: the RAM watch shows it moved
+  (`arokh-scene-pack1w`, class `0x10047` at Arokh's key) but no particle was ever drawn (`arokh-scene-pack2`).
+* A new generator class of the effect's own "Quickening Lightning": the record converted with the right spawn, but its
+  object never spawned, in the save and in a fresh level (`arokh-scene-fresh2`, `-fresh3`; the same object with the
+  existing "Gas Lightning Generator" class spawned, `-fresh4`). Not explained.
+
+Fix (formats `ootfgenerators.ts` `addQuickeningGenerators`, `ootfquickening.ts` `quickeningAtDragon`): each effect gets
+one more object, a generator of the effect database's lightning generator of the crystal's element ("Gas" for Wartok's
+poison, "Ice" Grotto, "Light" Alwarren, "Lava" Volcano), whose bolts draw on the PS2. The scene gets an actor for it:
+a key at Arokh's position and On at the effect's message, Off at the scene's last action. Save layout: build
+`493b53de681b8791` kept, 4 objects added (old saves get them through `save_added_objects`).
+
+Evidence: in `arokh-scene-pack4` (save, owner's settings) the generator (ref 1668) stands at Arokh's key (289710, 35246,
+281738) and releases bolts through the scene (release timer `d+8` running, as the shrine's generators).
+`build/review/arokh-scene/issue2_scene_burst_before.png` / `_after.png`: 40 frames 0.25 s apart, 7 s into the scene.
+
+Not verified / differs: the gas bolts last 0.09 s (3 frames of 0.03 s) and come one every 1 to 3 s, and the shrine's
+four gas generators already throw bolts past Arokh, so in still frames the difference is small. The PC's sparks and
+flare rings are not reproduced. Grotto, Alwarren and Volcano were not played.
+
+## 3. Rynn stood on Arokh after the scene
+
+Cause: a scene that gives the player back ends her on an end idle (`endIdleForActor`, 0.5 s before the release), and
+that was always the standing `NCIdle` (1147). Here she rides through the whole scene (PC clip 560 "ride"), so the
+standing idle was the pose the game kept: upright on his back. Arokh got the ground Ready (`G_ReadyW2` 1607) while
+hovering.
+
+Fix (formats `ootfseq.ts` `lastBodyClip`, `ootfdragon.ts` `dragonFlightClips`, `ootfpipeline.ts`): the end idle follows
+the last whole-body clip before the release: the disc `Ride` (1455) after the PC "ride", and for Arokh the disc clip of
+the same Fly / Hover / Soar field (1635 `F_hover2` here), else Ready as before.
+
+Evidence: `build/review/arokh-scene/issue3_rider_after_scene_before_after.png` (left `arokh-scene-base3`: Rynn upright;
+right `arokh-scene-pack2`: seated astride, 4 s after the scene).
+
+Not verified: other scenes ending with Rynn mounted (Volcano 9.9, the Grotto fly-throughs) were not played.
+
+## Needs
+
+* The exe in `dist/DrakanPC` has fix 1 (`Build-LocalGame.ps1 -Incremental`, 28 November 18:24).
+* Fixes 2 and 3 are converter changes (formats `bfe48d5`, `2994f54`): the pack must be converted again with
+  `--previous dist/DrakanPC/mods/ootf-levels.zip` (build `493b53de681b8791` stays). The incremental game build did not
+  reconvert it, and it was not installed by hand: the formats working tree held another session's uncommitted breath
+  icon change (`ootfbreath.ts`, `ootfpipeline.ts`) that a conversion would have shipped. The test packs
+  (`build/review/arokh-scene/pack1`, played through `DRAKAN_MODS`) were converted from that same tree.
