@@ -419,6 +419,52 @@ void removeTakenPowerUp(drakan_input::IGuest& guest, uint8_t* ram, uint32_t ctx,
     }
 }
 
+// The HUD orb shows the icon word (+8) of the chosen breath entry, which AddBreath copies from the power-up's PS2-only
+// "HUD Bitmap Index". A converted power-up carried 0 (the flame) before the pack set it (2026-11-28), and a breath
+// taken then keeps 0 in the saves. The icon follows from the entry's breath instead: the disc's five Dragon Power-ups
+// (RESOURES "#1 Fireball" .. "#5 Darkness", the same pairs in the Drakan 2 spirits) by Weapon or Alt. Weapon record,
+// and a breath with no disc power-up (the converted Order of the Flame poison gas) the green orb 4, as the converter.
+struct BreathIcon {
+    uint32_t weapon, alt, icon;
+};
+constexpr BreathIcon kDiscBreathIcons[] = {
+    {0x3340au, 0x329e4u, 0}, // fire
+    {0x33850u, 0x32a12u, 1}, // sonic
+    {0x33524u, 0x335f1u, 2}, // ice
+    {0x329efu, 0x329f0u, 3}, // lightning
+    {0x32665u, 0x32b03u, 4}, // darkness
+};
+constexpr uint32_t kConvertedBreathIcon = 4;
+constexpr uint32_t kBreathEntry = 16u, kEntryIcon = 8u;
+
+uint32_t breathIcon(const uint8_t* ram, uint32_t ctx, uint32_t weapon, uint32_t alt) {
+    const uint32_t w = resourceRecord(ram, ctx, weapon), a = resourceRecord(ram, ctx, alt);
+    const uint32_t wid = w ? guest::readHeap32(ram, w) : 0, aid = a ? guest::readHeap32(ram, a) : 0;
+    if (!wid && !aid)
+        return 0xffffffffu; // no breath to judge by
+    for (const auto& b : kDiscBreathIcons)
+        if ((wid && wid == b.weapon) || (!wid && aid == b.alt))
+            return b.icon;
+    return kConvertedBreathIcon;
+}
+
+void fixBreathIcons(uint8_t* ram, uint32_t ctx, uint32_t h, uint32_t dragon) {
+    if (drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
+        return;
+    const uint32_t list = guest::readHeap32(ram, dragon + kBreathList),
+                   count = guest::readHeap32(ram, dragon + kBreathCount);
+    for (uint32_t i = 0; i < count && i < 16 && ramPtr(list + i * kBreathEntry, kBreathEntry); ++i) {
+        const uint32_t e = list + i * kBreathEntry;
+        const uint32_t icon = breathIcon(ram, ctx, guest::readHeap32(ram, e), guest::readHeap32(ram, e + 4u));
+        const uint32_t was = guest::readHeap32(ram, e + kEntryIcon);
+        if (icon == 0xffffffffu || icon == was)
+            continue;
+        guest::writeHeap32(ram, e + kEntryIcon, icon);
+        logf("dragon %x breath %u (weapon %x / alt %x): HUD icon %u -> %u", h, i, guest::readHeap32(ram, e),
+             guest::readHeap32(ram, e + 4u), was, icon);
+    }
+}
+
 } // namespace
 
 void install(PS2Runtime& rt) {
@@ -492,6 +538,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
         return;
     releaseRider(rdram, ctx, dragon);
     removeTakenPowerUp(guest, rdram, ctx, h, dragon);
+    fixBreathIcons(rdram, ctx, h, dragon);
 
     if (!g_give || g_inFlight || guest.postBusy() || h == g_tried ||
         drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
