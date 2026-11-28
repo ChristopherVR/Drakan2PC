@@ -141,6 +141,7 @@ public:
         uint32_t type = addr::actor::kTypeWeapon;
         uint32_t nameId = 0;
         int qty = -1, qtyMax = -1;
+        int stack = 1; // items in a usable's stack (instance +0x2c)
         int w = 1, h = 1;
         bool equipped = false, hot = false, drop = true;
         int price = 0, skill = 1, damage = 0;
@@ -157,11 +158,12 @@ public:
         w32(h + addr::actor::kType, s.type);
         w16(h + addr::actor::kResIndex, static_cast<uint16_t>(resource(s.cls, pb)));
         w32(h + addr::actor::kProps, pb);
-        const uint32_t inst = alloc(0x20), data = alloc(0x20);
+        const uint32_t inst = alloc(0x20), data = alloc(0x40);
         w32(h + addr::actor::kInstance, inst);
         w32(inst + addr::actor::kInstanceData, data);
         enc(data + addr::actor::kQtyCur, s.qty);
         enc(data + addr::actor::kQtyMax, s.qtyMax);
+        w32(data + addr::actor::kStackCount, static_cast<uint32_t>(s.stack));
         const uint32_t rec = slotRec(cell);
         w32(rec + addr::slot::kEquipped, s.equipped ? 1 : 0);
         w32(rec + addr::slot::kHotSlot, s.hot ? 1 : 0);
@@ -175,6 +177,11 @@ public:
     void setQuantity(uint32_t handle, int qty) {
         const uint32_t data = rd(rd(handle + addr::actor::kInstance) + addr::actor::kInstanceData);
         enc(data + addr::actor::kQtyCur, qty);
+    }
+    // The stack's item count, as a pickup joining it or a use changes it (plain, not encoded).
+    void setStack(uint32_t handle, int n) {
+        const uint32_t data = rd(rd(handle + addr::actor::kInstance) + addr::actor::kInstanceData);
+        w32(data + addr::actor::kStackCount, static_cast<uint32_t>(n));
     }
     void clearCell(int cell) { w32(slotRec(cell) + addr::slot::kItem, 0); }
 

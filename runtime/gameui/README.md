@@ -69,6 +69,11 @@ EE thread (glue, phase 2)                                  present thread (overl
   The screen steers the native selection to the focused item with `SelectItem` (once per handle) to fill them.
 * **Categories** (no game field): `categoryFor(class, type)` from the note's class table; unknown type 10 counts as
   Melee, type 11 as Consumable. Filters: All, Weapons (melee, bow, ammo), Armour, Consumables (incl. scrolls), Other.
+* **Stacks**: usables (type 11: elixirs, potions, quivers) stack in one cell; `ItemEntry::amount` is the count at
+  instance `+0x2c` (plain, the value the native grid prints when > 1, `437170` / `434e80`). The cells draw it when > 1
+  (`cellBadge()`, else a bow's arrows), the cards list `Amount`. The `+0x14 / +0x18` pair of a consumable is its
+  charges (100 / 100 for an elixir, unchanged by a use) and only drives the card's bar. In the host views the native
+  digits (`4315b0`) are skipped (issue #23, `docs/journal/2026-11-28/elixir-stack-amount.md`).
 * **ModelExchange**: two shared buffers; `publish()` swaps and recycles the old front unless a reader still holds it.
   Readers keep an immutable `shared_ptr<const Snapshot>` for the frame.
 

@@ -131,6 +131,7 @@ Expectation makeExpectation(const UiAction& a, const Snapshot& before) {
         case Effect::ItemChanged:
             e.before = item ? (item->equipped ? 1 : 0) : 0;
             e.before2 = item ? item->quantity : 0;
+            e.before3 = item ? item->amount : 0;
             break;
         case Effect::HotSlotChanged:
             e.before = item && item->hotSlot ? 1 : 0;
@@ -167,7 +168,8 @@ Outcome evaluate(const Expectation& e, const Snapshot& now) {
             done = now.native.selection == e.target && !now.native.controllerBusy;
             break;
         case Effect::ItemChanged:
-            done = !item || (item->equipped ? 1 : 0) != e.before || item->quantity != e.before2 || boxOpened(e, now);
+            done = !item || (item->equipped ? 1 : 0) != e.before || item->quantity != e.before2 ||
+                   item->amount != e.before3 || boxOpened(e, now);
             break;
         case Effect::ItemRemoved:
             done = !item || boxOpened(e, now);

@@ -133,10 +133,18 @@ const char* quantityLabel(QuantityKind k) {
 QuantityKind ItemEntry::quantityKind() const {
     if (externalAmmoBow)
         return QuantityKind::Durability;
-    // A quiver's stack count is drawn on its native icon. Its +14/+18 pair is unrelated to that count.
+    // A quiver's count is its stack amount (instance +0x2c, ItemEntry::amount). Its +14/+18 pair is unrelated to it.
     if (classId == addr::cls::kAmmoA)
         return QuantityKind::None;
     return quantityKindFor(category);
+}
+
+std::string ItemEntry::cellBadge() const {
+    if (stacked())
+        return std::to_string(amount);
+    if (quantityMax > 0 && quantityKind() == QuantityKind::Ammo)
+        return std::to_string(quantity);
+    return {};
 }
 
 bool ItemEntry::isQuantityLabel(const std::string& label) const {

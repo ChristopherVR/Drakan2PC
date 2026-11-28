@@ -251,6 +251,36 @@ void testStripNavigationAndActions() {
     CHECK(o.wantsClose && !scr.isOpen());
 }
 
+// Issue #23 on the I strip: a stack of Health Elixirs shows its amount on the cell (not the charges) and on the card.
+void testStripElixirStack() {
+    ScreenWorld w;
+    w.g.setStack(w.elixir, 4);
+    ReaderState st;
+    Snapshot s = w.read(st);
+    StripScreen scr;
+    const Viewport vp{0, 0, 1920, 1080};
+    scr.open(s);
+    FrameOutput o = scr.frame(s, {}, vp);
+    Rect cell{};
+    for (const HitTarget& t : scr.targets())
+        if (t.id.kind == TargetKind::GridCell && t.id.index == 3)
+            cell = t.rect;
+    auto onCell = [&](const DrawList& d, const std::string& text) {
+        int n = 0;
+        for (const DrawCmd& c : d.commands())
+            n += c.kind == DrawKind::Text && c.text == text && c.rect.cx() >= cell.x && c.rect.cx() <= cell.right() &&
+                 c.rect.cy() >= cell.y && c.rect.cy() <= cell.bottom();
+        return n;
+    };
+    CHECK(cell.w > 0 && onCell(o.draw, "4") == 1 && onCell(o.draw, "3") == 0); // 3 / 5 are its charges
+    o = scr.frame(s, keys({UiKey::Right, UiKey::Right, UiKey::Right}), vp);
+    CHECK(scr.focus() == (TargetId{TargetKind::GridCell, 3}) && hasText(o.draw, "Amount") && hasText(o.draw, "4"));
+    w.g.setStack(w.elixir, 1);
+    s = w.read(st);
+    o = scr.frame(s, {}, vp);
+    CHECK(onCell(o.draw, "4") == 0 && onCell(o.draw, "3") == 0 && hasText(o.draw, "Amount"));
+}
+
 void testStripMouse() {
     ScreenWorld w;
     Snapshot s = w.read();
@@ -684,6 +714,7 @@ int main() {
     testReaderQuests();
     testStripLayout();
     testStripNavigationAndActions();
+    testStripElixirStack();
     testStripMouse();
     testStripGuards();
     testMapRowsAndFallbacks();

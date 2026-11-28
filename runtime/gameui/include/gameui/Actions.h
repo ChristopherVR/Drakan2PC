@@ -53,6 +53,7 @@ struct Expectation {
     uint32_t handle = 0;    // item identity at execution time
     int32_t before = 0;     // the observed value the effect is measured against (flag, quantity, points, gold)
     int32_t before2 = 0;    // second value (mana, level, stock handle low bits)
+    int32_t before3 = 0;    // ItemChanged: the stack amount (a use of a stacked elixir lowers only that)
     int32_t delta = 0;      // SkillPointsChanged: -1 spend, +1 return
     uint32_t topScreen = 0; // *(0x4fb60c) at execution time
     uint64_t startSequence = 0;

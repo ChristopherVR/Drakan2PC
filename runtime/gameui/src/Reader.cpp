@@ -187,6 +187,12 @@ void readItem(const IGuestMemory& m, const GuestRoots& r, uint32_t h, ItemEntry&
     if (isRamPointer(data)) {
         e.quantity = static_cast<int32_t>(decodeValue(m.read32(data + a::actor::kQtyCur), r.key));
         e.quantityMax = static_cast<int32_t>(decodeValue(m.read32(data + a::actor::kQtyMax), r.key));
+        // Grid items only: what +0x2c holds for a shop's stock item was not traced.
+        if (e.objectType == a::actor::kTypeUsable && e.slot >= 0 && e.slot < a::ctl::kSlotCount) {
+            e.stackable = true;
+            const int32_t n = m.readS32(data + a::actor::kStackCount);
+            e.amount = n >= 1 && n <= static_cast<int32_t>(a::actor::kMaxStackCount) ? n : 1;
+        }
     }
     if (auto name = lookupString(m, r.strings, e.nameId)) {
         e.name = std::move(*name);

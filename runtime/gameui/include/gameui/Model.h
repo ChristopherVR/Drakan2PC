@@ -28,6 +28,7 @@ bool isEquippable(ItemCategory c);         // Melee, Bow, Armour
 enum class QuantityKind : uint8_t { None, Durability, Ammo, Charges };
 QuantityKind quantityKindFor(ItemCategory c);
 const char* quantityLabel(QuantityKind k);
+inline constexpr const char* kAmountLabel = "Amount"; // a stack's item count on the item cards
 
 // ---- inventory ----
 struct ItemEntry {
@@ -52,6 +53,14 @@ struct ItemEntry {
     bool requirementMet = true;  // from ctl+0x49c, only meaningful while detailsCurrent
     int32_t quantity = -1;       // instance +0x14 / +0x18 (dec); -1 / -1 = indestructible or n/a
     int32_t quantityMax = -1;
+    // Usables (type 11: elixirs, potions, quivers) stack in one cell: `amount` is the stack's item count (instance
+    // +0x2c), shown on the cell when > 1 as the native grid does. 1 for everything else.
+    bool stackable = false;
+    int32_t amount = 1;
+    bool stacked() const { return stackable && amount > 1; }
+    // The number drawn on the item's cell: the stack amount when > 1, else a bow's arrows; empty for none. Charges are
+    // not drawn there: an elixir's 100 read as an amount of 100 (issue #23).
+    std::string cellBadge() const;
     bool equipped = false;
     // Which hand holds an equipped melee weapon: Left = the off-hand weapon in the shield slot (dual wielding,
     // gameui/DualWield.h), Right = equipment slot 0. None for everything else.

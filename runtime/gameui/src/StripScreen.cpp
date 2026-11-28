@@ -457,10 +457,10 @@ void StripScreen::draw(const Snapshot& s, DrawList& d) const {
                 const Rect b{r.x + p.px(6), r.bottom() - p.px(8), r.w - p.px(12), p.px(3)};
                 d.rect(b, th.inset);
                 d.rect({b.x, b.y, b.w * f, b.h}, f < 0.25f ? th.bad : th.good);
-            } else if (it.quantityMax > 0 && qk != QuantityKind::None) {
-                d.text({r.x, r.bottom() - p.px(20), r.w - p.px(5), p.px(18)}, fmtInt(it.quantity), FontRole::Small,
-                       mark, th.text, TextAlign::Right);
             }
+            if (const std::string badge = it.cellBadge(); !badge.empty())
+                d.text({r.x, r.bottom() - p.px(20), r.w - p.px(5), p.px(18)}, badge, FontRole::Small, mark, th.text,
+                       TextAlign::Right);
         }
         if (focusCell)
             d.outline(focusCell->rect, th.select, p.px(1.75f), p.px(2));
@@ -523,6 +523,11 @@ void StripScreen::drawCard(const Snapshot& s, DrawList& d) const {
     const float barY = card.bottom() - 18 - 26;
     const float linesEnd = hasBar ? barY - 6 : card.bottom() - 14;
     constexpr float kLineH = 27;
+    if (it->stackable && y + kLineH <= linesEnd) { // a stack's amount, above the native stat lines
+        p.text(d, {x, y, w, kLineH}, kAmountLabel, FontRole::Small, th.textMuted, TextAlign::Left, 18);
+        p.text(d, {x, y, w, kLineH}, fmtInt(it->amount), FontRole::Small, th.text, TextAlign::Right, 18);
+        y += kLineH;
+    }
     if (it->details.size() <= 1 && !it->detailsCurrent) {
         p.text(d, {x, y, w, kLineH}, "...", FontRole::Small, th.textMuted);
         y += kLineH;

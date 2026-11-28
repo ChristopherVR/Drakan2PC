@@ -951,6 +951,16 @@ void hookViewCellDecor(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
         return invViewSkip(c);
     g_origViewCellDecor(ram, c, rt);
 }
+// 4315b0(section, text, position, 0): the stack count the item draw 434e80 prints at a usable's cell when it holds
+// more than one (437170 passes instance +0x2c). The host screens draw the amount themselves (ItemEntry::amount); the
+// native digits would sit in the icon crops next to it. Only called from 434e80; draws, writes no guest state.
+PS2Runtime::RecompiledFunction g_origViewStackCount = nullptr;
+void hookViewStackCount(uint8_t* ram, R5900Context* c, PS2Runtime* rt) {
+    const uint32_t ra = getRegU32(c, 31);
+    if (c->pc == 0x4315b0u && ra >= 0x434e80u && ra < 0x435b00u && invHostDrawing())
+        return invViewSkip(c);
+    g_origViewStackCount(ram, c, rt);
+}
 
 // Installed before the Map mouse, content and inventory hooks, so theirs wrap these: they observe the native
 // arguments (marker f12 == 1) and the submitted, already moved vertices.
@@ -998,7 +1008,8 @@ void installInventoryViewHooks(PS2Runtime& rt) {
         ilog("[inv-view] 42ae00 missing: a campaign without a gold counter shows the Equipment gold amount\n");
     // Optional for the modern screen (a missing one leaves that native draw visible under it).
     const Hook modern[] = {{0x433850u, &g_origViewDetails, &hookViewDetails},
-                           {0x435b00u, &g_origViewCellDecor, &hookViewCellDecor}};
+                           {0x435b00u, &g_origViewCellDecor, &hookViewCellDecor},
+                           {0x4315b0u, &g_origViewStackCount, &hookViewStackCount}};
     for (const auto& h : modern)
         if ((*h.original = rt.lookupFunction(h.address)))
             rt.replaceFunction(h.address, h.hook);

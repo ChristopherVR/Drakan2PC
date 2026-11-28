@@ -119,6 +119,97 @@ void testExternalBowAndQuiver() {
     CHECK(resolved.itemAtCell(1) && resolved.itemAtCell(1)->quantityKind() == QuantityKind::Durability);
 }
 
+// The texts drawn inside `r` (a cell).
+std::vector<std::string> textsIn(const DrawList& d, const Rect& r) {
+    std::vector<std::string> out;
+    for (const DrawCmd& c : d.commands())
+        if (c.kind == DrawKind::Text && c.rect.cx() >= r.x && c.rect.cx() <= r.right() && c.rect.cy() >= r.y &&
+            c.rect.cy() <= r.bottom())
+            out.push_back(c.text);
+    return out;
+}
+// The value drawn on the row of label `label` (the right-aligned text sharing its rect), or "" when none.
+std::string rowValue(const DrawList& d, const std::string& label) {
+    const auto& cmds = d.commands();
+    for (const DrawCmd& c : cmds)
+        if (c.kind == DrawKind::Text && c.text == label)
+            for (const DrawCmd& v : cmds)
+                if (v.kind == DrawKind::Text && &v != &c && v.rect.y == c.rect.y && v.rect.x == c.rect.x)
+                    return v.text;
+    return {};
+}
+bool hasText(const DrawList& d, const std::string& t);
+UiInput keys(std::initializer_list<UiKey> k);
+Snapshot step(World& w, ReaderState& st);
+
+// Issue #23: two Health Elixirs share one cell (the game stacks usables, the count at instance +0x2c). The modern
+// screen showed one elixir with no amount and its +0x14 "100" (charges) where the amount belongs; using one left
+// that unchanged. Now: amount 2 on the cell and the card, 1 after a use, the charges only on the card's bar.
+void testElixirStack() {
+    World w;
+    w.g.setStack(w.elixir, 2);
+    ReaderState st;
+    Snapshot s = w.read(st);
+    CHECK(s.items.size() == 5); // one entry for the stack, not one per elixir
+    const ItemEntry* e = s.itemAtCell(3);
+    CHECK(e && e->handle == w.elixir && e->stackable && e->amount == 2 && e->stacked());
+    CHECK(e && e->cellBadge() == "2" && e->quantity == 100 && e->quantityKind() == QuantityKind::Charges);
+    // Not usables: no amount, whatever the word holds (it is something else there).
+    w.g.setStack(w.dagger, 7);
+    s = w.read(st);
+    const ItemEntry* d = s.itemAtCell(0);
+    CHECK(d && !d->stackable && d->amount == 1 && d->cellBadge().empty());
+    // The bow keeps its arrow count on the cell.
+    CHECK(s.itemAtCell(1) && s.itemAtCell(1)->cellBadge() == "181");
+
+    // The Tab screen: "2" on the elixir's cell, no "100"; the card lists Amount 2 above the charges bar.
+    InventoryScreen scr;
+    const Viewport vp{0, 0, 2560, 1440};
+    scr.open(s);
+    FrameOutput o = scr.frame(s, {}, vp);
+    Rect cell{};
+    for (const HitTarget& t : scr.targets())
+        if (t.id.kind == TargetKind::GridCell && t.id.index == 3)
+            cell = t.rect;
+    CHECK(cell.w > 0);
+    auto onCell = textsIn(o.draw, cell); // the amount, and the quick-slot pill "1"
+    CHECK(std::count(onCell.begin(), onCell.end(), "2") == 1 && std::count(onCell.begin(), onCell.end(), "1") == 1 &&
+          std::count(onCell.begin(), onCell.end(), "100") == 0);
+    o = scr.frame(s, keys({UiKey::Right, UiKey::Right, UiKey::Right}), vp);
+    CHECK(scr.focus() == TargetId({TargetKind::GridCell, 3}));
+    o = scr.frame(s, {}, vp);
+    CHECK(rowValue(o.draw, kAmountLabel) == "2" && hasText(o.draw, "Charges"));
+
+    // Use one (confirmed by the amount alone: the charges pair and the equipped flag stay).
+    ActionTracker t;
+    Snapshot before = step(w, st);
+    t.begin({1, ActionKind::UseOrEquip, 3, w.elixir}, before);
+    w.g.setStack(w.elixir, 1);
+    s = step(w, st);
+    auto r = t.update(s);
+    CHECK(r && r->outcome == Outcome::Confirmed);
+    e = s.itemAtCell(3);
+    CHECK(e && e->amount == 1 && !e->stacked() && e->cellBadge().empty());
+    o = scr.frame(s, {}, vp);
+    onCell = textsIn(o.draw, cell);
+    // One item: no amount; the only "1" is the quick-slot pill.
+    CHECK(std::count(onCell.begin(), onCell.end(), "1") == 1 && std::count(onCell.begin(), onCell.end(), "100") == 0);
+    CHECK(rowValue(o.draw, kAmountLabel) == "1");
+
+    // The last one: the cell empties.
+    w.g.clearCell(3);
+    s = w.read(st);
+    CHECK(!s.itemAtCell(3) && s.items.size() == 4);
+    // A word outside 1..9999 (not a stack yet, garbage) reads as one item.
+    World g2;
+    g2.g.setStack(g2.elixir, 0);
+    Snapshot s2 = g2.read(st);
+    CHECK(s2.itemAtCell(3) && s2.itemAtCell(3)->amount == 1);
+    g2.g.setStack(g2.elixir, -5);
+    s2 = g2.read(st);
+    CHECK(s2.itemAtCell(3) && s2.itemAtCell(3)->amount == 1);
+}
+
 void testReader() {
     World w;
     ReaderState st;
@@ -1066,6 +1157,7 @@ int main() {
     testCodec();
     testReader();
     testExternalBowAndQuiver();
+    testElixirStack();
     testShopAndGuards();
     testExchange();
     testActions();

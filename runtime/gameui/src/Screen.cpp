@@ -1135,10 +1135,10 @@ void InventoryScreen::drawGrid(const Snapshot& s, DrawList& d, bool dimFiltered)
             const Rect bar{r.x + lf_.px(10), r.bottom() - lf_.px(12), r.w - lf_.px(20), lf_.px(5)};
             d.rect(bar, withAlpha(th.inset, alpha));
             d.rect({bar.x, bar.y, bar.w * f, bar.h}, withAlpha(f < 0.25f ? th.bad : th.good, alpha));
-        } else if (it.quantityMax > 0 && qk != QuantityKind::None) {
-            d.text({r.x, r.bottom() - lf_.px(30), r.w - lf_.px(10), lf_.px(26)}, fmtInt(it.quantity), FontRole::Small,
-                   fontPx(FontRole::Small), withAlpha(th.text, alpha), TextAlign::Right);
         }
+        if (const std::string badge = it.cellBadge(); !badge.empty())
+            d.text({r.x, r.bottom() - lf_.px(30), r.w - lf_.px(10), lf_.px(26)}, badge, FontRole::Small,
+                   fontPx(FontRole::Small), withAlpha(th.text, alpha), TextAlign::Right);
     }
     if (focusCell)
         d.outline(focusCell->rect, th.select, lf_.px(1.75f), lf_.px(2));
@@ -1180,6 +1180,13 @@ void InventoryScreen::drawItemDetail(const Snapshot& s, const ItemEntry* it, con
     const Rect rule = lf_.map({x, y, w, 0});
     d.line({rule.x, rule.y}, {rule.right(), rule.y}, withAlpha(th.brassDim, 200), lf_.px(1.5f));
     y += 18;
+
+    // A stack (elixirs, potions, quivers): how many, above the native stat lines.
+    if (it->stackable) {
+        textD(d, {x, y, w, 36}, kAmountLabel, FontRole::Body, th.textMuted);
+        textD(d, {x, y, w, 36}, fmtInt(it->amount), FontRole::Body, th.text, TextAlign::Right);
+        y += 40;
+    }
 
     // Stat lines as label / value rows.
     if (it->details.size() <= 1 && !it->detailsCurrent) {

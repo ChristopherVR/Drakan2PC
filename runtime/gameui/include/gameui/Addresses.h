@@ -101,6 +101,11 @@ inline constexpr uint32_t kInstance = 0xfc;        // *(h+0xfc)+0x10 = instance 
 inline constexpr uint32_t kInstanceData = 0x10;
 inline constexpr uint32_t kQtyCur = 0x14; // dec()
 inline constexpr uint32_t kQtyMax = 0x18; // dec()
+// Items in a usable's (type 11) stack, plain s32: elixirs, potions and quivers stack in one cell. The native grid draw
+// 437170 passes it to the item draw 434e80, which prints it (4315b0) when > 1. A pickup that joins a stack raises it;
+// using one lowers it (the +0x14 / +0x18 pair stays).                    [dec] 437170, 434e80 [RAM] issue-12 note
+inline constexpr uint32_t kStackCount = 0x2c;
+inline constexpr uint32_t kMaxStackCount = 9999; // sanity bound; anything outside 1..this reads as 1
 inline constexpr uint32_t kTypeWeapon = 10;
 inline constexpr uint32_t kTypeUsable = 11;
 } // namespace actor
