@@ -651,3 +651,13 @@ look rearranged there. The far colour map stays mapped from above.
 bits (`PF_TERRAIN`, `PF_TERRAIN_SIDE`) that `D3D11Backend::Impl::prepareTerrain` (`d3d11_terrain.cpp`) sets per draw.
 Constant buffer b3, noise volume t2, normal grid t4, sampler s2. The texture is sampled in one loop over up to three
 projections; a draw without the side flag runs one iteration with weight 1.
+
+## Item overlays: depth clear under an item's parts (2026-11-28)
+
+The native 3D item overlay `3aff40` (Quick Inventory bar `3b1288`, its pickup display, the item list `2c1210`) draws
+an item over the finished world after a depth-only clear (`1342e0` -> `146df8`, ZTST ALWAYS, FBMSK all, Z 0) of the
+projected box of the item handle only (handle `+0xb8`, projected by `1336a8`). The item's part objects (instance
+`+0x108`, drawn by `3b0868`) are outside that box, so nearer level geometry hid them (GitHub issue 22: the club's head
+behind a tree trunk); the original code has the same gap. `drakan_item_overlay.cpp` widens the rectangle of that one
+call (return address `3b0784`) by the parts' projected boxes; the GS packet stays the game's own.
+`DRAKAN_ITEM_OVERLAY_DEPTH=0` turns it off. Details: [issue-22-quick-slot-depth.md](../journal/2026-11-28/issue-22-quick-slot-depth.md).

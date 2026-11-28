@@ -127,9 +127,10 @@ add_executable(pose_mirror_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/pose_m
 add_executable(mp_death_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/mp_death_policy_tests.cpp")
 add_executable(save_pages_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/save_pages_policy_tests.cpp")
 add_executable(crystals_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/crystals_policy_tests.cpp")
+add_executable(item_overlay_policy_test "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/tests/item_overlay_policy_tests.cpp")
 foreach(target pacing_bridge_test vblank_handoff_test frame_cadence_test widescreen_policy_test
         inventory_views_policy_test tab_preview_policy_test pose_mirror_test mp_death_policy_test
-        save_pages_policy_test crystals_policy_test)
+        save_pages_policy_test crystals_policy_test item_overlay_policy_test)
   target_include_directories(${target} PRIVATE
     "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib/gs"
     "${PS2X_RUNTIME_SOURCE}/ps2xRuntime/src/lib"
@@ -324,6 +325,7 @@ add_test(NAME pose_mirror COMMAND pose_mirror_test)
 add_test(NAME mp_death_policy COMMAND mp_death_policy_test)
 add_test(NAME save_pages_policy COMMAND save_pages_policy_test)
 add_test(NAME crystals_policy COMMAND crystals_policy_test)
+add_test(NAME item_overlay_policy COMMAND item_overlay_policy_test)
 if(TARGET native_display_commit_test)
   add_test(NAME native_display_commit COMMAND native_display_commit_test)
 endif()
