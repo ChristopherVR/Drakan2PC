@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <vector>
 
 namespace drakan_dragon_breath {
 namespace {
@@ -55,6 +56,15 @@ constexpr uint32_t kRider = 0x4d8u;            // dragon instance: u16 registry 
 constexpr uint32_t kFlags2 = 0x94u, kMounted = 0x1u, kAttackBusy = 0x400000u;
 constexpr uint32_t kBreathChosen = 0x6a4u, kBreathList = 0x6a8u, kBreathCount = 0x6b0u;
 constexpr uint32_t kFrame = 0x60u; // trampoline stack frame: message at +0x10, payload at +0x20
+// Dragon Power-up (Order of the Flame Quickening crystals): a dragon that flies into a visible one gains its breath,
+// but the PS2 class never removes itself after that (the disc only has power-ups a Dragon link takes at load, hidden),
+// so it stays drawn around Arokh. The PC engine deletes a taken power-up: when the controlled dragon's breath count
+// grows, the power-ups he is in are killed.
+constexpr uint32_t kPowerUpClass = 0x10039u;
+constexpr uint32_t kKillActor = drakan_layout::fn::kKillActor;
+constexpr uint32_t kPosition = 0x14u;    // handle: float x, y, z
+constexpr float kTakeRadius = 4000.0f;   // a touched power-up's centre is within this of the dragon's
+constexpr float kReleaserRadius = 64.0f; // the generator that released a power-up sits where it floats
 
 bool g_enabled = false, g_log = true, g_give = false;
 uint32_t g_slot1 = 0, g_slot2 = 0;
@@ -80,6 +90,7 @@ bool g_inFlight = false;
 uint32_t g_inflightSerial = 0, g_ticks = 0, g_postTick = 0;
 uint32_t g_tried = 0;       // dragon handle the stand-in was given to (or refused for) in this level
 uint32_t g_riderLogged = 0; // rider handle whose cleared state was logged
+uint32_t g_breathDragon = 0, g_breathCount = 0; // controlled dragon and his breath count at the last tick
 
 void logf(const char* fmt, ...) {
     if (!g_log || g_logBudget.fetch_sub(1) <= 0)
@@ -356,6 +367,58 @@ void releaseRider(uint8_t* rdram, uint32_t ctx, uint32_t dragon) {
     }
 }
 
+float distanceSq(const uint8_t* ram, uint32_t a, uint32_t b) {
+    float d2 = 0;
+    for (uint32_t i = 0; i < 12; i += 4) {
+        const float d = std::bit_cast<float>(guest::readHeap32(ram, a + kPosition + i)) -
+                        std::bit_cast<float>(guest::readHeap32(ram, b + kPosition + i));
+        d2 += d * d;
+    }
+    return d2;
+}
+
+void removeTakenPowerUp(drakan_input::IGuest& guest, uint8_t* ram, uint32_t ctx, uint32_t h, uint32_t dragon) {
+    const uint32_t count = guest::readHeap32(ram, dragon + kBreathCount);
+    const bool grew = h == g_breathDragon && count > g_breathCount;
+    g_breathDragon = h;
+    g_breathCount = count;
+    if (!grew || drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
+        return;
+    const uint32_t refs = guest::readHeap32(ram, ctx + 0x7cu), n = guest::readHeap32(ram, ctx + 0x84u);
+    if (!ramPtr(refs) || n > 0x10000u)
+        return;
+    std::vector<uint32_t> taken;
+    for (uint32_t i = 0; i < n; ++i) {
+        const uint32_t p = guest::readHeap32(ram, refs + i * 8u);
+        if (!ramPtr(p, 0x100) || classOf(ram, p) != kPowerUpClass || distanceSq(ram, p, h) > kTakeRadius * kTakeRadius)
+            continue;
+        // The taken one clears its visible bit at the take and sets it again on its next update. The converted shrine
+        // also keeps an inert, model-less placed copy at the same spot: it goes too.
+        taken.push_back(p);
+    }
+    std::vector<uint32_t> releasers;
+    for (uint32_t i = 0; i < n && !taken.empty(); ++i) {
+        // The converter releases a Quickening crystal from an Object Generator where it floats, which would release a
+        // new one once this one is gone: that generator goes with it (the lightning generators around it stay).
+        const uint32_t g = guest::readHeap32(ram, refs + i * 8u);
+        if (!ramPtr(g, 0x100) || classOf(ram, g) != kGeneratorClass)
+            continue;
+        for (uint32_t p : taken)
+            if (distanceSq(ram, g, p) <= kReleaserRadius * kReleaserRadius) {
+                releasers.push_back(g);
+                break;
+            }
+    }
+    for (uint32_t p : taken) {
+        logf("dragon %x took power-up %x (breath count %u): removing it", h, p, count);
+        guest.call(drakan_input::GuestCall(kKillActor).arg(ctx).arg(p));
+    }
+    for (uint32_t g : releasers) {
+        logf("removing the generator %x that released it", g);
+        guest.call(drakan_input::GuestCall(kKillActor).arg(ctx).arg(g));
+    }
+}
+
 } // namespace
 
 void install(PS2Runtime& rt) {
@@ -428,6 +491,7 @@ void beforePadMgr(drakan_input::IGuest& guest, uint8_t* rdram, bool gameplay) {
     if (!ramPtr(dragon, kBreathCount + 4))
         return;
     releaseRider(rdram, ctx, dragon);
+    removeTakenPowerUp(guest, rdram, ctx, h, dragon);
 
     if (!g_give || g_inFlight || guest.postBusy() || h == g_tried ||
         drakan_game::current() != drakan_game::Game::Ootf || drakan_arena::active())
