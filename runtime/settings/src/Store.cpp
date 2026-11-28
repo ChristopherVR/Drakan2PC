@@ -677,6 +677,12 @@ const std::vector<Field>& fields() {
         {"gamepad", "deadzone", true, GETF(controls.gamepadDeadzone, "%.2f"), SETF(controls.gamepadDeadzone), nullptr},
         {"gamepad", "layout", true, GETS(controls.gamepadLayout), SETS(controls.gamepadLayout), nullptr},
         {"gamepad", "debug_menu_combo", true, GETS(controls.debugMenuCombo), SETS(controls.debugMenuCombo), nullptr},
+        {"gamepad", "directional_attack", true, GETS(controls.padDirectionalAttack),
+         SETS(controls.padDirectionalAttack), nullptr},
+        {"gamepad", "directional_modifier", true, GETS(controls.padDirectionalModifier),
+         SETS(controls.padDirectionalModifier), nullptr},
+        {"gamepad", "stick_click_crouch", true, GETB(controls.padStickCrouch), SETB(controls.padStickCrouch), nullptr},
+        {"gamepad", "quick_bar_stick", true, GETB(controls.padQuickBarStick), SETB(controls.padQuickBarStick), nullptr},
     };
     return f;
 }
@@ -903,6 +909,14 @@ std::string settingLabel(const std::string& key) {
         return "On-foot stick layout";
     if (key == "input.gamepad.debug_menu_combo")
         return "Debug menu shortcut";
+    if (key == "input.gamepad.directional_attack")
+        return "Stick directional attacks";
+    if (key == "input.gamepad.directional_modifier")
+        return "Directional attack button";
+    if (key == "input.gamepad.stick_click_crouch")
+        return "L3 crouches";
+    if (key == "input.gamepad.quick_bar_stick")
+        return "Right stick browses quick items";
     if (key == "input.keyboard.directional_attack")
         return "Directional attacks";
     static const struct {

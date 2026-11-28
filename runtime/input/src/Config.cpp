@@ -85,6 +85,10 @@ const ConfigField kFields[] = {
     FIELD("gamepad", "enabled", c.gamepadEnabled = v.b),
     FIELD("gamepad", "deadzone", c.gamepadDeadzone = v.f),
     FIELD("gamepad", "debug_menu_combo", c.debugMenuCombo = v.pad),
+    FIELD("gamepad", "directional_attack", c.padDirectionalAttack = static_cast<DirectionalAttackMode>(v.choice)),
+    FIELD("gamepad", "directional_modifier", c.padDirectionalModifier = v.pad),
+    FIELD("gamepad", "stick_click_crouch", c.padStickCrouch = v.b),
+    FIELD("gamepad", "quick_bar_stick", c.padQuickBarStick = v.b),
     // [menu]
     FIELD("menu", "mouse", c.menuMouse = v.b),
     FIELD("menu", "inventory_mouse", c.inventoryMouse = v.b),

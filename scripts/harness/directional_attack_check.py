@@ -5,6 +5,9 @@ An ordinary attack matching both controls is deliberately insufficient to pass.
 With the default [keyboard] directional_attack = modifier, the "wasd" control holds Left Alt
 (DIRECTIONAL_ATTACK) and must match the arrow move; the "plain" control holds only the movement
 key and must stay an ordinary moving attack that keeps Rynn moving.
+With --pad, two controller controls are added ([gamepad] directional_attack = modifier, issue #18):
+"pad" holds L2, pushes the left stick and presses Square and must match the arrow move; "padplain"
+pushes the stick and presses Square without L2 and must not.
 """
 
 from __future__ import annotations
@@ -22,9 +25,12 @@ from types import SimpleNamespace
 import disc_combat_check as combat
 
 DIRECTIONS = {"up": ("UP", "W"), "down": ("DOWN", "S"), "left": ("LEFT", "A"), "right": ("RIGHT", "D")}
+STICK = {"up": (0, 100), "down": (0, -100), "left": (-100, 0), "right": (100, 0)}
+PAD_MODIFIER = "L2"
 ATTACK_FRAMES = tuple(range(1, 42, 4))
 MODIFIER = "LALT"
 CONTROLS = ("arrow", "wasd", "plain")
+PAD_CONTROLS = ("pad", "padplain")
 PLAIN_HOLD = 60  # frames the plain control keeps walking, through the whole attack window
 
 
@@ -69,7 +75,7 @@ def native_pose(path):
     return result
 
 
-def recipe(directions):
+def recipe(directions, pad=False):
     lines = ["0 sync play 90", "2 key tap Q"]
     frame = 100
     for direction in ("neutral", *directions):
@@ -78,22 +84,36 @@ def recipe(directions):
         else:
             arrow, move = DIRECTIONS[direction]
             controls = (("arrow", arrow), ("wasd", move), ("plain", move))
+            if pad:
+                controls += tuple((control, direction) for control in PAD_CONTROLS)
         for control, key in controls:
             label = f"{direction}_{control}"
             lines.append(f"{frame} dump ram_{label}_base")
-            if control == "wasd":
-                lines.append(f"{frame + 2} key down {MODIFIER}")
-            if key:
-                lines.append(f"{frame + 2} key down {key}")
-            lines.append(f"{frame + 10} dump ram_{label}_move")
-            lines.append(f"{frame + 12} button down 1")
+            if control in PAD_CONTROLS:
+                x, y = STICK[key]
+                if control == "pad":
+                    lines.append(f"{frame + 2} pad down {PAD_MODIFIER}")
+                lines.append(f"{frame + 2} stick left {x} {y}")
+                lines.append(f"{frame + 10} dump ram_{label}_move")
+                lines.append(f"{frame + 12} pad down SQUARE")
+                lines.append(f"{frame + 18} pad up SQUARE")
+                lines.append(f"{frame + (PLAIN_HOLD if control == 'padplain' else 20)} stick left 0 0")
+                if control == "pad":
+                    lines.append(f"{frame + 20} pad up {PAD_MODIFIER}")
+            else:
+                if control == "wasd":
+                    lines.append(f"{frame + 2} key down {MODIFIER}")
+                if key:
+                    lines.append(f"{frame + 2} key down {key}")
+                lines.append(f"{frame + 10} dump ram_{label}_move")
+                lines.append(f"{frame + 12} button down 1")
+                lines.append(f"{frame + 18} button up 1")
+                if key:
+                    lines.append(f"{frame + (PLAIN_HOLD if control == 'plain' else 20)} key up {key}")
             for offset in ATTACK_FRAMES:
                 lines.append(f"{frame + 12 + offset} dump ram_{label}_attack_{offset:02}")
                 if offset in (5, 17):
                     lines.append(f"{frame + 12 + offset} shot {label}_attack_{offset:02}")
-            lines.append(f"{frame + 18} button up 1")
-            if key:
-                lines.append(f"{frame + (PLAIN_HOLD if control == 'plain' else 20)} key up {key}")
             if control == "wasd":
                 lines.append(f"{frame + 20} key up {MODIFIER}")
             lines.extend([f"{frame + 100} dump ram_{label}_released", f"{frame + 120} dump ram_{label}_idle"])
@@ -114,11 +134,12 @@ def recipe(directions):
     return "\n".join(sorted(lines, key=lambda line: int(line.split()[0]))) + "\n"
 
 
-def evaluate(samples, directions):
+def evaluate(samples, directions, pad=False):
     checks, traces = {}, {}
+    controls = CONTROLS + (PAD_CONTROLS if pad else ())
     try:
         for direction in ("neutral", *directions):
-            for control in ("neutral",) if direction == "neutral" else CONTROLS:
+            for control in ("neutral",) if direction == "neutral" else controls:
                 label = f"{direction}_{control}"
                 base, move, released, idle = (
                     samples[f"ram_{label}_{phase}"] for phase in ("base", "move", "released", "idle")
@@ -162,6 +183,13 @@ def evaluate(samples, directions):
             first = samples[f"ram_{direction}_plain_attack_{ATTACK_FRAMES[0]:02}"]["rynn"]["position"]
             last = samples[f"ram_{direction}_plain_attack_{ATTACK_FRAMES[-1]:02}"]["rynn"]["position"]
             checks[f"{direction}_plain_keeps_moving"] = math.dist(first, last) > 10
+            if pad:
+                # Controller: L2 + stick + Square is the arrow move; stick + Square alone is not.
+                stick = set(traces[f"{direction}_pad"]["attack_only"])
+                checks[f"{direction}_pad_same_native_move"] = bool((arrow & stick) - neutral)
+                checks[f"{direction}_pad_no_extra_attack"] = stick == arrow
+                padplain = set(traces[f"{direction}_padplain"]["attack_only"])
+                checks[f"{direction}_padplain_not_directional"] = not (padplain & (arrow - neutral))
         pos = lambda label: samples[label]["rynn"]["position"]
         checks["movement_after_attack"] = math.dist(pos("ram_movement_before"), pos("ram_movement_after")) > 10
         checks["movement_release"] = math.dist(pos("ram_movement_idle1"), pos("ram_movement_idle2")) < 1
@@ -177,6 +205,7 @@ def main():
     parser.add_argument("--name", required=True)
     parser.add_argument("--direction", choices=DIRECTIONS, action="append", help="default: all four")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--pad", action="store_true", help="also check the controller (L2 + left stick + Square)")
     parser.add_argument("--analyze", type=Path, help="re-evaluate an existing run report without launching")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", args.name):
@@ -187,7 +216,7 @@ def main():
     if not args.analyze:
         generated = combat.ROOT / "build/harness" / f"{args.name}-recipe.txt"
         generated.parent.mkdir(parents=True, exist_ok=True)
-        generated.write_text(recipe(directions), encoding="utf-8", newline="\n")
+        generated.write_text(recipe(directions, args.pad), encoding="utf-8", newline="\n")
         exe_hash = hashlib.sha256(exe.read_bytes()).hexdigest()
         combat.run(
             SimpleNamespace(
@@ -206,7 +235,7 @@ def main():
     report = json.loads((out / "report.json").read_text(encoding="utf-8"))
     for label, sample in report["samples"].items():
         sample["pose"] = native_pose(out / f"{label}.ram")
-    checks, traces = evaluate(report["samples"], directions)
+    checks, traces = evaluate(report["samples"], directions, args.pad)
     result = {
         "exe_sha256": exe_hash,
         "directions": directions,

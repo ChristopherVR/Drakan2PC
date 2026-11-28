@@ -335,6 +335,7 @@ private:
     void carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch,
                            bool grounded);
     bool meleeDirections_ = false; // current native Rynn has a drawn melee weapon, no bow or summon
+    PadSchemeButtons padScheme_;   // the live scheme's Attack / Crouch buttons on foot (none on Arokh)
     uint64_t meleeIdentity_ = 0;   // current player/weapon; changing either cancels a buffered attack
     bool strafeActive_ = false;
     int32_t strafeOrigAxis_ = 0;

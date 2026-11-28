@@ -262,6 +262,9 @@ QuickInventoryBridge g_quickInventory;
 QuickSlotDriver g_quickSlots; // QUICK1..QUICK9 keys through the native Quick Inventory bar (input/QuickSlots.h)
 QuickInventoryGesture g_quickInventoryGesture;
 QuickInventoryGesture::Sample g_quickInventorySample;
+QuickBarStickStepper g_quickBarStick; // [gamepad] quick_bar_stick: the right stick steps the held bar
+uint16_t g_quickBarStep = 0;          // D-pad bits pressed for the bar this update
+bool g_quickBarStickOwned = false;    // the right stick is the bar's while it is held: center it for the game
 PS2Runtime::RecompiledFunction g_origQuickInventoryHasItems = nullptr;
 uint32_t g_heldQuickInventoryCtl = 0, g_heldQuickInventoryIndex = 0;
 bool g_quickWeaponSelected = false;
@@ -551,6 +554,11 @@ void hookPadRead(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
         s[3] &= static_cast<uint8_t>(~g_quickInventorySample.weaponTap);
         s[2] &= static_cast<uint8_t>(~(bits >> 8));
         s[3] &= static_cast<uint8_t>(~bits);
+        if (g_quickBarStickOwned) {
+            s[2] &= static_cast<uint8_t>(~(g_quickBarStep >> 8));
+            s[3] &= static_cast<uint8_t>(~g_quickBarStep);
+            s[4] = s[5] = 0x80; // the right stick steps the bar: Rynn does not turn and the view stays put
+        }
         // Quick-slot keys: the scheme's Quick Inventory / Attack buttons, first released then pressed (active low).
         const QuickSlotDriver::Overlay quick = g_quickSlots.overlay();
         s[2] |= static_cast<uint8_t>(quick.up >> 8);
@@ -680,6 +688,9 @@ void quickSlotsTick(RecompGuest& g, int scr, bool gameplay) {
             g_heldQuickInventoryCtl = ctl;
             g_heldQuickInventoryIndex = g.read32(ctl + q::kListIndex);
         }
+        g_quickBarStickOwned = m.config().padQuickBarStick && g_quickInventoryGesture.holding() && barShown &&
+                               ctl == g_heldQuickInventoryCtl;
+        g_quickBarStep = g_quickBarStick.update(g_quickBarStickOwned, f.gamepad.rx, f.frameSeconds);
         if (g_quickInventorySample.holdReleased && barShown && ctl == g_heldQuickInventoryCtl) {
             const auto items = nativeQuickList(g, ctl);
             const uint32_t index = g.read32(ctl + q::kListIndex);

@@ -30,7 +30,7 @@ Default PC bindings. Rebind anything under **F1 → Key Bindings**. Linux and br
 
 The keys are bound to PS2 pad buttons, so their meaning follows the game's own controller scheme (**Options > Controls**, schemes A, B and C) and changes while Rynn rides Arokh. The table is scheme A on foot. On Arokh in scheme A, **E** steps to the previous breath / item and **Q** attacks; schemes B and C move most actions to other buttons (in C, for example, E jumps and Q attacks). **F1 → Controls** names every key for the scheme the game is running, with the Arokh meaning next to it, and the controller view lists both layouts.
 
-On the Windows PAL build, tap the controller's **Quick Inventory** button on foot to draw or sheathe your weapon. Hold the button to browse quick-slotted items. To switch weapons, hold it while selecting a different weapon with the D-pad, then release it. Use the normal confirm button to use a consumable.
+On the Windows PAL build, tap the controller's **Quick Inventory** button on foot to draw or sheathe your weapon. Hold the button to browse quick-slotted items. To switch weapons, hold it, push the right stick left or right (or use the D-pad) to highlight a different weapon, then release it. Use the normal confirm button to use a consumable.
 
 Quickload discards unsaved progress without asking and uses its own slot, not your newest manual save. See [Saves & updates](saves.md).
 
@@ -51,6 +51,8 @@ Open **F1 → Key Bindings** to change actions, and the mouse settings for sensi
 ## Playing with a controller
 
 Open **PC Settings → Controls** to see the active controller buttons for Rynn and Arokh. The original **Options → Controls** menu offers three button schemes and the vertical look inversion setting.
+
+In combat you can keep your thumbs on the sticks. With a melee weapon drawn, hold **L2 / LT**, push the left stick and attack to make the special move in that direction (the D-pad still works too). Click the left stick (**L3**) to crouch. **PC Settings → Controls → Gamepad** has **Stick directional attacks** (Hold button, Tap stick with attack, Always, D-pad only), **Directional attack button**, **L3 crouches** and **Right stick browses quick items**.
 
 Under **PC Settings → Controls → Gamepad**, **On-foot stick layout** defaults to **Automatic**. In Order of the Flame, the left stick moves and strafes while the right stick turns Rynn and looks up or down. Choose **Twin-stick** to use that layout in The Ancients' Gates too, or **Native** to use the selected original scheme on foot. Mounted controls follow the original scheme.
 

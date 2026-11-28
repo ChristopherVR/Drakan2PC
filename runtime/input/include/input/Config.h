@@ -98,6 +98,14 @@ struct Config {
     bool gamepadEnabled = true;
     float gamepadDeadzone = 0.15f;
     GamepadLayout gamepadLayout = GamepadLayout::Auto;
+    // [gamepad] directional_attack: when the left stick turns the controller's melee attack into a directional special
+    // move, so the thumb never leaves the stick for the D-pad (issue #18). Modifier: only while directionalModifier is
+    // held (L2 by default; the button keeps its own meaning). Tap: the stick was pushed within
+    // kDirectionalTapSeconds of the attack. Always: whenever the stick is pushed. Off: the D-pad only.
+    DirectionalAttackMode padDirectionalAttack = DirectionalAttackMode::Modifier;
+    uint16_t padDirectionalModifier = 0x1; // [gamepad] directional_modifier (DualShock mask, 0 = none): L2
+    bool padStickCrouch = true; // [gamepad] stick_click_crouch: L3 is the scheme's Crouch on foot (a dodge on the move)
+    bool padQuickBarStick = true; // [gamepad] quick_bar_stick: while Quick Inventory is held, the right stick steps
     // [gamepad] debug_menu_combo: controller buttons held together for kDebugMenuHoldMs open / close the debug menu
     // (DualShock mask; 0 = none). Default L3 + R3: both stick clicks, which have no game function.
     uint16_t debugMenuCombo = 0x200 | 0x400;

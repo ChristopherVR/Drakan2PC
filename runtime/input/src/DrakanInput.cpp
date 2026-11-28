@@ -1,5 +1,6 @@
 #include "input/DrakanInput.h"
 #include "input/CameraCarry.h"
+#include "input/QuickSlots.h"
 #include <algorithm>
 #include <bit>
 #include <chrono>
@@ -550,7 +551,7 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
             f.mouseReleased &= static_cast<uint8_t>(~MBTN_RIGHT);
         }
         if (!hostOwned())
-            s = synthesizePad(cfg_, f, layer, menu, direct, walkActive_, ps_, meleeDirections_);
+            s = synthesizePad(cfg_, f, layer, menu, direct, walkActive_, ps_, meleeDirections_, padScheme_);
         if (flyCamera)
             s.lx = s.ly = s.rx = s.ry = 0x80;
         if (debugFlightInput_ == DebugFlightInput::Rynn) {
@@ -1134,6 +1135,12 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon, bool orderOfTheFlam
     }
     meleeDirections_ = melee;
     meleeIdentity_ = meleeIdentity;
+    // The controller's Attack / Crouch follow the live scheme (A: Square / Cross, B: Cross / L2, C: R1 / L2).
+    padScheme_ = {};
+    if (!dragon && hasPad && cfg_.addrPadMgr) {
+        padScheme_.attack = nativePadButton(g, cfg_.addrPadMgr, quickslot::kCmdAttack);
+        padScheme_.crouch = nativePadButton(g, cfg_.addrPadMgr, quickslot::kCmdCrouch);
+    }
     const bool casting = summon >= 1 && summon <= 4;
     const bool twinStickLayout = cfg_.gamepadLayout == GamepadLayout::TwinStick ||
                                  (cfg_.gamepadLayout == GamepadLayout::Auto && orderOfTheFlame);

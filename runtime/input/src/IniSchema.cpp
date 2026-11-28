@@ -264,6 +264,11 @@ std::vector<KeySpec> buildKeys() {
         boolKey("gamepad", "enabled", "1"),
         floatKey("gamepad", "deadzone", "0.15"),
         {"gamepad", "debug_menu_combo", Type::PadCombo, "L3+R3"},
+        choiceKey("gamepad", "directional_attack", "modifier",
+                  {{"modifier", 0}, {"tap", 1}, {"always", 2}, {"off", 3}}),
+        {"gamepad", "directional_modifier", Type::PadCombo, "L2"},
+        boolKey("gamepad", "stick_click_crouch", "1"),
+        boolKey("gamepad", "quick_bar_stick", "1"),
         // [menu]
         boolKey("menu", "mouse", "1"),
         boolKey("menu", "inventory_mouse", "1"),
@@ -469,6 +474,10 @@ layout = auto               ; auto = twin-stick on foot in Order of the Flame, n
 enabled = 1                ; XInput pad is merged with keyboard/mouse
 deadzone = 0.15
 debug_menu_combo = L3+R3   ; hold 0.5 s to open / close the debug menu (Gameplay > Developer); NONE = off
+directional_attack = modifier ; when left stick + Attack is a directional special move: modifier = only while directional_modifier is held, tap = push the stick and attack together, always = whenever the stick is pushed, off = D-pad only
+directional_modifier = L2  ; held for a stick directional attack (it keeps its own meaning, Next Target in scheme A); NONE = off
+stick_click_crouch = 1     ; L3 crouches on foot, so a moving dodge keeps the thumb on the stick
+quick_bar_stick = 1        ; while Quick Inventory is held, push the right stick left / right to step through the bar; release to equip
 
 [menu]
 mouse = 1                  ; the mouse drives the game's own menus: hover = highlight, left click = confirm, wheel = up/down (or slider left/right), right click = back

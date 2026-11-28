@@ -56,8 +56,22 @@ uint8_t dither(PadSynthState& st, int idx, uint8_t want) {
 }
 } // namespace
 
+uint16_t padStickDirections(float lx, float ly) {
+    uint16_t d = 0;
+    if (ly >= kPadDirectionThreshold)
+        d |= Pad::UP;
+    else if (ly <= -kPadDirectionThreshold)
+        d |= Pad::DOWN;
+    if (lx >= kPadDirectionThreshold)
+        d |= Pad::RIGHT;
+    else if (lx <= -kPadDirectionThreshold)
+        d |= Pad::LEFT;
+    return d;
+}
+
 PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vector<Binding>& layer, bool menuActive,
-                        bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack) {
+                        bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack,
+                        PadSchemeButtons scheme) {
     PadSample s;
     bool ls[4] = {}, rs[4] = {};
     bool modifierHeld = false;
@@ -169,8 +183,11 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
     uint8_t brx = encodeStickLinear(rx), bry = encodeStickLinear(ry);
 
     // --- XInput pad merges in: buttons OR, a deflected stick overrides the synthesized one (real-pad encoding)
-    if (cfg.gamepadEnabled && in.gamepad.connected) {
-        s.buttons |= in.gamepad.buttons;
+    const bool pad = cfg.gamepadEnabled && in.gamepad.connected;
+    const uint16_t padButtons = pad ? in.gamepad.buttons : 0;
+    bool padDirectional = false;
+    if (pad) {
+        s.buttons |= padButtons;
         if (in.gamepad.lx != 0 || in.gamepad.ly != 0) {
             blx = encodeStickRaw(in.gamepad.lx);
             bly = encodeStickRaw(-in.gamepad.ly);
@@ -179,7 +196,60 @@ PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vect
             brx = encodeStickRaw(in.gamepad.rx);
             bry = encodeStickRaw(-in.gamepad.ry);
         }
+        // L3: the scheme's Crouch, so a crouch or a moving dodge never takes the thumb off the left stick.
+        if (cfg.padStickCrouch && scheme.crouch && !menuActive && (padButtons & Pad::L3))
+            s.buttons |= scheme.crouch;
     }
+
+    // [gamepad] directional_attack: the controller's own attack with the left stick, decided like the keyboard one
+    // above. The stick gives the D-pad direction (one neutral preparation sample, then attack + direction) and is
+    // centered for that press, so a plain attack keeps the stick moving Rynn.
+    const uint16_t padAttack = scheme.attack;
+    const uint16_t padDirections = pad ? padStickDirections(in.gamepad.lx, in.gamepad.ly) : static_cast<uint16_t>(0);
+    const bool padAttackDown = padAttack && (padButtons & padAttack);
+    const bool padAttackPressed = padAttackDown && !st.padAttackDown;
+    st.padAttackDown = padAttackDown;
+    st.padDirectionAge = (padDirections & ~st.padLastDirections)
+                             ? 0.0f
+                             : std::min(st.padDirectionAge + std::max(in.frameSeconds, 0.0f), 1.0e9f);
+    st.padLastDirections = padDirections;
+    if (!padAttackDown) {
+        st.padLatched = false;
+    } else if (padAttackPressed) {
+        switch (cfg.padDirectionalAttack) {
+            case DirectionalAttackMode::Always:
+                st.padLatched = true;
+                break;
+            case DirectionalAttackMode::Modifier:
+                st.padLatched = cfg.padDirectionalModifier &&
+                                (padButtons & cfg.padDirectionalModifier) == cfg.padDirectionalModifier;
+                break;
+            case DirectionalAttackMode::Tap:
+                st.padLatched = padDirections && st.padDirectionAge <= kDirectionalTapSeconds;
+                break;
+            case DirectionalAttackMode::Off:
+                st.padLatched = false;
+                break;
+        }
+    }
+    if (!allowDirectionalAttack || !padAttack || menuActive || !in.focused || (s.buttons & Pad::START) ||
+        directionalAttack) {
+        st.padPendingDirections = 0;
+    } else if (st.padPendingDirections) {
+        s.buttons |= padAttack | st.padPendingDirections;
+        st.padPendingDirections = 0;
+        padDirectional = true;
+    } else if (padAttackDown && padDirections && st.padLatched) {
+        padDirectional = true;
+        if (padAttackPressed) {
+            st.padPendingDirections = padDirections;
+            s.buttons &= static_cast<uint16_t>(~padAttack);
+        } else {
+            s.buttons |= padDirections;
+        }
+    }
+    if (padDirectional)
+        blx = bly = 0x80;
 
     s.rx = dither(st, 0, brx);
     s.ry = dither(st, 1, bry);

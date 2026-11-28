@@ -754,10 +754,39 @@ void controlsPage(gameui::SettingPage& pg, const Settings& st, const SchemaEnv& 
     b.slider("input.gamepad.deadzone", "Stick dead zone", "Ignore small stick movements.", c.gamepadDeadzone, 0.0f,
              0.5f, "%.2f", 0.01f, env.caps.gamepad && c.gamepadEnabled)
         .needs = "Needs Use gamepad.";
+    const bool pad = env.caps.gamepad && c.gamepadEnabled;
+    b.choice(
+         "input.gamepad.directional_attack", "Stick directional attacks",
+         "When the left stick with Attack makes a special move (needs a drawn melee weapon), so the thumb stays "
+         "on the stick instead of moving to the D-pad. Hold button: only while the Directional attack button is "
+         "held, so Rynn keeps moving through ordinary attacks. Tap: push the stick together with Attack. Always: "
+         "whenever the stick is pushed. D-pad only: the original controls.",
+         {{"modifier", "Hold button"}, {"tap", "Tap stick with attack"}, {"always", "Always"}, {"off", "D-pad only"}},
+         false, pad)
+        .needs = "Needs Use gamepad.";
+    SettingRow& modifier =
+        b.choice("input.gamepad.directional_modifier", "Directional attack button",
+                 "Hold this button, push the left stick and attack for a special move in that direction. The button "
+                 "keeps its own job (L2 is Next Target in controller scheme A, so the move also faces the target).",
+                 {{"L2", "L2 / LT"}, {"R2", "R2 / RT"}, {"L1", "L1 / LB"}, {"NONE", "None"}}, false,
+                 pad && c.padDirectionalAttack == "modifier");
+    modifier.needs = "Needs Use gamepad and Stick directional attacks set to Hold button.";
+    if (modifier.current < 0)
+        modifier.currentLabel = c.padDirectionalModifier; // a custom combination from drakan_input.ini
+    b.toggle("input.gamepad.stick_click_crouch", "L3 crouches",
+             "Click the left stick to crouch on foot, so a crouch or a dodge on the move keeps your thumb on the "
+             "stick. The original Crouch button still works.",
+             false, pad)
+        .needs = "Needs Use gamepad.";
+    b.toggle("input.gamepad.quick_bar_stick", "Right stick browses quick items",
+             "While you hold Quick Inventory, push the right stick left or right to step through the quick items "
+             "(hold it to keep stepping). Release Quick Inventory to equip the highlighted weapon.",
+             false, pad)
+        .needs = "Needs Use gamepad.";
     SettingRow& combo =
         b.choice("input.gamepad.debug_menu_combo", "Debug menu shortcut",
                  "Buttons to hold together for half a second to open or close the developer debug menu (Gameplay > "
-                 "Developer must be on). The stick clicks have no use in the game.",
+                 "Developer must be on).",
                  {{"L3+R3", "L3 + R3 (both stick clicks)"}, {"SELECT+R3", "Select + R3"}, {"NONE", "Off"}}, false,
                  env.caps.gamepad && c.gamepadEnabled && !env.caps.unavailableSettings.contains("general.debug_menu"));
     combo.needs = "Needs Use gamepad and the developer debug menu.";

@@ -1,5 +1,7 @@
 #include "input/QuickSlots.h"
 #include "input/FrameInput.h"
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace drakan_input {
@@ -306,6 +308,44 @@ QuickInventoryGesture::Sample QuickInventoryGesture::update(uint16_t buttons, ui
         return {0, 0, true, false};
     }
     return {binding, 0};
+}
+
+uint16_t QuickBarStickStepper::update(bool active, float rx, float seconds) {
+    if (!active) {
+        reset();
+        return 0;
+    }
+    const auto mask = [](int d) -> uint16_t { return d < 0 ? Pad::LEFT : (d > 0 ? Pad::RIGHT : 0); };
+    int cur = rx >= kOn ? 1 : (rx <= -kOn ? -1 : 0);
+    if (!cur && std::fabs(rx) >= kOff)
+        cur = dir_; // between kOff and kOn: keep the current push
+    if (cur != dir_) {
+        dir_ = cur;
+        timer_ = 0.0f;
+        first_ = true;
+    }
+    if (press_ > 0) {
+        if (--press_ == 0)
+            gap_ = kGapFrames;
+        return mask(stepDir_);
+    }
+    if (gap_ > 0) {
+        --gap_;
+        timer_ -= std::max(seconds, 0.0f);
+        return 0;
+    }
+    if (!dir_)
+        return 0;
+    timer_ -= std::max(seconds, 0.0f);
+    if (timer_ > 0.0f)
+        return 0;
+    stepDir_ = dir_;
+    press_ = kPressFrames - 1;
+    if (press_ == 0)
+        gap_ = kGapFrames;
+    timer_ = first_ ? kRepeatDelay : kRepeatRate;
+    first_ = false;
+    return mask(stepDir_);
 }
 
 } // namespace drakan_input

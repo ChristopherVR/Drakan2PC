@@ -24,6 +24,19 @@ command can rewrite just the turn stick during a pad update. The scoped twin-sti
 entry after the update so a combat transition cannot leave both sticks turning Rynn. Menus, spell gestures and mounted
 play use the native stick mapping.
 
+## Controller combat layout (issue #18, 2026-11-28)
+
+The controller layout keeps both thumbs on the sticks in combat. All of it works on foot only. Arokh and menus get the
+pad unchanged. The scheme's buttons are read from the live keymap (`nativePadButton` for Attack 0x4006 and Crouch
+0x4012) on each `beforePadMgrUpdate`, so schemes A, B and C all work.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `[gamepad] directional_attack` | `modifier` | When the left stick with the scheme's Attack makes a D-pad special move. `modifier`: only while `directional_modifier` is held. `tap`: the stick crossed 0.5 within 0.25 s of the attack. `always`: any stick push. `off`: the D-pad only. It uses the keyboard path (`PadSynth`): the choice is made when Attack is pressed, a new attack gets one neutral sample, then Attack plus the D-pad bits, and the left stick is centered for that press. A plain attack leaves the stick alone. Needs a drawn melee weapon, like the keyboard version. |
+| `[gamepad] directional_modifier` | `L2` | Button (combination) held for `modifier`. It is passed through, so in scheme A L2 still sends Next Target / Strafe and the move faces the target. `NONE` turns the modifier off. |
+| `[gamepad] stick_click_crouch` | 1 | L3 also presses the scheme's Crouch button (Cross in A, L2 in B / C). L3 has no native command. Holding L3 + R3 for the debug menu also crouches. |
+| `[gamepad] quick_bar_stick` | 1 | While the Quick Inventory button is held (the 250 ms hold) and the bar is shown, the right stick's X axis steps the bar with D-pad Left / Right taps (`QuickBarStickStepper`: push past 0.5, back below 0.3; repeats after 0.4 s, then every 0.18 s; 2 pressed and 2 released samples per step). The right stick is centered in the game's sample meanwhile, so Rynn does not turn. Releasing the button equips the highlighted weapon, as before. |
+
 ## Arokh on mouse and keyboard (2026-11-16)
 
 `[mouse] dragon_mode = mouse` (default from controls v3; `direct` is the same value) steers the controlled Arokh like

@@ -184,13 +184,17 @@ struct ControlSettings {
     bool dragonCameraCarry = true;    // [mouse] dragon_camera_carry (the view turns with Arokh's mouse turns at once)
     bool dragonStrafe = true;         // [keyboard] dragon_strafe (A / D strafe Arokh, any dragon_mode)
     bool curveCompensation = true;    // [keyboard] curve_compensation
-    std::string directionalAttack = "modifier"; // [keyboard] directional_attack: modifier | tap | always | off
-    bool gamepadEnabled = true;                 // [gamepad] enabled
-    float gamepadDeadzone = 0.15f;              // [gamepad] deadzone
-    std::string gamepadLayout = "auto";         // [gamepad] layout: auto | native | twin_stick
-    std::string debugMenuCombo = "L3+R3";       // [gamepad] debug_menu_combo (held 0.5 s: debug menu; NONE = off)
-    BindingLayer game;                          // [bindings]
-    BindingLayer menu;                          // [menu_bindings]
+    std::string directionalAttack = "modifier";    // [keyboard] directional_attack: modifier | tap | always | off
+    bool gamepadEnabled = true;                    // [gamepad] enabled
+    float gamepadDeadzone = 0.15f;                 // [gamepad] deadzone
+    std::string gamepadLayout = "auto";            // [gamepad] layout: auto | native | twin_stick
+    std::string debugMenuCombo = "L3+R3";          // [gamepad] debug_menu_combo (held 0.5 s: debug menu; NONE = off)
+    std::string padDirectionalAttack = "modifier"; // [gamepad] directional_attack: modifier | tap | always | off
+    std::string padDirectionalModifier = "L2";     // [gamepad] directional_modifier (button combination; NONE = off)
+    bool padStickCrouch = true;                    // [gamepad] stick_click_crouch (L3 = Crouch on foot)
+    bool padQuickBarStick = true;                  // [gamepad] quick_bar_stick (right stick steps the held bar)
+    BindingLayer game;                             // [bindings]
+    BindingLayer menu;                             // [menu_bindings]
     bool operator==(const ControlSettings&) const = default;
 };
 

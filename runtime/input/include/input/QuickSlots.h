@@ -60,6 +60,7 @@ inline constexpr uint32_t kTypeWeapon = 10;
 // commands
 inline constexpr uint32_t kCmdQuickInventory = 0x403a;
 inline constexpr uint32_t kCmdAttack = 0x4006;
+inline constexpr uint32_t kCmdCrouch = 0x4012;
 inline constexpr int kGridColumns = 8, kGridRows = 3, kGridCells = 24;
 } // namespace quickslot
 
@@ -118,6 +119,8 @@ public:
 
     // A zero binding leaves the sample unchanged but still observes held buttons across menus and focus changes.
     Sample update(uint16_t buttons, uint16_t binding, float seconds, bool canStart = true);
+    // The Quick Inventory button has been held past kHoldSeconds and not released yet (the bar is being browsed).
+    bool holding() const { return pending_ && held_; }
 
 private:
     static constexpr float kHoldSeconds = 0.25f;
@@ -125,6 +128,27 @@ private:
     uint16_t pending_ = 0;
     float elapsed_ = 0.0f;
     bool held_ = false;
+};
+
+// [gamepad] quick_bar_stick: while the held Quick Inventory bar is shown, the right stick steps through it with D-pad
+// Left / Right taps (the bar's own step buttons), so a weapon change never takes the right thumb off its stick
+// (issue #18). Pushing past kOn steps at once, holding repeats after kRepeatDelay and then every kRepeatRate; the stick
+// counts as back in the middle below kOff. Each step is kPressFrames pressed samples and kGapFrames released ones.
+class QuickBarStickStepper {
+public:
+    // active: the held bar is shown. rx: right stick x (-1..1, + right). Returns the D-pad bits to press this sample.
+    uint16_t update(bool active, float rx, float seconds);
+    void reset() { *this = {}; }
+
+    static constexpr float kOn = 0.5f, kOff = 0.3f;
+    static constexpr float kRepeatDelay = 0.4f, kRepeatRate = 0.18f;
+    static constexpr int kPressFrames = 2, kGapFrames = 2;
+
+private:
+    int dir_ = 0, stepDir_ = 0;
+    int press_ = 0, gap_ = 0;
+    float timer_ = 0.0f;
+    bool first_ = false;
 };
 
 } // namespace drakan_input

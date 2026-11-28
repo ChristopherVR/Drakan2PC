@@ -28,7 +28,25 @@ struct PadSynthState {
     bool directionalLatched = false;
     uint16_t lastDirections = 0; // projected keyboard movement directions of the previous sample
     float directionAge = 1.0e9f; // seconds since a movement direction last turned on (Tap mode)
+    // [gamepad] directional_attack: the same decision for the controller's own attack button and left stick
+    uint16_t padPendingDirections = 0;
+    bool padAttackDown = false;
+    bool padLatched = false;
+    uint16_t padLastDirections = 0;
+    float padDirectionAge = 1.0e9f;
 };
+
+// The live controller scheme's buttons for the commands the pad synthesis rewrites (scePad masks, 0 = none: on Arokh,
+// or no button in the scheme). Read from the game's keymap each update (nativePadButton).
+struct PadSchemeButtons {
+    uint16_t attack = 0; // Attack 0x4006 on foot
+    uint16_t crouch = 0; // Crouch 0x4012 on foot
+};
+
+// Left stick deflection beyond which a direction counts for a controller directional attack (per axis).
+constexpr float kPadDirectionThreshold = 0.5f;
+// D-pad bits for a left stick vector (+y = up), 8-way by kPadDirectionThreshold per axis.
+uint16_t padStickDirections(float lx, float ly);
 
 // allowDirectionalAttack: the native actor may perform a directional melee move (drawn melee weapon, on foot). Whether
 // held keyboard movement then turns a new keyboard / mouse attack into one follows cfg.directionalAttack: a plain
@@ -36,8 +54,12 @@ struct PadSynthState {
 // directLook: mouse look is applied by the camera hook, so the mouse contributes nothing to the right stick.
 // The jitter filter of PadMgr_ProcessStickAxis blanks a stick whose byte is within +-47 of centre and changed by
 // <4 counts since the previous sample; the synthesizer dithers such values by 4 counts so they survive.
+// scheme: the live scheme's Attack / Crouch buttons. With an attack button, a controller attack follows
+// cfg.padDirectionalAttack like the keyboard one (left stick for the movement keys, cfg.padDirectionalModifier for
+// DIRECTIONAL_ATTACK); with a crouch button, L3 also presses it (cfg.padStickCrouch). Both only outside menus.
 PadSample synthesizePad(const Config& cfg, const FrameInput& in, const std::vector<Binding>& layer, bool menuActive,
-                        bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack = false);
+                        bool directLook, bool walk, PadSynthState& st, bool allowDirectionalAttack = false,
+                        PadSchemeButtons scheme = {});
 
 // Sony layout: {0x00,0x73, ~hi, ~lo, rx, ry, lx, ly, pressure bytes...}
 void packPadSample(const PadSample& s, uint8_t out[32]);
