@@ -14,6 +14,7 @@
 #endif
 #include "runtime/ee_scheduler.h"
 #include "runtime/ps2_readback.h"
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -412,6 +413,95 @@ inline void ropeUpdateHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     }
     std::memcpy(ram + engine + 0x24, &tick, 4);
 }
+inline PS2Runtime::RecompiledFunction ropeLengthOriginal = nullptr;
+// Runtime class (0x100xx) of the object a carried-group entry (handle u16 at +0) names, 0 when it cannot be read:
+// handle table *(G+7c), (h-1)*8, count *(G+84); the object's class index u16 at +10 into the class table *(G+320)
+// (entries of 0x24 at +8, the class word at +8), as 3ab1f8 reads it. G = *(0x5565d4).
+inline uint32_t ropeCarriedClass(const uint8_t* ram, uint32_t entry) {
+    const uint32_t g = readWord(ram, 0x5565d4u);
+    if (g < 0x100000u || g > PS2_RAM_SIZE - 0x330)
+        return 0;
+    uint16_t h = 0, index = 0;
+    std::memcpy(&h, ram + entry, 2);
+    const uint32_t handles = readWord(ram, g + 0x7c);
+    if (h == 0 || h > readWord(ram, g + 0x84) + 1 || handles < 0x100000u || handles > PS2_RAM_SIZE - h * 8u)
+        return 0;
+    const uint32_t object = readWord(ram, handles + (h - 1u) * 8u), table = readWord(ram, g + 0x320);
+    if (object < 0x100000u || object > PS2_RAM_SIZE - 0x50 || table < 0x100000u || table > PS2_RAM_SIZE - 0x14)
+        return 0;
+    std::memcpy(&index, ram + object + 0x10, 2);
+    const uint32_t classes = readWord(ram, table + 8);
+    if (index == 0xffffu || index > readWord(ram, table + 0x10) || classes < 0x100000u ||
+        classes > PS2_RAM_SIZE - (index + 1u) * 0x24u)
+        return 0;
+    return readWord(ram, classes + index * 0x24u + 8);
+}
+// 3e4310(f12 = change, a0 = rope, a1 = move the carried objects): with a1 set it moves each carried object by
+// rope +24/+30/+3c (the rope's axis) * +48 (its scale) * change, then the group update 3ab1f8 put them back at their
+// bound offsets as soon as the rope swung. Shift the offsets by the same move (ropeCarriedOffsetShift).
+inline void ropeLengthHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t rope = GPR_U32(ctx, 4), carry = GPR_U32(ctx, 5), ra = GPR_U32(ctx, 31);
+    const float change = ctx->f[12];
+    ropeLengthOriginal(ram, ctx, rt);
+    if (!carry || ctx->pc != ra || rope < 0x100000u || rope > PS2_RAM_SIZE - 0x80)
+        return;
+    const uint32_t entity = readWord(ram, rope), group = rope + 0x1c;
+    if (entity < 0x100000u || entity > PS2_RAM_SIZE - 0x50)
+        return;
+    float r[9];
+    for (int k = 0; k < 9; ++k)
+        r[k] = readFloat(ram, entity + 0x20 + 4 * k);
+    const float scale = readFloat(ram, entity + 0x48) * change;
+    const float move[3] = {r[1] * scale, r[4] * scale, r[7] * scale};
+    float shift[3];
+    if (!(change != 0.0f) || !drakan_frame_rate::ropeCarriedOffsetShift(r, move, shift))
+        return;
+    const uint32_t entries = readWord(ram, group + 0x48), count = readWord(ram, group + 0x50);
+    if (count > 256 || entries < 0x100000u || entries > PS2_RAM_SIZE - count * 0x40)
+        return;
+    static std::atomic<int> logged{0};
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint32_t entry = entries + i * 0x40, cls = ropeCarriedClass(ram, entry);
+        if (!drakan_frame_rate::ropeWindsCarried(cls))
+            continue;
+        for (uint32_t k = 0; k < 3; ++k) {
+            const float v = readFloat(ram, entry + 0x10 + 4 * k) + shift[k];
+            std::memcpy(ram + entry + 0x10 + 4 * k, &v, 4);
+        }
+        if (logged.fetch_add(1) < 8)
+            std::fprintf(stderr, "[rope] %08x winds its load (class %x) by %.1f\n", rope, cls,
+                         static_cast<double>(change));
+    }
+}
+inline PS2Runtime::RecompiledFunction ropeRestoreOriginal = nullptr;
+// 3e4a00(a0 = rope, ..., a2 = entity) rebuilds a loaded rope's mesh (3e30d0), which also sets the rope's length
+// (+7c) to the length of its model: a loaded rope forgot how far it had been wound (every Order of the Flame rope
+// came back 8.1 lu long, the length of its mesh). The saved length is still in +7c when it is called: put the mesh
+// back to it, as the rope's own start (3e3378) does with the Starting Length (3e4310 with a1 = 0 moves no objects).
+inline void ropeRestoreHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
+    const uint32_t rope = GPR_U32(ctx, 4), ra = GPR_U32(ctx, 31);
+    const bool valid = rope >= 0x100000u && rope <= PS2_RAM_SIZE - 0x80;
+    const float saved = valid ? readFloat(ram, rope + 0x7c) : 0.0f;
+    ropeRestoreOriginal(ram, ctx, rt);
+    if (!valid || ctx->pc != ra)
+        return;
+    const float model = readFloat(ram, rope + 0x7c);
+    const bool restore = drakan_frame_rate::restoreRopeLength(saved, model);
+    static std::atomic<int> logged{0};
+    if (logged.fetch_add(1) < 32)
+        std::fprintf(stderr, "[rope] restore %08x: saved length %.1f, model %.1f%s\n", rope, static_cast<double>(saved),
+                     static_cast<double>(model), restore ? " -> saved" : "");
+    if (!restore)
+        return;
+    ctx->f[12] = saved - model;
+    SET_GPR_U32(ctx, 4, rope);
+    SET_GPR_U32(ctx, 5, 0u);
+    SET_GPR_U32(ctx, 31, ra);
+    // A tail call: 3e4310 returns to our caller itself. If it yields part-way (its model and allocator calls can), the
+    // scheduler resumes it there, so pc must stay where it left it.
+    ctx->pc = 0x3e4310u;
+    ropeLengthOriginal(ram, ctx, rt);
+}
 inline void timerHook(uint8_t* ram, R5900Context* ctx, PS2Runtime* rt) {
     // This engine boundary follows timestep completion, including calculations
     // that yield and resume. Do not infer completion from a wrapper return.
@@ -559,6 +649,17 @@ inline void install(PS2Runtime& rt) {
     if (drakan_region::build().identityAddresses && rt.hasFunction(0x3e3610u) && !(ropeTick && *ropeTick == '0')) {
         ropeUpdateOriginal = rt.lookupFunction(0x3e3610u);
         rt.replaceFunction(0x3e3610u, ropeUpdateHook);
+    }
+    // A rope that winds up or pays out takes what it carries along, also while it swings (DRAKAN_ROPE_CARRY=0: native).
+    const char* ropeCarry = std::getenv("DRAKAN_ROPE_CARRY");
+    if (drakan_region::build().identityAddresses && rt.hasFunction(0x3e4310u) && !(ropeCarry && *ropeCarry == '0')) {
+        ropeLengthOriginal = rt.lookupFunction(0x3e4310u);
+        rt.replaceFunction(0x3e4310u, ropeLengthHook);
+        // A loaded rope keeps the length it was saved with.
+        if (rt.hasFunction(0x3e4a00u)) {
+            ropeRestoreOriginal = rt.lookupFunction(0x3e4a00u);
+            rt.replaceFunction(0x3e4a00u, ropeRestoreHook);
+        }
     }
     // GS read-backs that do not stop the frame pipeline (PS2X_READBACK, runtime/ps2_readback.h). The addresses are the
     // PAL executable's.

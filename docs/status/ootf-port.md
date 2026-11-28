@@ -613,6 +613,14 @@ Battle Axe itself and the sheen layer of five swords; swapped weapons now carry 
 owner's settings (3 to 9 fps under shared GPU load, so not dense in time). Needs a regenerated pack, the rebuilt
 executable and an HD step for the rope texture. See [trap ropes and mace heads](../journal/2026-11-12/ootf-axe-trap-ropes.md).
 
+**November 28 Grimstone pulley platform.** The lever shortened the pulley rope but the platform stayed on the pit floor:
+the engine moves a rope's load on a length change, then its carried-object group puts the load back whenever the rope
+has swung (the level gives this rope a 0.01 swing). A loaded rope also came back at its model's length (8.1 lu for every
+OotF rope). Runtime only (PAL, `DRAKAN_ROPE_CARRY=0` = native): the group offsets follow the length change (switches
+linked to a cable excepted) and a loaded rope gets its saved length back. Seen in game: the platform rises to the ledge,
+Rynn stands on it, it stays up after a quick load. A save made after the failed lift keeps the platform down. See
+[pulley platform](../journal/2026-11-28/grimstone-pulley-platform.md).
+
 **November 12 church stair scene (the Book): framing and subtitles.** The owner's "cinematic" on entering the church
 stair is the walked exit into the Ruined Village Book and its 250 s backstory. At 16:9 it showed black beside the paintings
 (they are flat pictures framed for the PC's 4:3 screen at field of view 80; the port widened the view), and it had no

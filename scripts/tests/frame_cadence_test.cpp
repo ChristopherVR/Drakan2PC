@@ -95,6 +95,36 @@ int main() {
     assert(rope(0.25f, true, false, false).first == 8);                  // carries nothing: nothing to bind
     assert(rope(0.25f, false, true, false) == std::make_pair(1, 0.25f)); // waiting for its trigger, or falling: native
     assert(rope(0.0f, true, true, true) == std::make_pair(1, 0.0f));
+    // A rope winding up moves its load along its axis (column 1 of the row-major matrix): the bound offset moves by
+    // the same amount in the rope's own frame, so the group update puts the load where the length change left it.
+    using drakan_frame_rate::ropeCarriedOffsetShift;
+    {
+        const float down[9] = {0, 0, 1, 0, -1, 0, 1, 0, 0}; // a rope turned 180 degrees about x, hanging down
+        const float move[3] = {down[1] * -2048.0f, down[4] * -2048.0f, down[7] * -2048.0f}; // 1 lu shorter: up
+        float shift[3];
+        assert(ropeCarriedOffsetShift(down, move, shift));
+        assert(std::fabs(shift[0]) < 1e-3f && std::fabs(shift[1] + 2048.0f) < 1e-3f && std::fabs(shift[2]) < 1e-3f);
+        assert(std::fabs(move[1] - 2048.0f) < 1e-3f);
+        const float c = std::cos(0.3f), s = std::sin(0.3f); // swung by 0.3 rad: the shift is still along its axis
+        const float swung[9] = {0, -s, c, 0, -c, -s, 1, 0, 0};
+        const float move2[3] = {swung[1] * 100.0f, swung[4] * 100.0f, swung[7] * 100.0f};
+        assert(ropeCarriedOffsetShift(swung, move2, shift));
+        assert(std::fabs(shift[0]) < 1e-3f && std::fabs(shift[1] - 100.0f) < 1e-3f && std::fabs(shift[2]) < 1e-3f);
+        const float flat[9] = {1, 0, 0, 0, 0, 0, 0, 0, 1};
+        assert(!ropeCarriedOffsetShift(flat, move, shift)); // singular: leave the offsets alone
+    }
+    // A winding rope takes its load along but not the crank and lever it is linked to (switches).
+    assert(drakan_frame_rate::ropeWindsCarried(0x10011u));  // platform, counterweight, pulley wheel
+    assert(!drakan_frame_rate::ropeWindsCarried(0x1000du)); // Pulley Crank, Release Lever
+    assert(drakan_frame_rate::ropeWindsCarried(0u));        // class unknown: as the engine moved it
+    // A loaded rope goes back to its saved length (Grimstone's pulley: 6.3 lu saved, 8.1 lu mesh).
+    using drakan_frame_rate::restoreRopeLength;
+    assert(restoreRopeLength(12902.4f, 16588.8f));
+    assert(!restoreRopeLength(16588.8f, 16588.8f)); // already right
+    assert(!restoreRopeLength(0.0f, 16588.8f));     // nothing saved
+    assert(!restoreRopeLength(NAN, 16588.8f));      // not a length
+    assert(!restoreRopeLength(3.0e7f, 16588.8f));   // not a plausible one
+    assert(!restoreRopeLength(12902.4f, 0.0f));     // no mesh
     // Tick time snaps to whole refreshes while keeping the clock's total.
     using drakan_frame_rate::snapTickToRefresh;
     constexpr double T = 1.0 / 59.9956;

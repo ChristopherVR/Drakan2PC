@@ -105,4 +105,34 @@ inline RopeTicks ropeTicks(float tick, bool swinging, bool carries, bool carried
         return {kRopeMaxSteps, kRopeTickLimit};
     return {steps, tick / static_cast<float>(steps)};
 }
+// 3e4310 (rope length change; a1 != 0) moves every object the rope carries by `move` (world units) along the rope,
+// but leaves their bound offsets in the carried-object group (rope +1c, 3aab70: offset = R^-1 (object - rope)) as they
+// were. The group's next update (3ab1f8) puts each object back at rope + R * offset whenever the rope has turned, so
+// a swinging rope that winds up or pays out drops the move every frame (Grimstone's pulley platform stayed down while
+// its rope shortened). The offset shift that keeps the move: solve R * d = move with R the rope's matrix (row-major,
+// the same one 3ab1f8 uses). False when R is singular.
+// A loaded rope (3e4a00) takes its model's length; put it back to the saved one when that is a plausible length
+// (positive, finite, at most 64 lu) and differs from the model's by more than one world unit.
+inline bool restoreRopeLength(float saved, float model) {
+    return saved > 0.0f && saved <= 64.0f * 2048.0f && model > 0.0f && std::fabs(saved - model) > 1.0f;
+}
+// Which carried objects a winding rope keeps where the length change put them: everything but switches (runtime
+// class 0x1000d). Grimstone's crank cables link to their own Pulley Crank and Release Lever (to message them), and
+// 3e4310 moves those too; the native group update keeps putting them back on the rope's swing, so they stay put.
+inline constexpr uint32_t kSwitchRuntimeClass = 0x1000du;
+inline bool ropeWindsCarried(uint32_t runtimeClass) {
+    return runtimeClass != kSwitchRuntimeClass;
+}
+inline bool ropeCarriedOffsetShift(const float r[9], const float move[3], float out[3]) {
+    const double a = r[0], b = r[1], c = r[2], d = r[3], e = r[4], f = r[5], g = r[6], h = r[7], i = r[8];
+    const double det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if (!(std::fabs(det) > 1e-12))
+        return false;
+    const double inv[9] = {(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
+                           (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det,
+                           (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det};
+    for (int k = 0; k < 3; ++k)
+        out[k] = static_cast<float>(inv[3 * k] * move[0] + inv[3 * k + 1] * move[1] + inv[3 * k + 2] * move[2]);
+    return true;
+}
 } // namespace drakan_frame_rate
