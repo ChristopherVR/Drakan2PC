@@ -414,6 +414,13 @@ All records of a model share its SRSC id.
   decode to the last byte this way; on the two checked, BigBrownGuy and MediumGuy, every list gives the 0x0204 triangle count
   of its LOD; `decodeDisplayList` still reads the first list only and reports the rest as `tail`). Not understood: the tail on large models that is not a further list, 0x0214. Encoder: `editor/packages/formats/src/ootfdisplaylist.ts`; notes
   [ootf-displaylist-decoded](../journal/2026-11-01/ootf-displaylist-decoded.md).
+  **Character shadow [conf]**: the projector (PAL `0x1ab890`) draws the character and each attached item (skeleton
+  `+0xf4` list, stride 0x6c, object byte `+7` bit 0) through `0x1ab530`, which draws only from the model's 0x0211 (model
+  `+0xa8`); a held item without one is left out of the shadow while it still draws in the world. On the PAL disc 8 skinned
+  RESOURES bow models have no 0x0211 (LongBow_Wooden 0x148b, longbow_wooden_e, ShortBow_RuneBone, shortbow_runebone_e,
+  BowOfTheOrder, LonBow_War, ClkWrkBow_Savage, Bow_E3), so they cast no shadow in Drakan 2 either; the OotF converter adds one to the
+  disc weapon models its weapon classes show when the model fits one window in its own vertex order
+  (`heldItemDisplayList`, [bow shadow](../journal/2026-11-28/bow-shadow.md)).
 * **Unit [inf]**: model space is in terrain cells (bounds of the Birch tree 3.8 x 4.9 x 3.8, a crate 0.3 x 0.2 x 0.2): multiply
   by 2048 for world units. No comparison with a live actor dump was made; the numbers are plausible against each other
   (tree about 12 x Rynn's height).
