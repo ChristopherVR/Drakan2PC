@@ -637,8 +637,15 @@ if (-not $NoDist) {
             if ($name -like '*.in-use-*') { continue }
             $n = 1
             while (Test-Path -LiteralPath "$resolvedItem.in-use-$n") { $n++ }
-            Rename-Item -LiteralPath $resolvedItem -NewName "$name.in-use-$n" -ErrorAction Stop
-            Write-Detail "In use by a running game, set aside: $name -> $name.in-use-$n"
+            try {
+                Rename-Item -LiteralPath $resolvedItem -NewName "$name.in-use-$n" -ErrorAction Stop
+                Write-Detail "In use by a running game, set aside: $name -> $name.in-use-$n"
+            } catch {
+                # The running game's own log (and session file) is open for writing without rename sharing. The build
+                # ships neither, so it stays where it is.
+                if ($name -notlike '*.log' -and $name -ne 'renderer_session.txt') { throw }
+                Write-Detail "In use by a running game, kept: $name"
+            }
         }
     }
     Write-Stage (Get-BuildText 'game_copy')
