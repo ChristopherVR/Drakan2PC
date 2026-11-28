@@ -567,6 +567,8 @@ bool InputModule::fillPadSample(int port, int /*slot*/, uint8_t out[32]) {
         inventoryBack_ = boundStart && (inventory || inventoryBack_);
         if (inventoryBack_)
             s.buttons = static_cast<uint16_t>((s.buttons & ~Pad::START) | Pad::SELECT | padStart);
+        if (sceneHeld_ && !menu)
+            s.buttons = static_cast<uint16_t>(s.buttons & ~sceneHeldButtons_);
         s.buttons = static_cast<uint16_t>(s.buttons | tapNow_);
         packPadSample(s, padSample_);
         padReady_ = true;
@@ -1087,6 +1089,20 @@ void InputModule::beforePadMgrUpdate(IGuest& g, bool dragon, bool orderOfTheFlam
     dragon_ = dragon;
     if (dragon)
         freeCombatFrame_.store(false);
+    // A scene that holds the controlled actor stops its controller (keys and sticks do nothing), but the mouse steering
+    // below writes Arokh's transform itself and the Attack button still reaches the actor: Arokh turned with the mouse
+    // and breathed through Wartok's quickening scene. Both follow the hold. Cross, Start and Select stay (scene skip,
+    // pause).
+    const bool held = controlledActorHeld(g);
+    if (held != sceneHeld_)
+        padReady_ = false;
+    sceneHeld_ = held;
+    sceneHeldButtons_ = 0;
+    if (held && cfg_.addrPadMgr) {
+        const uint16_t attack = nativePadButton(g, cfg_.addrPadMgr, quickslot::kCmdAttack);
+        sceneHeldButtons_ =
+            static_cast<uint16_t>((attack ? attack : uint16_t(Pad::SQUARE)) & ~(Pad::CROSS | Pad::START | Pad::SELECT));
+    }
     steerDragon(g, dragon);
     // record i (0 = lx) at addrStickMap + 12 * i: {s32 axisId, float out, float scale} (docs/reference/input.md 2
     // / 3.2)
@@ -1246,6 +1262,22 @@ void InputModule::carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, co
     }
 }
 
+// Handle flags (+4): bit 0x20 is clear while a scene's run/stop action holds the object (its controller does not run)
+// and set again when the scene gives it back (Arokh and Rynn on foot read 0x...1069 in play, Arokh 0x...1049 through
+// Wartok's quickening scene; RAM watch, docs/reference/input.md). Same offset on every disc profile.
+constexpr uint32_t kHandleFlags = 0x4, kHandleControlled = 0x20;
+
+bool InputModule::controlledActorHeld(IGuest& g) const {
+    const auto& l = camera_.layout;
+    const auto valid = [](uint32_t address, uint64_t bytes) {
+        const uint32_t p = address & 0x1fffffffu;
+        return p >= 0x100000u && p < kGuestRamEnd && bytes <= kGuestRamEnd - p;
+    };
+    const uint32_t ctx = g.read32(camera_.context);
+    const uint32_t h = valid(ctx, uint64_t(l.contextActor) + 4) ? g.read32(ctx + l.contextActor) : 0;
+    return valid(h, uint64_t(kHandleFlags) + 4) && !(g.read32(h + kHandleFlags) & kHandleControlled);
+}
+
 // dragon_mode = mouse: the counts gathered since the last world tick turn the controlled Arokh's transform about the
 // world up axis and pitch it about his own right axis (input/DragonSteer.h), before the game's controller integrates
 // its own rates for this tick. Keys and a pad keep the game's flight model; nothing else is written.
@@ -1261,7 +1293,7 @@ void InputModule::steerDragon(IGuest& g, bool dragon) {
     };
     const bool mouseMode = dragon && !cfg_.dragonStick && cfg_.lookMode == LookMode::Direct;
     bool owned = mouseMode && frame_.captured && frame_.focused && !layerIsMenu_ && !menuActive_.load() &&
-                 !hostOwned() && !nativeLookControlActive() && !g.read32(camera_.scripted);
+                 !hostOwned() && !nativeLookControlActive() && !g.read32(camera_.scripted) && !sceneHeld_;
     if (!owned) {
         dragonSteer_.reset();
         if (mouseMode)
@@ -1337,21 +1369,22 @@ void InputModule::steerDragon(IGuest& g, bool dragon) {
         if (valid(view, uint64_t(l.transformRight) + 36))
             for (int i = 0; i < 9; ++i)
                 vm[i] = g.readF(view + l.transformRight + 4u * static_cast<uint32_t>(i));
-        std::fprintf(stderr,
-                     "[dragon] f=%d dt=%.4f dx=%d dy=%d mode=%s own=%d yawIn=%.5f pitchIn=%.5f yaw=%.5f pitch=%.5f "
-                     "pos=%.1f,%.1f,%.1f view=%.5f vpitch=%.5f cmode=%u cflags=%x f90=%x f94=%x gnd=%u rx=%u ry=%u "
-                     "lx=%u ly=%u\n",
-                     frameNo_, static_cast<double>(frame_.frameSeconds), frame_.dx, frame_.dy,
-                     cfg_.dragonStick ? "stick" : "mouse", owned ? 1 : 0, static_cast<double>(s.yaw),
-                     static_cast<double>(pitchApplied), static_cast<double>(dragonYaw(m)),
-                     static_cast<double>(dragonPitch(m)), static_cast<double>(g.readF(h + l.transformPosition)),
-                     static_cast<double>(g.readF(h + l.transformPosition + 4)),
-                     static_cast<double>(g.readF(h + l.transformPosition + 8)), static_cast<double>(dragonYaw(vm)),
-                     static_cast<double>(dragonPitch(vm)), cam ? g.read32(cam + l.cameraMode) : 0u,
-                     cam ? g.read32(cam + l.cameraFlags) : 0u, actorOk ? g.read32(actor + l.playerFlags) : 0u,
-                     actorOk ? g.read32(actor + l.playerFlags2) : 0u,
-                     actorOk && valid(actor, uint64_t(l.dragonGrounded) + 4) ? g.read32(actor + l.dragonGrounded) : 0u,
-                     padSample_[4], padSample_[5], padSample_[6], padSample_[7]);
+        std::fprintf(
+            stderr,
+            "[dragon] f=%d dt=%.4f dx=%d dy=%d mode=%s own=%d held=%d yawIn=%.5f pitchIn=%.5f yaw=%.5f pitch=%.5f "
+            "pos=%.1f,%.1f,%.1f view=%.5f vpitch=%.5f cmode=%u cflags=%x f90=%x f94=%x gnd=%u rx=%u ry=%u "
+            "lx=%u ly=%u\n",
+            frameNo_, static_cast<double>(frame_.frameSeconds), frame_.dx, frame_.dy,
+            cfg_.dragonStick ? "stick" : "mouse", owned ? 1 : 0, sceneHeld_ ? 1 : 0, static_cast<double>(s.yaw),
+            static_cast<double>(pitchApplied), static_cast<double>(dragonYaw(m)), static_cast<double>(dragonPitch(m)),
+            static_cast<double>(g.readF(h + l.transformPosition)),
+            static_cast<double>(g.readF(h + l.transformPosition + 4)),
+            static_cast<double>(g.readF(h + l.transformPosition + 8)), static_cast<double>(dragonYaw(vm)),
+            static_cast<double>(dragonPitch(vm)), cam ? g.read32(cam + l.cameraMode) : 0u,
+            cam ? g.read32(cam + l.cameraFlags) : 0u, actorOk ? g.read32(actor + l.playerFlags) : 0u,
+            actorOk ? g.read32(actor + l.playerFlags2) : 0u,
+            actorOk && valid(actor, uint64_t(l.dragonGrounded) + 4) ? g.read32(actor + l.dragonGrounded) : 0u,
+            padSample_[4], padSample_[5], padSample_[6], padSample_[7]);
     }
 }
 

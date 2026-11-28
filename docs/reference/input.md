@@ -60,8 +60,13 @@ he flies where the nose points (W while nose up climbs, nose down dives).
 The keys were already right: W / S = forward / back (axis 2), Space (Triangle) climbs, Ctrl / C (Cross) dives. Mouse
 up raises the nose (mouse-look sense) and `invert_y` reverses it. The stick path had the opposite sense: mouse up put
 the nose down, as a pad's stick does. Steering stops while a physical right stick or an `RSTICK` binding is active,
-in menus, while host-owned or uncaptured, during scripted control (`0x4fbafc`), and while his `+0x94` bit 0 is set
-(controller A reads no player input then). His `+0x94` bit 3 (the branch where A does not pitch him) stops the mouse
+in menus, while host-owned or uncaptured, during scripted control (`0x4fbafc`), while a scene holds him (handle flags
+`+4` bit `0x20` clear: a scene's run/stop action stops his controller; [M], `0x...1069` in play, `0x...1049` through
+Wartok's quickening scene, 2026-11-28) and while his `+0x94` bit 0 is set
+(controller A reads no player input then). While a scene holds the controlled actor the live scheme's Attack button
+(Square on scheme A) is also taken out of the pad sample, from the controller and the mouse alike: the game still
+fires Arokh's breath on it then (Cross, Start and Select stay for the scene skip and pause;
+[journal](../journal/2026-11-28/arokh-powerup-scene.md)). His `+0x94` bit 3 (the branch where A does not pitch him) stops the mouse
 pitch. Both bits are [M] and were not seen set in flight. Bit 3 is set during a landing but not while he stands or
 walks, so the mouse pitch is also held while his instance data `+0x9c` is 1 (on the ground: Ready, Walk, strafe; 0 in
 the air; layout field `dragon_grounded`, RAM dumps of Rift World and Wartok Canyons; before 2026-11-16 a 400-count flick

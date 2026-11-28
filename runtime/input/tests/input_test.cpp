@@ -170,6 +170,7 @@ static void testDirectionalAttacks() {
     const uint32_t ctx = 0x600000, actor = 0x610000, inner = 0x620000, player = 0x630000, vt = 0x640000;
     guest.write32(0x5565d4, ctx);
     guest.write32(ctx + 0x4b0, actor);
+    guest.write32(actor + 4, 0x20); // handle flags: no scene holds the actor
     guest.write32(actor + 0xfc, inner);
     guest.write32(inner + 0x10, player);
     guest.write32(player + 0x57c, vt);
@@ -678,7 +679,8 @@ static void testDragonMouseSteer() {
     auto setup = [&](FakeGuest& g) {
         setupCamera(g, 0, 1.0472f);
         g.write32(0x600000 + 0x4b0, actorHandle);
-        for (int i = 0; i < 9; ++i) // identity rotation at handle + 0x20
+        g.write32(actorHandle + 4, 0x20); // handle flags: no scene holds him
+        for (int i = 0; i < 9; ++i)       // identity rotation at handle + 0x20
             g.writeF(actorHandle + 0x20 + 4 * i, (i % 4 == 0) ? 1.0f : 0.0f);
     };
     auto yawOf = [&](FakeGuest& g) { return std::atan2(-g.readF(actorHandle + 0x38), g.readF(actorHandle + 0x20)); };
@@ -794,6 +796,34 @@ static void testDragonMouseSteer() {
         }
     }
     {
+        // a scene holds him (handle flags bit 0x20 clear): no steering, and the mouse's Attack (Square) is not sent;
+        // both come back when the scene gives him back
+        FakeGuest g;
+        setup(g);
+        g.write32(actorHandle + 4, 0x1049);
+        InputModule m;
+        m.initHeadless(c);
+        FrameInput f;
+        f.captured = true;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        f.dx = 100;
+        f.mouseDown = f.mousePressed = MBTN_LEFT;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        NEAR(yawOf(g), 0.0, 1e-6);
+        uint8_t buf[32];
+        CHECK(m.fillPadSample(0, 0, buf));
+        CHECK((unpackPadSample(buf).buttons & Pad::SQUARE) == 0);
+        g.write32(actorHandle + 4, 0x1069);
+        f.mousePressed = 0;
+        m.beginFrame(f);
+        m.beforePadMgrUpdate(g, true);
+        NEAR(yawOf(g), -0.2, 1e-4); // the counts of the held tick are dropped, this tick's apply
+        CHECK(m.fillPadSample(0, 0, buf));
+        CHECK((unpackPadSample(buf).buttons & Pad::SQUARE) != 0);
+    }
+    {
         // dragon_camera_carry: the flight camera turns round him with the mouse turn (position and axes)
         for (int carry = 0; carry < 2; ++carry) {
             FakeGuest g;
@@ -863,6 +893,7 @@ static void testSpellMovementAxes() {
     FakeGuest g;
     setupCamera(g, 0, 1);
     g.write32(0x600000 + 0x4b0, actorHandle);
+    g.write32(actorHandle + 4, 0x20); // handle flags: no scene holds the actor
     g.write32(actorHandle + 0xfc, actorInner);
     g.write32(actorInner + 0x10, PLAYER);
     g.write32(rec, 0);

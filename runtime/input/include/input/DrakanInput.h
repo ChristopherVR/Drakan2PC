@@ -330,6 +330,12 @@ private:
     uint32_t modeFlagValue_ = 0;
     bool dragon_ = false;     // controlled-actor role reported through beforePadMgrUpdate
     DragonSteer dragonSteer_; // dragon_mode = mouse: counts not yet turned into Arokh's heading / pitch
+    // A scene holds the controlled actor (its handle flag 0x20 is clear): no mouse steering, and the live
+    // scheme's Attack button is taken out of the pad sample (sceneHeldButtons_), from the controller and the mouse
+    // alike.
+    bool sceneHeld_ = false;
+    uint16_t sceneHeldButtons_ = 0;
+    bool controlledActorHeld(IGuest& g) const;
     void steerDragon(IGuest& g, bool dragon);
     void restorePadMapping(IGuest& g);
     void carryDragonCamera(IGuest& g, uint32_t ctx, uint32_t dragon, const float m[9], float yaw, float pitch,
