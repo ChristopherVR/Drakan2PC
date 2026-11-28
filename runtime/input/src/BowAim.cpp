@@ -528,6 +528,21 @@ uint32_t InputModule::bowShotChannel(IGuest& g, uint32_t player, uint32_t caller
     return torso;
 }
 
+// The last arrow of the quiver: right after the launch the bow's weapon check (0x303d18) finds no ammunition and sends
+// the player "no arrows" (message 0x104c, handler 0x2113b8), which only puts the bow's Stand on every channel and
+// sets the shot channel +aec to 0. The bow attack it interrupts is still running (+0x94 bit 0x80, bow shot +0xab0 bit
+// 0x200000), and the bow update (0x20ff00) only ends it when the archer clip on the torso channel finishes: that clip
+// is gone, so each frame it asks for a new arrow (0x20f9c8), finds none, sends 0x104c again, and Rynn stays in the
+// attack for good (no walking, turning, jumping or weapon change). Native PS2 behaviour, with any bow and in every
+// input mode; docs/journal/2026-11-28/bow-spam-lockup.md. The caller then ends the shot with the bow's own end of
+// shot (0x305460), as the bow update does when the archer clip finishes.
+bool bowAttackLeftWithoutArrows(IGuest& g, uint32_t player) {
+    if (player < 0x100000u || player > kGuestRamEnd - 0x1000u)
+        return false;
+    return g.read32(player + 0xe90) == kBowMode && (g.read32(player + 0x94) & 0x80u) &&
+           (g.read32(player + 0xab0) & 0x200000u);
+}
+
 bool InputModule::bowSightCrosshair(IGuest& g) const {
     const auto ctx = g.read32(cfg_.addrCtxPtr), cam = contextCamera(g, ctx), player = contextPlayer(g, ctx);
     return !cfg_.bowAimNative && cam && player && !dragon_ && g.read32(cam + 0x14c) == 6 &&

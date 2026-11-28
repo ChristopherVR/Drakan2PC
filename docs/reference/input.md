@@ -646,6 +646,15 @@ in the air behind Rynn during every draw, and a freeze was caught with the EE th
 `+0x54` rate, `+0x58` phase); the channel map `*(model+0xdc)` holds 16-bit record indices, and Rynn's torso channel 2
 uses record 8, so scans must go past the first 8 records.
 
+Empty quiver (2026-11-28): after the quiver's last arrow the bow's weapon check (`0x303d18`) sends the player "no arrows"
+(message `0x104c`, handler `0x2113b8`), which puts the Stand on every channel and sets `+aec` to 0 but leaves the bow
+shot running (`+0x94` bit 0x80, `+0xab0` bit 0x200000). The bow update `0x20ff00` only ends a shot when the archer clip
+on the torso channel finishes, so it asked for a new arrow every frame, got "no arrows" again, and Rynn stayed in the
+attack for good (no walking, turning, jumping or weapon change). Native PS2 behaviour, in every bow mode and at 30 fps
+too. `hookNoArrows` now ends such a shot with the bow's own end of shot `0x305460` before the handler runs
+(`DRAKAN_BOW_EMPTY_QUIVER=0`: native). Open: with the owner's converted bow the HUD's bottom-right number (61, one less
+per shot) did not match the arrows in the quiver (6); see [bow-spam-lockup.md](../journal/2026-11-28/bow-spam-lockup.md).
+
 Crossbows are holder mode 4, not the bow's mode 5, and are not covered by any of these adapters yet (their
 attack mask already allows jumping); they keep the native press-to-fire.
 

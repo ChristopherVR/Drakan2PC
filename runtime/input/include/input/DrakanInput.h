@@ -423,6 +423,10 @@ void noteCameraTarget(const float target[3]);
 void afterCameraFollow(IGuest& g, uint32_t cam);
 void updateBowAim(IGuest& g);
 void beforeBowLaunch(IGuest& g, uint32_t bow);
+// After the player's "no arrows" handler 0x2113b8 (a0 = player): true when it left a bow shot running (bow out, attack
+// +0x94 bit 0x80, bow shot +0xab0 bit 0x200000) that nothing ends any more; the caller ends it natively (0x305460).
+// Any input mode (src/BowAim.cpp).
+bool bowAttackLeftWithoutArrows(IGuest& g, uint32_t player);
 void setMenuActive(bool active);
 bool reloadConfig(const char* path); // see InputModule::reloadConfig
 InputModule& module();

@@ -781,6 +781,33 @@ void testWalkingShotChannel() {
     CHECK(ps2.bowShotChannel(g, PLAYER, caller, 0) == 0);
 }
 
+// The quiver's last arrow: the "no arrows" handler leaves a bow shot running that nothing ends any more (owner's
+// OotF Slot 1, Grimstone Mines: +0x94 0x80, +0xab0 0x300002, bow out). Only that state is handed to the native end of
+// shot; anything else keeps the handler's native result.
+void testBowAttackLeftWithoutArrows() {
+    FakeGuest g;
+    setup(g);
+    g.write32(PLAYER + 0x94, 0x80);
+    g.write32(PLAYER + 0xab0, 0x300002);
+    CHECK(bowAttackLeftWithoutArrows(g, PLAYER));
+    g.write32(PLAYER + 0x94, 0x80 | 0x10); // the last arrow shot mid-jump
+    CHECK(bowAttackLeftWithoutArrows(g, PLAYER));
+    g.write32(PLAYER + 0x94, 0);
+    CHECK(!bowAttackLeftWithoutArrows(g, PLAYER)); // no attack running: an empty quiver at rest, nothing to end
+    g.write32(PLAYER + 0x94, 0x80);
+    g.write32(PLAYER + 0xab0, 0x100000);
+    CHECK(!bowAttackLeftWithoutArrows(g, PLAYER)); // no bow shot (+0x305460 would take its melee branch)
+    g.write32(PLAYER + 0xab0, 0x300002);
+    g.write32(PLAYER + 0xe90, 4);
+    CHECK(!bowAttackLeftWithoutArrows(g, PLAYER)); // crossbow: its own end of shot, not handled here
+    g.write32(PLAYER + 0xe90, 1);
+    CHECK(!bowAttackLeftWithoutArrows(g, PLAYER)); // melee
+    g.write32(PLAYER + 0xe90, 5);
+    CHECK(!bowAttackLeftWithoutArrows(g, 0));      // no player
+    CHECK(!bowAttackLeftWithoutArrows(g, 0x8000)); // not a heap address
+    CHECK(bowAttackLeftWithoutArrows(g, PLAYER));
+}
+
 // The crossbow (holder mode 4) holds to aim like the bow: crosshair while held, one Square tap on release.
 void testCrossbowHoldAim() {
     InputModule m;
@@ -1171,6 +1198,7 @@ int main() {
     testOotfJumpAttackGate();
     testAirborneShotChannel();
     testWalkingShotChannel();
+    testBowAttackLeftWithoutArrows();
     testCrossbowHoldAim();
     testSightCrosshair();
     testNativeBow();

@@ -138,6 +138,7 @@ PS2Runtime::RecompiledFunction g_origBowSightController = nullptr, g_origBowSigh
 PS2Runtime::RecompiledFunction g_origBowSightClose = nullptr, g_origBowSightFinalize = nullptr;
 bool g_bowSightControls = false;
 PS2Runtime::RecompiledFunction g_origBowSightAxis = nullptr;
+PS2Runtime::RecompiledFunction g_origNoArrows = nullptr;
 PS2Runtime::RecompiledFunction g_parryOriginal[4] = {};
 using ParryReduction = drakan_parry_audit::PendingReduction;
 ParryReduction g_parryPending[64] = {};
@@ -1292,6 +1293,35 @@ void hookBowLaunch(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
     g_origBowLaunch(rdram, c, rt);
 }
 
+// FUN_002113b8 (a0 = player): the player's "no arrows" handler (message 0x104c). After the quiver's last arrow it left
+// the bow shot running for good and Rynn locked up (bowAttackLeftWithoutArrows, docs/journal/2026-11-28/
+// bow-spam-lockup.md); end that shot with the bow's own end of shot 0x305460, as the bow update 0x20ff00 does when the
+// archer clip finishes, then let the handler put the Stand on as before. Checked on entry: the handler's own motion
+// call can yield, and a resumed handler (pc inside it) is left alone.
+void hookNoArrows(uint8_t* rdram, R5900Context* c, PS2Runtime* rt) {
+    if (c->pc == 0x2113b8u) {
+        const uint32_t player = getRegU32(c, 4);
+        RecompGuest g(rdram, c, rt);
+        if (bowAttackLeftWithoutArrows(g, player)) {
+            static std::atomic<int> logged{0};
+            if (logged.fetch_add(1) < 16)
+                ilog("[bow] no arrows left: the running shot is ended (player=%x)\n", player);
+            g.call(GuestCall(0x305460u).arg(player));
+        }
+    }
+    g_origNoArrows(rdram, c, rt);
+}
+
+// DRAKAN_BOW_EMPTY_QUIVER=0 keeps the native lock-up.
+void installNoArrowsHook(PS2Runtime& rt) {
+    const char* env = std::getenv("DRAKAN_BOW_EMPTY_QUIVER");
+    if (env && *env == '0')
+        return;
+    g_origNoArrows = rt.lookupFunction(0x2113b8u);
+    if (g_origNoArrows && rt.hasFunction(0x305460u))
+        rt.replaceFunction(0x2113b8u, &hookNoArrows);
+}
+
 } // namespace
 
 namespace drakan_tab {
@@ -1642,6 +1672,7 @@ void drakanInstallInput(PS2Runtime& rt) {
             rt.replaceFunction(0x32cf30u, &hookBowShotMotion);
         if (!(skip & 64))
             installBowSightControls(rt);
+        installNoArrowsHook(rt);
         g_origQuickInventoryHasItems = rt.lookupFunction(0x341388u);
         if (g_origQuickInventoryHasItems)
             rt.replaceFunction(0x341388u, &hookQuickInventoryHasItems);
@@ -1675,6 +1706,7 @@ void drakanInstallPortableMenuHooks(PS2Runtime& rt) {
         if (g_origBowShotMotion)
             rt.replaceFunction(0x32cf30u, &hookBowShotMotion);
         installBowSightControls(rt);
+        installNoArrowsHook(rt);
     }
     if (g_origBowLaunch)
         rt.replaceFunction(kBowLaunch, &hookBowLaunch); // modern bow aim, as on Windows
